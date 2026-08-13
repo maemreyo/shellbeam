@@ -5,6 +5,7 @@ import "time"
 type Reservation struct {
 	SchemaVersion                 int       `json:"schema_version"`
 	OperationID                   ID        `json:"operation_id"`
+	ActivityID                    string    `json:"activity_id,omitempty"`
 	SessionID                     SessionID `json:"session_id"`
 	Fingerprint                   string    `json:"fingerprint,omitempty"`
 	RequestFingerprint            string    `json:"request_fingerprint,omitempty"`

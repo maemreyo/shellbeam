@@ -27,6 +27,7 @@ const (
 
 type OperationResult struct {
 	OperationID string         `json:"operation_id"`
+	ActivityID  string         `json:"activity_id,omitempty"`
 	SessionID   string         `json:"session_id"`
 	State       OperationState `json:"state"`
 }
@@ -60,6 +61,7 @@ type Result struct {
 
 type ResultInput struct {
 	OperationID string
+	ActivityID  string
 	SessionID   string
 	State       session.State
 	Outcome     session.Outcome
@@ -84,7 +86,7 @@ func NewResult(in ResultInput) (Result, error) {
 	}
 	result := Result{
 		SchemaVersion: 2,
-		Operation:     OperationResult{OperationID: in.OperationID, SessionID: in.SessionID, State: operationState},
+		Operation:     OperationResult{OperationID: in.OperationID, ActivityID: in.ActivityID, SessionID: in.SessionID, State: operationState},
 		Output: OutputResult{
 			CanonicalStream: "combined",
 			Preview:         in.Preview,

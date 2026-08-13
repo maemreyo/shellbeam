@@ -17,6 +17,7 @@ type Options struct {
 type StartRequest struct {
 	ProtocolVersion int    `json:"-"`
 	OperationID     string `json:"operation_id"`
+	ActivityID      string `json:"activity_id,omitempty"`
 	Command         string `json:"command"`
 	CWD             string `json:"cwd"`
 	TTY             bool   `json:"tty"`
@@ -43,6 +44,7 @@ type KillRequest struct {
 }
 type View struct {
 	OperationID        string                 `json:"operation_id,omitempty"`
+	ActivityID         string                 `json:"activity_id,omitempty"`
 	SessionID          string                 `json:"session_id"`
 	State              session.State          `json:"state"`
 	Outcome            session.Outcome        `json:"outcome"`
@@ -66,7 +68,7 @@ type ServerInfo struct {
 
 func (v View) StructuredResult() (receipt.Result, error) {
 	return receipt.NewResult(receipt.ResultInput{
-		OperationID: v.OperationID, SessionID: v.SessionID, State: v.State, Outcome: v.Outcome,
+		OperationID: v.OperationID, ActivityID: v.ActivityID, SessionID: v.SessionID, State: v.State, Outcome: v.Outcome,
 		Preview: v.Output, RawBytes: v.RawOutputBytes, Cursor: v.Cursor, NextCursor: v.NextCursor,
 		Truncated: v.Truncated, Receipt: v.Receipt,
 	})

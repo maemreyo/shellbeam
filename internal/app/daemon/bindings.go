@@ -10,7 +10,7 @@ import (
 
 func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent operation.Intent) (operation.Reservation, error) {
 	base := operation.Reservation{
-		OperationID: id, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS,
+		OperationID: id, ActivityID: req.ActivityID, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS,
 		Shell: s.options.Shell, DaemonIncarnation: s.options.Incarnation,
 	}
 	switch req.ProtocolVersion {
@@ -31,7 +31,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		if err != nil {
 			return operation.Reservation{}, err
 		}
-		observationFingerprint, err := (operation.ObservationBinding{}).Fingerprint()
+		observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID}).Fingerprint()
 		if err != nil {
 			return operation.Reservation{}, err
 		}

@@ -679,21 +679,21 @@ git commit -m "feat: observe bounded workspace provenance"
 - Dirty comparisons return `inherited_dirty`, `observed_since_baseline`, `resolved_since_baseline`, or `baseline_diverged`.
 - No field claims that an activity caused or owns a file change.
 
-- [ ] **Step 1: Write failing state and comparison tests**
+- [x] **Step 1: Write failing state and comparison tests**
 
 Cover activity reuse, concurrent activities, multiple workspaces, baseline capture, inherited dirty paths, later path change, resolved dirty path, rename/unmerged/untracked facts, branch/reset/rebase divergence, compaction, and corrupted-record isolation.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/activity ./internal/app/activity ./internal/adapter/store ./internal/app/daemon -run 'TestActivity|TestBaseline|TestObservedSince|TestDiverged' -count=1
 ```
 
-- [ ] **Step 3: Implement bounded references and lazy creation**
+- [x] **Step 3: Implement bounded references and lazy creation**
 
 Persist bounded references to operations, workspaces, baselines, and advisories. Reuse the atomic store and retention rules. Do not introduce a create-activity round trip, conversation ID, exclusive lease, or workspace ownership check.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 go test ./internal/core/activity ./internal/app/activity ./internal/adapter/store ./internal/app/daemon ./internal/core/receipt -count=1

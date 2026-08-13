@@ -41,10 +41,11 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 	}
 	text, consumed, truncated := receipt.VisibleOutput(b, max)
 	next = cursor + int64(consumed)
-	v := View{OperationID: string(res.OperationID), SessionID: sid, Output: text, Cursor: cursor, NextCursor: next, Truncated: truncated}
+	v := View{OperationID: string(res.OperationID), ActivityID: res.ActivityID, SessionID: sid, Output: text, Cursor: cursor, NextCursor: next, Truncated: truncated}
 	if l := s.get(sid); l != nil {
 		l.mu.Lock()
 		v.OperationID = l.operationID
+		v.ActivityID = l.activityID
 		v.State = l.state
 		v.Outcome = l.outcome
 		v.NextInputOffset = l.input.NextOffset()
@@ -52,6 +53,9 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 		l.mu.Unlock()
 	} else if snap, e := s.store.LoadSession(ctx, operation.SessionID(sid)); e == nil {
 		v.OperationID = snap.OperationID
+		if reservation, loadErr := s.store.LoadOperation(ctx, operation.ID(snap.OperationID)); loadErr == nil {
+			v.ActivityID = reservation.ActivityID
+		}
 		v.State = snap.State
 		v.Outcome = snap.Outcome
 		v.RawOutputBytes = snap.OutputBytes

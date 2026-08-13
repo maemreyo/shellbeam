@@ -16,16 +16,18 @@ import (
 )
 
 type Service struct {
-	store    Store
-	owner    ProcessOwner
-	options  Options
-	observer WorkspaceObserver
-	mu       sync.RWMutex
-	live     map[string]*liveSession
+	store           Store
+	owner           ProcessOwner
+	options         Options
+	observer        WorkspaceObserver
+	activityTracker ActivityTracker
+	mu              sync.RWMutex
+	live            map[string]*liveSession
 }
 type liveSession struct {
 	mu             sync.Mutex
 	operationID    string
+	activityID     string
 	sessionID      string
 	reservation    operation.Reservation
 	spec           operation.ExecutionSpec
@@ -94,6 +96,9 @@ func (s *Service) put(v *liveSession) { s.mu.Lock(); s.live[v.sessionID] = v; s.
 func (l *liveSession) notify()        { close(l.changed); l.changed = make(chan struct{}) }
 
 func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
+	if err := s.validateActivityRequest(req); err != nil {
+		return View{}, err
+	}
 	id, err := operation.ParseID(req.OperationID)
 	if err != nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
@@ -115,7 +120,8 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 		return s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	}
 	workspaceObservation := s.captureWorkspace(ctx, req.CWD)
-	live := &liveSession{operationID: req.OperationID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	activityID := s.admitActivity(ctx, req, sid, workspaceObservation)
+	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	s.put(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
