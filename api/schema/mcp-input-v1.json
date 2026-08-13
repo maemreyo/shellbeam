@@ -1,7 +1,7 @@
 {
   "$schema":"https://json-schema.org/draft/2020-12/schema",
   "$id":"https://shellbeam.dev/schema/mcp-input-v1.json",
-  "title":"local_shell input v1","type":"object","additionalProperties":false,
+  "title":"local_shell input v1","type":"object","unevaluatedProperties":false,
   "oneOf":[
     {"properties":{"action":{"const":"start"},"operation_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},"command":{"type":"string","minLength":1},"cwd":{"type":"string","pattern":"^/"},"tty":{"type":"boolean","default":false},"yield_time_ms":{"type":"integer","minimum":0,"default":10000},"timeout_ms":{"type":"integer","minimum":0,"default":0},"max_output_bytes":{"type":"integer","minimum":0,"default":20000}},"required":["action","operation_id","command","cwd"],"additionalProperties":false},
     {"properties":{"action":{"const":"poll"},"session_id":{"type":"string","minLength":1},"cursor":{"type":"integer","minimum":0,"default":0},"yield_time_ms":{"type":"integer","minimum":0,"default":0},"max_output_bytes":{"type":"integer","minimum":0,"default":20000}},"required":["action","session_id"],"additionalProperties":false},
