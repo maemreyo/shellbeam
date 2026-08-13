@@ -1,8 +1,11 @@
 .DEFAULT_GOAL := help
 BIN := shellbeam
 PKG := ./cmd/shellbeam
+PIDFILE := .build/run/daemon.pid
+LOG := /tmp/shellbeam-daemon.log
 
 .PHONY: help build test vet fmt fmt-check tidy modverify doctor daemon run-mcp \
+	daemon-start daemon-stop daemon-restart daemon-status \
 	hardening security mcp-local vulncheck devctl-check devctl-verify \
 	release-evidence package verify-package clean ci
 
@@ -36,6 +39,36 @@ doctor: build ## Build then run `shellbeam doctor --json`
 
 daemon: build ## Build then run the daemon in the foreground
 	./$(BIN) daemon
+
+daemon-start: build ## Start the daemon in the background (pidfile: .build/run/daemon.pid, log: /tmp/shellbeam-daemon.log)
+	@mkdir -p $(dir $(PIDFILE))
+	@if [ -f $(PIDFILE) ] && kill -0 "$$(cat $(PIDFILE))" 2>/dev/null; then \
+		echo "daemon already running (pid $$(cat $(PIDFILE)))"; \
+	else \
+		nohup ./$(BIN) daemon >$(LOG) 2>&1 & echo $$! > $(PIDFILE); \
+		sleep 1; \
+		echo "daemon started (pid $$(cat $(PIDFILE))), log: $(LOG)"; \
+	fi
+
+daemon-stop: ## Stop the background daemon started by `make daemon-start`
+	@if [ -f $(PIDFILE) ] && kill -0 "$$(cat $(PIDFILE))" 2>/dev/null; then \
+		kill "$$(cat $(PIDFILE))" && echo "daemon stopped (pid $$(cat $(PIDFILE)))"; \
+	else \
+		echo "daemon not running (or pidfile stale)"; \
+	fi; \
+	rm -f $(PIDFILE)
+
+daemon-restart: ## Stop then start the background daemon
+	@$(MAKE) --no-print-directory daemon-stop
+	@$(MAKE) --no-print-directory daemon-start
+
+daemon-status: build ## Show whether the background daemon is running, plus `doctor --json`
+	@if [ -f $(PIDFILE) ] && kill -0 "$$(cat $(PIDFILE))" 2>/dev/null; then \
+		echo "daemon running (pid $$(cat $(PIDFILE)))"; \
+	else \
+		echo "daemon not running"; \
+	fi
+	@./$(BIN) doctor --json
 
 run-mcp: build ## Build then run the MCP stdio server (Ctrl-C to stop)
 	./$(BIN) mcp
