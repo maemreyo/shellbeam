@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/icon.png" width="120" alt="ShellBeam icon"></p>
+
 # ShellBeam
 
 ShellBeam gives ChatGPT one MCP tool, `local_shell`, backed by a persistent per-user daemon on macOS and Linux. ChatGPT remains the only reasoning agent. ShellBeam owns command sessions, retry keys, bounded input/output, process groups, and durable receipts; it is not an agent or sandbox.
