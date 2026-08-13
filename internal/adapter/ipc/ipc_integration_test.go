@@ -108,10 +108,6 @@ func TestListenReclaimsRefusedStaleSocket(t *testing.T) {
 	if unixListener, ok := stale.(*net.UnixListener); ok {
 		unixListener.SetUnlinkOnClose(false)
 	}
-	staleInfo, err := os.Lstat(socket)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := stale.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -125,9 +121,17 @@ func TestListenReclaimsRefusedStaleSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if os.SameFile(staleInfo, current) {
-		t.Fatal("stale socket inode was not replaced")
+	if current.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("reclaimed pathname is not a socket: %v", current.Mode())
 	}
+	// Do not compare inode identity here: Linux may immediately reuse the
+	// stale inode after unlink. Behavioral reachability proves the new
+	// listener owns the reclaimed pathname without relying on inode uniqueness.
+	conn, err := net.DialTimeout("unix", socket, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("reclaimed socket is not reachable: %v", err)
+	}
+	_ = conn.Close()
 }
 
 func TestServerCloseDoesNotUnlinkReplacementSocket(t *testing.T) {
