@@ -2,6 +2,43 @@
 
 This is a credentialed user-run gate. ShellBeam never acquires or stores tunnel credentials.
 
+## Local setup commands
+
+Run these yourself; do not hand the API key to an agent or paste it into chat.
+
+```sh
+# 1. Build ShellBeam and confirm the daemon is healthy.
+go build -trimpath -buildvcs=false -o shellbeam ./cmd/shellbeam
+./shellbeam daemon &
+./shellbeam doctor --json   # all checks must be "pass"
+
+# 2. Create a dedicated tunnel-client profile for ShellBeam.
+#    Get <tunnel_id> from https://platform.openai.com/settings/organization/tunnels.
+#    Use a tunnel ID that isn't already bound to another local MCP server/command,
+#    or you will get channel=main contention with whatever else is running.
+tunnel-client init \
+  --sample sample_mcp_stdio_local \
+  --profile shellbeam \
+  --tunnel-id <tunnel_id> \
+  --mcp-command "/absolute/path/to/shellbeam mcp"
+
+# If another profile already uses a fixed health.listen_addr (e.g. 127.0.0.1:8080),
+# edit the generated profile to avoid a port clash when running both at once:
+#   health.listen_addr: "127.0.0.1:0"
+#   health.url_file: "/tmp/tunnel-client-shellbeam-health.url"
+
+# 3. Get an API key from https://platform.openai.com/settings/organization/api-keys
+#    (Runtime API keys, not the admin key) and export it in your own shell only.
+export CONTROL_PLANE_API_KEY="<your runtime api key>"
+tunnel-client doctor --profile shellbeam
+tunnel-client run --profile shellbeam
+
+# 4. Confirm the daemon is up before connecting ChatGPT.
+curl -fsS "$(cat /tmp/tunnel-client-shellbeam-health.url)/readyz"
+```
+
+Keep `tunnel-client run --profile shellbeam` running for the whole session below — ChatGPT needs it live for connector discovery and every MCP call.
+
 1. Build and start the daemon; require `shellbeam doctor --json` to pass config/state/runtime/socket checks.
 2. Configure the official OpenAI Secure MCP Tunnel client to launch `/absolute/path/shellbeam mcp` as its local stdio target.
 3. Connect the resulting endpoint in ChatGPT Developer mode.
