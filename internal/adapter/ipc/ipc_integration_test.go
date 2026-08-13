@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"net"
 	"os"
 	"path/filepath"
@@ -30,6 +31,34 @@ func (fakeActions) Write(context.Context, app.WriteRequest) (app.View, error) {
 }
 func (fakeActions) Kill(context.Context, app.KillRequest) (app.View, error) {
 	return app.View{SessionID: "s"}, nil
+}
+func (fakeActions) InspectServer(context.Context) (app.ServerInfo, error) {
+	return app.ServerInfo{Capabilities: capability.Baseline(capability.Limits{CommandBytes: 32768, LiveSessions: 4})}, nil
+}
+
+func TestIPCV2ServerClientInspectServer(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-v2-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	srv, err := Listen(runtime, fakeActions{})
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	client := NewClient(srv.SocketPath())
+	got, err := client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "inspect", Action: "inspect.server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.Server == nil || got.Server.ProtocolVersion != 2 || got.Server.Limits.CommandBytes != 32768 {
+		t.Fatalf("v2 inspect response=%#v", got)
+	}
 }
 
 func TestServerClientUnixSocket(t *testing.T) {

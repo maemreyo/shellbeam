@@ -21,6 +21,7 @@ import (
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/buildinfo"
 	"github.com/maemreyo/shellbeam/internal/config"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -150,7 +151,14 @@ func runDaemon(ctx context.Context, args []string) error {
 		return err
 	}
 	incarnation := ulid.Make().String()
-	svc := daemonapp.NewService(store, processadapter.Owner{}, daemonapp.Options{Incarnation: incarnation, Shell: cfg.Shell, MaxQueuedInputBytes: cfg.MaxQueuedInputSessionBytes, TerminationGrace: time.Duration(cfg.TerminationGraceMS) * time.Millisecond})
+	catalog := capability.Baseline(capability.Limits{
+		CommandBytes:       cfg.MaxCommandBytes,
+		ResponseBytes:      cfg.MaxResponseOutputBytes,
+		SessionOutputBytes: cfg.MaxSessionOutputBytes,
+		RuntimeMS:          cfg.MaxTimeoutMS,
+		LiveSessions:       cfg.MaxConcurrentSessions,
+	})
+	svc := daemonapp.NewService(store, processadapter.Owner{}, daemonapp.Options{Incarnation: incarnation, Shell: cfg.Shell, MaxQueuedInputBytes: cfg.MaxQueuedInputSessionBytes, TerminationGrace: time.Duration(cfg.TerminationGraceMS) * time.Millisecond, Capabilities: catalog})
 	server, err := ipcadapter.Listen(paths.RuntimeDir, svc)
 	if err != nil {
 		return err

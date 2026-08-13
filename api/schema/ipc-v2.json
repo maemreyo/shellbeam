@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shellbeam.dev/schema/ipc-v2.json",
+  "title": "ShellBeam IPC v2",
+  "type": "object",
+  "unevaluatedProperties": false,
+  "oneOf": [
+    {"$ref": "#/$defs/start_request"},
+    {"$ref": "#/$defs/poll_request"},
+    {"$ref": "#/$defs/write_request"},
+    {"$ref": "#/$defs/kill_request"},
+    {"$ref": "#/$defs/inspect_server_request"},
+    {"$ref": "#/$defs/execution_success_response"},
+    {"$ref": "#/$defs/inspect_server_success_response"},
+    {"$ref": "#/$defs/error_response"}
+  ],
+  "$defs": {
+    "start_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "request"}, "request_id": {"type": "string"}, "action": {"const": "start"},
+        "operation_id": {"type": "string"}, "command": {"type": "string"}, "cwd": {"type": "string"}, "tty": {"type": "boolean"},
+        "timeout_ms": {"type": "integer", "minimum": 0}, "yield_time_ms": {"type": "integer", "minimum": 0}, "max_output_bytes": {"type": "integer", "minimum": 1}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "operation_id", "command", "cwd"]
+    },
+    "poll_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "request"}, "request_id": {"type": "string"}, "action": {"const": "poll"},
+        "session_id": {"type": "string"}, "cursor": {"type": "integer", "minimum": 0}, "yield_time_ms": {"type": "integer", "minimum": 0}, "max_output_bytes": {"type": "integer", "minimum": 1}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "session_id"]
+    },
+    "write_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "request"}, "request_id": {"type": "string"}, "action": {"const": "write"},
+        "session_id": {"type": "string"}, "input_offset": {"type": "integer", "minimum": 0}, "chars": {"type": "string"}, "eof": {"const": true}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "session_id", "input_offset"],
+      "oneOf": [
+        {"required": ["chars"], "not": {"required": ["eof"]}},
+        {"required": ["eof"], "not": {"required": ["chars"]}}
+      ]
+    },
+    "kill_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "request"}, "request_id": {"type": "string"}, "action": {"const": "kill"},
+        "session_id": {"type": "string"}, "kill_id": {"type": "string"}, "signal": {"enum": ["INT", "TERM", "KILL"]}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "session_id", "kill_id"]
+    },
+    "inspect_server_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "request"}, "request_id": {"type": "string"}, "action": {"const": "inspect.server"}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action"]
+    },
+    "view": {"type": "object"},
+    "availability": {"enum": ["available", "unavailable"]},
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shellbeam_protocol_version": {"type": "integer", "minimum": 1},
+        "receipt_schema_versions": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true},
+        "project_manifest_schema_versions": {"type": "array", "items": {"type": "integer", "minimum": 1}, "uniqueItems": true},
+        "features": {"type": "object", "additionalProperties": {"$ref": "#/$defs/availability"}},
+        "limits": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "command_bytes": {"type": "integer", "minimum": 0}, "response_bytes": {"type": "integer", "minimum": 0},
+            "session_output_bytes": {"type": "integer", "minimum": 0}, "runtime_ms": {"type": "integer", "minimum": 0},
+            "live_sessions": {"type": "integer", "minimum": 0}, "activity_history": {"type": "integer", "minimum": 0}
+          },
+          "required": ["command_bytes", "response_bytes", "session_output_bytes", "runtime_ms", "live_sessions", "activity_history"]
+        }
+      },
+      "required": ["shellbeam_protocol_version", "receipt_schema_versions", "project_manifest_schema_versions", "features", "limits"]
+    },
+    "error": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string"}, "message": {"type": "string"}, "retryable": {"type": "boolean"},
+        "details": {"type": "object", "maxProperties": 8, "additionalProperties": {"type": "string", "maxLength": 256}}
+      },
+      "required": ["code", "message", "retryable"]
+    },
+    "execution_success_response": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "response"}, "request_id": {"type": "string"},
+        "action": {"enum": ["start", "poll", "write", "kill"]}, "ok": {"const": true}, "view": {"$ref": "#/$defs/view"}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "ok", "view"]
+    },
+    "inspect_server_success_response": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "response"}, "request_id": {"type": "string"},
+        "action": {"const": "inspect.server"}, "ok": {"const": true}, "server": {"$ref": "#/$defs/catalog"}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "ok", "server"]
+    },
+    "error_response": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2}, "kind": {"const": "response"}, "request_id": {"type": "string"},
+        "action": {"type": "string"}, "ok": {"const": false}, "error": {"$ref": "#/$defs/error"}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "ok", "error"]
+    }
+  }
+}

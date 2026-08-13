@@ -71,6 +71,9 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 func (s *Service) CapabilityCatalog() capability.Catalog {
 	return s.options.Capabilities.Clone()
 }
+func (s *Service) InspectServer(context.Context) (ServerInfo, error) {
+	return ServerInfo{Capabilities: s.CapabilityCatalog()}, nil
+}
 func newSessionID() string                    { return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String() }
 func (s *Service) get(id string) *liveSession { s.mu.RLock(); defer s.mu.RUnlock(); return s.live[id] }
 

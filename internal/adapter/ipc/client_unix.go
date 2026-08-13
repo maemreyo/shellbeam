@@ -82,3 +82,36 @@ func (c *Client) Call(ctx context.Context, req Request) (Response, error) {
 	}
 	return out, nil
 }
+
+func (c *Client) CallV2(ctx context.Context, req RequestV2) (ResponseV2, error) {
+	var out ResponseV2
+	if err := validateRequestV2(req); err != nil {
+		return out, err
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return out, err
+	}
+	hreq, err := http.NewRequestWithContext(ctx, http.MethodPost, "http://shellbeam/v2/local-shell", bytes.NewReader(body))
+	if err != nil {
+		return out, err
+	}
+	hreq.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(hreq)
+	if err != nil {
+		return out, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return out, fmt.Errorf("ipc status %d", resp.StatusCode)
+	}
+	d := json.NewDecoder(resp.Body)
+	d.DisallowUnknownFields()
+	if err = d.Decode(&out); err != nil {
+		return out, err
+	}
+	if out.IPVersion != ipcV2 || out.Kind != "response" {
+		return out, fmt.Errorf("invalid ipc v2 response")
+	}
+	return out, nil
+}

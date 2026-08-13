@@ -57,3 +57,7 @@ type View struct {
 	SignalAttempt      receipt.SignalEvidence `json:"signal_attempt,omitempty"`
 	Receipt            *receipt.Receipt       `json:"receipt,omitempty"`
 }
+
+type ServerInfo struct {
+	Capabilities capability.Catalog `json:"capabilities"`
+}

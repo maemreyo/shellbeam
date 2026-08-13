@@ -1,0 +1,1 @@
+{"ipc_version":1,"request_id":"v1-write","payload":{"action":"write","session_id":"s-1","input_offset":2,"chars":"hi"}}

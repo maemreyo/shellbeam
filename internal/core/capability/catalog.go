@@ -66,7 +66,7 @@ func Baseline(limits Limits) Catalog {
 		features[feature] = Unavailable
 	}
 	return Catalog{
-		ProtocolVersion:       1,
+		ProtocolVersion:       2,
 		ReceiptSchemaVersions: []int{1},
 		ManifestVersions:      []int{},
 		Features:              features,

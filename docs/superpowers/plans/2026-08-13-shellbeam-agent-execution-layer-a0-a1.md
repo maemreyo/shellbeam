@@ -350,23 +350,23 @@ git commit -m "feat: add typed failures and capabilities"
 - `inspect server` is non-spawning and returns protocol versions, schema versions, features, and limits.
 - Version/feature negotiation fails locally with `feature_unavailable`; it never downgrades a request silently.
 
-- [ ] **Step 1: Add failing compatibility fixtures**
+- [x] **Step 1: Add failing compatibility fixtures**
 
 Persist representative v1 start/poll/write/kill fixtures and assert byte-compatible decoding. Add v2 fixtures for `inspect server`, unknown versions, unknown actions, extra properties, and unsupported features.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./api/schema ./internal/adapter/ipc ./internal/app/daemon -run 'TestIPCV2|TestV1Compatibility|TestInspectServer' -count=1
 ```
 
-- [ ] **Step 3: Implement translation at the adapter boundary**
+- [x] **Step 3: Implement translation at the adapter boundary**
 
 Do not spread wire structs through app/core packages. Decode into v1 or v2 adapter structs, translate to application requests, and translate application results back to the requested wire version.
 
 Use JSON Schema 2020-12 closure correctly: union roots use `unevaluatedProperties: false`; branch objects use `additionalProperties: false`. Validate real successful and failed payloads with the production schema library.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 go test ./api/schema ./internal/adapter/ipc ./internal/app/daemon -count=1

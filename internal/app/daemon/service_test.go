@@ -79,12 +79,28 @@ func TestServiceCapabilityCatalogIsBaselineAndCopied(t *testing.T) {
 	catalog := capability.Baseline(capability.Limits{CommandBytes: 32768, LiveSessions: 4})
 	svc := app.NewService(nil, nil, app.Options{Capabilities: catalog})
 	got := svc.CapabilityCatalog()
-	if got.ProtocolVersion != 1 || got.Limits.CommandBytes != 32768 || got.Limits.LiveSessions != 4 {
+	if got.ProtocolVersion != 2 || got.Limits.CommandBytes != 32768 || got.Limits.LiveSessions != 4 {
 		t.Fatalf("capability catalog=%#v", got)
 	}
 	got.Features[capability.FeatureWorkspaceAddressing] = capability.Available
 	again := svc.CapabilityCatalog()
 	if again.Features[capability.FeatureWorkspaceAddressing] != capability.Unavailable {
 		t.Fatal("service leaked mutable capability feature map")
+	}
+}
+
+func TestInspectServerDoesNotSpawn(t *testing.T) {
+	owner := &fakeOwner{}
+	catalog := capability.Baseline(capability.Limits{CommandBytes: 32768, LiveSessions: 4})
+	svc := app.NewService(nil, owner, app.Options{Capabilities: catalog})
+	got, err := svc.InspectServer(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner.starts.Load() != 0 {
+		t.Fatalf("inspect spawned %d processes", owner.starts.Load())
+	}
+	if got.Capabilities.ProtocolVersion != 2 || got.Capabilities.Limits.CommandBytes != 32768 {
+		t.Fatalf("server inspection=%#v", got)
 	}
 }

@@ -1,0 +1,1 @@
+{"ipc_version":1,"request_id":"v1-poll","payload":{"action":"poll","session_id":"s-1","cursor":5,"yield_time_ms":10,"max_output_bytes":100}}

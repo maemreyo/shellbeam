@@ -21,6 +21,7 @@ type Actions interface {
 	Poll(context.Context, app.PollRequest) (app.View, error)
 	Write(context.Context, app.WriteRequest) (app.View, error)
 	Kill(context.Context, app.KillRequest) (app.View, error)
+	InspectServer(context.Context) (app.ServerInfo, error)
 }
 
 type socketDialer func(string, time.Duration) (net.Conn, error)
@@ -55,6 +56,7 @@ func listen(runtime string, actions Actions, dial socketDialer) (*Server, error)
 	s := &Server{socket: socket, socketInfo: socketInfo, listener: auth, actions: actions}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
+	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	return s, nil
 }
@@ -199,4 +201,52 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
+	req, err := decodeRequestV2(r.Body)
+	if err != nil {
+		action := req.Action
+		if action == "" {
+			action = "unknown"
+		}
+		writeResponseV2(w, ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: action, OK: false, Error: errorEnvelope(err)})
+		return
+	}
+	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
+	switch req.Action {
+	case "start":
+		view, callErr := s.actions.Start(r.Context(), app.StartRequest{OperationID: req.OperationID, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		err = callErr
+		resp.View = &view
+	case "poll":
+		view, callErr := s.actions.Poll(r.Context(), app.PollRequest{SessionID: req.SessionID, Cursor: req.Cursor, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		err = callErr
+		resp.View = &view
+	case "write":
+		view, callErr := s.actions.Write(r.Context(), app.WriteRequest{SessionID: req.SessionID, InputOffset: req.InputOffset, Chars: req.Chars, EOF: req.EOF})
+		err = callErr
+		resp.View = &view
+	case "kill":
+		view, callErr := s.actions.Kill(r.Context(), app.KillRequest{SessionID: req.SessionID, KillID: req.KillID, Signal: req.Signal})
+		err = callErr
+		resp.View = &view
+	case "inspect.server":
+		info, callErr := s.actions.InspectServer(r.Context())
+		err = callErr
+		catalog := info.Capabilities
+		resp.Server = &catalog
+	}
+	resp.OK = err == nil
+	if err != nil {
+		resp.View = nil
+		resp.Server = nil
+		resp.Error = errorEnvelope(err)
+	}
+	writeResponseV2(w, resp)
+}
+
+func writeResponseV2(w http.ResponseWriter, response ResponseV2) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
 }
