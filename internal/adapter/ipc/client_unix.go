@@ -22,6 +22,9 @@ func NewClient(socket string) *Client {
 }
 
 func (c *Client) Forward(ctx context.Context, in bridge.Request) (bridge.Response, error) {
+	if in.ProtocolVersion >= 2 {
+		return c.forwardV2(ctx, in)
+	}
 	a := Action{Action: in.Action}
 	switch in.Action {
 	case "start":
@@ -56,6 +59,54 @@ func (c *Client) Forward(ctx context.Context, in bridge.Request) (bridge.Respons
 	}
 	return bridge.Response{View: out.View}, nil
 }
+
+func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Response, error) {
+	req := requestV2FromBridge(in)
+	out, err := c.CallV2(ctx, req)
+	if err != nil {
+		return bridge.Response{}, err
+	}
+	response := bridge.Response{Result: out.Result, Server: out.Server}
+	if out.View != nil {
+		response.View = *out.View
+	}
+	if out.Error != nil {
+		response.Code = out.Error.Code
+		response.Message = out.Error.Message
+		response.Retryable = out.Error.Retryable
+	}
+	return response, nil
+}
+
+func requestV2FromBridge(in bridge.Request) RequestV2 {
+	req := RequestV2{IPVersion: 2, Kind: "request", RequestID: "bridge", Action: in.Action}
+	switch in.Action {
+	case "start":
+		req.OperationID = in.Start.OperationID
+		req.Command = in.Start.Command
+		req.CWD = in.Start.CWD
+		req.TTY = in.Start.TTY
+		req.TimeoutMS = in.Start.TimeoutMS
+		req.YieldMS = in.Start.YieldMS
+		req.MaxOutputBytes = in.Start.MaxOutputBytes
+	case "poll":
+		req.SessionID = in.Poll.SessionID
+		req.Cursor = in.Poll.Cursor
+		req.YieldMS = in.Poll.YieldMS
+		req.MaxOutputBytes = in.Poll.MaxOutputBytes
+	case "write":
+		req.SessionID = in.Write.SessionID
+		req.InputOffset = in.Write.InputOffset
+		req.Chars = in.Write.Chars
+		req.EOF = in.Write.EOF
+	case "kill":
+		req.SessionID = in.Kill.SessionID
+		req.KillID = in.Kill.KillID
+		req.Signal = in.Kill.Signal
+	}
+	return req
+}
+
 func (c *Client) Call(ctx context.Context, req Request) (Response, error) {
 	var out Response
 	b, err := json.Marshal(req)

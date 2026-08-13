@@ -3,6 +3,9 @@ package bridge
 import (
 	"context"
 	"testing"
+
+	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
 type failureClient struct{ response Response }
@@ -37,4 +40,28 @@ func TestHandlerNormalizesKnownLegacyCode(t *testing.T) {
 	if got.Code != "operation_conflict" || got.Message != "operation conflicts with an existing intent" || got.Retryable {
 		t.Fatalf("normalized response=%#v", got)
 	}
+}
+
+func TestMCPV2BridgePreservesStructuredDaemonResponse(t *testing.T) {
+	result := receipt.Result{SchemaVersion: 2, Operation: receipt.OperationResult{OperationID: "op", SessionID: "s", State: receipt.OperationRunning}}
+	catalog := capability.Baseline(capability.Limits{CommandBytes: 123})
+	client := &recordingClient{response: Response{Result: &result, Server: &catalog}}
+	h := New(client)
+	got, err := h.Handle(context.Background(), Request{ProtocolVersion: 2, Action: "inspect.server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.request.ProtocolVersion != 2 || got.Result != &result || got.Server != &catalog {
+		t.Fatalf("request=%#v response=%#v", client.request, got)
+	}
+}
+
+type recordingClient struct {
+	request  Request
+	response Response
+}
+
+func (c *recordingClient) Forward(_ context.Context, request Request) (Response, error) {
+	c.request = request
+	return c.response, nil
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 	"testing"
 )
@@ -28,9 +29,10 @@ func TestMetadata(t *testing.T) {
 func TestInMemoryConformance(t *testing.T) {
 	st, ct := mcpgo.NewInMemoryTransports()
 	fake := &fakeClient{}
-	server := New(bridge.New(fake))
+	server := New(bridge.New(fake), capability.Baseline(capability.Limits{}))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	forceLegacyDiscovery(server)
 	go server.Run(ctx, st)
 	client := mcpgo.NewClient(&mcpgo.Implementation{Name: "test", Version: "1"}, nil)
 	session, err := client.Connect(ctx, ct, nil)

@@ -406,7 +406,7 @@ git commit -m "feat: add ipc v2 negotiation"
 - The v2 result envelope distinguishes daemon operation state from child outcome and output completeness.
 - Optional unsupported objects are absent, not fabricated with zero values.
 
-- [ ] **Step 1: Write failing migration and result tests**
+- [x] **Step 1: Write failing migration and result tests**
 
 Cover:
 
@@ -419,28 +419,28 @@ Cover:
 - timeout, kill, failed spawn, abandoned, and ambiguous terminal states;
 - exact output byte counts, cursor, truncation, and `output_complete`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./api/schema ./internal/core/operation ./internal/core/receipt ./internal/adapter/store ./internal/app/daemon -run 'TestV2|TestFingerprint|TestStructuredResult|TestReadsV1' -count=1
 ```
 
-- [ ] **Step 3: Implement append-compatible persistence**
+- [x] **Step 3: Implement append-compatible persistence**
 
 Use explicit persisted schema/version fields and translators. Do not rewrite all historical state during daemon startup. New fields are written atomically for new v2 admissions; old records map to honest legacy/unknown values.
 
 Make response-only controls explicit and exclude them from all durable fingerprints. Redact secret-bearing environment/command diagnostics before persistence.
 
-- [ ] **Step 4: Verify crash/retry invariants**
+- [x] **Step 4: Verify crash/retry invariants**
 
 ```bash
 go test ./api/schema ./internal/core/operation ./internal/core/receipt ./internal/adapter/store ./internal/app/daemon -count=1
-go test ./internal/adapter/store -run 'TestReservationRecovery|TestTerminalImmutability|TestReconcile' -count=1
+go test ./internal/adapter/store -run 'Test(Terminal|Publish|Reserve|Abandon|V2Reservation|ReadsV1)' -count=1
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_A01_BASE" --json
 git diff --check
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add api/schema internal/core/operation internal/core/receipt internal/adapter/store internal/app/daemon internal/adapter/ipc/protocol_v2.go
@@ -453,15 +453,21 @@ git commit -m "feat: persist structured operation results"
 
 **Files:**
 
+- Modify: `api/schema/mcp-input-v1.json`
+- Modify: `api/schema/mcp-output-v1.json`
 - Add: `api/schema/mcp-input-v2.json`
 - Add: `api/schema/mcp-output-v2.json`
+- Add: `api/schema/mcp_v2_test.go`
 - Modify: `api/schema/embed.go`
-- Modify: `api/schema/embed_test.go`
+- Add: `internal/adapter/mcp/call.go`
+- Add: `internal/adapter/mcp/discovery_test.go`
 - Modify: `internal/adapter/mcp/input.go`
 - Modify: `internal/adapter/mcp/server.go`
 - Modify: `internal/adapter/mcp/server_test.go`
+- Modify: `internal/adapter/ipc/client_unix.go`
+- Modify: `internal/adapter/ipc/ipc_integration_test.go`
 - Modify: `internal/app/bridge/client_port.go`
-- Modify: `internal/app/bridge/handler.go`
+- Modify: `internal/app/bridge/handler_test.go`
 
 **Interfaces:**
 
@@ -470,7 +476,7 @@ git commit -m "feat: persist structured operation results"
 - Standard MCP server discovery advertises extension key `io.github.maemreyo.shellbeam` with the capability catalog.
 - Legacy initialized clients retain the existing v1 tool behavior and can use the closed non-spawning inspect fallback.
 
-- [ ] **Step 1: Add failing SDK-level tests**
+- [x] **Step 1: Add failing SDK-level tests**
 
 Using the pinned MCP Go SDK in memory, initialize both a current and legacy-compatible client. Assert:
 
@@ -481,19 +487,19 @@ Using the pinned MCP Go SDK in memory, initialize both a current and legacy-comp
 - no spawn for `inspect.server`;
 - unsupported v2 feature returns `feature_unavailable` rather than trial-and-error schema failure.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./api/schema ./internal/adapter/mcp ./internal/app/bridge -run 'TestDiscovery|TestMCPV2|TestInspectServer|TestLegacy' -count=1
 ```
 
-- [ ] **Step 3: Implement against the current pinned SDK**
+- [x] **Step 3: Implement against the current pinned SDK**
 
 Use the SDK's `ServerOptions.Capabilities`, discovery support, and initialize result. Do not upgrade the SDK merely for this task: v1.7.0 already supports MCP `2026-07-28`. Keep extension payload bounded and versioned.
 
 Validate the tool schema with `google/jsonschema-go` using real payloads. A union root must use `unevaluatedProperties: false`; retain the regression test that prevents the previous root-closure bug.
 
-- [ ] **Step 4: Run the A0 checkpoint**
+- [x] **Step 4: Run the A0 checkpoint**
 
 ```bash
 go test ./api/schema ./internal/adapter/mcp ./internal/app/bridge ./internal/adapter/ipc ./internal/app/daemon -count=1
@@ -505,7 +511,7 @@ git diff --check
 
 Expected: v1 compatibility, typed failures, v2 result, and discovery all pass. This is the A0 gate; do not start workspace features while it is red.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add api/schema internal/adapter/mcp internal/app/bridge

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shellbeam.dev/schema/mcp-output-v2.json",
+  "title": "local_shell output v2",
+  "type": "object",
+  "unevaluatedProperties": false,
+  "$defs": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"code": {"type": "string"}, "message": {"type": "string"}, "retryable": {"type": "boolean"}},
+      "required": ["code", "message", "retryable"]
+    },
+    "operation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"operation_id": {"type": "string", "minLength": 1}, "session_id": {"type": "string", "minLength": 1}, "state": {"enum": ["starting", "running", "finalizing", "terminal"]}},
+      "required": ["operation_id", "session_id", "state"]
+    },
+    "child": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "state": {"enum": ["pending", "running", "exited", "spawn_failed", "unknown"]},
+        "outcome": {"enum": ["success", "failure", "timeout", "killed", "ambiguous"]},
+        "exit_code": {"type": "integer"},
+        "signal": {"type": "string"},
+        "timed_out": {"type": "boolean"}
+      },
+      "required": ["state", "timed_out"]
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "canonical_stream": {"const": "combined"},
+        "preview": {"type": "string"},
+        "raw_bytes": {"type": "integer", "minimum": 0},
+        "returned_bytes": {"type": "integer", "minimum": 0},
+        "cursor": {"type": "integer", "minimum": 0},
+        "next_cursor": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"},
+        "output_complete": {"type": "boolean"}
+      },
+      "required": ["canonical_stream", "raw_bytes", "returned_bytes", "cursor", "next_cursor", "truncated", "output_complete"]
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {"const": 2},
+        "operation": {"$ref": "#/$defs/operation"},
+        "child": {"$ref": "#/$defs/child"},
+        "output": {"$ref": "#/$defs/output"},
+        "receipt": {"type": "object"}
+      },
+      "required": ["schema_version", "operation", "child", "output"]
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {"type": "string"},
+        "session_id": {"type": "string"},
+        "state": {"type": "string"},
+        "outcome": {"type": "string"},
+        "output": {"type": "string"},
+        "cursor": {"type": "integer"},
+        "next_cursor": {"type": "integer"},
+        "truncated": {"type": "boolean"},
+        "accepted_input_bytes": {"type": "integer"},
+        "next_input_offset": {"type": "integer"},
+        "eof_queued": {"type": "boolean"},
+        "kill_id": {"type": "string"},
+        "signal": {"type": "string"},
+        "receipt": {"type": ["object", "null"]}
+      }
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "shellbeam_protocol_version": {"type": "integer"},
+        "receipt_schema_versions": {"type": "array", "items": {"type": "integer"}},
+        "project_manifest_schema_versions": {"type": "array", "items": {"type": "integer"}},
+        "features": {"type": "object"},
+        "limits": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "command_bytes": {"type": "integer"},
+            "response_bytes": {"type": "integer"},
+            "session_output_bytes": {"type": "integer"},
+            "runtime_ms": {"type": "integer"},
+            "live_sessions": {"type": "integer"},
+            "activity_history": {"type": "integer"}
+          },
+          "required": ["command_bytes", "response_bytes", "session_output_bytes", "runtime_ms", "live_sessions", "activity_history"]
+        }
+      },
+      "required": ["shellbeam_protocol_version", "receipt_schema_versions", "project_manifest_schema_versions", "features", "limits"]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": 2},
+    "ok": {"type": "boolean"},
+    "action": {"enum": ["", "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "read_output"]},
+    "result": {"$ref": "#/$defs/result"},
+    "view": {"$ref": "#/$defs/view"},
+    "server": {"$ref": "#/$defs/server"},
+    "error": {"$ref": "#/$defs/error"}
+  },
+  "required": ["schema_version", "ok", "action"],
+  "oneOf": [
+    {"properties": {"ok": {"const": true}, "action": {"enum": ["start", "poll"]}}, "required": ["result"]},
+    {"properties": {"ok": {"const": true}, "action": {"enum": ["write", "kill"]}}, "required": ["view"]},
+    {"properties": {"ok": {"const": true}, "action": {"const": "inspect.server"}}, "required": ["server"]},
+    {"properties": {"ok": {"const": false}}, "required": ["error"]}
+  ]
+}

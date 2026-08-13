@@ -5,6 +5,7 @@ package ipc
 import (
 	"context"
 	"errors"
+	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -412,5 +413,30 @@ func TestIPCV2StartReturnsStructuredResult(t *testing.T) {
 	}
 	if got.Result.SchemaVersion != 2 || got.Result.Operation.OperationID != "op-v2" || got.Result.Operation.SessionID != "s-v2" || got.Result.Operation.State != receipt.OperationRunning {
 		t.Fatalf("structured result=%#v", got.Result)
+	}
+}
+
+func TestBridgeForwardV2InspectServerUsesV2(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-v2-forward-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	srv, err := Listen(runtime, fakeActions{})
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	client := NewClient(srv.SocketPath())
+	got, err := client.Forward(context.Background(), bridge.Request{ProtocolVersion: 2, Action: "inspect.server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Server == nil || got.Server.ProtocolVersion != 2 || got.Server.Limits.CommandBytes != 32768 {
+		t.Fatalf("bridge v2 inspect=%#v", got)
 	}
 }
