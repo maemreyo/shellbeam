@@ -10,29 +10,32 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 const ipcV2 = 2
 
 type RequestV2 struct {
-	IPVersion      int    `json:"ipc_version"`
-	Kind           string `json:"kind"`
-	RequestID      string `json:"request_id"`
-	Action         string `json:"action"`
-	OperationID    string `json:"operation_id,omitempty"`
-	Command        string `json:"command,omitempty"`
-	CWD            string `json:"cwd,omitempty"`
-	TTY            bool   `json:"tty,omitempty"`
-	TimeoutMS      int64  `json:"timeout_ms,omitempty"`
-	YieldMS        int64  `json:"yield_time_ms,omitempty"`
-	MaxOutputBytes int    `json:"max_output_bytes,omitempty"`
-	SessionID      string `json:"session_id,omitempty"`
-	Cursor         int64  `json:"cursor,omitempty"`
-	InputOffset    int64  `json:"input_offset,omitempty"`
-	Chars          string `json:"chars,omitempty"`
-	EOF            bool   `json:"eof,omitempty"`
-	KillID         string `json:"kill_id,omitempty"`
-	Signal         string `json:"signal,omitempty"`
+	IPVersion      int             `json:"ipc_version"`
+	Kind           string          `json:"kind"`
+	RequestID      string          `json:"request_id"`
+	Action         string          `json:"action"`
+	OperationID    string          `json:"operation_id,omitempty"`
+	WorkspaceID    string          `json:"workspace_id,omitempty"`
+	WorkspaceHint  *workspace.Hint `json:"workspace_hint,omitempty"`
+	Command        string          `json:"command,omitempty"`
+	CWD            string          `json:"cwd,omitempty"`
+	TTY            bool            `json:"tty,omitempty"`
+	TimeoutMS      int64           `json:"timeout_ms,omitempty"`
+	YieldMS        int64           `json:"yield_time_ms,omitempty"`
+	MaxOutputBytes int             `json:"max_output_bytes,omitempty"`
+	SessionID      string          `json:"session_id,omitempty"`
+	Cursor         int64           `json:"cursor,omitempty"`
+	InputOffset    int64           `json:"input_offset,omitempty"`
+	Chars          string          `json:"chars,omitempty"`
+	EOF            bool            `json:"eof,omitempty"`
+	KillID         string          `json:"kill_id,omitempty"`
+	Signal         string          `json:"signal,omitempty"`
 }
 
 type ResponseV2 struct {
@@ -109,7 +112,7 @@ func validateV2FieldSet(data []byte, action string) error {
 func actionFieldsV2(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "command", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "workspace_hint", "command", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield-time_ms", "max_output_bytes"}
 	case "write":
@@ -136,8 +139,17 @@ func validateRequestV2(v RequestV2) error {
 	}
 	switch v.Action {
 	case "start":
-		if v.OperationID == "" || v.Command == "" || v.CWD == "" {
+		if v.OperationID == "" || v.Command == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_start_field"}, fmt.Errorf("missing start field"))
+		}
+		address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
+		if err := address.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "cwd"}, err)
+		}
+		if v.WorkspaceHint != nil {
+			if err := v.WorkspaceHint.Validate(); err != nil {
+				return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
+			}
 		}
 	case "poll":
 		if v.SessionID == "" {

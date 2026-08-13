@@ -11,6 +11,8 @@
     "request_fingerprint": {"type": "string", "minLength": 1},
     "execution_fingerprint": {"type": "string", "minLength": 1},
     "observation_binding_fingerprint": {"type": "string", "minLength": 1},
+    "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "logical_cwd": {"type": "string", "minLength": 1},
     "command": {"type": "string", "minLength": 1},
     "cwd": {"type": "string", "minLength": 1},
     "tty": {"type": "boolean"},
@@ -23,5 +25,9 @@
   "required": [
     "schema_version", "operation_id", "session_id", "request_fingerprint",
     "execution_fingerprint", "command", "cwd", "shell", "daemon_incarnation"
+  ],
+  "allOf": [
+    {"if": {"required": ["workspace_id"]}, "then": {"required": ["logical_cwd"]}},
+    {"if": {"required": ["logical_cwd"]}, "then": {"required": ["workspace_id"]}}
   ]
 }

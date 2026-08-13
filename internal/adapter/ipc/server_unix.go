@@ -216,7 +216,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
 	switch req.Action {
 	case "start":
-		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
 		err = callErr
 		if err == nil {
 			result, resultErr := view.StructuredResult()

@@ -84,6 +84,17 @@ func (r *Repository) LoadOperation(_ context.Context, id operation.ID) (operatio
 	var v operation.Reservation
 	return v, readStrict(filepath.Join(r.root, "operations", string(id)+".json"), &v)
 }
+
+func (r *Repository) FindOperation(ctx context.Context, id operation.ID) (operation.Reservation, bool, error) {
+	v, err := r.LoadOperation(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return operation.Reservation{}, false, nil
+	}
+	if err != nil {
+		return operation.Reservation{}, false, err
+	}
+	return v, true, nil
+}
 func (r *Repository) LoadSession(_ context.Context, id operation.SessionID) (session.Snapshot, error) {
 	var v session.Snapshot
 	return v, readStrict(filepath.Join(r.root, "sessions", string(id), "metadata.json"), &v)

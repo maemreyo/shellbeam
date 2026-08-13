@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type OperationState string
@@ -28,6 +29,7 @@ const (
 type OperationResult struct {
 	OperationID string         `json:"operation_id"`
 	ActivityID  string         `json:"activity_id,omitempty"`
+	WorkspaceID string         `json:"workspace_id,omitempty"`
 	SessionID   string         `json:"session_id"`
 	State       OperationState `json:"state"`
 }
@@ -52,25 +54,30 @@ type OutputResult struct {
 }
 
 type Result struct {
-	SchemaVersion int             `json:"schema_version"`
-	Operation     OperationResult `json:"operation"`
-	Child         *ChildResult    `json:"child,omitempty"`
-	Output        OutputResult    `json:"output"`
-	Receipt       *Receipt        `json:"receipt,omitempty"`
+	SchemaVersion int                      `json:"schema_version"`
+	Operation     OperationResult          `json:"operation"`
+	Child         *ChildResult             `json:"child,omitempty"`
+	Output        OutputResult             `json:"output"`
+	ContextEvents []workspace.ContextEvent `json:"context_events,omitempty"`
+	Advisories    []workspace.Advisory     `json:"advisories,omitempty"`
+	Receipt       *Receipt                 `json:"receipt,omitempty"`
 }
 
 type ResultInput struct {
-	OperationID string
-	ActivityID  string
-	SessionID   string
-	State       session.State
-	Outcome     session.Outcome
-	Preview     string
-	RawBytes    int64
-	Cursor      int64
-	NextCursor  int64
-	Truncated   bool
-	Receipt     *Receipt
+	OperationID   string
+	ActivityID    string
+	WorkspaceID   string
+	SessionID     string
+	ContextEvents []workspace.ContextEvent
+	Advisories    []workspace.Advisory
+	State         session.State
+	Outcome       session.Outcome
+	Preview       string
+	RawBytes      int64
+	Cursor        int64
+	NextCursor    int64
+	Truncated     bool
+	Receipt       *Receipt
 }
 
 func NewResult(in ResultInput) (Result, error) {
@@ -86,7 +93,7 @@ func NewResult(in ResultInput) (Result, error) {
 	}
 	result := Result{
 		SchemaVersion: 2,
-		Operation:     OperationResult{OperationID: in.OperationID, ActivityID: in.ActivityID, SessionID: in.SessionID, State: operationState},
+		Operation:     OperationResult{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, SessionID: in.SessionID, State: operationState},
 		Output: OutputResult{
 			CanonicalStream: "combined",
 			Preview:         in.Preview,
@@ -96,7 +103,9 @@ func NewResult(in ResultInput) (Result, error) {
 			NextCursor:      in.NextCursor,
 			Truncated:       in.Truncated,
 		},
-		Receipt: in.Receipt,
+		ContextEvents: append([]workspace.ContextEvent(nil), in.ContextEvents...),
+		Advisories:    append([]workspace.Advisory(nil), in.Advisories...),
+		Receipt:       in.Receipt,
 	}
 	if in.Receipt != nil {
 		if in.Receipt.OperationID != in.OperationID || in.Receipt.SessionID != in.SessionID {

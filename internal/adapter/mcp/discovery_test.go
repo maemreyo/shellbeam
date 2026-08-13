@@ -249,3 +249,17 @@ func TestLegacyInspectServerRejectsCrossActionFields(t *testing.T) {
 		t.Fatalf("result=%#v last=%#v starts=%d", res, fake.last, fake.startCalls)
 	}
 }
+
+func TestMCPV2WorkspaceAddressAndHintAreForwarded(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	fake := &discoveryClient{catalog: catalog}
+	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
+	defer closeSession()
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"start","operation_id":"op-ws","command":"true","workspace_id":"ws_01K00000000000000000000000","cwd":"src","workspace_hint":{"branch":"main"}}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError || fake.last.Start.WorkspaceID != "ws_01K00000000000000000000000" || fake.last.Start.CWD != "src" || fake.last.Start.WorkspaceHint == nil || fake.last.Start.WorkspaceHint.Branch != "main" {
+		t.Fatalf("result=%#v request=%#v", res, fake.last)
+	}
+}

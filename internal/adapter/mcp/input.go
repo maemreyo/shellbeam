@@ -7,24 +7,27 @@ import (
 	"io"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type input struct {
-	Action         string `json:"action"`
-	OperationID    string `json:"operation_id,omitempty"`
-	Command        string `json:"command,omitempty"`
-	CWD            string `json:"cwd,omitempty"`
-	TTY            bool   `json:"tty,omitempty"`
-	YieldMS        int64  `json:"yield_time_ms,omitempty"`
-	TimeoutMS      int64  `json:"timeout_ms,omitempty"`
-	MaxOutputBytes int    `json:"max_output_bytes,omitempty"`
-	SessionID      string `json:"session_id,omitempty"`
-	Cursor         int64  `json:"cursor,omitempty"`
-	InputOffset    int64  `json:"input_offset,omitempty"`
-	Chars          string `json:"chars,omitempty"`
-	EOF            bool   `json:"eof,omitempty"`
-	KillID         string `json:"kill_id,omitempty"`
-	Signal         string `json:"signal,omitempty"`
+	Action         string          `json:"action"`
+	OperationID    string          `json:"operation_id,omitempty"`
+	WorkspaceID    string          `json:"workspace_id,omitempty"`
+	WorkspaceHint  *workspace.Hint `json:"workspace_hint,omitempty"`
+	Command        string          `json:"command,omitempty"`
+	CWD            string          `json:"cwd,omitempty"`
+	TTY            bool            `json:"tty,omitempty"`
+	YieldMS        int64           `json:"yield_time_ms,omitempty"`
+	TimeoutMS      int64           `json:"timeout_ms,omitempty"`
+	MaxOutputBytes int             `json:"max_output_bytes,omitempty"`
+	SessionID      string          `json:"session_id,omitempty"`
+	Cursor         int64           `json:"cursor,omitempty"`
+	InputOffset    int64           `json:"input_offset,omitempty"`
+	Chars          string          `json:"chars,omitempty"`
+	EOF            bool            `json:"eof,omitempty"`
+	KillID         string          `json:"kill_id,omitempty"`
+	Signal         string          `json:"signal,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -46,15 +49,40 @@ func protocolGeneration(version string) int {
 }
 
 func validateForVersion(version int, v input, raw []byte) error {
-	if version == 2 || v.Action == "inspect.server" {
+	if version == 2 {
+		if err := validateV2FieldSet(v.Action, raw); err != nil {
+			return err
+		}
+		return validateV2(v)
+	}
+	if v.Action == "inspect.server" {
 		if err := validateV2FieldSet(v.Action, raw); err != nil {
 			return err
 		}
 	}
-	if version == 2 && v.Action == "inspect.server" {
-		return validateNonNegative(v)
-	}
 	return validateV1(v)
+}
+
+func validateV2(v input) error {
+	if v.Action != "start" {
+		return validateV1(v)
+	}
+	if v.OperationID == "" || v.Command == "" {
+		return fmt.Errorf("start requires operation_id and command")
+	}
+	if _, err := operation.ParseID(v.OperationID); err != nil {
+		return err
+	}
+	address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
+	if err := address.Validate(); err != nil {
+		return err
+	}
+	if v.WorkspaceHint != nil {
+		if err := v.WorkspaceHint.Validate(); err != nil {
+			return err
+		}
+	}
+	return validateNonNegative(v)
 }
 
 func validateV1(v input) error {
@@ -137,7 +165,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "command", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "workspace_hint", "command", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":

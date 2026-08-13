@@ -83,6 +83,8 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 	switch in.Action {
 	case "start":
 		req.OperationID = in.Start.OperationID
+		req.WorkspaceID = in.Start.WorkspaceID
+		req.WorkspaceHint = in.Start.WorkspaceHint
 		req.Command = in.Start.Command
 		req.CWD = in.Start.CWD
 		req.TTY = in.Start.TTY

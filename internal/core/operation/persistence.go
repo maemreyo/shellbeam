@@ -6,6 +6,8 @@ type Reservation struct {
 	SchemaVersion                 int       `json:"schema_version"`
 	OperationID                   ID        `json:"operation_id"`
 	ActivityID                    string    `json:"activity_id,omitempty"`
+	WorkspaceID                   string    `json:"workspace_id,omitempty"`
+	LogicalCWD                    string    `json:"logical_cwd,omitempty"`
 	SessionID                     SessionID `json:"session_id"`
 	Fingerprint                   string    `json:"fingerprint,omitempty"`
 	RequestFingerprint            string    `json:"request_fingerprint,omitempty"`

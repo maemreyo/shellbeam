@@ -12,17 +12,24 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"github.com/oklog/ulid/v2"
 )
 
 type Service struct {
-	store           Store
-	owner           ProcessOwner
-	options         Options
-	observer        WorkspaceObserver
-	activityTracker ActivityTracker
-	mu              sync.RWMutex
-	live            map[string]*liveSession
+	store            Store
+	owner            ProcessOwner
+	options          Options
+	observer         WorkspaceObserver
+	resolver         WorkspaceResolver
+	activityTracker  ActivityTracker
+	contextMu        sync.Mutex
+	contextLast      map[workspace.WorkspaceID]workspace.FastSnapshot
+	contextLastOrder []workspace.WorkspaceID
+	contextSeen      map[string]struct{}
+	contextSeenOrder []string
+	mu               sync.RWMutex
+	live             map[string]*liveSession
 }
 type liveSession struct {
 	mu             sync.Mutex
@@ -69,7 +76,7 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	} else {
 		options.Capabilities = options.Capabilities.Clone()
 	}
-	return &Service{store: store, owner: owner, options: options, live: map[string]*liveSession{}}
+	return &Service{store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{}}
 }
 
 func (s *Service) CapabilityCatalog() capability.Catalog {
@@ -103,7 +110,19 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err != nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
 	}
-	intent := operation.Intent{Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
+	if req.WorkspaceHint != nil {
+		if err := req.WorkspaceHint.Validate(); err != nil {
+			return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
+		}
+	}
+	logicalIntent := operation.Intent{Command: req.Command, WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
+	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
+		return view, lookupErr
+	}
+	intent, err := s.resolveStartIntent(ctx, req)
+	if err != nil {
+		return View{}, err
+	}
 	reservation, err := s.reservationForStart(req, id, intent)
 	if err != nil {
 		return View{}, invalidIntentFailure(err)
@@ -117,11 +136,18 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	}
 	sid = string(stored.SessionID)
 	if !created {
-		return s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+		view, err := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+		if err == nil {
+			s.enrichReplayWorkspaceContext(ctx, &view, stored.CWD, req.WorkspaceHint)
+		}
+		return view, err
 	}
-	workspaceObservation := s.captureWorkspace(ctx, req.CWD)
-	activityID := s.admitActivity(ctx, req, sid, workspaceObservation)
-	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	executionCWD := stored.CWD
+	workspaceObservation := s.captureWorkspace(ctx, executionCWD)
+	activityReq := req
+	activityReq.CWD = executionCWD
+	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation)
+	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: executionCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	s.put(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
@@ -134,7 +160,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	live.mu.Unlock()
 	if spawnErr != nil {
 		s.finishSpawnFailure(live)
-		return s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
+		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
+		if viewErr == nil {
+			s.enrichWorkspaceContext(&view, workspaceObservation.pre, req.WorkspaceHint)
+		}
+		return view, viewErr
 	}
 	snap := session.Snapshot{SchemaVersion: 1, OperationID: req.OperationID, SessionID: sid, DaemonIncarnation: s.options.Incarnation, State: session.Running, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
 	if got := s.store.AdvanceSession(context.Background(), snap); got.Err != nil {
@@ -145,7 +175,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if req.TimeoutMS > 0 {
 		go s.timeoutLoop(live, time.Duration(req.TimeoutMS)*time.Millisecond)
 	}
-	return s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+	if viewErr == nil {
+		s.enrichWorkspaceContext(&view, workspaceObservation.pre, req.WorkspaceHint)
+	}
+	return view, viewErr
 }
 
 type sessionSink struct {

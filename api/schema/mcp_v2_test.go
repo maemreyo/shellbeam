@@ -11,6 +11,8 @@ func TestMCPV2SchemasValidateRealPayloads(t *testing.T) {
 	input := resolvedSchema(t, MCPInputV2)
 	validInputs := []map[string]any{
 		{"action": "start", "operation_id": "op", "command": "true", "cwd": "/tmp"},
+		{"action": "start", "operation_id": "op-ws", "command": "true", "workspace_id": "ws_01K00000000000000000000000", "cwd": "src", "workspace_hint": map[string]any{"branch": "main"}},
+		{"action": "start", "operation_id": "op-ws-default", "command": "true", "workspace_id": "ws_01K00000000000000000000000"},
 		{"action": "poll", "session_id": "s", "cursor": 0.0},
 		{"action": "write", "session_id": "s", "input_offset": 0.0, "chars": "x"},
 		{"action": "kill", "session_id": "s", "kill_id": "k", "signal": "TERM"},
@@ -24,6 +26,8 @@ func TestMCPV2SchemasValidateRealPayloads(t *testing.T) {
 	invalidInputs := []map[string]any{
 		{"action": "inspect.server", "extra": true},
 		{"action": "start", "operation_id": "op", "command": "true", "cwd": "/tmp", "session_id": "s"},
+		{"action": "start", "operation_id": "op", "command": "true", "workspace_id": "ws_01K00000000000000000000000", "cwd": "/tmp"},
+		{"action": "start", "operation_id": "op", "command": "true", "cwd": "relative"},
 	}
 	for _, payload := range invalidInputs {
 		if err := input.Validate(payload); err == nil {
@@ -33,7 +37,7 @@ func TestMCPV2SchemasValidateRealPayloads(t *testing.T) {
 
 	output := resolvedSchema(t, MCPOutputV2)
 	validOutputs := []map[string]any{
-		{"schema_version": 2.0, "ok": true, "action": "start", "result": map[string]any{"schema_version": 2.0, "operation": map[string]any{"operation_id": "op", "session_id": "s", "state": "running"}, "child": map[string]any{"state": "running", "timed_out": false}, "output": map[string]any{"canonical_stream": "combined", "raw_bytes": 0.0, "returned_bytes": 0.0, "cursor": 0.0, "next_cursor": 0.0, "truncated": false, "output_complete": false}}},
+		{"schema_version": 2.0, "ok": true, "action": "start", "result": map[string]any{"schema_version": 2.0, "operation": map[string]any{"operation_id": "op", "workspace_id": "ws_01K00000000000000000000000", "session_id": "s", "state": "running"}, "child": map[string]any{"state": "running", "timed_out": false}, "output": map[string]any{"canonical_stream": "combined", "raw_bytes": 0.0, "returned_bytes": 0.0, "cursor": 0.0, "next_cursor": 0.0, "truncated": false, "output_complete": false}}},
 		{"schema_version": 2.0, "ok": true, "action": "inspect.server", "server": map[string]any{"shellbeam_protocol_version": 2.0, "receipt_schema_versions": []any{1.0, 2.0}, "project_manifest_schema_versions": []any{}, "features": map[string]any{"argv_mode": "unavailable"}, "limits": map[string]any{"command_bytes": 1.0, "response_bytes": 2.0, "session_output_bytes": 3.0, "runtime_ms": 4.0, "live_sessions": 5.0, "activity_history": 0.0}}},
 		{"schema_version": 2.0, "ok": true, "action": "write", "view": map[string]any{"session_id": "s", "state": "running", "outcome": "", "cursor": 0.0, "next_cursor": 0.0, "truncated": false, "accepted_input_bytes": 1.0, "next_input_offset": 1.0, "eof_queued": false, "kill_id": "", "signal": ""}},
 		{"schema_version": 2.0, "ok": false, "action": "inspect.workspace", "error": map[string]any{"code": "feature_unavailable", "message": "feature unavailable", "retryable": false}},

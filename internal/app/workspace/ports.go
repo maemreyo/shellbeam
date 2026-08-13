@@ -31,6 +31,7 @@ type GitWorktree struct {
 
 type Git interface {
 	Inspect(context.Context, string) (GitObservation, error)
+	ResolveWorktreeRoot(context.Context, string) (string, error)
 	ListWorktrees(context.Context, string) ([]GitWorktree, error)
 	AddWorktree(context.Context, string, string, string) error
 	RemoveWorktree(context.Context, string, string, bool) error

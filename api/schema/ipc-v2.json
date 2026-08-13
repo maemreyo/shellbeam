@@ -25,6 +25,17 @@
         "request_id": {"type": "string"},
         "action": {"const": "start"},
         "operation_id": {"type": "string"},
+        "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+        "workspace_hint": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+            "branch": {"type": "string", "maxLength": 128},
+            "git_profile": {"type": "string", "maxLength": 128}
+          }
+        },
         "command": {"type": "string"},
         "cwd": {"type": "string"},
         "tty": {"type": "boolean"},
@@ -32,7 +43,11 @@
         "yield_time_ms": {"type": "integer", "minimum": 0},
         "max_output_bytes": {"type": "integer", "minimum": 1}
       },
-      "required": ["ipc_version", "kind", "request_id", "action", "operation_id", "command", "cwd"]
+      "required": ["ipc_version", "kind", "request_id", "action", "operation_id", "command"],
+      "oneOf": [
+        {"required": ["workspace_id"], "not": {"properties": {"cwd": {"pattern": "^/"}}, "required": ["cwd"]}},
+        {"required": ["cwd"], "properties": {"cwd": {"pattern": "^/"}}, "not": {"required": ["workspace_id"]}}
+      ]
     },
     "poll_request": {
       "type": "object",
@@ -90,6 +105,8 @@
       "additionalProperties": false,
       "properties": {
         "operation_id": {"type": "string"},
+        "activity_id": {"type": "string"},
+        "workspace_id": {"type": "string"},
         "session_id": {"type": "string"},
         "state": {"enum": ["starting", "running", "finalizing", "completed", "failed", "timed_out", "killed", "abandoned", ""]},
         "outcome": {"enum": ["", "success", "failure", "timeout", "killed", "ambiguous"]},
@@ -267,6 +284,8 @@
       "additionalProperties": false,
       "properties": {
         "operation_id": {"type": "string", "minLength": 1},
+        "activity_id": {"type": "string"},
+        "workspace_id": {"type": "string"},
         "session_id": {"type": "string", "minLength": 1},
         "state": {"enum": ["starting", "running", "finalizing", "terminal"]}
       },
@@ -299,6 +318,30 @@
       },
       "required": ["canonical_stream", "raw_bytes", "returned_bytes", "cursor", "next_cursor", "truncated", "output_complete"]
     },
+    "context_event": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string"},
+        "message": {"type": "string"},
+        "workspace_id": {"type": "string"},
+        "generation": {"type": "string"},
+        "transition_fingerprint": {"type": "string"}
+      },
+      "required": ["code", "message", "transition_fingerprint"]
+    },
+    "advisory": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "code": {"type": "string"},
+        "severity": {"type": "string"},
+        "message": {"type": "string"},
+        "workspace_id": {"type": "string"},
+        "cause_fingerprint": {"type": "string"}
+      },
+      "required": ["code", "severity", "message", "cause_fingerprint"]
+    },
     "structured_result": {
       "type": "object",
       "additionalProperties": false,
@@ -307,6 +350,8 @@
         "operation": {"$ref": "#/$defs/operation_result"},
         "child": {"$ref": "#/$defs/child_result"},
         "output": {"$ref": "#/$defs/output_result"},
+        "context_events": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/context_event"}},
+        "advisories": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/advisory"}},
         "receipt": {"oneOf": [{"$ref": "#/$defs/receipt_v1"}, {"$ref": "#/$defs/receipt_v2"}]}
       },
       "required": ["schema_version", "operation", "child", "output"]

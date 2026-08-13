@@ -9,14 +9,29 @@
       "properties": {
         "action": {"const": "start"},
         "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+        "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+        "workspace_hint": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+            "branch": {"type": "string", "maxLength": 128},
+            "git_profile": {"type": "string", "maxLength": 128}
+          }
+        },
         "command": {"type": "string", "minLength": 1},
-        "cwd": {"type": "string", "pattern": "^/"},
+        "cwd": {"type": "string"},
         "tty": {"type": "boolean", "default": false},
         "yield_time_ms": {"type": "integer", "minimum": 0, "default": 10000},
         "timeout_ms": {"type": "integer", "minimum": 0, "default": 0},
         "max_output_bytes": {"type": "integer", "minimum": 0, "default": 20000}
       },
-      "required": ["action", "operation_id", "command", "cwd"]
+      "required": ["action", "operation_id", "command"],
+      "oneOf": [
+        {"required": ["workspace_id"], "not": {"properties": {"cwd": {"pattern": "^/"}}, "required": ["cwd"]}},
+        {"required": ["cwd"], "properties": {"cwd": {"pattern": "^/"}}, "not": {"required": ["workspace_id"]}}
+      ]
     },
     {
       "properties": {

@@ -36,8 +36,8 @@ func (s *Service) admitActivity(ctx context.Context, req StartRequest, sessionID
 	if req.ActivityID == "" || s.activityTracker == nil {
 		return ""
 	}
-	var workspaceID workspace.WorkspaceID
-	if observation.pre != nil {
+	workspaceID := workspace.WorkspaceID(req.WorkspaceID)
+	if observation.pre != nil && observation.pre.WorkspaceID != "" {
 		workspaceID = observation.pre.WorkspaceID
 	}
 	_, _ = s.activityTracker.Admit(ctx, activity.Admission{

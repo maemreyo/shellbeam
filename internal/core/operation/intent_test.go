@@ -73,3 +73,39 @@ func TestV2FingerprintsSeparateRequestExecutionObservationAndResponseControls(t 
 		t.Fatalf("observation fingerprints not distinct: %q %q", obsA, obsB)
 	}
 }
+
+func TestAddressRequestFingerprintUsesLogicalWorkspaceAddress(t *testing.T) {
+	logical := Intent{Command: "true", WorkspaceID: "ws_01K00000000000000000000000", CWD: "src", ResolvedCWD: "/old/repo/src"}
+	first, err := logical.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical.ResolvedCWD = "/moved/repo/src"
+	second, err := logical.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("request fingerprint changed after resolution move: %s != %s", first, second)
+	}
+	execA, err := logical.ExecutionFingerprint("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	logical.ResolvedCWD = "/another/repo/src"
+	execB, err := logical.ExecutionFingerprint("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execA == execB {
+		t.Fatal("execution fingerprint ignored resolved cwd")
+	}
+}
+
+func TestAddressRequestFingerprintRejectsMixedOrEscapingAddress(t *testing.T) {
+	for _, intent := range []Intent{{Command: "true", WorkspaceID: "ws_01K00000000000000000000000", CWD: "/abs"}, {Command: "true", WorkspaceID: "ws_01K00000000000000000000000", CWD: "../escape"}, {Command: "true", CWD: "relative"}} {
+		if _, err := intent.RequestFingerprint(); err == nil {
+			t.Fatalf("intent %#v accepted", intent)
+		}
+	}
+}

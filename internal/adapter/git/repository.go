@@ -144,3 +144,19 @@ func (b *cappedBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *cappedBuffer) Bytes() []byte { return append([]byte(nil), b.buf.Bytes()...) }
+
+func (r *Repository) ResolveWorktreeRoot(ctx context.Context, gitDir string) (string, error) {
+	gitDir, err := canonicalExisting(gitDir)
+	if err != nil {
+		return "", err
+	}
+	stdout, stderr, err := r.runner.Run(ctx, "--git-dir", gitDir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("git worktree root failed: %s", strings.TrimSpace(string(stderr)))
+	}
+	root := strings.TrimSpace(string(stdout))
+	if root == "" {
+		return "", fmt.Errorf("git worktree root unavailable")
+	}
+	return canonicalExisting(root)
+}

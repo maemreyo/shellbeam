@@ -9,8 +9,16 @@ import (
 )
 
 func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent operation.Intent) (operation.Reservation, error) {
+	resolvedCWD := intent.ResolvedCWD
+	if resolvedCWD == "" {
+		resolvedCWD = req.CWD
+	}
+	logicalCWD := ""
+	if req.WorkspaceID != "" {
+		logicalCWD = intent.CWD
+	}
 	base := operation.Reservation{
-		OperationID: id, ActivityID: req.ActivityID, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS,
+		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, Command: req.Command, CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS,
 		Shell: s.options.Shell, DaemonIncarnation: s.options.Incarnation,
 	}
 	switch req.ProtocolVersion {

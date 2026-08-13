@@ -338,12 +338,13 @@ func (m *memoryRegistry) DeleteWorkspace(_ context.Context, id core.WorkspaceID)
 }
 
 type fakeGit struct {
-	observations map[string]GitObservation
-	worktrees    map[string][]GitWorktree
-	dirty        map[string]bool
-	addCalls     []addCall
-	removeCalls  []removeCall
-	listCalls    int
+	observations  map[string]GitObservation
+	worktrees     map[string][]GitWorktree
+	dirty         map[string]bool
+	addCalls      []addCall
+	removeCalls   []removeCall
+	listCalls     int
+	resolvedRoots map[string]string
 }
 
 type addCall struct{ commonDir, path, ref string }
@@ -354,7 +355,7 @@ type removeCall struct {
 }
 
 func newFakeGit() *fakeGit {
-	return &fakeGit{observations: map[string]GitObservation{}, worktrees: map[string][]GitWorktree{}, dirty: map[string]bool{}}
+	return &fakeGit{observations: map[string]GitObservation{}, worktrees: map[string][]GitWorktree{}, dirty: map[string]bool{}, resolvedRoots: map[string]string{}}
 }
 
 func (f *fakeGit) observe(input string, observation GitObservation) {
@@ -392,3 +393,11 @@ func (f *fakeGit) RemoveWorktree(_ context.Context, commonDir, path string, forc
 }
 
 func (f *fakeGit) Dirty(_ context.Context, path string) (bool, error) { return f.dirty[path], nil }
+
+func (f *fakeGit) ResolveWorktreeRoot(_ context.Context, gitDir string) (string, error) {
+	root, ok := f.resolvedRoots[gitDir]
+	if !ok {
+		return "", errors.New("worktree root unavailable")
+	}
+	return root, nil
+}

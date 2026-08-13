@@ -732,7 +732,7 @@ git commit -m "feat: track reusable execution activities"
 - Context events and advisories return in the original start/poll response; no mandatory extra inspect call is introduced.
 - Retry lookup occurs before current workspace resolution and replays the first bound absolute cwd.
 
-- [ ] **Step 1: Write failing address and retry tests**
+- [x] **Step 1: Write failing address and retry tests**
 
 Cover valid nested cwd, omitted relative cwd, unknown workspace, absolute cwd plus workspace conflict, `..`, NUL, escaping symlink, internal symlink, moved worktree before first admission, and moved/removed worktree after first admission.
 
@@ -744,17 +744,17 @@ Critical retry fixture:
 4. retry the same operation/request fingerprint;
 5. return/replay the original durable operation without re-resolving or spawning.
 
-- [ ] **Step 2: Write advisory behavior tests**
+- [x] **Step 2: Write advisory behavior tests**
 
 Matching, mismatching, changed, and omitted hints all execute. Branch switch, stash, reset, rebase, dirty changes, and concurrent activity are neutral context or compact advisories. Repeated same-cause advisories are deduplicated; a changed cause fingerprint may re-emit.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/core/workspace ./internal/core/operation ./internal/app/workspace ./internal/app/daemon ./internal/adapter/ipc ./internal/adapter/mcp -run 'TestAddress|TestRetryAfterMove|TestWorkspaceHint|TestAdvisory' -count=1
 ```
 
-- [ ] **Step 4: Implement lookup-before-resolution admission**
+- [x] **Step 4: Implement lookup-before-resolution admission**
 
 Admission order is normative:
 
@@ -766,7 +766,7 @@ Admission order is normative:
 
 Advisory observation is fail-open. Its error is recorded safely but never replaces the child/operation result.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 go test ./internal/core/workspace ./internal/core/operation ./internal/app/workspace ./internal/app/daemon ./internal/adapter/ipc ./internal/adapter/mcp -count=1

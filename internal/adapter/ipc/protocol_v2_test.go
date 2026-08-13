@@ -116,3 +116,22 @@ func TestIPCV2ClientRejectsUnsupportedFeatureBeforeNetwork(t *testing.T) {
 		t.Fatal("unsupported feature reached transport")
 	}
 }
+
+func TestIPCV2WorkspaceAddressAndHintContract(t *testing.T) {
+	raw := []byte(`{"ipc_version":2,"kind":"request","request_id":"x","action":"start","operation_id":"op","command":"true","workspace_id":"ws_01K00000000000000000000000","workspace_hint":{"branch":"main"}}`)
+	got, err := decodeRequestV2(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorkspaceID != "ws_01K00000000000000000000000" || got.CWD != "" || got.WorkspaceHint == nil || got.WorkspaceHint.Branch != "main" {
+		t.Fatalf("decoded=%#v", got)
+	}
+	for _, invalid := range [][]byte{
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"x","action":"start","operation_id":"op","command":"true","workspace_id":"ws_01K00000000000000000000000","cwd":"/tmp"}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"x","action":"start","operation_id":"op","command":"true","cwd":"relative"}`),
+	} {
+		if _, err := decodeRequestV2(bytes.NewReader(invalid)); !errors.Is(err, failure.InvalidInput) {
+			t.Fatalf("invalid address err=%v", err)
+		}
+	}
+}
