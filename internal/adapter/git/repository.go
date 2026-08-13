@@ -19,9 +19,13 @@ type commandRunner interface {
 	Run(context.Context, ...string) ([]byte, []byte, error)
 }
 
-type Repository struct{ runner commandRunner }
+type Repository struct {
+	runner          commandRunner
+	snapshotOptions SnapshotOptions
+	snapshots       *snapshotCache
+}
 
-func New() *Repository { return &Repository{runner: execRunner{}} }
+func New() *Repository { return newRepository(execRunner{}, SnapshotOptions{}) }
 
 func (r *Repository) Inspect(ctx context.Context, path string) (workspaceapp.GitObservation, error) {
 	root, err := canonicalInput(path)

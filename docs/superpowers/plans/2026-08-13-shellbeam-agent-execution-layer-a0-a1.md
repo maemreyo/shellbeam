@@ -621,7 +621,7 @@ git commit -m "feat: add reusable workspace lifecycle"
 - Quality is one of `fresh`, `cached`, `stale`, or `unavailable`, with observation timestamp and cause-safe diagnostics.
 - Context observation failure never changes command admission or child outcome.
 
-- [ ] **Step 1: Write failing fixture tests**
+- [x] **Step 1: Write failing fixture tests**
 
 Create bounded temporary repositories for clean, modified, untracked, renamed, conflicted, detached, merge, rebase, cherry-pick, revert, bisect, missing upstream, and stale local upstream cases. Assert no fetch/network behavior.
 
@@ -632,19 +632,19 @@ Add budget tests using a fake runner/clock:
 - timeout/malformed output: cached or unavailable snapshot, command still admitted;
 - concurrent identical observations: singleflight/coalesced work without unbounded waiters.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/workspace ./internal/app/workspace ./internal/adapter/git -run 'TestSnapshot|TestTransient|TestObservationBudget|TestCache' -count=1
 ```
 
-- [ ] **Step 3: Implement observation behind a consumer-owned port**
+- [x] **Step 3: Implement observation behind a consumer-owned port**
 
 The daemon depends on the app-level observer interface, not the Git adapter. Use a short TTL and fact-based invalidation. Record pre/post generation in receipts without claiming which exact bytes the child read.
 
 Never execute `ssh`, `gh`, `git fetch`, hooks, or user shell startup for ordinary observation.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 go test ./internal/core/workspace ./internal/app/workspace ./internal/adapter/git ./internal/app/daemon ./internal/core/receipt -count=1

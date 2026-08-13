@@ -16,11 +16,12 @@ import (
 )
 
 type Service struct {
-	store   Store
-	owner   ProcessOwner
-	options Options
-	mu      sync.RWMutex
-	live    map[string]*liveSession
+	store    Store
+	owner    ProcessOwner
+	options  Options
+	observer WorkspaceObserver
+	mu       sync.RWMutex
+	live     map[string]*liveSession
 }
 type liveSession struct {
 	mu             sync.Mutex
@@ -28,6 +29,7 @@ type liveSession struct {
 	sessionID      string
 	reservation    operation.Reservation
 	spec           operation.ExecutionSpec
+	workspace      workspaceObservation
 	state          session.State
 	outcome        session.Outcome
 	handle         ProcessHandle
@@ -112,7 +114,8 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if !created {
 		return s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	}
-	live := &liveSession{operationID: req.OperationID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	workspaceObservation := s.captureWorkspace(ctx, req.CWD)
+	live := &liveSession{operationID: req.OperationID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	s.put(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
@@ -178,6 +181,7 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	rec := s.receiptFor(l, session.Failed, session.Failure)
 	rec.FailureReason = "spawn_failed"
 	rec.Spawn = l.spawn
+	s.attachWorkspaceProvenance(&rec, l.workspace, l.spec.CWD)
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = session.Failed
@@ -228,6 +232,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.Spawn = l.spawn
 	rec.Exit = exit
 	rec.Signal = signalEvidence
+	s.attachWorkspaceProvenance(&rec, l.workspace, l.spec.CWD)
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = state
