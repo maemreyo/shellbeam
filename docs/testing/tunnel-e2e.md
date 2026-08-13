@@ -16,11 +16,13 @@ go build -trimpath -buildvcs=false -o shellbeam ./cmd/shellbeam
 #    Get <tunnel_id> from https://platform.openai.com/settings/organization/tunnels.
 #    Use a tunnel ID that isn't already bound to another local MCP server/command,
 #    or you will get channel=main contention with whatever else is running.
+#    Run this from the repo root (same shell as step 1) so $(pwd) resolves to
+#    the directory containing the freshly built ./shellbeam binary.
 tunnel-client init \
   --sample sample_mcp_stdio_local \
   --profile shellbeam \
   --tunnel-id <tunnel_id> \
-  --mcp-command "/absolute/path/to/shellbeam mcp"
+  --mcp-command "$(pwd)/shellbeam mcp"
 
 # If another profile already uses a fixed health.listen_addr (e.g. 127.0.0.1:8080),
 # edit the generated profile to avoid a port clash when running both at once:
