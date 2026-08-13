@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -26,5 +27,23 @@ func TestAbandonUnresolved(t *testing.T) {
 	}
 	if snap.State != session.Abandoned || snap.Outcome != session.Ambiguous {
 		t.Fatalf("%#v", snap)
+	}
+}
+
+func TestAbandonUnresolvedRemovesUncommittedAtomicTemp(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	r, err := Open(root, Limits{MaxSessions: 2, MaxSessionOutput: 100, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "operations", ".shellbeam-crash-temp")
+	if err = os.WriteFile(path, []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = r.AbandonUnresolved(context.Background(), "new"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("temporary file still present: %v", err)
 	}
 }

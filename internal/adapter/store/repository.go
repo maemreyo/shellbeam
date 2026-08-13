@@ -10,11 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
-	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
@@ -27,11 +25,13 @@ type Limits struct {
 	ControlReserve   int64
 }
 type Repository struct {
-	root   string
-	limits Limits
-	mu     sync.Mutex
-	admit  sync.Mutex
-	locks  map[operation.ID]*sync.Mutex
+	root       string
+	limits     Limits
+	mu         sync.Mutex
+	admit      sync.Mutex
+	terminalMu sync.Mutex
+	writer     atomicWriter
+	locks      map[operation.ID]*sync.Mutex
 }
 
 func Open(root string, limits Limits) (*Repository, error) {
@@ -77,52 +77,6 @@ func (r *Repository) lock(id operation.ID) func() {
 	return m.Unlock
 }
 
-func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
-	_ = ctx
-	unlock := r.lock(want.OperationID)
-	defer unlock()
-	r.admit.Lock()
-	defer r.admit.Unlock()
-	path := filepath.Join(r.root, "operations", string(want.OperationID)+".json")
-	var existing operation.Reservation
-	if err := readStrict(path, &existing); err == nil {
-		if existing.Fingerprint != want.Fingerprint {
-			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: fmt.Errorf("operation_conflict")}
-		}
-		return existing, false, app.StoreResult{Durability: app.DurableChange}
-	} else if !errors.Is(err, ErrNotFound) {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
-	}
-	if want.SchemaVersion != 1 || want.OperationID == "" || want.SessionID == "" {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("invalid reservation")}
-	}
-	active, used, err := r.usage()
-	if err != nil {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
-	}
-	if active >= r.limits.MaxSessions {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("capacity_exceeded")}
-	}
-	if used+r.limits.ControlReserve > r.limits.MaxTotalState {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("persistence_unavailable")}
-	}
-	if want.CreatedAt.IsZero() {
-		want.CreatedAt = time.Now().UTC()
-	}
-	sdir := filepath.Join(r.root, "sessions", string(want.SessionID))
-	if err := os.Mkdir(sdir, 0700); err != nil {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
-	}
-	snap := session.Snapshot{SchemaVersion: 1, OperationID: string(want.OperationID), SessionID: string(want.SessionID), DaemonIncarnation: want.DaemonIncarnation, State: session.Starting, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
-	if result := atomicJSON(filepath.Join(sdir, "metadata.json"), snap); result.Err != nil {
-		return existing, false, result
-	}
-	if result := atomicJSON(path, want); result.Err != nil {
-		return existing, false, result
-	}
-	return want, true, app.StoreResult{Durability: app.DurableChange}
-}
-
 func (r *Repository) LoadOperation(_ context.Context, id operation.ID) (operation.Reservation, error) {
 	var v operation.Reservation
 	return v, readStrict(filepath.Join(r.root, "operations", string(id)+".json"), &v)
@@ -130,25 +84,6 @@ func (r *Repository) LoadOperation(_ context.Context, id operation.ID) (operatio
 func (r *Repository) LoadSession(_ context.Context, id operation.SessionID) (session.Snapshot, error) {
 	var v session.Snapshot
 	return v, readStrict(filepath.Join(r.root, "sessions", string(id), "metadata.json"), &v)
-}
-func (r *Repository) AdvanceSession(_ context.Context, v session.Snapshot) app.StoreResult {
-	return atomicJSON(filepath.Join(r.root, "sessions", v.SessionID, "metadata.json"), v)
-}
-func (r *Repository) PublishTerminal(_ context.Context, v receipt.Receipt) app.StoreResult {
-	if err := v.Validate(); err != nil {
-		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
-	}
-	result := atomicJSON(filepath.Join(r.root, "sessions", v.SessionID, "receipt.json"), v)
-	if result.Err != nil {
-		return result
-	}
-	snap := session.Snapshot{SchemaVersion: 1, OperationID: v.OperationID, SessionID: v.SessionID, DaemonIncarnation: v.DaemonIncarnation, State: v.State, Outcome: v.Outcome, OutputBytes: v.OutputBytes, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
-	return atomicJSON(filepath.Join(r.root, "sessions", v.SessionID, "metadata.json"), snap)
-}
-
-func (r *Repository) LoadReceipt(_ context.Context, id operation.SessionID) (receipt.Receipt, error) {
-	var v receipt.Receipt
-	return v, readStrict(filepath.Join(r.root, "sessions", string(id), "receipt.json"), &v)
 }
 
 func (r *Repository) AppendOutput(_ context.Context, id operation.SessionID, b []byte) (int, app.StoreResult) {

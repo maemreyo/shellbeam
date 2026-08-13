@@ -150,15 +150,15 @@ func runDaemon(ctx context.Context, args []string) error {
 		return err
 	}
 	incarnation := ulid.Make().String()
-	if err = store.AbandonUnresolved(ctx, incarnation); err != nil {
-		return err
-	}
 	svc := daemonapp.NewService(store, processadapter.Owner{}, daemonapp.Options{Incarnation: incarnation, Shell: cfg.Shell, MaxQueuedInputBytes: cfg.MaxQueuedInputSessionBytes, TerminationGrace: time.Duration(cfg.TerminationGraceMS) * time.Millisecond})
 	server, err := ipcadapter.Listen(paths.RuntimeDir, svc)
 	if err != nil {
 		return err
 	}
 	defer server.Close()
+	if err = store.AbandonUnresolved(ctx, incarnation); err != nil {
+		return err
+	}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
