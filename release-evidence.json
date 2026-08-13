@@ -46,6 +46,11 @@
       "boundary": "signing_notarization",
       "status": "NOT_RUN",
       "evidence": "private source package"
+    },
+    {
+      "boundary": "govulncheck",
+      "status": "PASS",
+      "evidence": "govulncheck ./... on darwin/arm64, go1.26.5, verified 2026-08-13. 0 vulnerabilities in code or imported packages. 1 module-level advisory (GO-2026-5024, golang.org/x/sys/windows integer overflow) present but windows-only and unreachable from this codebase (linux/darwin build tags only)."
     }
   ]
 }
