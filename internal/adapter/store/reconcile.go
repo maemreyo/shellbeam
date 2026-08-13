@@ -3,15 +3,19 @@ package store
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
-	"os"
-	"path/filepath"
-	"time"
 )
 
 func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation string) error {
+	if err := r.repairCommittedOperations(ctx); err != nil {
+		return err
+	}
 	entries, err := os.ReadDir(filepath.Join(r.root, "sessions"))
 	if err != nil {
 		return err
@@ -27,20 +31,58 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 		if snap.State.Terminal() {
 			continue
 		}
+		existing, receiptErr := r.LoadReceipt(ctx, operation.SessionID(snap.SessionID))
+		if receiptErr == nil {
+			if got := r.PublishTerminal(ctx, existing); got.Err != nil {
+				return got.Err
+			}
+			continue
+		}
+		if !errors.Is(receiptErr, ErrNotFound) {
+			return receiptErr
+		}
+		fingerprint := ""
 		reservation, loadErr := r.LoadOperation(ctx, operation.ID(snap.OperationID))
-		if loadErr != nil {
+		if loadErr == nil {
+			fingerprint = reservation.Fingerprint
+		} else if !errors.Is(loadErr, ErrNotFound) {
 			return loadErr
 		}
-		rec := receipt.Receipt{SchemaVersion: 1, OperationID: snap.OperationID, SessionID: snap.SessionID, Fingerprint: reservation.Fingerprint, DaemonIncarnation: newIncarnation, State: session.Abandoned, Outcome: session.Ambiguous, FailureReason: "daemon_restarted", OutputComplete: false}
+		rec := receipt.Receipt{SchemaVersion: 1, OperationID: snap.OperationID, SessionID: snap.SessionID, Fingerprint: fingerprint, DaemonIncarnation: newIncarnation, State: session.Abandoned, Outcome: session.Ambiguous, FailureReason: "daemon_restarted", OutputComplete: false}
 		if got := r.PublishTerminal(ctx, rec); got.Err != nil {
 			return got.Err
 		}
-		snap.State = session.Abandoned
-		snap.Outcome = session.Ambiguous
-		snap.DaemonIncarnation = newIncarnation
-		snap.UpdatedAt = time.Now().UTC()
-		if got := r.AdvanceSession(ctx, snap); got.Err != nil {
-			return got.Err
+	}
+	return nil
+}
+
+func (r *Repository) repairCommittedOperations(ctx context.Context) error {
+	entries, err := os.ReadDir(filepath.Join(r.root, "operations"))
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasPrefix(entry.Name(), ".shellbeam-") {
+			if err := os.Remove(filepath.Join(r.root, "operations", entry.Name())); err != nil {
+				return err
+			}
+			continue
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			return errors.New("unexpected operation entry")
+		}
+		id := operation.ID(strings.TrimSuffix(entry.Name(), ".json"))
+		reservation, err := r.LoadOperation(ctx, id)
+		if err != nil {
+			return err
+		}
+		if _, err = r.LoadSession(ctx, reservation.SessionID); err == nil {
+			continue
+		} else if !errors.Is(err, ErrNotFound) {
+			return err
+		}
+		if result := r.ensureSessionMetadata(reservation); result.Err != nil {
+			return result.Err
 		}
 	}
 	return nil
