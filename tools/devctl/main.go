@@ -18,7 +18,7 @@ func main() {
 
 func run(args []string) (int, error) {
 	if len(args) == 0 {
-		return 2, fmt.Errorf("usage: devctl explain|check|test|verify")
+		return 2, fmt.Errorf("usage: devctl explain|check|test|build|verify")
 	}
 	base := argValue(args, "--base", "main")
 	receipt := Evidence{SchemaVersion: 1, Command: args[0], Base: base, StartedAt: time.Now().UTC()}
@@ -27,20 +27,29 @@ func run(args []string) (int, error) {
 		return 1, err
 	}
 	receipt.SourceFingerprint = fingerprint
-	receipt.ChangedFiles, _ = changedFiles(base)
-	receipt.SelectedPackages, err = listPackages()
-	if err != nil {
-		return 1, err
+	if args[0] != "release-evidence" {
+		receipt.ChangedFiles, err = changedFiles(base)
+		if err != nil {
+			return 1, err
+		}
 	}
+
 	switch args[0] {
 	case "explain":
+		err = applySelection(args, &receipt, false)
 	case "check":
 		err = checkRepository(".")
 	case "test":
-		err = runGoTest(receipt.SelectedPackages, false)
+		err = applySelection(args, &receipt, true)
+	case "build":
+		if err = applySelection(args, &receipt, false); err == nil {
+			var build BuildEvidence
+			build, err = runIncrementalBuild(".", receipt.SourceFingerprint)
+			receipt.Build = &build
+		}
 	case "verify":
 		if err = checkRepository("."); err == nil {
-			err = runGoTest(receipt.SelectedPackages, false)
+			err = applySelection(args, &receipt, true)
 		}
 	case "release-evidence":
 		path := argValue(args, "--out", ".build/release/release-evidence.json")
@@ -51,10 +60,33 @@ func run(args []string) (int, error) {
 	default:
 		return 2, fmt.Errorf("unknown devctl command %q", args[0])
 	}
+	return finishRun(args, receipt, err)
+}
+
+func applySelection(args []string, receipt *Evidence, execute bool) error {
+	selection, err := testSelection(args, receipt.ChangedFiles)
 	if err != nil {
+		return err
+	}
+	receipt.Selection = selection.Mode
+	receipt.SelectedSuites = selection.Suites
+	receipt.SelectionReasons = selection.Reasons
+	packages, err := goSuites(selection.Suites)
+	if err != nil {
+		return err
+	}
+	receipt.SelectedPackages = packages
+	if !execute || selection.Mode == "empty" {
+		return nil
+	}
+	return runGoTest(packages, false)
+}
+
+func finishRun(args []string, receipt Evidence, runErr error) (int, error) {
+	if runErr != nil {
 		receipt.ExitCode = 1
 		receipt.Status = "failed"
-		receipt.Error = err.Error()
+		receipt.Error = runErr.Error()
 	} else {
 		receipt.Status = "passed"
 	}
@@ -68,8 +100,8 @@ func run(args []string) (int, error) {
 	} else {
 		fmt.Printf("%s: %s (%s)\n", args[0], receipt.Status, path)
 	}
-	if err != nil {
-		return 1, err
+	if runErr != nil {
+		return 1, runErr
 	}
 	return 0, nil
 }
@@ -82,6 +114,7 @@ func argValue(args []string, name, fallback string) string {
 	}
 	return fallback
 }
+
 func hasArg(args []string, want string) bool {
 	for _, a := range args {
 		if a == want {

@@ -1,4 +1,5 @@
 version = 1
+global = ["go.mod", "go.sum"]
 
 [[mapping]]
 glob = "api/schema/**"
@@ -8,4 +9,18 @@ suites = ["./api/schema", "./tests/contract"]
 glob = "docs/**"
 suites = ["contract:markdown"]
 
-global = ["go.mod", "go.sum", "tools/devctl/**", "dev/**"]
+[[mapping]]
+glob = "tools/devctl/**"
+suites = ["./tools/devctl"]
+
+[[mapping]]
+glob = "dev/**"
+suites = ["./tools/devctl"]
+
+[[mapping]]
+glob = "Makefile"
+suites = ["./tools/devctl"]
+
+[[mapping]]
+glob = "AGENTS.md"
+suites = ["contract:markdown"]

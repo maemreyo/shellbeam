@@ -7,7 +7,7 @@ LOG := /tmp/shellbeam-daemon.log
 .PHONY: help build test vet fmt fmt-check tidy modverify doctor daemon run-mcp \
 	daemon-start daemon-stop daemon-restart daemon-status \
 	hardening security mcp-local vulncheck devctl-check devctl-verify \
-	release-evidence package verify-package clean ci
+	test-dirty build-dirty release-evidence package verify-package clean ci
 
 help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN{FS=":.*## "}{printf "  %-16s %s\n", $$1, $$2}'
@@ -91,6 +91,12 @@ devctl-check: ## devctl repository check (writes a receipt under .build/receipts
 
 devctl-verify: ## devctl check + test (writes a receipt under .build/receipts/)
 	go run ./tools/devctl verify
+
+test-dirty: ## Run only tests affected by the current source delta
+	go run ./tools/devctl test --dirty --base $${SHELLBEAM_BASE_REF:-origin/main}
+
+build-dirty: ## Incrementally build the current source through devctl
+	go run ./tools/devctl build --dirty --base $${SHELLBEAM_BASE_REF:-origin/main}
 
 release-evidence: ## Regenerate .build/release/release-evidence.json via devctl
 	go run ./tools/devctl release-evidence

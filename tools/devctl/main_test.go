@@ -92,3 +92,14 @@ func TestSourceFingerprintDoesNotFollowDirectorySymlink(t *testing.T) {
 		t.Fatal("fingerprint followed directory symlink target")
 	}
 }
+
+func TestGoSuitesAcceptsGoListPackagePaths(t *testing.T) {
+	got, err := goSuites([]string{"github.com/maemreyo/shellbeam/internal/core/operation"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"github.com/maemreyo/shellbeam/internal/core/operation"}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("packages=%v want %v", got, want)
+	}
+}

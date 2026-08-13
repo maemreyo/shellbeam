@@ -188,7 +188,7 @@ Do this commit only when the user authorizes implementation/commit work. The cur
 - `devctl build --dirty --base <ref> --json` reuses Go caches and writes operation-local output under `.build/workspaces/<source-digest>/<build-id>/` before atomic publication.
 - A global-path match selects all packages; no relevant change selects no tests and reports `selection=empty`, rather than silently running the full suite.
 
-- [ ] **Step 1: Write failing impact-selection tests**
+- [x] **Step 1: Write failing impact-selection tests**
 
 Table-test at least:
 
@@ -208,7 +208,7 @@ tests := []struct {
 
 Also cover rename pairs, deleted files, malformed TOML, overlapping mappings, deterministic order, and base-ref failure.
 
-- [ ] **Step 2: Prove the current bug RED**
+- [x] **Step 2: Prove the current bug RED**
 
 ```bash
 go test ./tools/devctl -run 'TestSelectImpact|TestDirtyTestDoesNotSelectAllOnNoChange' -count=1
@@ -216,7 +216,7 @@ go test ./tools/devctl -run 'TestSelectImpact|TestDirtyTestDoesNotSelectAllOnNoC
 
 Expected: failure because current `devctl` always calls `listPackages()` and ignores the actual dirty selection.
 
-- [ ] **Step 3: Implement impact parsing and evidence**
+- [x] **Step 3: Implement impact parsing and evidence**
 
 Parse `dev/test-impact.toml` once. Extend evidence with:
 
@@ -230,7 +230,7 @@ type SelectionReason struct {
 
 Use NUL-safe Git changed-path output. Keep package fallback deterministic and explicit. Never convert an empty selection into all packages unless `--full` was explicitly supplied.
 
-- [ ] **Step 4: Add incremental build publication**
+- [x] **Step 4: Add incremental build publication**
 
 Build to a unique staging directory keyed by source digest and build ID, then atomically publish `.build/shellbeam` only after success. Do not clear `GOCACHE`, use `-a`, or share an in-progress output path.
 
@@ -244,7 +244,7 @@ build-dirty:
 	go run ./tools/devctl build --dirty --base $${SHELLBEAM_BASE_REF:-origin/main}
 ```
 
-- [ ] **Step 5: Verify focused and dirty paths**
+- [x] **Step 5: Verify focused and dirty paths**
 
 ```bash
 go test ./tools/devctl -run 'TestSelectImpact|TestDirty|TestBuildPublication' -count=1
@@ -255,7 +255,7 @@ git diff --check
 
 Expected: selected suites/reasons match changed paths; a second build reuses Go cache; no fresh full suite is run.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add tools/devctl dev/test-impact.toml Makefile AGENTS.md

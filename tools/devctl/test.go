@@ -11,7 +11,12 @@ import (
 )
 
 func command(name string, args ...string) ([]byte, error) {
+	return commandIn("", name, args...)
+}
+
+func commandIn(dir, name string, args ...string) ([]byte, error) {
 	c := exec.Command(name, args...)
+	c.Dir = dir
 	c.Stderr = os.Stderr
 	return c.Output()
 }
@@ -27,29 +32,76 @@ func listPackages() ([]string, error) {
 }
 
 func changedFiles(base string) ([]string, error) {
-	var all []string
-	for _, args := range [][]string{{"diff", "--name-only", base + "...HEAD"}, {"diff", "--name-only"}, {"diff", "--name-only", "--cached"}, {"ls-files", "--others", "--exclude-standard"}} {
-		b, err := command("git", args...)
+	return changedFilesIn(".", base)
+}
+
+func changedFilesIn(root, base string) ([]string, error) {
+	seen := map[string]bool{}
+	for _, args := range [][]string{
+		{"diff", "--name-status", "-z", base + "...HEAD"},
+		{"diff", "--name-status", "-z"},
+		{"diff", "--name-status", "-z", "--cached"},
+	} {
+		b, err := commandIn(root, "git", args...)
 		if err != nil {
 			return nil, err
 		}
-		all = append(all, strings.Fields(string(b))...)
-	}
-	seen := map[string]bool{}
-	out := all[:0]
-	for _, p := range all {
-		if !seen[p] {
-			seen[p] = true
-			out = append(out, p)
+		paths, err := parseNameStatusZ(b)
+		if err != nil {
+			return nil, err
 		}
+		for _, p := range paths {
+			seen[p] = true
+		}
+	}
+	b, err := commandIn(root, "git", "ls-files", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range splitNUL(b) {
+		seen[p] = true
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
 	}
 	sort.Strings(out)
 	return out, nil
 }
 
+func parseNameStatusZ(data []byte) ([]string, error) {
+	fields := splitNUL(data)
+	var paths []string
+	for i := 0; i < len(fields); {
+		status := fields[i]
+		i++
+		if status == "" || i >= len(fields) {
+			return nil, fmt.Errorf("malformed git name-status output")
+		}
+		paths = append(paths, fields[i])
+		i++
+		if status[0] == 'R' || status[0] == 'C' {
+			if i >= len(fields) {
+				return nil, fmt.Errorf("malformed git rename/copy output")
+			}
+			paths = append(paths, fields[i])
+			i++
+		}
+	}
+	return paths, nil
+}
+
+func splitNUL(data []byte) []string {
+	parts := strings.Split(string(data), "\x00")
+	if len(parts) != 0 && parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	return parts
+}
+
 func runGoTest(packages []string, race bool) error {
 	if len(packages) == 0 {
-		return fmt.Errorf("empty package selection")
+		return nil
 	}
 	args := []string{"test"}
 	if race {
