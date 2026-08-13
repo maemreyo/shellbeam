@@ -10,8 +10,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 type fakeActions struct{}
@@ -171,5 +174,159 @@ func TestServerCloseDoesNotUnlinkReplacementSocket(t *testing.T) {
 	}
 	if !os.SameFile(replacementInfo, current) {
 		t.Fatal("replacement socket changed during old server close")
+	}
+}
+
+func TestListenWaitsForStartupLock(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-start-lock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	lockPath := filepath.Join(runtime, startupLockName)
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+
+	result := make(chan error, 1)
+	var srv *Server
+	go func() {
+		var listenErr error
+		srv, listenErr = Listen(runtime, fakeActions{})
+		result <- listenErr
+	}()
+	select {
+	case err := <-result:
+		if srv != nil {
+			_ = srv.Close()
+		}
+		t.Fatalf("Listen returned while startup lock held: %v", err)
+	case <-time.After(75 * time.Millisecond):
+	}
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Listen after startup unlock: %v", err)
+		}
+		defer srv.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("Listen did not resume after startup unlock")
+	}
+}
+
+func TestConcurrentListenOnStaleSocketHasSingleWinner(t *testing.T) {
+	for round := 0; round < 500; round++ {
+		runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-stale-race-")
+		if err != nil {
+			t.Fatal(err)
+		}
+		socket := filepath.Join(runtime, "daemon.sock")
+		stale, err := net.Listen("unix", socket)
+		if err != nil {
+			_ = os.RemoveAll(runtime)
+			t.Fatal(err)
+		}
+		if unixListener, ok := stale.(*net.UnixListener); ok {
+			unixListener.SetUnlinkOnClose(false)
+		}
+		if err := stale.Close(); err != nil {
+			_ = os.RemoveAll(runtime)
+			t.Fatal(err)
+		}
+
+		start := make(chan struct{})
+		type result struct {
+			srv *Server
+			err error
+		}
+		results := make(chan result, 2)
+		var ready sync.WaitGroup
+		ready.Add(2)
+		for i := 0; i < 2; i++ {
+			go func() {
+				ready.Done()
+				<-start
+				srv, err := Listen(runtime, fakeActions{})
+				results <- result{srv: srv, err: err}
+			}()
+		}
+		ready.Wait()
+		close(start)
+
+		var successes, alreadyRunning int
+		var servers []*Server
+		for i := 0; i < 2; i++ {
+			got := <-results
+			if got.srv != nil {
+				servers = append(servers, got.srv)
+			}
+			switch {
+			case got.err == nil:
+				successes++
+			case got.err.Error() == "daemon_already_running":
+				alreadyRunning++
+			default:
+				for _, srv := range servers {
+					_ = srv.Close()
+				}
+				_ = os.RemoveAll(runtime)
+				t.Fatalf("round %d unexpected Listen error: %v", round, got.err)
+			}
+		}
+		for _, srv := range servers {
+			_ = srv.Close()
+		}
+		_ = os.RemoveAll(runtime)
+		if successes != 1 || alreadyRunning != 1 {
+			t.Fatalf("round %d: successes=%d daemon_already_running=%d", round, successes, alreadyRunning)
+		}
+	}
+}
+
+func TestServerCloseWaitsForStartupLock(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-close-lock-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	srv, err := Listen(runtime, fakeActions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve()
+
+	lock, err := os.OpenFile(filepath.Join(runtime, startupLockName), os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Close()
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- srv.Close() }()
+	select {
+	case err := <-closed:
+		t.Fatalf("Server.Close returned while socket transition lock held: %v", err)
+	case <-time.After(75 * time.Millisecond):
+	}
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_UN); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Server.Close after startup unlock: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Server.Close did not resume after startup unlock")
 	}
 }

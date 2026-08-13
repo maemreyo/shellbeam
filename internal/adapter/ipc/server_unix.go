@@ -41,6 +41,11 @@ func listen(runtime string, actions Actions, dial socketDialer) (*Server, error)
 	if err := prepareRuntime(runtime); err != nil {
 		return nil, err
 	}
+	lock, err := acquireStartupLock(runtime)
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Close()
 	socket := filepath.Join(runtime, "daemon.sock")
 	ln, socketInfo, err := claimSocket(socket, dial)
 	if err != nil {
@@ -151,6 +156,11 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) removeOwnedSocket() error {
+	lock, err := acquireStartupLock(filepath.Dir(s.socket))
+	if err != nil {
+		return err
+	}
+	defer lock.Close()
 	current, err := os.Lstat(s.socket)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
