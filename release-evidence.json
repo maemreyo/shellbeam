@@ -34,8 +34,8 @@
     },
     {
       "boundary": "macos_native_runtime",
-      "status": "NOT_RUN",
-      "evidence": "cross-build only on Linux host"
+      "status": "PASS",
+      "evidence": "go build + go test -count=1 ./... (19/19 packages) natively on darwin/arm64, go1.26.5, verified 2026-08-13. Required a fix: internal/adapter/ipc/ipc_integration_test.go TestServerClientUnixSocket used t.TempDir(), which resolves under macOS's long $TMPDIR and overflows Darwin's 104-byte sun_path limit once joined with the socket name; switched to os.MkdirTemp(\"/tmp\", ...) to keep the path short."
     },
     {
       "boundary": "secure_mcp_tunnel_chatgpt",
