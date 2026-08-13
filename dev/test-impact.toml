@@ -2,5 +2,29 @@ version = 1
 global = ["go.mod", "go.sum"]
 
 [[mapping]]
-glob = "cmd/**"
-suites = ["./cmd/shellbeam"]
+glob = "api/schema/**"
+suites = ["./api/schema", "./tests/contract"]
+
+[[mapping]]
+glob = "docs/**"
+suites = ["contract:markdown"]
+
+[[mapping]]
+glob = "tools/devctl/**"
+suites = ["./tools/devctl"]
+
+[[mapping]]
+glob = "dev/**"
+suites = ["./tools/devctl"]
+
+[[mapping]]
+glob = "Makefile"
+suites = ["./tools/devctl"]
+
+[[mapping]]
+glob = ".githooks/**"
+suites = ["./tools/devctl"]
+
+[[mapping]]
+glob = "AGENTS.md"
+suites = ["contract:markdown"]
