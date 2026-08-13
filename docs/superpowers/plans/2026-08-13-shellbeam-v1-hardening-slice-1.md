@@ -41,3 +41,11 @@ Scope is limited to singleton daemon ownership and immutable/recoverable persist
 5. Run go vet ./... and targeted race tests for cmd, IPC, store, and daemon.
 6. Inspect diff, size limits, and architecture barriers.
 7. Commit after all evidence is green. Do not push or open a PR.
+
+## Task 5: Serialize stale-socket pathname transitions
+
+1. Add a failing IPC regression that creates one refused stale Unix socket, releases two `Listen()` callers concurrently, and asserts exactly one success plus exactly one `daemon_already_running`; repeat enough rounds to exercise the former TOCTOU and run the test under `-race`.
+2. Add a package-private short-lived transition lock on a regular file inside the validated runtime directory using `flock`; hold it across socket inspection/probe, stale unlink, `net.Listen`, socket chmod, and identity capture, then release it before `Listen()` returns. After listener shutdown, `Server.Close()` uses the same lock only around identity-checked pathname removal. The lock must not be stored on `Server` or used by reconciliation.
+3. Preserve fail-closed probe semantics: only `ECONNREFUSED` permits stale reclaim; timeout/permission/resource/unknown errors return `daemon_already_running`. Preserve `SetUnlinkOnClose(false)` and identity-checked `Server.Close()`.
+4. Run the concurrent regression repeatedly and under `-race`, then run IPC/cmd/store/daemon race scopes, full fresh tests/vet, hardening campaign, dirty/checkpoint with `.codegraph` present, Linux amd64/arm64 cross-builds, and `git diff --check`.
+5. Commit the IPC fix separately from the already-resolved devctl tooling commit; do not push or open a PR.

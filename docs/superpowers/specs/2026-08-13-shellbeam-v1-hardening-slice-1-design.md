@@ -21,7 +21,9 @@ Daemon startup reconciles unresolved sessions before acquiring the Unix listener
 
 ### Listener-first startup
 
-runDaemon opens the store, acquires the protected Unix listener, and only then calls AbandonUnresolved. If later setup fails, the listener is closed by its owner. The listener is the V1 singleton lease; no second lock authority is added.
+runDaemon opens the store, acquires the protected Unix listener, and only then calls AbandonUnresolved. If later setup fails, the listener is closed by its owner. The listener remains the V1 lifetime singleton lease.
+
+`Listen` serializes the startup pathname transition with a short-lived advisory lock file inside the already-protected runtime directory: acquire lock -> inspect/probe `daemon.sock` -> reclaim only a proven-refused stale socket -> bind/configure the new listener and capture its identity -> release lock. `Server.Close` acquires the same transition lock only after listener shutdown and only around identity-checked pathname removal, so a new owner cannot rebind between the old owner's check and unlink. The lock is never retained by `Server`, never authorizes reconciliation, and is not a second lifetime ownership authority. This closes concurrent reclaim/bind/unlink TOCTOU without changing daemon runtime ownership semantics.
 
 ### Append-once terminal publication
 
