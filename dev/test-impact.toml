@@ -22,5 +22,9 @@ glob = "Makefile"
 suites = ["./tools/devctl"]
 
 [[mapping]]
+glob = ".githooks/**"
+suites = ["./tools/devctl"]
+
+[[mapping]]
 glob = "AGENTS.md"
 suites = ["contract:markdown"]

@@ -99,6 +99,23 @@ func splitNUL(data []byte) []string {
 	return parts
 }
 
+func runGoVet(packages []string) error {
+	if len(packages) == 0 {
+		return nil
+	}
+	args := append([]string{"vet"}, packages...)
+	c := exec.Command("go", args...)
+	c.Env = cleanGitChildEnv(os.Environ())
+	var out bytes.Buffer
+	c.Stdout = &out
+	c.Stderr = &out
+	if err := c.Run(); err != nil {
+		return fmt.Errorf("go vet: %w\n%s", err, out.String())
+	}
+	fmt.Print(out.String())
+	return nil
+}
+
 func runGoTest(packages []string, race bool) error {
 	if len(packages) == 0 {
 		return nil
@@ -109,6 +126,7 @@ func runGoTest(packages []string, race bool) error {
 	}
 	args = append(args, packages...)
 	c := exec.Command("go", args...)
+	c.Env = cleanGitChildEnv(os.Environ())
 	var out bytes.Buffer
 	c.Stdout = &out
 	c.Stderr = &out
