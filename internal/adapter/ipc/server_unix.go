@@ -5,12 +5,14 @@ package ipc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -20,58 +22,116 @@ type Actions interface {
 	Write(context.Context, app.WriteRequest) (app.View, error)
 	Kill(context.Context, app.KillRequest) (app.View, error)
 }
+
+type socketDialer func(string, time.Duration) (net.Conn, error)
+
 type Server struct {
-	socket   string
-	listener net.Listener
-	http     *http.Server
-	actions  Actions
+	socket     string
+	socketInfo os.FileInfo
+	listener   net.Listener
+	http       *http.Server
+	actions    Actions
 }
 
 func Listen(runtime string, actions Actions) (*Server, error) {
-	if !filepath.IsAbs(runtime) {
-		return nil, fmt.Errorf("runtime path must be absolute")
-	}
-	if err := os.MkdirAll(runtime, 0700); err != nil {
+	return listen(runtime, actions, dialUnixSocket)
+}
+
+func listen(runtime string, actions Actions, dial socketDialer) (*Server, error) {
+	if err := prepareRuntime(runtime); err != nil {
 		return nil, err
-	}
-	if err := os.Chmod(runtime, 0700); err != nil {
-		return nil, err
-	}
-	if info, err := os.Lstat(runtime); err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0700 || !ownedByCurrent(info) {
-		if err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("unsafe runtime directory")
 	}
 	socket := filepath.Join(runtime, "daemon.sock")
-	if info, err := os.Lstat(socket); err == nil {
-		if info.Mode()&os.ModeSocket == 0 {
-			return nil, fmt.Errorf("unsafe socket collision")
-		}
-		conn, e := net.DialTimeout("unix", socket, 100*time.Millisecond)
-		if e == nil {
-			_ = conn.Close()
-			return nil, fmt.Errorf("daemon_already_running")
-		}
-		if err = os.Remove(socket); err != nil {
-			return nil, err
-		}
-	}
-	ln, err := net.Listen("unix", socket)
+	ln, socketInfo, err := claimSocket(socket, dial)
 	if err != nil {
 		return nil, err
 	}
-	if err = os.Chmod(socket, 0600); err != nil {
-		_ = ln.Close()
-		return nil, err
-	}
 	auth := &authListener{Listener: ln, uid: uint32(os.Getuid())}
-	s := &Server{socket: socket, listener: auth, actions: actions}
+	s := &Server{socket: socket, socketInfo: socketInfo, listener: auth, actions: actions}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	return s, nil
 }
+
+func prepareRuntime(runtime string) error {
+	if !filepath.IsAbs(runtime) {
+		return fmt.Errorf("runtime path must be absolute")
+	}
+	if err := os.MkdirAll(runtime, 0700); err != nil {
+		return err
+	}
+	if err := os.Chmod(runtime, 0700); err != nil {
+		return err
+	}
+	info, err := os.Lstat(runtime)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0700 || !ownedByCurrent(info) {
+		return fmt.Errorf("unsafe runtime directory")
+	}
+	return nil
+}
+
+func claimSocket(socket string, dial socketDialer) (net.Listener, os.FileInfo, error) {
+	if info, err := os.Lstat(socket); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, nil, fmt.Errorf("unsafe socket collision")
+		}
+		if err := removeStaleSocket(socket, info, dial); err != nil {
+			return nil, nil, err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, nil, err
+	}
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		return nil, nil, err
+	}
+	if unixListener, ok := ln.(*net.UnixListener); ok {
+		unixListener.SetUnlinkOnClose(false)
+	}
+	if err = os.Chmod(socket, 0600); err != nil {
+		_ = ln.Close()
+		_ = os.Remove(socket)
+		return nil, nil, err
+	}
+	info, err := os.Lstat(socket)
+	if err != nil {
+		_ = ln.Close()
+		_ = os.Remove(socket)
+		return nil, nil, err
+	}
+	return ln, info, nil
+}
+
+func removeStaleSocket(socket string, expected os.FileInfo, dial socketDialer) error {
+	conn, err := dial(socket, 100*time.Millisecond)
+	if err == nil {
+		_ = conn.Close()
+		return fmt.Errorf("daemon_already_running")
+	}
+	if !errors.Is(err, syscall.ECONNREFUSED) {
+		return fmt.Errorf("daemon_already_running")
+	}
+	current, err := os.Lstat(socket)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if !os.SameFile(expected, current) {
+		return fmt.Errorf("daemon_already_running")
+	}
+	return os.Remove(socket)
+}
+
+func dialUnixSocket(socket string, timeout time.Duration) (net.Conn, error) {
+	return net.DialTimeout("unix", socket, timeout)
+}
+
 func (s *Server) SocketPath() string { return s.socket }
 func (s *Server) Serve() error {
 	err := s.http.Serve(s.listener)
@@ -84,9 +144,26 @@ func (s *Server) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	err := s.http.Shutdown(ctx)
-	_ = os.Remove(s.socket)
+	if removeErr := s.removeOwnedSocket(); err == nil && removeErr != nil {
+		err = removeErr
+	}
 	return err
 }
+
+func (s *Server) removeOwnedSocket() error {
+	current, err := os.Lstat(s.socket)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if current.Mode()&os.ModeSocket == 0 || s.socketInfo == nil || !os.SameFile(s.socketInfo, current) {
+		return nil
+	}
+	return os.Remove(s.socket)
+}
+
 func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	req, err := decodeRequest(r.Body)
 	if err != nil {
