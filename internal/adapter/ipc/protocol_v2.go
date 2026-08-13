@@ -9,6 +9,7 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
 const ipcV2 = 2
@@ -41,6 +42,7 @@ type ResponseV2 struct {
 	Action    string              `json:"action"`
 	OK        bool                `json:"ok"`
 	View      *app.View           `json:"view,omitempty"`
+	Result    *receipt.Result     `json:"result,omitempty"`
 	Server    *capability.Catalog `json:"server,omitempty"`
 	Error     *Error              `json:"error,omitempty"`
 }

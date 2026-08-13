@@ -26,7 +26,7 @@ type liveSession struct {
 	mu             sync.Mutex
 	operationID    string
 	sessionID      string
-	fingerprint    string
+	reservation    operation.Reservation
 	spec           operation.ExecutionSpec
 	state          session.State
 	outcome        session.Outcome
@@ -87,6 +87,7 @@ func invalidIntentFailure(err error) error {
 	}
 	return failure.New(failure.InvalidInput, map[string]string{"field": field}, err)
 }
+
 func (s *Service) put(v *liveSession) { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
 func (l *liveSession) notify()        { close(l.changed); l.changed = make(chan struct{}) }
 
@@ -96,12 +97,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
 	}
 	intent := operation.Intent{Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
-	fp, err := intent.Fingerprint()
+	reservation, err := s.reservationForStart(req, id, intent)
 	if err != nil {
 		return View{}, invalidIntentFailure(err)
 	}
 	sid := newSessionID()
-	reservation := operation.Reservation{SchemaVersion: 1, OperationID: id, SessionID: operation.SessionID(sid), Fingerprint: fp, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Shell: s.options.Shell, DaemonIncarnation: s.options.Incarnation, CreatedAt: time.Now().UTC()}
+	reservation.SessionID = operation.SessionID(sid)
+	reservation.CreatedAt = time.Now().UTC()
 	stored, created, result := s.store.ReserveOperation(ctx, reservation)
 	if result.Err != nil {
 		return View{}, failure.Normalize(result.Err)
@@ -110,7 +112,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if !created {
 		return s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	}
-	live := &liveSession{operationID: req.OperationID, sessionID: sid, fingerprint: fp, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	live := &liveSession{operationID: req.OperationID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	s.put(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
@@ -173,7 +175,9 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	l.state = session.Finalizing
 	l.outcome = session.Failure
 	l.mu.Unlock()
-	rec := receipt.Receipt{SchemaVersion: 1, OperationID: l.operationID, SessionID: l.sessionID, Fingerprint: l.fingerprint, DaemonIncarnation: s.options.Incarnation, State: session.Failed, Outcome: session.Failure, FailureReason: "spawn_failed", Spawn: l.spawn}
+	rec := s.receiptFor(l, session.Failed, session.Failure)
+	rec.FailureReason = "spawn_failed"
+	rec.Spawn = l.spawn
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = session.Failed
@@ -202,7 +206,7 @@ func (s *Service) waitLoop(l *liveSession) {
 		state, outcome = session.Killed, session.KilledOutcome
 	} else if captureErr != nil {
 		state, outcome = session.Killed, session.KilledOutcome
-		reason = captureErr.Error()
+		reason = "output_capture_failed"
 	} else if exit.Code != nil && *exit.Code == 0 && accepted == delivered {
 		state = session.Completed
 		outcome = session.Success
@@ -210,7 +214,20 @@ func (s *Service) waitLoop(l *liveSession) {
 		reason = "input_delivery_failed"
 	}
 	l.mu.Unlock()
-	rec := receipt.Receipt{SchemaVersion: 1, OperationID: l.operationID, SessionID: l.sessionID, Fingerprint: l.fingerprint, DaemonIncarnation: s.options.Incarnation, State: state, Outcome: outcome, Shell: l.spec.Shell, CWD: l.spec.CWD, TTY: l.spec.TTY, TimeoutMS: l.spec.TimeoutMS, OutputBytes: outputBytes, OutputComplete: captureErr == nil, InputAcceptedBytes: accepted, InputDeliveredBytes: delivered, StdinClosed: eof, FailureReason: reason, Spawn: l.spawn, Exit: exit, Signal: signalEvidence}
+	rec := s.receiptFor(l, state, outcome)
+	rec.Shell = l.spec.Shell
+	rec.CWD = l.spec.CWD
+	rec.TTY = l.spec.TTY
+	rec.TimeoutMS = l.spec.TimeoutMS
+	rec.OutputBytes = outputBytes
+	rec.OutputComplete = captureErr == nil
+	rec.InputAcceptedBytes = accepted
+	rec.InputDeliveredBytes = delivered
+	rec.StdinClosed = eof
+	rec.FailureReason = reason
+	rec.Spawn = l.spawn
+	rec.Exit = exit
+	rec.Signal = signalEvidence
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = state

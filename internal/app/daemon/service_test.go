@@ -9,9 +9,11 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type fakeOwner struct{ starts atomic.Int32 }
@@ -102,5 +104,154 @@ func TestInspectServerDoesNotSpawn(t *testing.T) {
 	}
 	if got.Capabilities.ProtocolVersion != 2 || got.Capabilities.Limits.CommandBytes != 32768 {
 		t.Fatalf("server inspection=%#v", got)
+	}
+}
+
+func TestV2StartPersistsBindingsAndResponseControlsReplayWithoutSpawn(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &fakeOwner{}
+	svc := app.NewService(st, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	first := app.StartRequest{ProtocolVersion: 2, OperationID: "op-v2", Command: "true", CWD: "/", YieldMS: 100, MaxOutputBytes: 10}
+	a, err := svc.Start(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay := first
+	replay.YieldMS = 999
+	replay.MaxOutputBytes = 1
+	b, err := svc.Start(context.Background(), replay)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.SessionID != b.SessionID || owner.starts.Load() != 1 {
+		t.Fatalf("a=%#v b=%#v starts=%d", a, b, owner.starts.Load())
+	}
+	terminal := waitForTerminal(t, svc, a.SessionID)
+	if terminal.Receipt == nil || terminal.Receipt.SchemaVersion != 2 || terminal.Receipt.RequestFingerprint == "" || terminal.Receipt.ExecutionFingerprint == "" || terminal.Receipt.Fingerprint != "" {
+		t.Fatalf("v2 terminal receipt=%#v", terminal.Receipt)
+	}
+	stored, err := st.LoadOperation(context.Background(), "op-v2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.SchemaVersion != 2 || stored.RequestFingerprint == "" || stored.ExecutionFingerprint == "" || stored.Fingerprint != "" {
+		t.Fatalf("v2 reservation=%#v", stored)
+	}
+}
+
+func TestV2StartChangedRequestConflictsWithoutSecondSpawn(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &fakeOwner{}
+	svc := app.NewService(st, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	first, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-v2-conflict", Command: "true", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-v2-conflict", Command: "false", CWD: "/"})
+	if !errors.Is(err, failure.OperationConflict) {
+		t.Fatalf("changed request error=%v", err)
+	}
+	if owner.starts.Load() != 1 {
+		t.Fatalf("starts=%d want 1", owner.starts.Load())
+	}
+	waitForTerminal(t, svc, first.SessionID)
+}
+
+func waitForTerminal(t *testing.T, svc *app.Service, sessionID string) app.View {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	for {
+		view, err := svc.Poll(ctx, app.PollRequest{SessionID: sessionID, YieldMS: 100})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.State.Terminal() {
+			return view
+		}
+	}
+}
+
+type failingOutputOwner struct{}
+
+func (failingOutputOwner) Start(ctx context.Context, _ operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	if err := sink.Append(ctx, []byte("abcdef")); err != nil {
+		return nil, receipt.SpawnEvidence{Attempted: true}, err
+	}
+	return failingOutputHandle{}, receipt.SpawnEvidence{Attempted: true, Succeeded: true}, nil
+}
+
+type failingOutputHandle struct{}
+
+func (failingOutputHandle) Write([]byte) error { return nil }
+func (failingOutputHandle) CloseStdin() error  { return nil }
+func (failingOutputHandle) Signal(string) receipt.SignalEvidence {
+	return receipt.SignalEvidence{Attempted: true, Succeeded: true}
+}
+func (failingOutputHandle) Wait(context.Context) receipt.ExitEvidence {
+	code := 1
+	return receipt.ExitEvidence{Reaped: true, Code: &code}
+}
+func (failingOutputHandle) Close() error { return nil }
+
+func TestV2StructuredResultSeparatesChildFailureAndExactOutputAccounting(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(st, failingOutputOwner{}, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-v2-result", Command: "false", CWD: "/", MaxOutputBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForTerminal(t, svc, started.SessionID)
+	view, err := svc.Poll(context.Background(), app.PollRequest{SessionID: started.SessionID, Cursor: 0, MaxOutputBytes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := view.StructuredResult()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Operation.State != receipt.OperationTerminal || got.Child == nil || got.Child.State != receipt.ChildExited || got.Child.Outcome != session.Failure {
+		t.Fatalf("result=%#v", got)
+	}
+	if got.Child.ExitCode == nil || *got.Child.ExitCode != 1 {
+		t.Fatalf("child=%#v", got.Child)
+	}
+	if got.Output.Preview != "abcd" || got.Output.RawBytes != 6 || got.Output.ReturnedBytes != 4 || got.Output.Cursor != 0 || got.Output.NextCursor != 4 || !got.Output.Truncated || !got.Output.OutputComplete {
+		t.Fatalf("output=%#v", got.Output)
+	}
+}
+
+type captureFailureOwner struct{}
+
+func (captureFailureOwner) Start(ctx context.Context, _ operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	sink.CaptureFailed(errors.New("capture failed at /Users/alice/private TOKEN=supersecret"))
+	return fakeHandle{}, receipt.SpawnEvidence{Attempted: true, Succeeded: true}, nil
+}
+
+func TestV2TerminalReceiptRedactsCaptureFailureDiagnostics(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(st, captureFailureOwner{}, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-v2-redact", Command: "true", CWD: "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := waitForTerminal(t, svc, started.SessionID)
+	if terminal.Receipt == nil {
+		t.Fatal("terminal receipt missing")
+	}
+	if terminal.Receipt.FailureReason != "output_capture_failed" {
+		t.Fatalf("unsafe failure reason=%q", terminal.Receipt.FailureReason)
 	}
 }

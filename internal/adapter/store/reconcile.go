@@ -41,14 +41,11 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 		if !errors.Is(receiptErr, ErrNotFound) {
 			return receiptErr
 		}
-		fingerprint := ""
 		reservation, loadErr := r.LoadOperation(ctx, operation.ID(snap.OperationID))
-		if loadErr == nil {
-			fingerprint = reservation.Fingerprint
-		} else if !errors.Is(loadErr, ErrNotFound) {
+		if loadErr != nil && !errors.Is(loadErr, ErrNotFound) {
 			return loadErr
 		}
-		rec := receipt.Receipt{SchemaVersion: 1, OperationID: snap.OperationID, SessionID: snap.SessionID, Fingerprint: fingerprint, DaemonIncarnation: newIncarnation, State: session.Abandoned, Outcome: session.Ambiguous, FailureReason: "daemon_restarted", OutputComplete: false}
+		rec := abandonedReceipt(snap, reservation, loadErr == nil, newIncarnation)
 		if got := r.PublishTerminal(ctx, rec); got.Err != nil {
 			return got.Err
 		}
@@ -86,4 +83,24 @@ func (r *Repository) repairCommittedOperations(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func abandonedReceipt(snap session.Snapshot, reservation operation.Reservation, hasReservation bool, incarnation string) receipt.Receipt {
+	rec := receipt.Receipt{
+		SchemaVersion: 1, OperationID: snap.OperationID, SessionID: snap.SessionID,
+		DaemonIncarnation: incarnation, State: session.Abandoned, Outcome: session.Ambiguous,
+		FailureReason: "daemon_restarted", OutputComplete: false,
+	}
+	if !hasReservation {
+		return rec
+	}
+	if reservation.SchemaVersion == 2 {
+		rec.SchemaVersion = 2
+		rec.RequestFingerprint = reservation.RequestFingerprint
+		rec.ExecutionFingerprint = reservation.ExecutionFingerprint
+		rec.ObservationBindingFingerprint = reservation.ObservationBindingFingerprint
+		return rec
+	}
+	rec.Fingerprint = reservation.Fingerprint
+	return rec
 }

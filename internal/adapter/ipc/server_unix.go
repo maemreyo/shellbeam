@@ -216,13 +216,25 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
 	switch req.Action {
 	case "start":
-		view, callErr := s.actions.Start(r.Context(), app.StartRequest{OperationID: req.OperationID, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
 		err = callErr
-		resp.View = &view
+		if err == nil {
+			result, resultErr := view.StructuredResult()
+			err = resultErr
+			if resultErr == nil {
+				resp.Result = &result
+			}
+		}
 	case "poll":
 		view, callErr := s.actions.Poll(r.Context(), app.PollRequest{SessionID: req.SessionID, Cursor: req.Cursor, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
 		err = callErr
-		resp.View = &view
+		if err == nil {
+			result, resultErr := view.StructuredResult()
+			err = resultErr
+			if resultErr == nil {
+				resp.Result = &result
+			}
+		}
 	case "write":
 		view, callErr := s.actions.Write(r.Context(), app.WriteRequest{SessionID: req.SessionID, InputOffset: req.InputOffset, Chars: req.Chars, EOF: req.EOF})
 		err = callErr
@@ -240,6 +252,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 	resp.OK = err == nil
 	if err != nil {
 		resp.View = nil
+		resp.Result = nil
 		resp.Server = nil
 		resp.Error = errorEnvelope(err)
 	}

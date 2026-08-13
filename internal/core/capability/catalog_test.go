@@ -18,7 +18,7 @@ func TestCatalogBaselineIsHonestAboutCurrentSupport(t *testing.T) {
 	if catalog.ProtocolVersion != 2 {
 		t.Fatalf("protocol=%d", catalog.ProtocolVersion)
 	}
-	if !reflect.DeepEqual(catalog.ReceiptSchemaVersions, []int{1}) {
+	if !reflect.DeepEqual(catalog.ReceiptSchemaVersions, []int{1, 2}) {
 		t.Fatalf("receipt versions=%v", catalog.ReceiptSchemaVersions)
 	}
 	if len(catalog.ManifestVersions) != 0 {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -26,8 +27,8 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	} else if !errors.Is(err, ErrNotFound) {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	if want.SchemaVersion != 1 || want.OperationID == "" || want.SessionID == "" {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("invalid reservation")}
+	if err := validateReservation(want); err != nil {
+		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	active, used, err := r.usage()
 	if err != nil {
@@ -58,10 +59,32 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 }
 
 func (r *Repository) replayReservation(want, existing operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
-	if existing.Fingerprint != want.Fingerprint {
-		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: fmt.Errorf("operation_conflict")}
+	if existing.EffectiveRequestFingerprint() != want.EffectiveRequestFingerprint() {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
+	}
+	if existing.ObservationBindingFingerprint != want.ObservationBindingFingerprint {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
 	return existing, false, r.ensureSessionMetadata(existing)
+}
+
+func validateReservation(v operation.Reservation) error {
+	if v.OperationID == "" || v.SessionID == "" {
+		return fmt.Errorf("invalid reservation")
+	}
+	switch v.SchemaVersion {
+	case 1:
+		if v.Fingerprint == "" {
+			return fmt.Errorf("invalid reservation")
+		}
+	case 2:
+		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
+			return fmt.Errorf("invalid reservation")
+		}
+	default:
+		return fmt.Errorf("invalid reservation")
+	}
+	return nil
 }
 
 func (r *Repository) ensureSessionMetadata(v operation.Reservation) app.StoreResult {

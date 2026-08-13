@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shellbeam.dev/schema/receipt-v2.json",
+  "title": "ShellBeam receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "spawn_evidence": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "attempted": {"type": "boolean"}, "succeeded": {"type": "boolean"}, "error_code": {"type": "string"}
+      },
+      "required": ["attempted", "succeeded"]
+    },
+    "exit_evidence": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "reaped": {"type": "boolean"}, "code": {"type": "integer"}, "signal": {"type": "string"}
+      },
+      "required": ["reaped"]
+    },
+    "signal_evidence": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "requested": {"type": "string"}, "attempted": {"type": "boolean"}, "succeeded": {"type": "boolean"}
+      },
+      "required": ["attempted", "succeeded"]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": 2},
+    "operation_id": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string", "minLength": 1},
+    "request_fingerprint": {"type": "string", "minLength": 1},
+    "execution_fingerprint": {"type": "string", "minLength": 1},
+    "observation_binding_fingerprint": {"type": "string", "minLength": 1},
+    "daemon_incarnation": {"type": "string", "minLength": 1},
+    "state": {"enum": ["starting", "running", "finalizing", "completed", "failed", "timed_out", "killed", "abandoned"]},
+    "outcome": {"enum": ["", "success", "failure", "timeout", "killed", "ambiguous"]},
+    "shell": {"type": "string"},
+    "cwd": {"type": "string"},
+    "tty": {"type": "boolean"},
+    "timeout_ms": {"type": "integer", "minimum": 0},
+    "output_bytes": {"type": "integer", "minimum": 0},
+    "output_complete": {"type": "boolean"},
+    "input_accepted_bytes": {"type": "integer", "minimum": 0},
+    "input_delivered_bytes": {"type": "integer", "minimum": 0},
+    "stdin_closed": {"type": "boolean"},
+    "failure_reason": {"type": "string"},
+    "spawn_evidence": {"$ref": "#/$defs/spawn_evidence"},
+    "exit_evidence": {"$ref": "#/$defs/exit_evidence"},
+    "signal_evidence": {"$ref": "#/$defs/signal_evidence"}
+  },
+  "required": [
+    "schema_version", "operation_id", "session_id", "request_fingerprint",
+    "execution_fingerprint", "daemon_incarnation", "state", "outcome", "tty",
+    "timeout_ms", "output_bytes", "output_complete", "input_accepted_bytes",
+    "input_delivered_bytes", "stdin_closed", "spawn_evidence", "exit_evidence", "signal_evidence"
+  ]
+}

@@ -30,3 +30,46 @@ func TestIntentRequiresExactAbsoluteCWD(t *testing.T) {
 		t.Fatal("relative cwd accepted")
 	}
 }
+
+func TestV2FingerprintsSeparateRequestExecutionObservationAndResponseControls(t *testing.T) {
+	intent := Intent{Command: "printf hi", CWD: "/tmp", TTY: true, TimeoutMS: 10, YieldMS: 5, MaxOutputBytes: 100}
+	requestA, err := intent.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	responseChanged := intent
+	responseChanged.YieldMS = 999
+	responseChanged.MaxOutputBytes = 1
+	requestB, err := responseChanged.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestA != requestB {
+		t.Fatal("response controls changed request fingerprint")
+	}
+	execA, err := intent.ExecutionFingerprint("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execB, err := intent.ExecutionFingerprint("/bin/zsh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execA == execB || execA == requestA {
+		t.Fatalf("execution fingerprint did not bind effective shell: request=%s sh=%s zsh=%s", requestA, execA, execB)
+	}
+	if got, err := (ObservationBinding{}).Fingerprint(); err != nil || got != "" {
+		t.Fatalf("empty observation binding = %q, %v", got, err)
+	}
+	obsA, err := (ObservationBinding{ActivityID: "activity-a"}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	obsB, err := (ObservationBinding{ActivityID: "activity-b"}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obsA == "" || obsA == obsB {
+		t.Fatalf("observation fingerprints not distinct: %q %q", obsA, obsB)
+	}
+}

@@ -15,13 +15,14 @@ type Options struct {
 	Capabilities        capability.Catalog
 }
 type StartRequest struct {
-	OperationID    string `json:"operation_id"`
-	Command        string `json:"command"`
-	CWD            string `json:"cwd"`
-	TTY            bool   `json:"tty"`
-	TimeoutMS      int64  `json:"timeout_ms"`
-	YieldMS        int64  `json:"yield_time_ms"`
-	MaxOutputBytes int    `json:"max_output_bytes"`
+	ProtocolVersion int    `json:"-"`
+	OperationID     string `json:"operation_id"`
+	Command         string `json:"command"`
+	CWD             string `json:"cwd"`
+	TTY             bool   `json:"tty"`
+	TimeoutMS       int64  `json:"timeout_ms"`
+	YieldMS         int64  `json:"yield_time_ms"`
+	MaxOutputBytes  int    `json:"max_output_bytes"`
 }
 type PollRequest struct {
 	SessionID      string `json:"session_id"`
@@ -56,8 +57,17 @@ type View struct {
 	Signal             string                 `json:"signal,omitempty"`
 	SignalAttempt      receipt.SignalEvidence `json:"signal_attempt,omitempty"`
 	Receipt            *receipt.Receipt       `json:"receipt,omitempty"`
+	RawOutputBytes     int64                  `json:"-"`
 }
 
 type ServerInfo struct {
 	Capabilities capability.Catalog `json:"capabilities"`
+}
+
+func (v View) StructuredResult() (receipt.Result, error) {
+	return receipt.NewResult(receipt.ResultInput{
+		OperationID: v.OperationID, SessionID: v.SessionID, State: v.State, Outcome: v.Outcome,
+		Preview: v.Output, RawBytes: v.RawOutputBytes, Cursor: v.Cursor, NextCursor: v.NextCursor,
+		Truncated: v.Truncated, Receipt: v.Receipt,
+	})
 }

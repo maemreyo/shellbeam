@@ -67,7 +67,7 @@ func Baseline(limits Limits) Catalog {
 	}
 	return Catalog{
 		ProtocolVersion:       2,
-		ReceiptSchemaVersions: []int{1},
+		ReceiptSchemaVersions: []int{1, 2},
 		ManifestVersions:      []int{},
 		Features:              features,
 		Limits:                limits,

@@ -44,18 +44,26 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 	v := View{OperationID: string(res.OperationID), SessionID: sid, Output: text, Cursor: cursor, NextCursor: next, Truncated: truncated}
 	if l := s.get(sid); l != nil {
 		l.mu.Lock()
+		v.OperationID = l.operationID
 		v.State = l.state
 		v.Outcome = l.outcome
 		v.NextInputOffset = l.input.NextOffset()
+		v.RawOutputBytes = l.outputBytes
 		l.mu.Unlock()
 	} else if snap, e := s.store.LoadSession(ctx, operation.SessionID(sid)); e == nil {
+		v.OperationID = snap.OperationID
 		v.State = snap.State
 		v.Outcome = snap.Outcome
+		v.RawOutputBytes = snap.OutputBytes
 	}
 	if v.State.Terminal() {
 		if rec, e := s.store.LoadReceipt(ctx, operation.SessionID(sid)); e == nil {
 			v.Receipt = &rec
+			v.RawOutputBytes = rec.OutputBytes
 		}
+	}
+	if v.RawOutputBytes < next {
+		v.RawOutputBytes = next
 	}
 	return v, nil
 }
