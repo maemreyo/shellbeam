@@ -1,0 +1,14 @@
+version = 1
+forbidden_package_names = ["utils", "helpers", "common", "shared", "base", "misc", "models"]
+
+[[barrier]]
+from = "internal/core/..."
+deny = ["internal/app/...", "internal/adapter/...", "cmd/..."]
+
+[[barrier]]
+from = "internal/app/..."
+deny = ["internal/adapter/...", "cmd/..."]
+
+[[barrier]]
+from = "internal/adapter/..."
+deny_sibling_adapters = true

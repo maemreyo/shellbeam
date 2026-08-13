@@ -1,0 +1,5 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://shellbeam.dev/schema/ipc-v1.json",
+  "title":"ShellBeam IPC v1","type":"object","additionalProperties":false,
+  "properties":{"ipc_version":{"const":1},"request_id":{"type":"string"},"payload":{"type":"object"}},"required":["ipc_version","request_id","payload"]
+}

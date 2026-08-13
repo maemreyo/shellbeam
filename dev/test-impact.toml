@@ -1,0 +1,11 @@
+version = 1
+
+[[mapping]]
+glob = "api/schema/**"
+suites = ["./api/schema", "./tests/contract"]
+
+[[mapping]]
+glob = "docs/**"
+suites = ["contract:markdown"]
+
+global = ["go.mod", "go.sum", "tools/devctl/**", "dev/**"]

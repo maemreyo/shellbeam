@@ -1,0 +1,115 @@
+//go:build linux || darwin
+
+package ipc
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+type Actions interface {
+	Start(context.Context, app.StartRequest) (app.View, error)
+	Poll(context.Context, app.PollRequest) (app.View, error)
+	Write(context.Context, app.WriteRequest) (app.View, error)
+	Kill(context.Context, app.KillRequest) (app.View, error)
+}
+type Server struct {
+	socket   string
+	listener net.Listener
+	http     *http.Server
+	actions  Actions
+}
+
+func Listen(runtime string, actions Actions) (*Server, error) {
+	if !filepath.IsAbs(runtime) {
+		return nil, fmt.Errorf("runtime path must be absolute")
+	}
+	if err := os.MkdirAll(runtime, 0700); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(runtime, 0700); err != nil {
+		return nil, err
+	}
+	if info, err := os.Lstat(runtime); err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0700 || !ownedByCurrent(info) {
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("unsafe runtime directory")
+	}
+	socket := filepath.Join(runtime, "daemon.sock")
+	if info, err := os.Lstat(socket); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("unsafe socket collision")
+		}
+		conn, e := net.DialTimeout("unix", socket, 100*time.Millisecond)
+		if e == nil {
+			_ = conn.Close()
+			return nil, fmt.Errorf("daemon_already_running")
+		}
+		if err = os.Remove(socket); err != nil {
+			return nil, err
+		}
+	}
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		return nil, err
+	}
+	if err = os.Chmod(socket, 0600); err != nil {
+		_ = ln.Close()
+		return nil, err
+	}
+	auth := &authListener{Listener: ln, uid: uint32(os.Getuid())}
+	s := &Server{socket: socket, listener: auth, actions: actions}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/local-shell", s.handle)
+	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
+	return s, nil
+}
+func (s *Server) SocketPath() string { return s.socket }
+func (s *Server) Serve() error {
+	err := s.http.Serve(s.listener)
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+func (s *Server) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err := s.http.Shutdown(ctx)
+	_ = os.Remove(s.socket)
+	return err
+}
+func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
+	req, err := decodeRequest(r.Body)
+	if err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+	var view app.View
+	switch req.Payload.Action {
+	case "start":
+		view, err = s.actions.Start(r.Context(), app.StartRequest{OperationID: req.Payload.OperationID, Command: req.Payload.Command, CWD: req.Payload.CWD, TTY: req.Payload.TTY, TimeoutMS: req.Payload.TimeoutMS, YieldMS: req.Payload.YieldMS, MaxOutputBytes: req.Payload.MaxOutputBytes})
+	case "poll":
+		view, err = s.actions.Poll(r.Context(), app.PollRequest{SessionID: req.Payload.SessionID, Cursor: req.Payload.Cursor, YieldMS: req.Payload.YieldMS, MaxOutputBytes: req.Payload.MaxOutputBytes})
+	case "write":
+		view, err = s.actions.Write(r.Context(), app.WriteRequest{SessionID: req.Payload.SessionID, InputOffset: req.Payload.InputOffset, Chars: req.Payload.Chars, EOF: req.Payload.EOF})
+	case "kill":
+		view, err = s.actions.Kill(r.Context(), app.KillRequest{SessionID: req.Payload.SessionID, KillID: req.Payload.KillID, Signal: req.Payload.Signal})
+	default:
+		err = fmt.Errorf("unknown_action")
+	}
+	resp := Response{IPVersion: 1, RequestID: req.RequestID, OK: err == nil, View: view}
+	if err != nil {
+		resp.Error = &Error{Code: err.Error(), Message: "request failed"}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-13T06:34:15.623985237Z",
+  "commit": "6302466799d6b05a7639cebc35832a46956db956",
+  "source_fingerprint": "4207485ec19091702fb657fc0d0ed0096fd003b22a9ded47db9e16ff4fc75ed5",
+  "go_version": "go version go1.26.5 linux/amd64",
+  "host_os": "linux",
+  "host_arch": "amd64",
+  "results": [
+    {
+      "boundary": "go_test_full",
+      "status": "PASS",
+      "evidence": "go test -count=1 ./..."
+    },
+    {
+      "boundary": "race_current_host",
+      "status": "PASS",
+      "evidence": "scripts/test-hardening.sh"
+    },
+    {
+      "boundary": "mcp_sdk_in_memory",
+      "status": "PASS",
+      "evidence": "TestInMemoryConformance"
+    },
+    {
+      "boundary": "process_pty_current_host",
+      "status": "PASS",
+      "evidence": "native process integration tests"
+    },
+    {
+      "boundary": "unix_socket_native",
+      "status": "BLOCKED",
+      "evidence": "container sandbox denies AF_UNIX listen; user-run test included"
+    },
+    {
+      "boundary": "macos_native_runtime",
+      "status": "NOT_RUN",
+      "evidence": "cross-build only on Linux host"
+    },
+    {
+      "boundary": "secure_mcp_tunnel_chatgpt",
+      "status": "NOT_RUN",
+      "evidence": "credentials unavailable; user-run guide included"
+    },
+    {
+      "boundary": "signing_notarization",
+      "status": "NOT_RUN",
+      "evidence": "private source package"
+    }
+  ]
+}

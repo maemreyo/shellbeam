@@ -1,0 +1,9 @@
+[Unit]
+Description=ShellBeam local shell daemon
+[Service]
+Type=simple
+ExecStart={{ executable }} daemon --config {{ config }}
+Restart=on-failure
+UMask=0077
+[Install]
+WantedBy=default.target

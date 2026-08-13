@@ -1,0 +1,67 @@
+// Package receipt defines evidence required to interpret command outcomes.
+package receipt
+
+import (
+	"fmt"
+	"github.com/maemreyo/shellbeam/internal/core/session"
+)
+
+type SpawnEvidence struct {
+	Attempted bool   `json:"attempted"`
+	Succeeded bool   `json:"succeeded"`
+	ErrorCode string `json:"error_code,omitempty"`
+}
+type ExitEvidence struct {
+	Reaped bool   `json:"reaped"`
+	Code   *int   `json:"code,omitempty"`
+	Signal string `json:"signal,omitempty"`
+}
+type SignalEvidence struct {
+	Requested string `json:"requested,omitempty"`
+	Attempted bool   `json:"attempted"`
+	Succeeded bool   `json:"succeeded"`
+}
+
+type Receipt struct {
+	SchemaVersion       int             `json:"schema_version"`
+	OperationID         string          `json:"operation_id"`
+	SessionID           string          `json:"session_id"`
+	Fingerprint         string          `json:"fingerprint"`
+	DaemonIncarnation   string          `json:"daemon_incarnation"`
+	State               session.State   `json:"state"`
+	Outcome             session.Outcome `json:"outcome"`
+	Shell               string          `json:"shell,omitempty"`
+	CWD                 string          `json:"cwd,omitempty"`
+	TTY                 bool            `json:"tty"`
+	TimeoutMS           int64           `json:"timeout_ms"`
+	OutputBytes         int64           `json:"output_bytes"`
+	OutputComplete      bool            `json:"output_complete"`
+	InputAcceptedBytes  int64           `json:"input_accepted_bytes"`
+	InputDeliveredBytes int64           `json:"input_delivered_bytes"`
+	StdinClosed         bool            `json:"stdin_closed"`
+	FailureReason       string          `json:"failure_reason,omitempty"`
+	Spawn               SpawnEvidence   `json:"spawn_evidence"`
+	Exit                ExitEvidence    `json:"exit_evidence"`
+	Signal              SignalEvidence  `json:"signal_evidence"`
+}
+
+func (r Receipt) Validate() error {
+	if r.SchemaVersion != 1 {
+		return fmt.Errorf("unsupported receipt schema")
+	}
+	if r.InputDeliveredBytes > r.InputAcceptedBytes {
+		return fmt.Errorf("delivered input exceeds accepted")
+	}
+	if r.State == session.Completed && r.Outcome == session.Success {
+		if !r.Spawn.Attempted || !r.Spawn.Succeeded || !r.Exit.Reaped || r.Exit.Code == nil || *r.Exit.Code != 0 || !r.OutputComplete || r.InputAcceptedBytes != r.InputDeliveredBytes {
+			return fmt.Errorf("success lacks complete evidence")
+		}
+	}
+	if r.State == session.Abandoned && r.Outcome != session.Ambiguous {
+		return fmt.Errorf("abandoned must be ambiguous")
+	}
+	if r.State.Terminal() && r.Outcome == session.NoOutcome {
+		return fmt.Errorf("terminal outcome missing")
+	}
+	return nil
+}
