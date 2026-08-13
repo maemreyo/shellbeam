@@ -28,6 +28,7 @@
 - `forget` is metadata-only. Material worktree removal is explicit, reports dirty state, and requires `--force` only when Git itself needs force. Never auto-prune.
 - Repository manifests are untrusted declarative metadata. Inspecting or validating one never executes a declared command.
 - Use test-first slices. Run focused tests, then affected/dirty tests. Reuse Go's build cache; do not use `go build -a`, routine `go clean`, or a fresh full suite after every edit.
+- Every local commit in this linked worktree must execute the tracked `.githooks/pre-commit` by invoking Git as `git -c core.hooksPath=.githooks commit ...`. The hook runs the selective staged `devctl commit-gate`; do not set repository-common `core.hooksPath` or install into shared `.git/hooks` because that would affect sibling/primary worktrees.
 - Every cached test/build/evidence claim is bound to its exact source fingerprint. Unknown, cached, stale, truncated, or unavailable facts are labeled honestly.
 - No remote push, PR creation, service installation, account switching, or repository mutation beyond the named task without explicit user authorization.
 
