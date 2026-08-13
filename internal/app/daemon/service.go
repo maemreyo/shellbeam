@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -58,28 +60,48 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	if options.TerminationGrace <= 0 {
 		options.TerminationGrace = 5 * time.Second
 	}
+	if options.Capabilities.ProtocolVersion == 0 {
+		options.Capabilities = capability.Baseline(capability.Limits{})
+	} else {
+		options.Capabilities = options.Capabilities.Clone()
+	}
 	return &Service{store: store, owner: owner, options: options, live: map[string]*liveSession{}}
+}
+
+func (s *Service) CapabilityCatalog() capability.Catalog {
+	return s.options.Capabilities.Clone()
 }
 func newSessionID() string                    { return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String() }
 func (s *Service) get(id string) *liveSession { s.mu.RLock(); defer s.mu.RUnlock(); return s.live[id] }
-func (s *Service) put(v *liveSession)         { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
-func (l *liveSession) notify()                { close(l.changed); l.changed = make(chan struct{}) }
+
+func invalidIntentFailure(err error) error {
+	field := "command"
+	switch err.Error() {
+	case "cwd must be absolute":
+		field = "cwd"
+	case "timeout must be non-negative":
+		field = "timeout_ms"
+	}
+	return failure.New(failure.InvalidInput, map[string]string{"field": field}, err)
+}
+func (s *Service) put(v *liveSession) { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
+func (l *liveSession) notify()        { close(l.changed); l.changed = make(chan struct{}) }
 
 func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	id, err := operation.ParseID(req.OperationID)
 	if err != nil {
-		return View{}, err
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
 	}
 	intent := operation.Intent{Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
 	fp, err := intent.Fingerprint()
 	if err != nil {
-		return View{}, err
+		return View{}, invalidIntentFailure(err)
 	}
 	sid := newSessionID()
 	reservation := operation.Reservation{SchemaVersion: 1, OperationID: id, SessionID: operation.SessionID(sid), Fingerprint: fp, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Shell: s.options.Shell, DaemonIncarnation: s.options.Incarnation, CreatedAt: time.Now().UTC()}
 	stored, created, result := s.store.ReserveOperation(ctx, reservation)
 	if result.Err != nil {
-		return View{}, result.Err
+		return View{}, failure.Normalize(result.Err)
 	}
 	sid = string(stored.SessionID)
 	if !created {

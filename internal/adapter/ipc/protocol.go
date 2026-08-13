@@ -4,8 +4,10 @@ package ipc
 import (
 	"encoding/json"
 	"fmt"
-	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"io"
+
+	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 )
 
 type Action struct {
@@ -38,9 +40,20 @@ type Response struct {
 	Error     *Error   `json:"error,omitempty"`
 }
 type Error struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable"`
+	Code      string            `json:"code"`
+	Message   string            `json:"message"`
+	Retryable bool              `json:"retryable"`
+	Details   map[string]string `json:"details,omitempty"`
+}
+
+func errorEnvelope(err error) *Error {
+	public := failure.Public(err)
+	return &Error{
+		Code:      string(public.Code),
+		Message:   public.Message,
+		Retryable: public.Retryable,
+		Details:   public.Details,
+	}
 }
 
 func decodeRequest(r io.Reader) (Request, error) {

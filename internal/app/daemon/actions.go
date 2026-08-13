@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -36,7 +37,7 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 	}
 	b, next, err := s.store.ReadOutput(ctx, operation.SessionID(sid), cursor, max+4)
 	if err != nil {
-		return View{}, err
+		return View{}, failure.Normalize(err)
 	}
 	text, consumed, truncated := receipt.VisibleOutput(b, max)
 	next = cursor + int64(consumed)
@@ -61,12 +62,12 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 	l := s.get(req.SessionID)
 	if l == nil {
-		return View{}, fmt.Errorf("session_not_live")
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.state != session.Running {
-		return View{}, fmt.Errorf("session_not_writable")
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_writable"}, fmt.Errorf("session_not_writable"))
 	}
 	var result session.InputResult
 	var err error
@@ -76,7 +77,7 @@ func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 		result, err = l.input.AcceptChars(req.InputOffset, []byte(req.Chars))
 	}
 	if err != nil {
-		return View{}, err
+		return View{}, failure.Normalize(err)
 	}
 	if !result.Duplicate {
 		job := inputJob{data: []byte(req.Chars), eof: req.EOF}
@@ -89,13 +90,13 @@ func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 func (s *Service) Kill(_ context.Context, req KillRequest) (View, error) {
 	l := s.get(req.SessionID)
 	if l == nil {
-		return View{}, fmt.Errorf("session_not_live")
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	attempt, send, err := l.kills.Admit(req.KillID, req.Signal, l.state.Terminal())
 	if err != nil {
-		return View{}, err
+		return View{}, failure.Normalize(err)
 	}
 	if send {
 		l.terminalTarget = session.Killed

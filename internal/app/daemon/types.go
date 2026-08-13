@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	"time"
@@ -11,6 +12,7 @@ type Options struct {
 	Shell               string
 	MaxQueuedInputBytes int
 	TerminationGrace    time.Duration
+	Capabilities        capability.Catalog
 }
 type StartRequest struct {
 	OperationID    string `json:"operation_id"`

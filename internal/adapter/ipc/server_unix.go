@@ -195,7 +195,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := Response{IPVersion: 1, RequestID: req.RequestID, OK: err == nil, View: view}
 	if err != nil {
-		resp.Error = &Error{Code: err.Error(), Message: "request failed"}
+		resp.Error = errorEnvelope(err)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)

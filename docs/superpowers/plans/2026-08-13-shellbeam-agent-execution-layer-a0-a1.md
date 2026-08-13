@@ -301,23 +301,23 @@ type Catalog struct {
 
 Public codes include at least `invalid_input`, `feature_unavailable`, `operation_conflict`, `operation_metadata_conflict`, `workspace_not_found`, `workspace_address_escape`, `manifest_invalid`, `manifest_review_required`, `identity_observation_failed`, and `internal`.
 
-- [ ] **Step 1: Write failing taxonomy tests**
+- [x] **Step 1: Write failing taxonomy tests**
 
 Test stable code serialization, `errors.Is`/`errors.As`, safe public messages, retryability, detail-key allowlists, and fallback mapping of unknown internal errors to `internal` without leaking raw paths or secrets.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/failure ./internal/core/capability ./internal/adapter/ipc -run 'TestFailure|TestCatalog|TestErrorEnvelope' -count=1
 ```
 
-- [ ] **Step 3: Implement core facts and boundary mapping**
+- [x] **Step 3: Implement core facts and boundary mapping**
 
 Keep raw causes local for logs. IPC/MCP responses expose stable code, retryability, bounded safe details, and a human message. Replace existing public use of `err.Error()` as an error code.
 
 Catalog defaults are compiled from actual support. Do not advertise A2/B features as available; represent them as unavailable or omit them according to the negotiated schema.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 go test ./internal/core/failure ./internal/core/capability ./internal/app/daemon ./internal/app/bridge ./internal/adapter/ipc -count=1
