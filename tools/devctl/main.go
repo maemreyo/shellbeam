@@ -18,7 +18,7 @@ func main() {
 
 func run(args []string) (int, error) {
 	if len(args) == 0 {
-		return 2, fmt.Errorf("usage: devctl explain|check|test|build|commit-gate|verify")
+		return 2, fmt.Errorf("usage: devctl explain|check|test|build|verify")
 	}
 	base := argValue(args, "--base", "main")
 	receipt := Evidence{SchemaVersion: 1, Command: args[0], Base: base, StartedAt: time.Now().UTC()}
@@ -27,13 +27,11 @@ func run(args []string) (int, error) {
 		return 1, err
 	}
 	receipt.SourceFingerprint = fingerprint
-	if args[0] == "commit-gate" {
-		receipt.ChangedFiles, err = stagedFiles()
-	} else if args[0] != "release-evidence" {
+	if args[0] != "release-evidence" {
 		receipt.ChangedFiles, err = changedFiles(base)
-	}
-	if err != nil {
-		return 1, err
+		if err != nil {
+			return 1, err
+		}
 	}
 
 	switch args[0] {
@@ -49,8 +47,6 @@ func run(args []string) (int, error) {
 			build, err = runIncrementalBuild(".", receipt.SourceFingerprint)
 			receipt.Build = &build
 		}
-	case "commit-gate":
-		err = runCommitGate(&receipt)
 	case "verify":
 		if err = checkRepository("."); err == nil {
 			err = applySelection(args, &receipt, true)
@@ -72,13 +68,18 @@ func applySelection(args []string, receipt *Evidence, execute bool) error {
 	if err != nil {
 		return err
 	}
-	if err := setSelectionEvidence(receipt, selection); err != nil {
+	receipt.Selection = selection.Mode
+	receipt.SelectedSuites = selection.Suites
+	receipt.SelectionReasons = selection.Reasons
+	packages, err := goSuites(selection.Suites)
+	if err != nil {
 		return err
 	}
+	receipt.SelectedPackages = packages
 	if !execute || selection.Mode == "empty" {
 		return nil
 	}
-	return runGoTest(receipt.SelectedPackages, false)
+	return runGoTest(packages, false)
 }
 
 func finishRun(args []string, receipt Evidence, runErr error) (int, error) {
