@@ -554,7 +554,7 @@ shellbeam workspace remove <label-or-id> [--force] [--json]
 
 `repository_id` represents stable local repository continuity. `workspace_id` represents one reusable directory/worktree and is never a conversation lock.
 
-- [ ] **Step 1: Split the composition/CLI router before adding commands**
+- [x] **Step 1: Split the composition/CLI router before adding commands**
 
 Move daemon, service, MCP, and workspace command parsing into focused files while leaving construction in `cmd/shellbeam`. Preserve every existing CLI test and line budget.
 
@@ -563,7 +563,7 @@ go test ./cmd/shellbeam -count=1
 go run ./tools/devctl check --base "$SHELLBEAM_A01_BASE" --json
 ```
 
-- [ ] **Step 2: Write failing identity and lifecycle tests**
+- [x] **Step 2: Write failing identity and lifecycle tests**
 
 Cover bare/non-bare repositories, linked worktrees, symlinked input path normalization, reattach/reuse, moved worktree continuity where provable, label collision suffixing, unconventional labels, explicit path, default sibling template, and path already occupied by the intended worktree.
 
@@ -575,19 +575,19 @@ Removal tests must prove:
 - removal never runs `git worktree prune`;
 - no command deletes a plain non-worktree directory.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/core/workspace ./internal/app/workspace ./internal/adapter/git ./internal/adapter/store ./cmd/shellbeam -run 'TestWorkspace|TestWorktree|TestForget|TestRemove' -count=1
 ```
 
-- [ ] **Step 4: Implement registry and Git lifecycle adapter**
+- [x] **Step 4: Implement registry and Git lifecycle adapter**
 
 Persist registry metadata with the existing atomic-store pattern. Use Git porcelain output, argument arrays, `--` path separation, bounded output, and no shell interpolation. Naming `<ISSUE-KEY>_<short-purpose>` is a low-priority suggestion only; never reject an existing or unconventional name.
 
 An explicit `workspace remove` command is itself the user's removal intent. Do not add a second interactive confirmation layer. Return dirty/unusual state clearly and let `--force` express the exceptional removal.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 go test ./internal/core/workspace ./internal/app/workspace ./internal/adapter/git ./internal/adapter/store ./cmd/shellbeam -count=1

@@ -54,7 +54,10 @@ func Open(root string, limits Limits) (*Repository, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	for _, p := range []string{root, filepath.Join(root, "operations"), filepath.Join(root, "sessions")} {
+	for _, p := range []string{
+		root, filepath.Join(root, "operations"), filepath.Join(root, "sessions"),
+		filepath.Join(root, "repositories"), filepath.Join(root, "workspaces"),
+	} {
 		if err := os.MkdirAll(p, 0700); err != nil {
 			return nil, err
 		}

@@ -10,24 +10,15 @@ import (
 	"os/signal"
 	"runtime"
 	"syscall"
-	"time"
 
-	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
-	mcpadapter "github.com/maemreyo/shellbeam/internal/adapter/mcp"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
-	serviceadapter "github.com/maemreyo/shellbeam/internal/adapter/service"
-	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
-	bridgeapp "github.com/maemreyo/shellbeam/internal/app/bridge"
-	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/buildinfo"
 	"github.com/maemreyo/shellbeam/internal/config"
-	"github.com/maemreyo/shellbeam/internal/core/capability"
-	"github.com/oklog/ulid/v2"
 )
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: shellbeam <daemon|mcp|install|uninstall|status|doctor|version>")
+		fmt.Fprintln(stderr, "usage: shellbeam <daemon|mcp|workspace|install|uninstall|status|doctor|version>")
 		return 2
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -40,6 +31,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runDaemon(ctx, args[1:])
 	case "mcp":
 		err = runMCP(ctx, args[1:])
+	case "workspace":
+		err = runWorkspace(ctx, args[1:], stdout)
 	case "install":
 		err = runInstall(ctx, args[1:], false)
 	case "uninstall":
@@ -138,80 +131,4 @@ func loadCommon(name string, args []string) (config.Config, config.Paths, error)
 	}
 	cfg.Shell = shell
 	return cfg, paths, nil
-}
-
-func runDaemon(ctx context.Context, args []string) error {
-	cfg, paths, err := loadCommon("daemon", args)
-	if err != nil {
-		return err
-	}
-	limits := storeadapter.Limits{MaxSessions: cfg.MaxConcurrentSessions, MaxSessionOutput: cfg.MaxSessionOutputBytes, MaxTotalState: cfg.MaxTotalStateBytes, ControlReserve: cfg.ControlReserveSessionBytes}
-	store, err := storeadapter.Open(paths.StateDir, limits)
-	if err != nil {
-		return err
-	}
-	incarnation := ulid.Make().String()
-	catalog := capability.Baseline(capability.Limits{
-		CommandBytes:       cfg.MaxCommandBytes,
-		ResponseBytes:      cfg.MaxResponseOutputBytes,
-		SessionOutputBytes: cfg.MaxSessionOutputBytes,
-		RuntimeMS:          cfg.MaxTimeoutMS,
-		LiveSessions:       cfg.MaxConcurrentSessions,
-	})
-	svc := daemonapp.NewService(store, processadapter.Owner{}, daemonapp.Options{Incarnation: incarnation, Shell: cfg.Shell, MaxQueuedInputBytes: cfg.MaxQueuedInputSessionBytes, TerminationGrace: time.Duration(cfg.TerminationGraceMS) * time.Millisecond, Capabilities: catalog})
-	server, err := ipcadapter.Listen(paths.RuntimeDir, svc)
-	if err != nil {
-		return err
-	}
-	defer server.Close()
-	if err = store.AbandonUnresolved(ctx, incarnation); err != nil {
-		return err
-	}
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
-		defer cancel()
-		_ = svc.Shutdown(shutdownCtx)
-		_ = server.Close()
-	}()
-	return server.Serve()
-}
-func runMCP(ctx context.Context, args []string) error {
-	_, paths, err := loadCommon("mcp", args)
-	if err != nil {
-		return err
-	}
-	return mcpadapter.Run(ctx, bridgeapp.New(ipcadapter.NewClient(paths.Socket)))
-}
-func runInstall(ctx context.Context, args []string, uninstall bool) error {
-	_, paths, err := loadCommon("service", args)
-	if err != nil {
-		return err
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	if uninstall {
-		return serviceadapter.Uninstall(ctx, runtime.GOOS, home, serviceadapter.ExecRunner{})
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	return serviceadapter.Install(ctx, runtime.GOOS, home, exe, paths.ConfigFile, serviceadapter.ExecRunner{})
-}
-func runStatus(args []string, out io.Writer) error {
-	_, paths, err := loadCommon("status", args)
-	if err != nil {
-		return err
-	}
-	info, err := os.Lstat(paths.Socket)
-	status := "stopped"
-	if err == nil && info.Mode()&os.ModeSocket != 0 {
-		status = "socket_present"
-	} else if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return json.NewEncoder(out).Encode(map[string]any{"schema_version": 1, "status": status})
 }
