@@ -196,10 +196,10 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 		}
 		for _, obligation := range batch {
 			after = obligation.ChangeSeq
-			if obligation.State != observation.ObligationPrepared || !executionEventKind(obligation.Kind) {
+			if obligation.State != observation.ObligationPrepared || !reconcilableObservationKind(obligation.Kind) {
 				continue
 			}
-			present, err := r.executionObservationSubjectPresent(ctx, obligation)
+			present, err := r.observationSubjectPresent(ctx, obligation)
 			if err != nil {
 				return err
 			}
@@ -219,16 +219,16 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 	}
 }
 
-func executionEventKind(kind observation.EventKind) bool {
+func reconcilableObservationKind(kind observation.EventKind) bool {
 	switch kind {
-	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal:
+	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged:
 		return true
 	default:
 		return false
 	}
 }
 
-func (r *Repository) executionObservationSubjectPresent(ctx context.Context, obligation observation.ObservationObligation) (bool, error) {
+func (r *Repository) observationSubjectPresent(ctx context.Context, obligation observation.ObservationObligation) (bool, error) {
 	switch obligation.Kind {
 	case observation.EventOperationAdmitted:
 		return r.operationSubjectPresent(ctx, obligation.SubjectRef)
@@ -238,6 +238,8 @@ func (r *Repository) executionObservationSubjectPresent(ctx context.Context, obl
 		return r.outputSubjectPresent(ctx, obligation.SubjectRef)
 	case observation.EventProcessTerminal:
 		return r.receiptSubjectPresent(ctx, obligation.SubjectRef)
+	case observation.EventStructuredChanged:
+		return r.structuredSubjectPresent(ctx, obligation.SubjectRef)
 	default:
 		return false, nil
 	}

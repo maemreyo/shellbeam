@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
 
 const (
@@ -114,7 +116,10 @@ func (d Derivation) Validate() error {
 }
 
 func (r RawOutputRef) Validate() error {
-	if strings.TrimSpace(r.SessionID) == "" || r.StartByte < 0 || r.EndByte <= r.StartByte || !validDigest(r.SHA256) {
+	if _, err := operation.ParseSessionID(r.SessionID); err != nil {
+		return err
+	}
+	if r.StartByte < 0 || r.EndByte < r.StartByte || !validDigest(r.SHA256) {
 		return fmt.Errorf("invalid raw output ref")
 	}
 	return nil
