@@ -25,6 +25,13 @@ func TestA4DaemonComposesTelemetryAndExactlyOnceReproWithoutChangingChildTruth(t
 	if server.Server.Features[capability.FeatureExecutionTelemetry] != capability.Available || server.Server.Features[capability.FeatureReproductionCapsules] != capability.Available {
 		t.Fatalf("A4 capability catalog=%#v", server.Server)
 	}
+	resources := server.Server.ResourceObservation
+	if resources == nil || resources.CPUTime != capability.ResourceUnavailable || resources.MaxRSS != capability.ResourceUnavailable || resources.IOBytes != capability.ResourceUnavailable || resources.ProcessCountPeak != capability.ResourceUnavailable {
+		t.Fatalf("native A4 resource capability overclaimed=%#v", resources)
+	}
+	if server.Server.Limits.ReproMaxCapsules != reproMaxCapsules || server.Server.Limits.ReproMaxReferences != reprocore.MaxReferenceDescriptors || server.Server.Limits.ReproMetadataBytes != reproMetadataBytes {
+		t.Fatalf("repro limits=%#v", server.Server.Limits)
+	}
 
 	start, err := client.CallV2(context.Background(), ipcadapter.RequestV2{
 		IPVersion: 2, Kind: "request", RequestID: "a4-start", Action: "start",
