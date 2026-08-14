@@ -68,7 +68,7 @@ func (l SourceLocation) Validate() error {
 }
 
 func (l ResolvedSourceLocation) Validate() error {
-	if !validOpaqueID(l.SourceRefID, "src_") || l.StartByte < 0 || l.EndByte <= l.StartByte {
+	if !validOpaqueID(l.SourceRefID, "src_") || l.StartByte < 0 || l.EndByte < l.StartByte {
 		return fmt.Errorf("invalid resolved source location")
 	}
 	return nil
