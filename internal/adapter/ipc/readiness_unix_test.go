@@ -5,7 +5,9 @@ package ipc
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -92,4 +94,62 @@ func TestPendingServerCloseReleasesWaitingRequest(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Serve did not exit after close")
 	}
+}
+
+func TestClaimSocketPublishesCanonicalPathOnlyAfterListenerIsReady(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-publish-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	canonical := filepath.Join(runtime, "daemon.sock")
+	listenerReady := make(chan string, 1)
+	release := make(chan struct{})
+	factory := func(path string) (net.Listener, error) {
+		if path == canonical {
+			t.Fatal("listener bound canonical pathname before publish")
+		}
+		ln, err := net.Listen("unix", path)
+		if err != nil {
+			return nil, err
+		}
+		listenerReady <- path
+		<-release
+		return ln, nil
+	}
+	type claimResult struct {
+		ln   net.Listener
+		info os.FileInfo
+		err  error
+	}
+	result := make(chan claimResult, 1)
+	go func() {
+		ln, info, err := claimSocketWithListener(canonical, dialUnixSocket, factory)
+		result <- claimResult{ln: ln, info: info, err: err}
+	}()
+	staged := <-listenerReady
+	if _, err := os.Lstat(canonical); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("canonical socket published before listener factory returned: %v", err)
+	}
+	if info, err := os.Lstat(staged); err != nil || info.Mode()&os.ModeSocket == 0 {
+		t.Fatalf("staged listening socket missing: info=%v err=%v", info, err)
+	}
+	close(release)
+	claimed := <-result
+	if claimed.err != nil {
+		t.Fatal(claimed.err)
+	}
+	defer claimed.ln.Close()
+	current, err := os.Lstat(canonical)
+	if err != nil || claimed.info == nil || !os.SameFile(claimed.info, current) {
+		t.Fatalf("canonical publication mismatch info=%v current=%v err=%v", claimed.info, current, err)
+	}
+	if _, err := os.Lstat(staged); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("staging pathname survived publication: %v", err)
+	}
+	conn, err := net.DialTimeout("unix", canonical, 100*time.Millisecond)
+	if err != nil {
+		t.Fatalf("published canonical socket is not listening: %v", err)
+	}
+	_ = conn.Close()
 }
