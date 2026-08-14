@@ -3,6 +3,7 @@ package gopls
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -57,6 +58,26 @@ func TestStartProviderInitializesBoundedDiskWorkspaceCapabilities(t *testing.T) 
 		metadata.ConfigFingerprint != options.ConfigFingerprint || metadata.BuildFingerprint != options.BuildFingerprint ||
 		metadata.Incarnation == "" {
 		t.Fatalf("metadata=%+v", metadata)
+	}
+}
+
+func TestStartProviderNormalizesNativeGoplsBuildInfoVersion(t *testing.T) {
+	session := newFakeSession()
+	buildInfo := `{"GoVersion":"go1.26.0","Path":"golang.org/x/tools/gopls","Deps":"` + strings.Repeat("x", 600) + `","Version":"v0.21.1"}`
+	session.initializeResult.ServerInfo.Version = protocol.NewOptional(buildInfo)
+	factory := newTestFactory(t, session)
+	ws := testWorkspace(t.TempDir())
+	options, err := factory.Resolve(t.Context(), ws, core.Query{Kind: core.QueryDiagnostics, Scope: core.ScopeWorkspace, Provider: core.ProviderGoSemantic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := factory.Start(t.Context(), ws, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = provider.Close() }()
+	if got := provider.Metadata().ExecutableVersion; got != "v0.21.1" {
+		t.Fatalf("normalized executable version=%q", got)
 	}
 }
 

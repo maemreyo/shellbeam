@@ -2,9 +2,13 @@ package gopls
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
 	"go.lsp.dev/protocol"
@@ -70,7 +74,7 @@ func startProvider(ctx context.Context, workspace workspacecore.Workspace, optio
 	metadata := core.ProviderMetadata{
 		ProviderID:           core.ProviderGoSemantic,
 		Incarnation:          "gopls_" + ulid.Make().String(),
-		ExecutableVersion:    capabilities.ServerVersion,
+		ExecutableVersion:    normalizeServerVersion(capabilities.ServerVersion),
 		ConfigFingerprint:    options.ConfigFingerprint,
 		BuildFingerprint:     options.BuildFingerprint,
 		BuildQuality:         config.BuildQuality,
@@ -92,6 +96,35 @@ func startProvider(ctx context.Context, workspace workspacecore.Workspace, optio
 		provider.navigation = newNavigationService(navigationSession, navigationCapabilitiesFromServer(result.Capabilities), capabilities.PositionEncoding)
 	}
 	return provider, nil
+}
+
+func normalizeServerVersion(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if safeProviderVersion(trimmed) {
+		return trimmed
+	}
+	var buildInfo struct {
+		Version string `json:"Version"`
+	}
+	if json.Unmarshal([]byte(raw), &buildInfo) == nil {
+		version := strings.TrimSpace(buildInfo.Version)
+		if safeProviderVersion(version) {
+			return version
+		}
+	}
+	return ""
+}
+
+func safeProviderVersion(value string) bool {
+	if value == "" || len(value) > core.MaxProviderTextBytes || !utf8.ValidString(value) {
+		return false
+	}
+	for _, r := range value {
+		if r == 0 || unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func initializeParams(workspace workspacecore.Workspace) *protocol.InitializeParams {
