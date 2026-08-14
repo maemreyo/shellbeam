@@ -21,6 +21,10 @@ const (
 	CodePositionInvalid      = "code_intelligence_position_invalid"
 	CodeSourceRefUnavailable = "source_ref_unavailable"
 	CodeUnsupportedEncoding  = "unsupported_source_encoding"
+	CodeProviderUnavailable  = "code_intelligence_provider_unavailable"
+	CodeProviderFailed       = "code_intelligence_provider_failed"
+	CodeProviderBusy         = "code_intelligence_provider_busy"
+	CodeProviderCooldown     = "code_intelligence_provider_cooldown"
 )
 
 type BoundSource struct {
@@ -56,6 +60,27 @@ type CoherenceSource interface {
 
 type ProviderPool interface {
 	Query(context.Context, ProviderRequest) (ProviderResponse, error)
+}
+
+type ProviderStartOptions struct {
+	ProviderID         string
+	ExecutableIdentity string
+	ConfigFingerprint  string
+	BuildFingerprint   string
+}
+
+type ProviderOptionsResolver interface {
+	Resolve(context.Context, workspace.Workspace, core.Query) (ProviderStartOptions, error)
+}
+
+type Provider interface {
+	Metadata() core.ProviderMetadata
+	Query(context.Context, ProviderRequest) (ProviderResponse, error)
+	Close() error
+}
+
+type ProviderFactory interface {
+	Start(context.Context, workspace.Workspace, ProviderStartOptions) (Provider, error)
 }
 
 type ProviderRequest struct {
