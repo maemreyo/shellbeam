@@ -221,7 +221,7 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 
 func reconcilableObservationKind(kind observation.EventKind) bool {
 	switch kind {
-	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged:
+	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged:
 		return true
 	default:
 		return false
@@ -240,6 +240,8 @@ func (r *Repository) observationSubjectPresent(ctx context.Context, obligation o
 		return r.receiptSubjectPresent(ctx, obligation.SubjectRef)
 	case observation.EventStructuredChanged:
 		return r.structuredSubjectPresent(ctx, obligation.SubjectRef)
+	case observation.EventTelemetryChanged:
+		return r.telemetrySubjectPresent(ctx, obligation.SubjectRef)
 	default:
 		return false, nil
 	}

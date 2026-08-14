@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -19,10 +20,16 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Limits struct {
-	MaxSessions      int
-	MaxSessionOutput int64
-	MaxTotalState    int64
-	ControlReserve   int64
+	MaxSessions                   int
+	MaxSessionOutput              int64
+	MaxTotalState                 int64
+	ControlReserve                int64
+	MaxTelemetrySamples           int
+	MaxTelemetryBytes             int64
+	MaxTelemetryKeys              int
+	MaxTelemetryKeysPerRepository int
+	MaxTelemetrySamplesPerKey     int
+	MaxTelemetryAge               time.Duration
 }
 type Repository struct {
 	root                     string
@@ -33,16 +40,51 @@ type Repository struct {
 	observationMu            sync.Mutex
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
+	telemetryMu              sync.Mutex
 	observationHighWatermark uint64
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
+	now                      func() time.Time
+}
+
+const (
+	defaultMaxTelemetrySamples                 = 2048
+	defaultMaxTelemetryBytes             int64 = 16 << 20
+	defaultMaxTelemetryKeys                    = 512
+	defaultMaxTelemetryKeysPerRepository       = 128
+	defaultMaxTelemetrySamplesPerKey           = 64
+)
+
+const defaultMaxTelemetryAge = 30 * 24 * time.Hour
+
+func normalizeTelemetryLimits(limits Limits) Limits {
+	if limits.MaxTelemetrySamples == 0 {
+		limits.MaxTelemetrySamples = defaultMaxTelemetrySamples
+	}
+	if limits.MaxTelemetryBytes == 0 {
+		limits.MaxTelemetryBytes = defaultMaxTelemetryBytes
+	}
+	if limits.MaxTelemetryKeys == 0 {
+		limits.MaxTelemetryKeys = defaultMaxTelemetryKeys
+	}
+	if limits.MaxTelemetryKeysPerRepository == 0 {
+		limits.MaxTelemetryKeysPerRepository = defaultMaxTelemetryKeysPerRepository
+	}
+	if limits.MaxTelemetrySamplesPerKey == 0 {
+		limits.MaxTelemetrySamplesPerKey = defaultMaxTelemetrySamplesPerKey
+	}
+	if limits.MaxTelemetryAge == 0 {
+		limits.MaxTelemetryAge = defaultMaxTelemetryAge
+	}
+	return limits
 }
 
 func Open(root string, limits Limits) (*Repository, error) {
+	limits = normalizeTelemetryLimits(limits)
 	if !filepath.IsAbs(root) {
 		return nil, fmt.Errorf("state root must be absolute")
 	}
-	if limits.MaxSessions < 1 || limits.ControlReserve < 1 {
+	if limits.MaxSessions < 1 || limits.ControlReserve < 1 || limits.MaxTelemetrySamples < 1 || limits.MaxTelemetryBytes < 1 || limits.MaxTelemetryKeys < 1 || limits.MaxTelemetryKeysPerRepository < 1 || limits.MaxTelemetrySamplesPerKey < 1 || limits.MaxTelemetryAge < 0 {
 		return nil, fmt.Errorf("invalid limits")
 	}
 	if info, err := os.Lstat(root); err == nil {
@@ -69,7 +111,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}}
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, now: func() time.Time { return time.Now().UTC() }}
 	if err := repository.initObservationStore(); err != nil {
 		return nil, err
 	}
@@ -77,6 +119,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initStructuredResultStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initTelemetryStore(); err != nil {
 		return nil, err
 	}
 	return repository, nil
