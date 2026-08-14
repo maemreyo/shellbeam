@@ -83,10 +83,14 @@ func TestAgentExecutionA1GitMutationsRemainExecutableWithHonestProvenance(t *tes
 		WorkspaceID: string(record.ID), CWD: ".", Argv: []string{"git", "switch", "-c", "a1-runtime-branch"},
 	})
 	assertA1ChildSuccess(t, switchResult)
-	if switchResult.Receipt == nil || switchResult.Receipt.WorkspaceProvenance == nil ||
-		!switchResult.Receipt.WorkspaceProvenance.ObservedChange ||
-		switchResult.Receipt.WorkspaceProvenance.PreGeneration == switchResult.Receipt.WorkspaceProvenance.PostGeneration {
+	if switchResult.Receipt == nil || switchResult.Receipt.WorkspaceProvenance == nil {
 		t.Fatalf("switch provenance=%#v", switchResult.Receipt)
+	}
+	provenance := switchResult.Receipt.WorkspaceProvenance
+	if provenance.SchemaVersion != 2 || provenance.Binding.WorkspaceID != record.ID ||
+		provenance.Pre.Kind != receipt.WorkspaceUnreconciled || provenance.Post.Kind != receipt.WorkspaceUnreconciled ||
+		!provenance.Post.ObservationInvalidated || provenance.ObservedChange || provenance.PreGeneration != "" || provenance.PostGeneration != "" {
+		t.Fatalf("switch provenance=%#v", provenance)
 	}
 
 	commands := []ipcadapter.RequestV2{
