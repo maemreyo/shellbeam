@@ -51,6 +51,8 @@ func TestSecondDaemonDoesNotReconcileLiveOwnersState(t *testing.T) {
 		t.Fatal(result.Err)
 	}
 	before := sessionTree(t, filepath.Join(stateDir, "sessions", "live-session"))
+	observationBefore := stateSubtree(t, filepath.Join(stateDir, "observations"))
+	structuredBefore := stateSubtree(t, filepath.Join(stateDir, "structured-results"))
 
 	err = runDaemon(context.Background(), args)
 	if err == nil || err.Error() != "daemon_already_running" {
@@ -59,6 +61,12 @@ func TestSecondDaemonDoesNotReconcileLiveOwnersState(t *testing.T) {
 	after := sessionTree(t, filepath.Join(stateDir, "sessions", "live-session"))
 	if !bytes.Equal(before, after) {
 		t.Fatalf("second daemon modified live state\nbefore: %q\nafter:  %q", before, after)
+	}
+	if got := stateSubtree(t, filepath.Join(stateDir, "observations")); !bytes.Equal(observationBefore, got) {
+		t.Fatalf("second daemon started observation materialization\nbefore: %q\nafter:  %q", observationBefore, got)
+	}
+	if got := stateSubtree(t, filepath.Join(stateDir, "structured-results")); !bytes.Equal(structuredBefore, got) {
+		t.Fatalf("second daemon started structured processing\nbefore: %q\nafter:  %q", structuredBefore, got)
 	}
 
 	cancel()
@@ -82,6 +90,16 @@ func waitForPath(t *testing.T, path string) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("path did not appear: %s", path)
+}
+
+func stateSubtree(t *testing.T, root string) []byte {
+	t.Helper()
+	if _, err := os.Stat(root); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		t.Fatal(err)
+	}
+	return sessionTree(t, root)
 }
 
 func sessionTree(t *testing.T, root string) []byte {
