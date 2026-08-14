@@ -31,6 +31,7 @@ type Repository struct {
 	admit                    sync.Mutex
 	terminalMu               sync.Mutex
 	observationMu            sync.Mutex
+	eventMu                  sync.Mutex
 	observationHighWatermark uint64
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
@@ -69,6 +70,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 	}
 	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}}
 	if err := repository.initObservationStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initEventStore(); err != nil {
 		return nil, err
 	}
 	return repository, nil
