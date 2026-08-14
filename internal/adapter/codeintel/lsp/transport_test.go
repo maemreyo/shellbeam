@@ -3,6 +3,7 @@ package lsp
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,41 @@ func TestProcessTransportUsesTypedLSPAndSeparatesBoundedStderr(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "helper-marker") {
 		t.Fatalf("stderr tail=%q", stderr)
+	}
+}
+
+func TestProcessTransportKeepsPipesOpenForLateExitOutput(t *testing.T) {
+	client, err := NewClient(ClientOptions{DiagnosticLimits: DiagnosticLimits{
+		MaxURIs: 2, MaxDiagnosticsPerURI: 2, MaxMessageBytes: 64,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(t.TempDir(), "exit.marker")
+	env := append([]string(nil), os.Environ()...)
+	env = append(env,
+		"SHELLBEAM_LSP_HELPER=1",
+		"SHELLBEAM_LSP_HELPER_WORKSPACE=expected",
+		"SHELLBEAM_LSP_HELPER_EXIT_MARKER="+marker,
+	)
+	session, err := StartProcess(t.Context(), ProcessConfig{
+		Executable: os.Args[0], Args: []string{"-test.run=TestLSPHelperProcess"},
+		Dir: t.TempDir(), Env: env, StderrBytes: 64, ShutdownTimeout: 2 * time.Second,
+	}, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Server.Initialize(t.Context(), &protocol.InitializeParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Server.Initialized(t.Context(), &protocol.InitializedParams{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "exit-finished" {
+		t.Fatalf("late exit output did not finish before transport close: data=%q err=%v", data, err)
 	}
 }
 

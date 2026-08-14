@@ -25,6 +25,11 @@ func TestLSPHelperProcess(t *testing.T) {
 	server := &helperLSPServer{cancel: cancel}
 	_, conn, _ := protocol.NewServer(ctx, server, jsonrpc2.NewStream(&helperStdio{}))
 	<-conn.Done()
+	if marker := os.Getenv("SHELLBEAM_LSP_HELPER_EXIT_MARKER"); marker != "" {
+		body := `{"jsonrpc":"2.0","method":"window/logMessage","params":{"type":3,"message":"late-exit-write"}}`
+		_, _ = fmt.Fprintf(os.Stdout, "Content-Length: %d\r\n\r\n%s", len(body), body)
+		_ = os.WriteFile(marker, []byte("exit-finished"), 0o600)
+	}
 	os.Exit(0)
 }
 
@@ -46,6 +51,9 @@ func (s *helperLSPServer) Initialize(context.Context, *protocol.InitializeParams
 func (*helperLSPServer) Initialized(context.Context, *protocol.InitializedParams) error { return nil }
 func (*helperLSPServer) Shutdown(context.Context) error                                 { return nil }
 func (s *helperLSPServer) Exit(context.Context) error {
+	if os.Getenv("SHELLBEAM_LSP_HELPER_EXIT_MARKER") != "" {
+		return nil
+	}
 	s.cancel()
 	return nil
 }

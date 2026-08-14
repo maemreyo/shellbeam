@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -30,6 +31,7 @@ type Session struct {
 	mu           sync.Mutex
 	capabilities CapabilityState
 	conn         jsonrpc2.Conn
+	stream       *processReadWriteCloser
 	cmd          *exec.Cmd
 	cancel       context.CancelFunc
 	waitCh       chan error
@@ -71,7 +73,8 @@ func StartProcess(ctx context.Context, config ProcessConfig, client *Client) (*S
 	}
 
 	lifetimeCtx, cancel := context.WithCancel(context.Background())
-	stream := jsonrpc2.NewStream(&processReadWriteCloser{reader: stdout, writer: stdin})
+	streamIO := &processReadWriteCloser{reader: stdout, writer: stdin}
+	stream := jsonrpc2.NewStream(streamIO)
 	_, conn, server := protocol.NewClient(lifetimeCtx, client, stream)
 	waitCh := make(chan error, 1)
 	go func() {
@@ -80,7 +83,7 @@ func StartProcess(ctx context.Context, config ProcessConfig, client *Client) (*S
 	}()
 	return &Session{
 		Server: server, Client: client, conn: conn, cmd: cmd, cancel: cancel,
-		waitCh: waitCh, stderr: stderr, timeout: config.ShutdownTimeout,
+		waitCh: waitCh, stderr: stderr, timeout: config.ShutdownTimeout, stream: streamIO,
 	}, nil
 }
 
@@ -136,6 +139,14 @@ func (s *Session) close() error {
 			}
 		}
 	}
+	if s.stream != nil {
+		if err := s.stream.CloseWriter(); err != nil {
+			errs = append(errs, fmt.Errorf("close LSP stdin: %w", err))
+		}
+	}
+	if err := s.waitForProcess(ctx); err != nil {
+		errs = append(errs, err)
+	}
 	if s.conn != nil {
 		if err := s.conn.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close LSP RPC: %w", err))
@@ -143,9 +154,6 @@ func (s *Session) close() error {
 	}
 	if s.cancel != nil {
 		s.cancel()
-	}
-	if err := s.waitForProcess(ctx); err != nil {
-		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -173,12 +181,30 @@ func (s *Session) waitForProcess(ctx context.Context) error {
 type processReadWriteCloser struct {
 	reader io.ReadCloser
 	writer io.WriteCloser
+
+	writerCloseOnce sync.Once
+	writerCloseErr  error
+	readerCloseOnce sync.Once
+	readerCloseErr  error
 }
 
 func (s *processReadWriteCloser) Read(p []byte) (int, error)  { return s.reader.Read(p) }
 func (s *processReadWriteCloser) Write(p []byte) (int, error) { return s.writer.Write(p) }
+func (s *processReadWriteCloser) CloseWriter() error {
+	s.writerCloseOnce.Do(func() { s.writerCloseErr = s.writer.Close() })
+	return s.writerCloseErr
+}
+func (s *processReadWriteCloser) closeReader() error {
+	s.readerCloseOnce.Do(func() {
+		s.readerCloseErr = s.reader.Close()
+		if errors.Is(s.readerCloseErr, os.ErrClosed) {
+			s.readerCloseErr = nil
+		}
+	})
+	return s.readerCloseErr
+}
 func (s *processReadWriteCloser) Close() error {
-	return errors.Join(s.writer.Close(), s.reader.Close())
+	return errors.Join(s.CloseWriter(), s.closeReader())
 }
 
 type boundedRing struct {
