@@ -66,7 +66,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, CodeResult: out.Code}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -129,6 +129,16 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.TestStatus = in.StructuredInspect.Filter.TestStatus
 		req.Continuation = in.StructuredInspect.Continuation
 		req.MaxRecords = in.StructuredInspect.MaxRecords
+	case "inspect.telemetry":
+		req.OperationID = in.TelemetryInspect.OperationID
+		req.MaxSamples = in.TelemetryInspect.MaxSamples
+	case "repro.create":
+		req.ReproCreateID = in.ReproCreate.CreateID
+		req.OperationID = in.ReproCreate.OperationID
+		policy := in.ReproCreate.Policy
+		req.CapturePolicy = &policy
+	case "inspect.repro":
+		req.ReproID = in.ReproID
 	case "kill":
 		req.SessionID = in.Kill.SessionID
 		req.KillID = in.Kill.KillID

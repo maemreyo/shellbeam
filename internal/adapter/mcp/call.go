@@ -9,7 +9,9 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -83,6 +85,16 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		}
 	case "inspect.structured":
 		request.StructuredInspect = structuredapp.InspectRequest{OperationID: in.OperationID, Filter: structuredapp.RecordFilter{RecordKind: in.RecordKind, Severity: in.Severity, Path: in.Path, TestStatus: in.TestStatus}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
+	case "inspect.telemetry":
+		request.TelemetryInspect = telemetryapp.InspectRequest{OperationID: in.OperationID, MaxSamples: in.MaxSamples}
+	case "repro.create":
+		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
+		if in.CapturePolicy != nil {
+			policy = *in.CapturePolicy
+		}
+		request.ReproCreate = reprocore.CreateRequest{CreateID: in.ReproCreateID, OperationID: in.OperationID, Policy: policy}
+	case "inspect.repro":
+		request.ReproID = in.ReproID
 	case "kill":
 		signal := in.Signal
 		if signal == "" {
@@ -122,6 +134,19 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.StructuredAdapterIDs = nil
 	out.StructuredResultKinds = nil
 	out.StructuredLifecycle = false
+	out.TelemetrySchemaVersions = nil
+	out.ReproSchemaVersions = nil
+	out.ResourceObservation = nil
+	out.Limits.TelemetryMaxSamples = 0
+	out.Limits.TelemetryMetadataBytes = 0
+	out.Limits.TelemetryMaxKeys = 0
+	out.Limits.TelemetryMaxKeysPerRepository = 0
+	out.Limits.TelemetryMaxSamplesPerKey = 0
+	out.Limits.TelemetryRetentionAgeMS = 0
+	out.Limits.TelemetryInspectSamples = 0
+	out.Limits.ReproMaxCapsules = 0
+	out.Limits.ReproMaxReferences = 0
+	out.Limits.ReproMetadataBytes = 0
 	out.Limits.EventJournalMaxEvents = 0
 	out.Limits.EventCursorBytes = 0
 	out.Limits.EventSnapshotFacts = 0
@@ -131,6 +156,8 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureStructuredResults)
 	delete(out.Features, capability.FeatureStructuredLifecycle)
 	delete(out.Features, capability.FeatureCodeIntelligence)
+	delete(out.Features, capability.FeatureExecutionTelemetry)
+	delete(out.Features, capability.FeatureReproductionCapsules)
 	return out
 }
 
@@ -177,6 +204,24 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 		}
 		body["structured"] = out.Structured
 		summary = "inspect.structured: " + string(out.Structured.Status)
+	case "inspect.telemetry":
+		if out.Telemetry == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "telemetry inspection missing", false)
+		}
+		body["telemetry"] = out.Telemetry
+		summary = fmt.Sprintf("inspect.telemetry: %d sample(s)", out.Telemetry.SamplesReturned)
+	case "repro.create":
+		if out.Capsule == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "repro capsule missing", false)
+		}
+		body["capsule"] = out.Capsule
+		summary = "repro.create: " + out.Capsule.ReproID
+	case "inspect.repro":
+		if out.Repro == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "repro inspection missing", false)
+		}
+		body["repro"] = out.Repro
+		summary = "inspect.repro: " + out.Repro.Capsule.ReproID
 	case "inspect.events":
 		if out.Events == nil {
 			return toolErrorV2(action, "invalid_daemon_response", "event inspection missing", false)

@@ -9,7 +9,9 @@ import (
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
@@ -18,6 +20,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -59,6 +62,10 @@ type RequestV2 struct {
 	TestStatus        structuredcore.TestStatus `json:"test_status,omitempty"`
 	Continuation      string                    `json:"continuation,omitempty"`
 	MaxRecords        int                       `json:"max_records,omitempty"`
+	MaxSamples        int                       `json:"max_samples,omitempty"`
+	ReproCreateID     string                    `json:"repro_create_id,omitempty"`
+	CapturePolicy     *reprocore.CapturePolicy  `json:"capture_policy,omitempty"`
+	ReproID           string                    `json:"repro_id,omitempty"`
 }
 
 type ResponseV2 struct {
@@ -75,6 +82,9 @@ type ResponseV2 struct {
 	Activity   *activity.Activity            `json:"activity,omitempty"`
 	Events     *observationapp.InspectResult `json:"events,omitempty"`
 	Structured *structuredapp.InspectResult  `json:"structured,omitempty"`
+	Telemetry  *telemetryapp.InspectResult   `json:"telemetry,omitempty"`
+	Capsule    *reprocore.Capsule            `json:"capsule,omitempty"`
+	Repro      *reproapp.InspectResult       `json:"repro,omitempty"`
 	Code       *codeintel.Result             `json:"code,omitempty"`
 	Error      *Error                        `json:"error,omitempty"`
 }
@@ -156,6 +166,12 @@ func actionFieldsV2(action string) []string {
 		return []string{"target", "after_event_cursor", "max_events"}
 	case "inspect.structured":
 		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
+	case "inspect.telemetry":
+		return []string{"operation_id", "max_samples"}
+	case "repro.create":
+		return []string{"repro_create_id", "operation_id", "capture_policy"}
+	case "inspect.repro":
+		return []string{"repro_id"}
 	case "inspect.code":
 		return []string{"workspace_id", "activity_id", "code_query"}
 	default:
@@ -224,6 +240,22 @@ func validateRequestV2(v RequestV2) error {
 		}
 	case "inspect.structured":
 		return validateStructuredInspectV2(v)
+	case "inspect.telemetry":
+		if _, err := operation.ParseID(v.OperationID); err != nil || v.MaxSamples < 1 || v.MaxSamples > telemetryapp.MaxInspectSamples {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "inspect.telemetry"}, fmt.Errorf("invalid telemetry inspection"))
+		}
+	case "repro.create":
+		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
+		if v.CapturePolicy != nil {
+			policy = *v.CapturePolicy
+		}
+		if err := (reprocore.CreateRequest{CreateID: v.ReproCreateID, OperationID: v.OperationID, Policy: policy}).Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "repro.create"}, err)
+		}
+	case "inspect.repro":
+		if !validReproIDV2(v.ReproID) {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "repro_id"}, fmt.Errorf("invalid repro id"))
+		}
 	case "inspect.code":
 		return validateCodeInspectV2(v)
 	case "inspect.events":
@@ -278,9 +310,22 @@ func validateEventInspectV2(v RequestV2) error {
 	return nil
 }
 
+func validReproIDV2(value string) bool {
+	if len(value) != 32 || !strings.HasPrefix(value, "repro_") {
+		return false
+	}
+	for _, r := range value[6:] {
+		if strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", r) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured", "inspect.code":
+	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured", "inspect.telemetry", "repro.create", "inspect.repro", "inspect.code":
 		return true
 	default:
 		return false

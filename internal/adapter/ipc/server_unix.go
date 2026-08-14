@@ -9,11 +9,14 @@ import (
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
+	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"net"
 	"net/http"
@@ -38,6 +41,15 @@ type EventActions interface {
 
 type StructuredActions interface {
 	InspectStructured(context.Context, structuredapp.InspectRequest) (structuredapp.InspectResult, error)
+}
+
+type TelemetryActions interface {
+	InspectTelemetry(context.Context, telemetryapp.InspectRequest) (telemetryapp.InspectResult, error)
+}
+
+type ReproActions interface {
+	CreateRepro(context.Context, reprocore.CreateRequest) (reprocore.Capsule, error)
+	InspectRepro(context.Context, string) (reproapp.InspectResult, error)
 }
 
 type CodeActions interface {
@@ -327,7 +339,22 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		view, callErr := s.actions.Kill(r.Context(), app.KillRequest{SessionID: req.SessionID, KillID: req.KillID, Signal: req.Signal})
 		err = callErr
 		resp.View = &view
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured", "inspect.code":
+	case "repro.create":
+		actions, ok := s.actions.(ReproActions)
+		if !ok {
+			err = failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+			break
+		}
+		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
+		if req.CapturePolicy != nil {
+			policy = *req.CapturePolicy
+		}
+		capsule, callErr := actions.CreateRepro(r.Context(), reprocore.CreateRequest{CreateID: req.ReproCreateID, OperationID: req.OperationID, Policy: policy})
+		err = callErr
+		if err == nil {
+			resp.Capsule = &capsule
+		}
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.repro", "inspect.code":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
@@ -340,6 +367,9 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		resp.Activity = nil
 		resp.Events = nil
 		resp.Structured = nil
+		resp.Telemetry = nil
+		resp.Capsule = nil
+		resp.Repro = nil
 		resp.Code = nil
 		resp.Error = errorEnvelope(err)
 	}
@@ -385,6 +415,22 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		request := structuredapp.InspectRequest{OperationID: req.OperationID, Filter: structuredapp.RecordFilter{RecordKind: req.RecordKind, Severity: req.Severity, Path: req.Path, TestStatus: req.TestStatus}, Continuation: req.Continuation, MaxRecords: req.MaxRecords}
 		result, err := actions.InspectStructured(ctx, request)
 		resp.Structured = &result
+		return err
+	case "inspect.telemetry":
+		actions, ok := s.actions.(TelemetryActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		result, err := actions.InspectTelemetry(ctx, telemetryapp.InspectRequest{OperationID: req.OperationID, MaxSamples: req.MaxSamples})
+		resp.Telemetry = &result
+		return err
+	case "inspect.repro":
+		actions, ok := s.actions.(ReproActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		result, err := actions.InspectRepro(ctx, req.ReproID)
+		resp.Repro = &result
 		return err
 	case "inspect.code":
 		actions, ok := s.actions.(CodeActions)

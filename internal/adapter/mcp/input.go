@@ -9,10 +9,12 @@ import (
 
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -49,6 +51,10 @@ type input struct {
 	TestStatus        structuredcore.TestStatus `json:"test_status,omitempty"`
 	Continuation      string                    `json:"continuation,omitempty"`
 	MaxRecords        int                       `json:"max_records,omitempty"`
+	MaxSamples        int                       `json:"max_samples,omitempty"`
+	ReproCreateID     string                    `json:"repro_create_id,omitempty"`
+	CapturePolicy     *reprocore.CapturePolicy  `json:"capture_policy,omitempty"`
+	ReproID           string                    `json:"repro_id,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -107,6 +113,25 @@ func validateV2(v input) error {
 		return v.CodeQuery.Validate()
 	case "inspect.structured":
 		return (structuredapp.InspectRequest{OperationID: v.OperationID, Filter: structuredapp.RecordFilter{RecordKind: v.RecordKind, Severity: v.Severity, Path: v.Path, TestStatus: v.TestStatus}, Continuation: v.Continuation, MaxRecords: v.MaxRecords}).Validate()
+	case "inspect.telemetry":
+		if _, err := operation.ParseID(v.OperationID); err != nil {
+			return err
+		}
+		if v.MaxSamples < 1 || v.MaxSamples > telemetryapp.MaxInspectSamples {
+			return fmt.Errorf("invalid max_samples")
+		}
+		return nil
+	case "repro.create":
+		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
+		if v.CapturePolicy != nil {
+			policy = *v.CapturePolicy
+		}
+		return (reprocore.CreateRequest{CreateID: v.ReproCreateID, OperationID: v.OperationID, Policy: policy}).Validate()
+	case "inspect.repro":
+		if !validReproIDInput(v.ReproID) {
+			return fmt.Errorf("invalid repro_id")
+		}
+		return nil
 	case "inspect.events":
 		if v.Target == nil {
 			return fmt.Errorf("inspect.events requires target")
@@ -256,11 +281,30 @@ func v2ActionFields(action string) []string {
 		return []string{"target", "after_event_cursor", "max_events"}
 	case "inspect.structured":
 		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
+	case "inspect.telemetry":
+		return []string{"operation_id", "max_samples"}
+	case "repro.create":
+		return []string{"repro_create_id", "operation_id", "capture_policy"}
+	case "inspect.repro":
+		return []string{"repro_id"}
 	case "inspect.code":
 		return []string{"workspace_id", "activity_id", "code_query"}
 	default:
 		return nil
 	}
+}
+
+func validReproIDInput(value string) bool {
+	if len(value) != 32 || !strings.HasPrefix(value, "repro_") {
+		return false
+	}
+	for _, r := range value[6:] {
+		if strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", r) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func isDeferredAction(action string) bool {
