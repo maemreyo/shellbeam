@@ -10,6 +10,7 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -17,6 +18,7 @@ type discoveryClient struct {
 	last       bridge.Request
 	startCalls int
 	catalog    capability.Catalog
+	receipt    *receipt.Receipt
 }
 
 func (f *discoveryClient) Forward(_ context.Context, r bridge.Request) (bridge.Response, error) {
@@ -24,6 +26,13 @@ func (f *discoveryClient) Forward(_ context.Context, r bridge.Request) (bridge.R
 	if r.Action == "start" {
 		f.startCalls++
 		if r.ProtocolVersion == 2 {
+			if f.receipt != nil {
+				result, err := receipt.NewResult(receipt.ResultInput{OperationID: r.Start.OperationID, SessionID: f.receipt.SessionID, State: f.receipt.State, Outcome: f.receipt.Outcome, Receipt: f.receipt})
+				if err != nil {
+					return bridge.Response{}, err
+				}
+				return bridge.Response{Result: &result}, nil
+			}
 			result := receipt.Result{
 				SchemaVersion: 2,
 				Operation:     receipt.OperationResult{OperationID: r.Start.OperationID, SessionID: "s", State: receipt.OperationRunning},
@@ -195,6 +204,52 @@ func TestMCPV2StartReturnsStructuredResult(t *testing.T) {
 	body, ok := res.StructuredContent.(map[string]any)
 	if !ok || fmt.Sprint(body["schema_version"]) != "2" || body["result"] == nil {
 		t.Fatalf("body=%#v", res.StructuredContent)
+	}
+}
+
+func TestMCPV2LazyWorkspaceProvenanceRoundTrips(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	rec := lazyMCPReceipt("op-lazy", "s-lazy")
+	fake := &discoveryClient{catalog: catalog, receipt: rec}
+	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
+	defer closeSession()
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"start","operation_id":"op-lazy","command":"true","cwd":"/tmp"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(encoded, &body); err != nil {
+		t.Fatal(err)
+	}
+	result, ok := body["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("body=%#v", body)
+	}
+	receiptBody, ok := result["receipt"].(map[string]any)
+	if !ok {
+		t.Fatalf("result=%#v", result)
+	}
+	provenance, ok := receiptBody["workspace_provenance"].(map[string]any)
+	if !ok || fmt.Sprint(provenance["schema_version"]) != "2" {
+		t.Fatalf("receipt=%#v", receiptBody)
+	}
+	post, ok := provenance["post"].(map[string]any)
+	if !ok || post["kind"] != "unreconciled" {
+		t.Fatalf("provenance=%#v", provenance)
+	}
+}
+
+func lazyMCPReceipt(operationID, sessionID string) *receipt.Receipt {
+	code := 0
+	return &receipt.Receipt{
+		SchemaVersion: 2, OperationID: operationID, SessionID: sessionID, RequestFingerprint: "request", ExecutionFingerprint: "execution", DaemonIncarnation: "daemon",
+		State: session.Completed, Outcome: session.Success, OutputComplete: true,
+		WorkspaceProvenance: receipt.NewWorkspaceProvenanceV2(receipt.WorkspaceBinding{}, receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled}, receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled, ObservationInvalidated: true}, false),
+		Spawn:               receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: &code},
 	}
 }
 

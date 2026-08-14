@@ -367,11 +367,14 @@ func TestServerCloseWaitsForStartupLock(t *testing.T) {
 	}
 }
 
-type v2ExecutionActions struct{}
+type v2ExecutionActions struct{ receipt *receipt.Receipt }
 
-func (v2ExecutionActions) Start(_ context.Context, req app.StartRequest) (app.View, error) {
+func (v v2ExecutionActions) Start(_ context.Context, req app.StartRequest) (app.View, error) {
 	if req.ProtocolVersion != 2 {
 		return app.View{}, errors.New("v2 start lost protocol version")
+	}
+	if v.receipt != nil {
+		return app.View{OperationID: req.OperationID, SessionID: v.receipt.SessionID, State: v.receipt.State, Outcome: v.receipt.Outcome, Receipt: v.receipt}, nil
 	}
 	return app.View{OperationID: req.OperationID, SessionID: "s-v2", State: session.Running}, nil
 }
@@ -413,6 +416,41 @@ func TestIPCV2StartReturnsStructuredResult(t *testing.T) {
 	}
 	if got.Result.SchemaVersion != 2 || got.Result.Operation.OperationID != "op-v2" || got.Result.Operation.SessionID != "s-v2" || got.Result.Operation.State != receipt.OperationRunning {
 		t.Fatalf("structured result=%#v", got.Result)
+	}
+}
+
+func TestIPCV2LazyWorkspaceProvenanceRoundTrips(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-v2-lazy-receipt-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	rec := lazyIPCReceipt("op-lazy", "s-lazy")
+	srv, err := Listen(runtime, v2ExecutionActions{receipt: rec})
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	got, err := NewClient(srv.SocketPath()).CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "lazy", Action: "start", OperationID: "op-lazy", Command: "true", CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Result == nil || got.Result.Receipt == nil || got.Result.Receipt.WorkspaceProvenance == nil || got.Result.Receipt.WorkspaceProvenance.SchemaVersion != 2 || got.Result.Receipt.WorkspaceProvenance.Post.Kind != receipt.WorkspaceUnreconciled {
+		t.Fatalf("response=%#v", got)
+	}
+}
+
+func lazyIPCReceipt(operationID, sessionID string) *receipt.Receipt {
+	code := 0
+	return &receipt.Receipt{
+		SchemaVersion: 2, OperationID: operationID, SessionID: sessionID, RequestFingerprint: "request", ExecutionFingerprint: "execution", DaemonIncarnation: "daemon",
+		State: session.Completed, Outcome: session.Success, OutputComplete: true,
+		WorkspaceProvenance: receipt.NewWorkspaceProvenanceV2(receipt.WorkspaceBinding{}, receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled}, receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled, ObservationInvalidated: true}, false),
+		Spawn:               receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: &code},
 	}
 }
 
