@@ -79,6 +79,28 @@ func TestProviderManagerProviderIncarnationChangeRestarts(t *testing.T) {
 	}
 }
 
+func TestProviderManagerRecoversAfterProviderCrash(t *testing.T) {
+	resolver := &managerOptionsResolver{options: managerOptions()}
+	factory := &managerFactory{configure: func(p *managerProvider) {
+		if len(p.factory.providers) == 0 {
+			p.queryErr = errors.New("provider crashed")
+		}
+	}}
+	manager := newProviderManagerForTest(t, factory, resolver, managerLimits())
+	request := managerRequest(serviceTestWorkspace())
+	if _, err := manager.Query(t.Context(), request); ErrorCode(err) != CodeProviderFailed {
+		t.Fatalf("initial crash err=%v code=%q", err, ErrorCode(err))
+	}
+	started := time.Now()
+	if _, err := manager.Query(t.Context(), request); err != nil {
+		t.Fatalf("provider did not recover after restart: %v", err)
+	}
+	t.Logf("stub provider restart recovery: %s", time.Since(started))
+	if factory.startCount() != 2 || factory.providers[0].closeCount() != 1 {
+		t.Fatalf("restart recovery starts=%d first_closes=%d", factory.startCount(), factory.providers[0].closeCount())
+	}
+}
+
 func TestProviderManagerCrashRestartsThenEntersCooldown(t *testing.T) {
 	resolver := &managerOptionsResolver{options: managerOptions()}
 	factory := &managerFactory{configure: func(p *managerProvider) {
@@ -182,6 +204,49 @@ func TestProviderManagerInFlightCapacityReturnsBusyWithoutBacklog(t *testing.T) 
 	close(block)
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestProviderManagerCancellationReleasesInFlightSlot(t *testing.T) {
+	resolver := &managerOptionsResolver{options: managerOptions()}
+	block := make(chan struct{})
+	entered := make(chan struct{}, 1)
+	factory := &managerFactory{configure: func(p *managerProvider) {
+		p.block = block
+		p.entered = entered
+	}}
+	limits := managerLimits()
+	limits.MaxInFlight = 1
+	limits.MaxInFlightPerProvider = 1
+	manager := newProviderManagerForTest(t, factory, resolver, limits)
+	request := managerRequest(serviceTestWorkspace())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := manager.Query(ctx, request)
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("cancelled query did not enter provider")
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("cancelled query err=%v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancelled query did not release")
+	}
+	close(block)
+
+	factory.providers[0].block = nil
+	factory.providers[0].entered = nil
+	if _, err := manager.Query(t.Context(), request); err != nil {
+		t.Fatalf("in-flight slot was not released after cancellation: %v", err)
 	}
 }
 
