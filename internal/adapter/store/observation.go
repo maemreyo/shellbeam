@@ -132,6 +132,8 @@ func (r *Repository) ObservationHighWatermark(ctx context.Context) (observation.
 	if err := ctx.Err(); err != nil {
 		return 0, err
 	}
+	r.observationVisibilityMu.RLock()
+	defer r.observationVisibilityMu.RUnlock()
 	r.observationMu.Lock()
 	defer r.observationMu.Unlock()
 	return observation.ChangeSeq(r.observationHighWatermark), nil

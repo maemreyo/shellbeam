@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -269,4 +270,70 @@ func digestForID(value string) string {
 		b.WriteByte(hexDigits[(int(value[i%len(value)])+i)%len(hexDigits)])
 	}
 	return b.String()
+}
+
+func TestTelemetryCanonicalWriteHidesPreparedObservationFromHighWatermark(t *testing.T) {
+	r := openTelemetryRepository(t, telemetryTestLimits())
+	record := telemetryRecord(t, "op-visible", "session-visible", strings.Repeat("c", 64), time.Now().UTC(), session.Success)
+
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	var mu sync.Mutex
+	createTemps := 0
+	r.writer = atomicWriter{fail: func(point string) error {
+		if point != "create.create_temp" {
+			return nil
+		}
+		mu.Lock()
+		createTemps++
+		current := createTemps
+		mu.Unlock()
+		if current == 2 {
+			close(blocked)
+			<-release
+		}
+		return nil
+	}}
+
+	putDone := make(chan error, 1)
+	go func() { putDone <- r.PutPerformanceRecord(context.Background(), record) }()
+	select {
+	case <-blocked:
+	case <-time.After(time.Second):
+		t.Fatal("telemetry canonical create did not reach blocked window")
+	}
+
+	highDone := make(chan struct {
+		seq observation.ChangeSeq
+		err error
+	}, 1)
+	go func() {
+		seq, err := r.ObservationHighWatermark(context.Background())
+		highDone <- struct {
+			seq observation.ChangeSeq
+			err error
+		}{seq: seq, err: err}
+	}()
+	select {
+	case got := <-highDone:
+		t.Fatalf("prepared telemetry obligation became externally visible: seq=%d err=%v", got.seq, got.err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-putDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-highDone:
+		if got.err != nil || got.seq != 1 {
+			t.Fatalf("committed high watermark seq=%d err=%v", got.seq, got.err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("high watermark remained blocked after telemetry commit")
+	}
+	obligations, err := r.ListObservationObligations(context.Background(), 0, 10)
+	if err != nil || len(obligations) != 1 || obligations[0].State != observation.ObligationCommitted {
+		t.Fatalf("obligations=%#v err=%v", obligations, err)
+	}
 }

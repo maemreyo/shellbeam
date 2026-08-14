@@ -99,11 +99,11 @@ func TestExecutionTelemetryAndReproCapabilitiesAreExplicitAndBounded(t *testing.
 	if base.Features[FeatureExecutionTelemetry] != Unavailable || base.Features[FeatureReproductionCapsules] != Unavailable || len(base.TelemetrySchemaVersions) != 0 || len(base.ReproSchemaVersions) != 0 || base.ResourceObservation != nil {
 		t.Fatalf("baseline leaked A4 support: %#v", base)
 	}
-	telemetry := base.WithExecutionTelemetry(1024, 256, 64, 64, 128)
+	telemetry := base.WithExecutionTelemetry(1024, 8<<20, 256, 64, 64, 7*24*60*60*1000, 128)
 	if telemetry.Features[FeatureExecutionTelemetry] != Available || !reflect.DeepEqual(telemetry.TelemetrySchemaVersions, []int{1}) {
 		t.Fatalf("telemetry capability=%#v", telemetry)
 	}
-	if telemetry.Limits.TelemetryMaxSamples != 1024 || telemetry.Limits.TelemetryMaxKeys != 256 || telemetry.Limits.TelemetryMaxKeysPerRepository != 64 || telemetry.Limits.TelemetryMaxSamplesPerKey != 64 || telemetry.Limits.TelemetryInspectSamples != 128 {
+	if telemetry.Limits.TelemetryMaxSamples != 1024 || telemetry.Limits.TelemetryMetadataBytes != 8<<20 || telemetry.Limits.TelemetryMaxKeys != 256 || telemetry.Limits.TelemetryMaxKeysPerRepository != 64 || telemetry.Limits.TelemetryMaxSamplesPerKey != 64 || telemetry.Limits.TelemetryRetentionAgeMS != 7*24*60*60*1000 || telemetry.Limits.TelemetryInspectSamples != 128 {
 		t.Fatalf("telemetry limits=%#v", telemetry.Limits)
 	}
 	if telemetry.ResourceObservation == nil || telemetry.ResourceObservation.CPUTime != ResourceUnavailable || telemetry.ResourceObservation.MaxRSS != ResourceUnavailable || telemetry.ResourceObservation.IOBytes != ResourceUnavailable || telemetry.ResourceObservation.ProcessCountPeak != ResourceUnavailable {
@@ -120,7 +120,7 @@ func TestExecutionTelemetryAndReproCapabilitiesAreExplicitAndBounded(t *testing.
 
 func TestA4CapabilityRejectsNonPositiveBounds(t *testing.T) {
 	base := Baseline(Limits{})
-	if got := base.WithExecutionTelemetry(0, 1, 1, 1, 1); got.Features[FeatureExecutionTelemetry] != Unavailable {
+	if got := base.WithExecutionTelemetry(0, 1, 1, 1, 1, 1, 1); got.Features[FeatureExecutionTelemetry] != Unavailable {
 		t.Fatalf("invalid telemetry bounds advertised: %#v", got)
 	}
 	if got := base.WithReproductionCapsules(1, 0, 1); got.Features[FeatureReproductionCapsules] != Unavailable {

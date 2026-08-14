@@ -15,6 +15,7 @@ import (
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
@@ -33,7 +34,13 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	if err != nil {
 		return err
 	}
-	limits := storeadapter.Limits{MaxSessions: cfg.MaxConcurrentSessions, MaxSessionOutput: cfg.MaxSessionOutputBytes, MaxTotalState: cfg.MaxTotalStateBytes, ControlReserve: cfg.ControlReserveSessionBytes}
+	limits := storeadapter.Limits{
+		MaxSessions: cfg.MaxConcurrentSessions, MaxSessionOutput: cfg.MaxSessionOutputBytes,
+		MaxTotalState: cfg.MaxTotalStateBytes, ControlReserve: cfg.ControlReserveSessionBytes,
+		MaxTelemetrySamples: telemetryMaxSamples, MaxTelemetryBytes: telemetryMetadataBytes,
+		MaxTelemetryKeys: telemetryMaxKeys, MaxTelemetryKeysPerRepository: telemetryMaxKeysPerRepository,
+		MaxTelemetrySamplesPerKey: telemetryMaxSamplesPerKey, MaxTelemetryAge: telemetryRetentionAge,
+	}
 	store, err := storeadapter.Open(paths.StateDir, limits)
 	if err != nil {
 		return err
@@ -61,12 +68,14 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	}
 	defer codeRuntime.Close()
 	structuredScheduler := &structuredWorkerProxy{}
+	telemetryScheduler := &telemetryWorkerProxy{}
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
 		MaxQueuedInputBytes: cfg.MaxQueuedInputSessionBytes,
 		TerminationGrace:    time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
 		Capabilities:        catalog,
 		StructuredWorker:    structuredScheduler,
+		TelemetryWorker:     telemetryScheduler,
 	})
 	projectSvc := projectapp.New(store, projectadapter.NewLoader(), store)
 	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
@@ -78,18 +87,32 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	if err = store.AbandonUnresolved(ctx, incarnation); err != nil {
 		return err
 	}
-	observationRuntime, err := newExecutionObservationRuntime(ctx, store)
+	telemetryRuntime, err := newExecutionTelemetryRuntime(store)
 	if err != nil {
 		return err
 	}
+	observationRuntime, err := newExecutionObservationRuntime(ctx, store)
+	if err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
+		defer cancel()
+		_ = telemetryRuntime.shutdown(shutdownCtx)
+		return err
+	}
 	structuredScheduler.bind(observationRuntime.worker)
+	telemetryScheduler.bind(telemetryRuntime.worker)
 	actions.events = observationRuntime.events
 	actions.structured = observationRuntime.structured
+	actions.telemetry = telemetryRuntime.service
 	observationRuntime.startMaterialization(ctx)
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
 		defer cancel()
 		_ = observationRuntime.shutdown(shutdownCtx)
+	}()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
+		defer cancel()
+		_ = telemetryRuntime.shutdown(shutdownCtx)
 	}()
 	go func() {
 		<-ctx.Done()
@@ -120,6 +143,7 @@ type daemonActions struct {
 	project    *projectapp.Service
 	events     *observationapp.Service
 	structured *structuredapp.Inspector
+	telemetry  *telemetryapp.Service
 	code       daemonCodeInspector
 }
 
@@ -149,6 +173,13 @@ func (a *daemonActions) InspectStructured(ctx context.Context, request structure
 	return a.structured.Inspect(ctx, request)
 }
 
+func (a *daemonActions) InspectTelemetry(ctx context.Context, request telemetryapp.InspectRequest) (telemetryapp.InspectResult, error) {
+	if a.telemetry == nil {
+		return telemetryapp.InspectResult{}, fmt.Errorf("execution telemetry unavailable")
+	}
+	return a.telemetry.Inspect(ctx, request)
+}
+
 func daemonCatalog(limits capability.Limits) capability.Catalog {
 	return capability.Baseline(limits).
 		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
@@ -156,5 +187,10 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 			[]string{"go-test-json", "go-vet-json"},
 			[]string{"diagnostic", "test_case", "test_suite", "artifact_result"},
 			structuredapp.MaxListRecords, true,
-		).WithCodeIntelligence()
+		).
+		WithExecutionTelemetry(
+			telemetryMaxSamples, telemetryMetadataBytes, telemetryMaxKeys, telemetryMaxKeysPerRepository,
+			telemetryMaxSamplesPerKey, telemetryRetentionAge.Milliseconds(), telemetryapp.MaxInspectSamples,
+		).
+		WithCodeIntelligence()
 }

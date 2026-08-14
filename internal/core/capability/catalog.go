@@ -43,9 +43,11 @@ type Limits struct {
 	EventSnapshotFacts            int   `json:"event_snapshot_facts,omitempty"`
 	StructuredInspectRecords      int   `json:"structured_inspect_records,omitempty"`
 	TelemetryMaxSamples           int   `json:"telemetry_max_samples,omitempty"`
+	TelemetryMetadataBytes        int64 `json:"telemetry_metadata_bytes,omitempty"`
 	TelemetryMaxKeys              int   `json:"telemetry_max_keys,omitempty"`
 	TelemetryMaxKeysPerRepository int   `json:"telemetry_max_keys_per_repository,omitempty"`
 	TelemetryMaxSamplesPerKey     int   `json:"telemetry_max_samples_per_key,omitempty"`
+	TelemetryRetentionAgeMS       int64 `json:"telemetry_retention_age_ms,omitempty"`
 	TelemetryInspectSamples       int   `json:"telemetry_inspect_samples,omitempty"`
 	ReproMaxCapsules              int   `json:"repro_max_capsules,omitempty"`
 	ReproMaxReferences            int   `json:"repro_max_references,omitempty"`
@@ -189,17 +191,19 @@ func (c Catalog) WithCodeIntelligence() Catalog {
 	return out
 }
 
-func (c Catalog) WithExecutionTelemetry(maxSamples, maxKeys, maxKeysPerRepository, maxSamplesPerKey, inspectSamples int) Catalog {
+func (c Catalog) WithExecutionTelemetry(maxSamples int, metadataBytes int64, maxKeys, maxKeysPerRepository, maxSamplesPerKey int, retentionAgeMS int64, inspectSamples int) Catalog {
 	out := c.Clone()
-	if maxSamples < 1 || maxKeys < 1 || maxKeysPerRepository < 1 || maxSamplesPerKey < 1 || inspectSamples < 1 {
+	if maxSamples < 1 || metadataBytes < 1 || maxKeys < 1 || maxKeysPerRepository < 1 || maxSamplesPerKey < 1 || retentionAgeMS < 1 || inspectSamples < 1 {
 		return out
 	}
 	out.Features[FeatureExecutionTelemetry] = Available
 	out.TelemetrySchemaVersions = []int{1}
 	out.Limits.TelemetryMaxSamples = maxSamples
+	out.Limits.TelemetryMetadataBytes = metadataBytes
 	out.Limits.TelemetryMaxKeys = maxKeys
 	out.Limits.TelemetryMaxKeysPerRepository = maxKeysPerRepository
 	out.Limits.TelemetryMaxSamplesPerKey = maxSamplesPerKey
+	out.Limits.TelemetryRetentionAgeMS = retentionAgeMS
 	out.Limits.TelemetryInspectSamples = inspectSamples
 	out.ResourceObservation = &ResourceObservationSupport{
 		CPUTime: ResourceUnavailable, MaxRSS: ResourceUnavailable, IOBytes: ResourceUnavailable, ProcessCountPeak: ResourceUnavailable,

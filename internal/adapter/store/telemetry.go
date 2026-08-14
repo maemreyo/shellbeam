@@ -62,6 +62,12 @@ func (r *Repository) PutPerformanceRecord(ctx context.Context, record core.Perfo
 	if err != nil {
 		return err
 	}
+	// Hide the crash-safe prepared obligation from live event inspection until
+	// this canonical derived write reaches a committed/aborted observation
+	// state. On process crash the lock disappears and startup reconciliation
+	// still sees the durable prepared obligation.
+	r.observationVisibilityMu.Lock()
+	defer r.observationVisibilityMu.Unlock()
 	seq, prepared := r.prepareTelemetryObservation(ctx, record)
 	if prepared.Err != nil {
 		return prepared.Err

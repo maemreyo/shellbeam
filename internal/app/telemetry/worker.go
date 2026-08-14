@@ -39,12 +39,19 @@ type Worker struct {
 }
 
 func NewWorker(repository Repository, options WorkerOptions) (*Worker, error) {
-	if repository == nil || options.MaxWorkers < 1 || options.MaxWorkers > maxWorkerCount || options.QueueDepth < 1 || options.QueueDepth > maxWorkerQueueDepth || options.MaxDuration <= 0 || options.MaxDuration > maxWorkerDuration {
-		return nil, fmt.Errorf("invalid telemetry worker options")
+	if repository == nil {
+		return nil, fmt.Errorf("invalid telemetry worker repository")
 	}
 	service, err := New(repository)
 	if err != nil {
 		return nil, err
+	}
+	return NewWorkerWithService(service, options)
+}
+
+func NewWorkerWithService(service *Service, options WorkerOptions) (*Worker, error) {
+	if service == nil || service.repository == nil || options.MaxWorkers < 1 || options.MaxWorkers > maxWorkerCount || options.QueueDepth < 1 || options.QueueDepth > maxWorkerQueueDepth || options.MaxDuration <= 0 || options.MaxDuration > maxWorkerDuration {
+		return nil, fmt.Errorf("invalid telemetry worker options")
 	}
 	worker := &Worker{service: service, maxDuration: options.MaxDuration, jobs: make(chan receipt.Receipt, options.QueueDepth), done: make(chan struct{})}
 	worker.wg.Add(options.MaxWorkers)

@@ -58,20 +58,7 @@ func TestExecutionObservationDaemonComposesEventAndStructuredServices(t *testing
 	if err != nil || !events.OK || events.Events == nil {
 		t.Fatalf("inspect.events response=%#v err=%v", events, err)
 	}
-	wantKinds := []observation.EventKind{
-		observation.EventOperationAdmitted,
-		observation.EventProcessStarted,
-		observation.EventOutputAvailable,
-		observation.EventProcessTerminal,
-	}
-	if len(events.Events.Events) != len(wantKinds) {
-		t.Fatalf("events=%#v", events.Events.Events)
-	}
-	for i, want := range wantKinds {
-		if events.Events.Events[i].Kind != want {
-			t.Fatalf("event[%d]=%s want %s", i, events.Events.Events[i].Kind, want)
-		}
-	}
+	assertExecutionLifecycleEvents(t, events.Events.Events)
 
 	structured, err := client.CallV2(context.Background(), ipcadapter.RequestV2{
 		IPVersion: 2, Kind: "request", RequestID: "structured", Action: "inspect.structured",
@@ -79,6 +66,27 @@ func TestExecutionObservationDaemonComposesEventAndStructuredServices(t *testing
 	})
 	if err != nil || !structured.OK || structured.Structured == nil || structured.Structured.Status != "not_found" {
 		t.Fatalf("inspect.structured response=%#v err=%v", structured, err)
+	}
+}
+
+func assertExecutionLifecycleEvents(t *testing.T, events []observation.Event) {
+	t.Helper()
+	want := []observation.EventKind{
+		observation.EventOperationAdmitted,
+		observation.EventProcessStarted,
+		observation.EventOutputAvailable,
+		observation.EventProcessTerminal,
+	}
+	if len(events) < len(want) || len(events) > len(want)+1 {
+		t.Fatalf("execution events=%#v", events)
+	}
+	for i, kind := range want {
+		if events[i].Kind != kind {
+			t.Fatalf("event[%d]=%s want %s", i, events[i].Kind, kind)
+		}
+	}
+	if len(events) == len(want)+1 && events[len(want)].Kind != observation.EventTelemetryChanged {
+		t.Fatalf("unexpected derived event=%#v", events[len(want)])
 	}
 }
 
@@ -114,7 +122,7 @@ func seedRestartAcceptance(t *testing.T, client *ipcadapter.Client, target *obse
 		IPVersion: 2, Kind: "request", RequestID: "events-page", Action: "inspect.events", Target: target, MaxEvents: 2,
 	})
 	if err != nil || !page.OK || page.Events == nil || page.Events.Continuity != observation.ContinuityComplete || len(page.Events.Events) != 2 || !page.Events.Truncated {
-		t.Fatalf("first event page=%#v err=%v", page, err)
+		t.Fatalf("first event page=%#v app_error=%#v err=%v", page, page.Error, err)
 	}
 	assertSessionEventView(t, client, first.Receipt.SessionID)
 	return page.Events.NextEventCursor, page.Events.Events[len(page.Events.Events)-1].ChangeSeq
@@ -126,9 +134,10 @@ func assertSessionEventView(t *testing.T, client *ipcadapter.Client, sessionID s
 		IPVersion: 2, Kind: "request", RequestID: "session-events", Action: "inspect.events",
 		Target: &observation.Target{Kind: observation.TargetSession, SessionID: sessionID}, MaxEvents: 16,
 	})
-	if err != nil || !view.OK || view.Events == nil || len(view.Events.Events) != 4 {
+	if err != nil || !view.OK || view.Events == nil {
 		t.Fatalf("session event view=%#v err=%v", view, err)
 	}
+	assertExecutionLifecycleEvents(t, view.Events.Events)
 	for _, event := range view.Events.Events {
 		if event.Correlation.SessionID != sessionID || event.Correlation.OperationID != "a22-restart-first" {
 			t.Fatalf("unexpected session correlation=%#v", event.Correlation)
@@ -142,8 +151,11 @@ func assertRestartDelta(t *testing.T, client *ipcadapter.Client, target *observa
 		IPVersion: 2, Kind: "request", RequestID: "events-restarted", Action: "inspect.events",
 		Target: target, AfterEventCursor: cursor, MaxEvents: 16,
 	})
-	if err != nil || !response.OK || response.Events == nil || response.Events.Continuity != observation.ContinuityComplete || len(response.Events.Events) != 2 {
+	if err != nil || !response.OK || response.Events == nil || response.Events.Continuity != observation.ContinuityComplete {
 		t.Fatalf("restart delta=%#v err=%v", response, err)
+	}
+	if len(response.Events.Events) < 2 || len(response.Events.Events) > 3 || response.Events.Events[0].Kind != observation.EventOutputAvailable || response.Events.Events[1].Kind != observation.EventProcessTerminal || len(response.Events.Events) == 3 && response.Events.Events[2].Kind != observation.EventTelemetryChanged {
+		t.Fatalf("restart delta kinds=%#v", response.Events.Events)
 	}
 	for _, event := range response.Events.Events {
 		if event.ChangeSeq <= firstCut {
@@ -186,9 +198,10 @@ func assertPostSnapshotTransition(t *testing.T, client *ipcadapter.Client, targe
 		IPVersion: 2, Kind: "request", RequestID: "events-after-snapshot", Action: "inspect.events",
 		Target: target, AfterEventCursor: resume, MaxEvents: 16,
 	})
-	if err != nil || !response.OK || response.Events == nil || response.Events.Continuity != observation.ContinuityComplete || len(response.Events.Events) != 4 {
+	if err != nil || !response.OK || response.Events == nil || response.Events.Continuity != observation.ContinuityComplete {
 		t.Fatalf("after snapshot delta=%#v err=%v", response, err)
 	}
+	assertExecutionLifecycleEvents(t, response.Events.Events)
 	for _, event := range response.Events.Events {
 		if event.ChangeSeq <= snapshotCut || event.Correlation.OperationID != "a22-restart-second" {
 			t.Fatalf("post-snapshot event=%#v cut=%d", event, snapshotCut)

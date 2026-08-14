@@ -38,6 +38,7 @@ type Repository struct {
 	admit                    sync.Mutex
 	terminalMu               sync.Mutex
 	observationMu            sync.Mutex
+	observationVisibilityMu  sync.RWMutex
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
 	telemetryMu              sync.Mutex
