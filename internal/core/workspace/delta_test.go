@@ -1,6 +1,9 @@
 package workspace
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestSelectionVocabularyValidate(t *testing.T) {
 	for _, basis := range []SelectionBasis{SelectionWorkspaceDirty, SelectionActivityDelta} {
@@ -64,4 +67,59 @@ func TestSelectionChangeRecordValidate(t *testing.T) {
 			t.Fatalf("invalid case %d accepted: %#v", i, record)
 		}
 	}
+}
+
+func TestDeltaLimitsNormalizeAndValidate(t *testing.T) {
+	got := (DeltaLimits{}).Normalize()
+	if got.MaxPaths != 256 || got.MaxOutputBytes != 256<<10 || got.TimeoutMS != 150 || got.RequireComplete {
+		t.Fatalf("defaults=%#v", got)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, invalid := range []DeltaLimits{{MaxPaths: -1}, {MaxPaths: 4097}, {MaxOutputBytes: (1 << 20) + 1}, {TimeoutMS: 5001}} {
+		if err := invalid.Normalize().Validate(); err == nil {
+			t.Fatalf("invalid limits accepted: %#v", invalid)
+		}
+	}
+}
+
+func TestDeltaSampleResolvedPathsAreSafeAndUnique(t *testing.T) {
+	now := time.Now().UTC()
+	barrier := CoherenceBarrier{DaemonIncarnation: "d"}
+	base := DeltaSample{SchemaVersion: DeltaSampleSchemaVersion, RepositoryID: RepositoryID("repo_01K00000000000000000000000"), WorkspaceID: WorkspaceID("ws_01K00000000000000000000000"), Freshness: SampleFreshlySampled, Completeness: SelectionComplete, ObservedAt: now, BarrierBefore: barrier, BarrierAfter: barrier, CacheEligible: true}
+	base.ResolvedPaths = []string{"pkg/restored.go"}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid resolved path: %v", err)
+	}
+	for _, paths := range [][]string{{"../escape.go"}, {"/abs.go"}, {"same.go", "same.go"}} {
+		bad := base
+		bad.ResolvedPaths = paths
+		if err := bad.Validate(); err == nil {
+			t.Fatalf("invalid resolved paths accepted: %#v", paths)
+		}
+	}
+}
+
+func TestDeltaSelectionModesPreventFalseCompleteClaim(t *testing.T) {
+	base := validDeltaSampleForTest()
+	base.SelectionModes = SelectionModeQuality{SparseCheckout: ModeUnknown, AssumeUnchanged: ModePresent}
+	if err := base.Validate(); err == nil {
+		t.Fatal("known assume-unchanged mode accepted as complete")
+	}
+	base.Completeness = SelectionPartial
+	if err := base.Validate(); err != nil {
+		t.Fatalf("partial mode-aware sample: %v", err)
+	}
+	base.SelectionModes = SelectionModeQuality{SparseCheckout: ModeUnknown, AssumeUnchanged: ModeUnknown}
+	base.Completeness = SelectionComplete
+	if err := base.Validate(); err != nil {
+		t.Fatalf("unknown modes should not invent incompleteness: %v", err)
+	}
+}
+
+func validDeltaSampleForTest() DeltaSample {
+	now := time.Now().UTC()
+	barrier := CoherenceBarrier{DaemonIncarnation: "d"}
+	return DeltaSample{SchemaVersion: DeltaSampleSchemaVersion, RepositoryID: RepositoryID("repo_01K00000000000000000000000"), WorkspaceID: WorkspaceID("ws_01K00000000000000000000000"), Freshness: SampleFreshlySampled, Completeness: SelectionComplete, ObservedAt: now, BarrierBefore: barrier, BarrierAfter: barrier, CacheEligible: true}
 }

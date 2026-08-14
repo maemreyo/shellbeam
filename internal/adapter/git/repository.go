@@ -20,6 +20,10 @@ type commandRunner interface {
 	Run(context.Context, ...string) ([]byte, []byte, error)
 }
 
+type boundedCommandRunner interface {
+	RunBounded(context.Context, int, ...string) ([]byte, []byte, error)
+}
+
 type Repository struct {
 	runner          commandRunner
 	snapshotOptions SnapshotOptions
@@ -106,10 +110,17 @@ func canonicalExisting(path string) (string, error) {
 
 type execRunner struct{}
 
-func (execRunner) Run(ctx context.Context, args ...string) ([]byte, []byte, error) {
+func (r execRunner) Run(ctx context.Context, args ...string) ([]byte, []byte, error) {
+	return r.RunBounded(ctx, maxGitOutputBytes, args...)
+}
+
+func (execRunner) RunBounded(ctx context.Context, limit int, args ...string) ([]byte, []byte, error) {
+	if limit < 1 || limit > maxGitOutputBytes {
+		limit = maxGitOutputBytes
+	}
 	cmd := exec.CommandContext(ctx, "git", args...)
-	stdout := newCappedBuffer(maxGitOutputBytes)
-	stderr := newCappedBuffer(maxGitOutputBytes)
+	stdout := newCappedBuffer(limit)
+	stderr := newCappedBuffer(limit)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	err := cmd.Run()
@@ -117,6 +128,17 @@ func (execRunner) Run(ctx context.Context, args ...string) ([]byte, []byte, erro
 		return stdout.Bytes(), stderr.Bytes(), errOutputLimit
 	}
 	return stdout.Bytes(), stderr.Bytes(), err
+}
+
+func runGitBounded(runner commandRunner, ctx context.Context, limit int, args ...string) ([]byte, []byte, error) {
+	if bounded, ok := runner.(boundedCommandRunner); ok {
+		return bounded.RunBounded(ctx, limit, args...)
+	}
+	stdout, stderr, err := runner.Run(ctx, args...)
+	if len(stdout) > limit {
+		return append([]byte(nil), stdout[:limit]...), stderr, errOutputLimit
+	}
+	return stdout, stderr, err
 }
 
 var errOutputLimit = errors.New("git output limit exceeded")

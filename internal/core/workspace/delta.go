@@ -9,6 +9,48 @@ import (
 
 const DeltaSampleSchemaVersion = 1
 
+const (
+	DefaultDeltaMaxPaths       = 256
+	MaxDeltaPaths              = 4096
+	DefaultDeltaMaxOutputBytes = 256 << 10
+	MaxDeltaOutputBytes        = 1 << 20
+	DefaultDeltaTimeoutMS      = int64(150)
+	MaxDeltaTimeoutMS          = int64(5000)
+)
+
+type DeltaLimits struct {
+	MaxPaths        int   `json:"max_paths,omitempty"`
+	MaxOutputBytes  int   `json:"max_output_bytes,omitempty"`
+	TimeoutMS       int64 `json:"timeout_ms,omitempty"`
+	RequireComplete bool  `json:"require_complete,omitempty"`
+}
+
+func (l DeltaLimits) Normalize() DeltaLimits {
+	if l.MaxPaths == 0 {
+		l.MaxPaths = DefaultDeltaMaxPaths
+	}
+	if l.MaxOutputBytes == 0 {
+		l.MaxOutputBytes = DefaultDeltaMaxOutputBytes
+	}
+	if l.TimeoutMS == 0 {
+		l.TimeoutMS = DefaultDeltaTimeoutMS
+	}
+	return l
+}
+
+func (l DeltaLimits) Validate() error {
+	if l.MaxPaths < 1 || l.MaxPaths > MaxDeltaPaths {
+		return fmt.Errorf("invalid delta max paths")
+	}
+	if l.MaxOutputBytes < 1 || l.MaxOutputBytes > MaxDeltaOutputBytes {
+		return fmt.Errorf("invalid delta max output bytes")
+	}
+	if l.TimeoutMS < 1 || l.TimeoutMS > MaxDeltaTimeoutMS {
+		return fmt.Errorf("invalid delta timeout")
+	}
+	return nil
+}
+
 type SelectionBasis string
 
 const (
@@ -53,6 +95,39 @@ func (v SelectionCompleteness) Validate() error {
 	default:
 		return fmt.Errorf("invalid selection completeness %q", v)
 	}
+}
+
+type ModeState string
+
+const (
+	ModeUnknown ModeState = "unknown"
+	ModeAbsent  ModeState = "absent"
+	ModePresent ModeState = "present"
+)
+
+func (v ModeState) Validate() error {
+	switch v {
+	case "", ModeUnknown, ModeAbsent, ModePresent:
+		return nil
+	default:
+		return fmt.Errorf("invalid repository mode state %q", v)
+	}
+}
+
+type SelectionModeQuality struct {
+	SparseCheckout  ModeState `json:"sparse_checkout,omitempty"`
+	AssumeUnchanged ModeState `json:"assume_unchanged,omitempty"`
+}
+
+func (q SelectionModeQuality) Validate() error {
+	if err := q.SparseCheckout.Validate(); err != nil {
+		return err
+	}
+	return q.AssumeUnchanged.Validate()
+}
+
+func (q SelectionModeQuality) PotentiallyIncomplete() bool {
+	return q.SparseCheckout == ModePresent || q.AssumeUnchanged == ModePresent
 }
 
 type PathTransition string
@@ -180,6 +255,8 @@ type DeltaSample struct {
 	Detached                 bool                  `json:"detached,omitempty"`
 	Unborn                   bool                  `json:"unborn,omitempty"`
 	Changes                  []ChangeRecord        `json:"changes,omitempty"`
+	ResolvedPaths            []string              `json:"resolved_paths,omitempty"`
+	SelectionModes           SelectionModeQuality  `json:"selection_modes,omitempty"`
 	DiagnosticCode           string                `json:"diagnostic_code,omitempty"`
 	BarrierBefore            CoherenceBarrier      `json:"barrier_before"`
 	BarrierAfter             CoherenceBarrier      `json:"barrier_after"`
@@ -205,6 +282,12 @@ func (s DeltaSample) Validate() error {
 	if err := s.Completeness.Validate(); err != nil {
 		return err
 	}
+	if err := s.SelectionModes.Validate(); err != nil {
+		return err
+	}
+	if s.Completeness == SelectionComplete && s.SelectionModes.PotentiallyIncomplete() {
+		return fmt.Errorf("complete selection conflicts with repository mode quality")
+	}
 	if err := s.BarrierBefore.Validate(); err != nil {
 		return err
 	}
@@ -224,6 +307,16 @@ func (s DeltaSample) Validate() error {
 		if err := change.Validate(); err != nil {
 			return err
 		}
+	}
+	seenResolved := make(map[string]struct{}, len(s.ResolvedPaths))
+	for _, resolved := range s.ResolvedPaths {
+		if !validChangePath(resolved) {
+			return fmt.Errorf("invalid resolved path")
+		}
+		if _, exists := seenResolved[resolved]; exists {
+			return fmt.Errorf("duplicate resolved path")
+		}
+		seenResolved[resolved] = struct{}{}
 	}
 	return nil
 }
