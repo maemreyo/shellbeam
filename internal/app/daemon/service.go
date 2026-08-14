@@ -23,6 +23,7 @@ type Service struct {
 	observer         WorkspaceObserver
 	resolver         WorkspaceResolver
 	activityTracker  ActivityTracker
+	coherence        WorkspaceCoherence
 	contextMu        sync.Mutex
 	contextLast      map[workspace.WorkspaceID]workspace.FastSnapshot
 	contextLastOrder []workspace.WorkspaceID
