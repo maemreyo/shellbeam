@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -14,6 +15,7 @@ type input struct {
 	Action         string                    `json:"action"`
 	OperationID    string                    `json:"operation_id,omitempty"`
 	WorkspaceID    string                    `json:"workspace_id,omitempty"`
+	ActivityID     string                    `json:"activity_id,omitempty"`
 	WorkspaceHint  *workspace.Hint           `json:"workspace_hint,omitempty"`
 	Command        string                    `json:"command,omitempty"`
 	Argv           []string                  `json:"argv,omitempty"`
@@ -66,8 +68,12 @@ func validateForVersion(version int, v input, raw []byte) error {
 }
 
 func validateV2(v input) error {
-	if v.Action == "inspect.project" {
+	switch v.Action {
+	case "inspect.project", "inspect.workspace":
 		_, err := workspace.ParseWorkspaceID(v.WorkspaceID)
+		return err
+	case "inspect.activity":
+		_, err := activity.ParseID(v.ActivityID)
 		return err
 	}
 	if v.Action != "start" {
@@ -93,6 +99,11 @@ func validateV2(v input) error {
 	}
 	if v.WorkspaceHint != nil {
 		if err := v.WorkspaceHint.Validate(); err != nil {
+			return err
+		}
+	}
+	if v.ActivityID != "" {
+		if _, err := activity.ParseID(v.ActivityID); err != nil {
 			return err
 		}
 	}
@@ -179,7 +190,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "workspace_hint", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":
@@ -188,8 +199,10 @@ func v2ActionFields(action string) []string {
 		return []string{"session_id", "kill_id", "signal"}
 	case "inspect.server":
 		return nil
-	case "inspect.project":
+	case "inspect.project", "inspect.workspace":
 		return []string{"workspace_id"}
+	case "inspect.activity":
+		return []string{"activity_id"}
 	default:
 		return nil
 	}
@@ -197,7 +210,7 @@ func v2ActionFields(action string) []string {
 
 func isDeferredAction(action string) bool {
 	switch action {
-	case "inspect.workspace", "inspect.activity", "read_output":
+	case "read_output":
 		return true
 	default:
 		return false

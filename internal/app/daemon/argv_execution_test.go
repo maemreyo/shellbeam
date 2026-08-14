@@ -38,7 +38,7 @@ func (o *capturingOwner) Start(_ context.Context, spec operation.ExecutionSpec, 
 	return fakeHandle{}, receipt.SpawnEvidence{Attempted: true, Succeeded: true}, nil
 }
 
-func TestArgvStartBindsExactSpecAndReceiptMode(t *testing.T) {
+func TestAgentExecutionA1ArgvStartBindsExactSpecAndReceiptMode(t *testing.T) {
 	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
 	if err != nil {
 		t.Fatal(err)

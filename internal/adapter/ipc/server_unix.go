@@ -8,8 +8,10 @@ import (
 	"errors"
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"net"
 	"net/http"
 	"os"
@@ -28,6 +30,14 @@ type Actions interface {
 
 type ProjectActions interface {
 	InspectProject(context.Context, string) (project.Inspection, error)
+}
+
+type WorkspaceActions interface {
+	InspectWorkspace(context.Context, string) (workspace.Workspace, error)
+}
+
+type ActivityActions interface {
+	InspectActivity(context.Context, string) (activity.Activity, error)
 }
 
 type socketDialer func(string, time.Duration) (net.Conn, error)
@@ -222,7 +232,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
 	switch req.Action {
 	case "start":
-		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
 		err = callErr
 		if err == nil {
 			result, resultErr := view.StructuredResult()
@@ -249,20 +259,8 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		view, callErr := s.actions.Kill(r.Context(), app.KillRequest{SessionID: req.SessionID, KillID: req.KillID, Signal: req.Signal})
 		err = callErr
 		resp.View = &view
-	case "inspect.server":
-		info, callErr := s.actions.InspectServer(r.Context())
-		err = callErr
-		catalog := info.Capabilities
-		resp.Server = &catalog
-	case "inspect.project":
-		projectActions, ok := s.actions.(ProjectActions)
-		if !ok {
-			err = failure.New(failure.FeatureUnavailable, map[string]string{"feature": "inspect.project"}, nil)
-			break
-		}
-		inspection, callErr := projectActions.InspectProject(r.Context(), req.WorkspaceID)
-		err = callErr
-		resp.Project = &inspection
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project":
+		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
 	if err != nil {
@@ -270,9 +268,47 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		resp.Result = nil
 		resp.Server = nil
 		resp.Project = nil
+		resp.Workspace = nil
+		resp.Activity = nil
 		resp.Error = errorEnvelope(err)
 	}
 	writeResponseV2(w, resp)
+}
+
+func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
+	switch req.Action {
+	case "inspect.server":
+		info, err := s.actions.InspectServer(ctx)
+		catalog := info.Capabilities
+		resp.Server = &catalog
+		return err
+	case "inspect.workspace":
+		actions, ok := s.actions.(WorkspaceActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		record, err := actions.InspectWorkspace(ctx, req.WorkspaceID)
+		resp.Workspace = &record
+		return err
+	case "inspect.activity":
+		actions, ok := s.actions.(ActivityActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		record, err := actions.InspectActivity(ctx, req.ActivityID)
+		resp.Activity = &record
+		return err
+	case "inspect.project":
+		actions, ok := s.actions.(ProjectActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		inspection, err := actions.InspectProject(ctx, req.WorkspaceID)
+		resp.Project = &inspection
+		return err
+	default:
+		return failure.New(failure.InvalidInput, map[string]string{"field": "action"}, nil)
+	}
 }
 
 func writeResponseV2(w http.ResponseWriter, response ResponseV2) {

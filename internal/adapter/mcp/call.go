@@ -60,13 +60,15 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 	}
 	switch in.Action {
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
 	case "write":
 		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
-	case "inspect.project":
+	case "inspect.project", "inspect.workspace":
 		request.WorkspaceID = in.WorkspaceID
+	case "inspect.activity":
+		request.ActivityID = in.ActivityID
 	case "kill":
 		signal := in.Signal
 		if signal == "" {
@@ -112,6 +114,18 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
+	case "inspect.workspace":
+		if out.Workspace == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "workspace inspection missing", false)
+		}
+		body["workspace"] = out.Workspace
+		summary = "inspect.workspace: " + string(out.Workspace.ID)
+	case "inspect.activity":
+		if out.Activity == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "activity inspection missing", false)
+		}
+		body["activity"] = out.Activity
+		summary = "inspect.activity: " + string(out.Activity.ID)
 	case "inspect.project":
 		if out.Project == nil {
 			return toolErrorV2(action, "invalid_daemon_response", "project inspection missing", false)

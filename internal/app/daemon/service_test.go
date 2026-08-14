@@ -84,9 +84,9 @@ func TestServiceCapabilityCatalogIsBaselineAndCopied(t *testing.T) {
 	if got.ProtocolVersion != 2 || got.Limits.CommandBytes != 32768 || got.Limits.LiveSessions != 4 {
 		t.Fatalf("capability catalog=%#v", got)
 	}
-	got.Features[capability.FeatureWorkspaceAddressing] = capability.Available
+	got.Features[capability.FeatureWorkspaceAddressing] = capability.Unavailable
 	again := svc.CapabilityCatalog()
-	if again.Features[capability.FeatureWorkspaceAddressing] != capability.Unavailable {
+	if again.Features[capability.FeatureWorkspaceAddressing] != capability.Available {
 		t.Fatal("service leaked mutable capability feature map")
 	}
 }
@@ -200,7 +200,7 @@ func (failingOutputHandle) Wait(context.Context) receipt.ExitEvidence {
 }
 func (failingOutputHandle) Close() error { return nil }
 
-func TestV2StructuredResultSeparatesChildFailureAndExactOutputAccounting(t *testing.T) {
+func TestAgentExecutionA1StructuredResultSeparatesChildFailureAndExactOutputAccounting(t *testing.T) {
 	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
 	if err != nil {
 		t.Fatal(err)

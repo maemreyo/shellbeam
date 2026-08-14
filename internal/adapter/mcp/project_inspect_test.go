@@ -45,7 +45,7 @@ func (c *projectBridgeClient) Forward(ctx context.Context, req bridge.Request) (
 	return bridge.Response{}, nil
 }
 
-func TestInspectionDoesNotExecuteManifestCommandThroughMCP(t *testing.T) {
+func TestProjectInspectionDoesNotExecuteManifestCommandThroughMCP(t *testing.T) {
 	root := t.TempDir()
 	sentinel := filepath.Join(root, "SENTINEL")
 	if err := os.MkdirAll(filepath.Join(root, ".shellbeam"), 0o700); err != nil {

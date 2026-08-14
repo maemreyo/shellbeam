@@ -106,7 +106,7 @@ func (r *failingDeepRunner) Run(ctx context.Context, _ string, _ ...string) ([]b
 	return nil, []byte("hostile TOKEN=secret /Users/me/.ssh/id_work"), r.err
 }
 
-func TestIdentityDeepProbeIsBoundedAndSanitizesFailure(t *testing.T) {
+func TestNoSecretIdentityDeepProbeIsBoundedAndSanitizesFailure(t *testing.T) {
 	runner := &failingDeepRunner{err: context.DeadlineExceeded}
 	probe := NewIdentityProbe(runner, func(string) string { return "" })
 	current := gitidentity.Observation{

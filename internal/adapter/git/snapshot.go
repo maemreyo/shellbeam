@@ -16,13 +16,21 @@ import (
 )
 
 func (r *Repository) Snapshot(ctx context.Context, workspace core.Workspace) core.FastSnapshot {
+	return r.snapshot(ctx, workspace, true)
+}
+
+func (r *Repository) SnapshotFresh(ctx context.Context, workspace core.Workspace) core.FastSnapshot {
+	return r.snapshot(ctx, workspace, false)
+}
+
+func (r *Repository) snapshot(ctx context.Context, workspace core.Workspace, allowWarmCache bool) core.FastSnapshot {
 	now := r.snapshotOptions.Now().UTC()
 	if err := workspace.Validate(); err != nil {
 		return unavailableSnapshot(workspace, now, "workspace_invalid")
 	}
 	key := snapshotCacheKey(workspace)
 	cached, hasCached, current := r.snapshots.lookup(key, now, r.snapshotOptions.TTL)
-	if current {
+	if allowWarmCache && current {
 		return cached
 	}
 

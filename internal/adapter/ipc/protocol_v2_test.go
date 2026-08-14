@@ -3,6 +3,7 @@ package ipc
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 )
 
-func TestV1CompatibilityFixtures(t *testing.T) {
+func TestCompatibilityV1Fixtures(t *testing.T) {
 	want := map[string]string{
 		"start.json": "start",
 		"poll.json":  "poll",
@@ -85,7 +86,7 @@ func TestIPCV2ErrorsPreserveHeader(t *testing.T) {
 	if !errors.Is(err, failure.FeatureUnavailable) {
 		t.Fatalf("error=%v", err)
 	}
-	if got.RequestID != "v2-feature" || got.Action != "inspect.workspace" || got.IPVersion != 2 {
+	if got.RequestID != "v2-feature" || got.Action != "read_output" || got.IPVersion != 2 {
 		t.Fatalf("partial header lost: %#v", got)
 	}
 }
@@ -108,12 +109,33 @@ func TestIPCV2ClientRejectsUnsupportedFeatureBeforeNetwork(t *testing.T) {
 		called = true
 		return nil, errors.New("network should not run")
 	})}}
-	_, err := client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "x", Action: "inspect.workspace"})
+	_, err := client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "x", Action: "read_output"})
 	if !errors.Is(err, failure.FeatureUnavailable) {
 		t.Fatalf("error=%v want feature_unavailable", err)
 	}
 	if called {
 		t.Fatal("unsupported feature reached transport")
+	}
+}
+
+func TestAgentExecutionA1PollMarshalDecodePreservesYieldControls(t *testing.T) {
+	want := RequestV2{IPVersion: 2, Kind: "request", RequestID: "poll", Action: "poll", SessionID: "s", Cursor: 4, YieldMS: 1000, MaxOutputBytes: 4096}
+	b, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateV2FieldSet(b, "poll"); err != nil {
+		t.Fatalf("field-set %s: %#v", b, err)
+	}
+	var got RequestV2
+	if err := strictDecodeV2(b, &got); err != nil {
+		t.Fatalf("strict decode %s: %v", b, err)
+	}
+	if err := validateRequestV2(got); err != nil {
+		t.Fatalf("request validate %s: %#v", b, err)
+	}
+	if got.YieldMS != want.YieldMS || got.MaxOutputBytes != want.MaxOutputBytes || got.Cursor != want.Cursor {
+		t.Fatalf("got=%#v want=%#v", got, want)
 	}
 }
 

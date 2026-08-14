@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -150,13 +151,53 @@ func (r *Repository) ResolveWorktreeRoot(ctx context.Context, gitDir string) (st
 	if err != nil {
 		return "", err
 	}
-	stdout, stderr, err := r.runner.Run(ctx, "--git-dir", gitDir, "rev-parse", "--show-toplevel")
+	candidates := worktreeRootCandidates(gitDir)
+	if stdout, _, configErr := r.runner.Run(ctx, "--git-dir", gitDir, "config", "--path", "--get", "core.worktree"); configErr == nil {
+		root := strings.TrimSpace(string(stdout))
+		if root != "" {
+			if !filepath.IsAbs(root) {
+				root = filepath.Join(gitDir, root)
+			}
+			candidates = append(candidates, root)
+		}
+	}
+	for _, candidate := range candidates {
+		if root, ok := r.verifiedWorktreeRoot(ctx, gitDir, candidate); ok {
+			return root, nil
+		}
+	}
+	if stdout, _, bareErr := r.runner.Run(ctx, "--git-dir", gitDir, "rev-parse", "--is-bare-repository"); bareErr == nil && strings.TrimSpace(string(stdout)) == "true" {
+		return gitDir, nil
+	}
+	return "", fmt.Errorf("git worktree root unavailable")
+}
+
+func worktreeRootCandidates(gitDir string) []string {
+	var candidates []string
+	if data, err := os.ReadFile(filepath.Join(gitDir, "gitdir")); err == nil && len(data) <= 4096 {
+		pointer := strings.TrimSpace(string(data))
+		if filepath.IsAbs(pointer) && filepath.Base(pointer) == ".git" {
+			candidates = append(candidates, filepath.Dir(pointer))
+		}
+	}
+	if filepath.Base(gitDir) == ".git" {
+		candidates = append(candidates, filepath.Dir(gitDir))
+	}
+	return candidates
+}
+
+func (r *Repository) verifiedWorktreeRoot(ctx context.Context, gitDir, candidate string) (string, bool) {
+	root, err := canonicalExisting(candidate)
 	if err != nil {
-		return "", fmt.Errorf("git worktree root failed: %s", strings.TrimSpace(string(stderr)))
+		return "", false
 	}
-	root := strings.TrimSpace(string(stdout))
-	if root == "" {
-		return "", fmt.Errorf("git worktree root unavailable")
+	stdout, _, err := r.runner.Run(ctx, "-C", root, "rev-parse", "--path-format=absolute", "--git-dir")
+	if err != nil {
+		return "", false
 	}
-	return canonicalExisting(root)
+	observed, err := canonicalExisting(strings.TrimSpace(string(stdout)))
+	if err != nil || observed != gitDir {
+		return "", false
+	}
+	return root, true
 }

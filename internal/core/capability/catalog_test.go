@@ -29,7 +29,8 @@ func TestCatalogBaselineIsHonestAboutCurrentSupport(t *testing.T) {
 	}
 	for _, feature := range TargetFeatures() {
 		want := Unavailable
-		if feature == FeatureArgvMode || feature == FeatureProjectManifest {
+		if feature == FeatureWorkspaceAddressing || feature == FeatureWorkspaceProvenance || feature == FeatureActivities ||
+			feature == FeatureArgvMode || feature == FeatureProjectManifest {
 			want = Available
 		}
 		if got := catalog.Features[feature]; got != want {
@@ -41,8 +42,8 @@ func TestCatalogBaselineIsHonestAboutCurrentSupport(t *testing.T) {
 func TestCatalogBaselineDoesNotAliasFeatureMaps(t *testing.T) {
 	first := Baseline(Limits{})
 	second := Baseline(Limits{})
-	first.Features[FeatureWorkspaceAddressing] = Available
-	if second.Features[FeatureWorkspaceAddressing] != Unavailable {
+	first.Features[FeatureWorkspaceAddressing] = Unavailable
+	if second.Features[FeatureWorkspaceAddressing] != Available {
 		t.Fatal("baseline catalogs share mutable feature map")
 	}
 }

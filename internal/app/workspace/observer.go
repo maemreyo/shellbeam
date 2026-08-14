@@ -13,6 +13,10 @@ type SnapshotSource interface {
 	Snapshot(context.Context, core.Workspace) core.FastSnapshot
 }
 
+type FreshSnapshotSource interface {
+	SnapshotFresh(context.Context, core.Workspace) core.FastSnapshot
+}
+
 type Observer struct {
 	registry Registry
 	source   SnapshotSource
@@ -24,6 +28,14 @@ func NewObserver(registry Registry, source SnapshotSource) *Observer {
 }
 
 func (o *Observer) Observe(ctx context.Context, cwd string) core.FastSnapshot {
+	return o.observe(ctx, cwd, false)
+}
+
+func (o *Observer) ObserveFresh(ctx context.Context, cwd string) core.FastSnapshot {
+	return o.observe(ctx, cwd, true)
+}
+
+func (o *Observer) observe(ctx context.Context, cwd string, fresh bool) core.FastSnapshot {
 	now := o.now().UTC()
 	if o.registry == nil || o.source == nil {
 		return observerUnavailable(now, "workspace_observer_unavailable")
@@ -37,6 +49,11 @@ func (o *Observer) Observe(ctx context.Context, cwd string) core.FastSnapshot {
 		return observerUnavailable(now, "workspace_unregistered")
 	}
 	got := o.source.Snapshot(ctx, workspace)
+	if fresh {
+		if source, ok := o.source.(FreshSnapshotSource); ok {
+			got = source.SnapshotFresh(ctx, workspace)
+		}
+	}
 	got.RepositoryID = workspace.RepositoryID
 	got.WorkspaceID = workspace.ID
 	return got

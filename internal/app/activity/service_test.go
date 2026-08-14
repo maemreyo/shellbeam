@@ -2,11 +2,13 @@ package activity
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	core "github.com/maemreyo/shellbeam/internal/core/activity"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -100,4 +102,27 @@ func (s *baselineSource) Calls(ws workspace.WorkspaceID) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls[ws]
+}
+
+func TestActivityInspectReturnsExistingRecordAndTypedNotFound(t *testing.T) {
+	registry := newMemoryRegistry()
+	service := New(registry, nil, 4)
+	now := time.Date(2026, 8, 14, 4, 0, 0, 0, time.UTC)
+	record := core.New(core.ID("activity-a1"), now)
+	if err := registry.SaveActivity(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.Inspect(context.Background(), "activity-a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != record.ID || !got.CreatedAt.Equal(record.CreatedAt) {
+		t.Fatalf("inspect=%#v", got)
+	}
+	if _, err := service.Inspect(context.Background(), "missing"); !errors.Is(err, failure.ActivityNotFound) {
+		t.Fatalf("missing err=%v", err)
+	}
+	if _, err := service.Inspect(context.Background(), "bad/id"); !errors.Is(err, failure.InvalidInput) {
+		t.Fatalf("invalid id err=%v", err)
+	}
 }

@@ -48,7 +48,7 @@ func TestManifestIPCV2InspectProjectRequiresWorkspaceID(t *testing.T) {
 	}
 }
 
-func TestInspectionDoesNotExecuteManifestCommandThroughIPC(t *testing.T) {
+func TestProjectInspectionDoesNotExecuteManifestCommandThroughIPC(t *testing.T) {
 	root := t.TempDir()
 	sentinel := filepath.Join(root, "SENTINEL")
 	if err := os.MkdirAll(filepath.Join(root, ".shellbeam"), 0o700); err != nil {

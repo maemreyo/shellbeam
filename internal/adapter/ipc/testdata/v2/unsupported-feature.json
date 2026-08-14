@@ -1,1 +1,1 @@
-{"ipc_version":2,"kind":"request","request_id":"v2-feature","action":"inspect.workspace"}
+{"ipc_version":2,"kind":"request","request_id":"v2-feature","action":"read_output"}

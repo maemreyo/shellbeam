@@ -7,6 +7,7 @@ import (
 	"time"
 
 	core "github.com/maemreyo/shellbeam/internal/core/activity"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 )
 
 type Service struct {
@@ -22,6 +23,24 @@ func New(registry Registry, baseline BaselineSource, maxHistory int) *Service {
 		maxHistory = core.MaxOperationHistory
 	}
 	return &Service{registry: registry, baseline: baseline, maxHistory: maxHistory, locks: map[core.ID]*sync.Mutex{}}
+}
+
+func (s *Service) Inspect(ctx context.Context, rawID string) (core.Activity, error) {
+	id, err := core.ParseID(rawID)
+	if err != nil {
+		return core.Activity{}, failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
+	}
+	record, found, err := s.registry.LoadActivity(ctx, id)
+	if err != nil {
+		return core.Activity{}, failure.New(failure.PersistenceUnavailable, nil, err)
+	}
+	if !found {
+		return core.Activity{}, failure.New(failure.ActivityNotFound, map[string]string{"activity_id": rawID}, nil)
+	}
+	if err := record.Validate(s.maxHistory); err != nil {
+		return core.Activity{}, failure.New(failure.PersistenceUnavailable, nil, err)
+	}
+	return record, nil
 }
 
 func (s *Service) Admit(ctx context.Context, admission core.Admission) (core.Activity, error) {

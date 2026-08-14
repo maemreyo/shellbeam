@@ -29,6 +29,27 @@ func TestCacheWarmHitUsesZeroSubprocesses(t *testing.T) {
 	}
 }
 
+func TestAgentExecutionA1FreshSnapshotBypassesWarmTTLAndRefreshesCache(t *testing.T) {
+	clock := newSnapshotClock()
+	runner := &snapshotRunner{output: cleanStatusOutput()}
+	adapter := newRepository(runner, SnapshotOptions{TTL: time.Second, Budget: 50 * time.Millisecond, Now: clock.Now})
+	workspace := cacheWorkspace()
+	first := adapter.Snapshot(context.Background(), workspace)
+	runner.SetOutput([]byte("# branch.oid " + strings.Repeat("b", 40) + "\x00# branch.head feature\x00"))
+	cached := adapter.Snapshot(context.Background(), workspace)
+	if cached.Generation != first.Generation || cached.Quality != core.QualityCached {
+		t.Fatalf("warm snapshot unexpectedly refreshed: first=%#v cached=%#v", first, cached)
+	}
+	fresh := adapter.SnapshotFresh(context.Background(), workspace)
+	if fresh.Quality != core.QualityFresh || fresh.Ref != "refs/heads/feature" || fresh.Generation == first.Generation {
+		t.Fatalf("fresh snapshot=%#v first=%#v", fresh, first)
+	}
+	after := adapter.Snapshot(context.Background(), workspace)
+	if after.Quality != core.QualityCached || after.Generation != fresh.Generation {
+		t.Fatalf("refreshed cache=%#v fresh=%#v", after, fresh)
+	}
+}
+
 func TestObservationBudgetStaleMalformedFallsBackToCachedSnapshot(t *testing.T) {
 	clock := newSnapshotClock()
 	runner := &snapshotRunner{output: cleanStatusOutput()}

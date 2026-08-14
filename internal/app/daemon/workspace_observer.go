@@ -11,6 +11,10 @@ type WorkspaceObserver interface {
 	Observe(context.Context, string) workspace.FastSnapshot
 }
 
+type FreshWorkspaceObserver interface {
+	ObserveFresh(context.Context, string) workspace.FastSnapshot
+}
+
 type workspaceObservation struct {
 	pre *workspace.FastSnapshot
 }
@@ -34,5 +38,8 @@ func (s *Service) attachWorkspaceProvenance(rec *receipt.Receipt, observation wo
 		return
 	}
 	post := s.observer.Observe(context.Background(), cwd)
+	if observer, ok := s.observer.(FreshWorkspaceObserver); ok {
+		post = observer.ObserveFresh(context.Background(), cwd)
+	}
 	rec.WorkspaceProvenance = receipt.NewWorkspaceProvenance(*observation.pre, post)
 }

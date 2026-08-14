@@ -65,6 +65,9 @@ func Baseline(limits Limits) Catalog {
 	for _, feature := range targetFeatures {
 		features[feature] = Unavailable
 	}
+	features[FeatureWorkspaceAddressing] = Available
+	features[FeatureWorkspaceProvenance] = Available
+	features[FeatureActivities] = Available
 	features[FeatureArgvMode] = Available
 	features[FeatureProjectManifest] = Available
 	return Catalog{

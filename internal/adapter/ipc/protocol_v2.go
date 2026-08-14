@@ -7,6 +7,7 @@ import (
 	"io"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -24,6 +25,7 @@ type RequestV2 struct {
 	Action         string                    `json:"action"`
 	OperationID    string                    `json:"operation_id,omitempty"`
 	WorkspaceID    string                    `json:"workspace_id,omitempty"`
+	ActivityID     string                    `json:"activity_id,omitempty"`
 	WorkspaceHint  *workspace.Hint           `json:"workspace_hint,omitempty"`
 	Command        string                    `json:"command,omitempty"`
 	Argv           []string                  `json:"argv,omitempty"`
@@ -43,16 +45,18 @@ type RequestV2 struct {
 }
 
 type ResponseV2 struct {
-	IPVersion int                 `json:"ipc_version"`
-	Kind      string              `json:"kind"`
-	RequestID string              `json:"request_id"`
-	Action    string              `json:"action"`
-	OK        bool                `json:"ok"`
-	View      *app.View           `json:"view,omitempty"`
-	Result    *receipt.Result     `json:"result,omitempty"`
-	Server    *capability.Catalog `json:"server,omitempty"`
-	Project   *project.Inspection `json:"project,omitempty"`
-	Error     *Error              `json:"error,omitempty"`
+	IPVersion int                  `json:"ipc_version"`
+	Kind      string               `json:"kind"`
+	RequestID string               `json:"request_id"`
+	Action    string               `json:"action"`
+	OK        bool                 `json:"ok"`
+	View      *app.View            `json:"view,omitempty"`
+	Result    *receipt.Result      `json:"result,omitempty"`
+	Server    *capability.Catalog  `json:"server,omitempty"`
+	Project   *project.Inspection  `json:"project,omitempty"`
+	Workspace *workspace.Workspace `json:"workspace,omitempty"`
+	Activity  *activity.Activity   `json:"activity,omitempty"`
+	Error     *Error               `json:"error,omitempty"`
 }
 
 type v2Header struct {
@@ -117,15 +121,17 @@ func validateV2FieldSet(data []byte, action string) error {
 func actionFieldsV2(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "workspace_hint", "command", "argv", "intent", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "command", "argv", "intent", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
 	case "poll":
-		return []string{"session_id", "cursor", "yield-time_ms", "max_output_bytes"}
+		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":
 		return []string{"session_id", "kill_id", "signal"}
-	case "inspect.project":
+	case "inspect.project", "inspect.workspace":
 		return []string{"workspace_id"}
+	case "inspect.activity":
+		return []string{"activity_id"}
 	default:
 		return nil
 	}
@@ -166,6 +172,11 @@ func validateRequestV2(v RequestV2) error {
 				return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
 			}
 		}
+		if v.ActivityID != "" {
+			if _, err := activity.ParseID(v.ActivityID); err != nil {
+				return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
+			}
+		}
 	case "poll":
 		if v.SessionID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "session_id"}, fmt.Errorf("missing session id"))
@@ -174,9 +185,13 @@ func validateRequestV2(v RequestV2) error {
 		if v.SessionID == "" || (v.Chars == "" && !v.EOF) || (v.Chars != "" && v.EOF) {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "invalid_write"}, fmt.Errorf("invalid write request"))
 		}
-	case "inspect.project":
+	case "inspect.project", "inspect.workspace":
 		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, err)
+		}
+	case "inspect.activity":
+		if _, err := activity.ParseID(v.ActivityID); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
 		}
 	case "kill":
 		if v.SessionID == "" || v.KillID == "" {
@@ -188,7 +203,7 @@ func validateRequestV2(v RequestV2) error {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server", "inspect.project":
+	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project":
 		return true
 	default:
 		return false
@@ -197,7 +212,7 @@ func isSupportedV2Action(action string) bool {
 
 func isDeferredV2Action(action string) bool {
 	switch action {
-	case "inspect.workspace", "inspect.activity", "read_output":
+	case "read_output":
 		return true
 	default:
 		return false

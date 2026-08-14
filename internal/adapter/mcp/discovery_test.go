@@ -68,7 +68,7 @@ func TestDiscoveryCurrentClientGetsV2ToolAndCatalog(t *testing.T) {
 	assertOneToolSchemaID(t, tools.Tools, "https://shellbeam.dev/schema/mcp-input-v2.json")
 }
 
-func TestLegacyClientKeepsV1ToolAndCapabilityFallback(t *testing.T) {
+func TestAgentExecutionA1LegacyClientKeepsV1ToolAndCapabilityFallback(t *testing.T) {
 	catalog := capability.Baseline(capability.Limits{CommandBytes: 8192, LiveSessions: 2})
 	fake := &discoveryClient{catalog: catalog}
 	server := New(bridge.New(fake), catalog)
@@ -97,7 +97,7 @@ func TestLegacyClientKeepsV1ToolAndCapabilityFallback(t *testing.T) {
 	assertOneToolSchemaID(t, tools.Tools, "https://shellbeam.dev/schema/mcp-input-v1.json")
 }
 
-func TestInspectServerV2DoesNotStartCommand(t *testing.T) {
+func TestAgentExecutionA1InspectServerV2DoesNotStartCommand(t *testing.T) {
 	catalog := capability.Baseline(capability.Limits{CommandBytes: 123})
 	fake := &discoveryClient{catalog: catalog}
 	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
@@ -116,7 +116,7 @@ func TestMCPV2UnsupportedFeatureReturnsFeatureUnavailable(t *testing.T) {
 	fake := &discoveryClient{catalog: catalog}
 	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
 	defer closeSession()
-	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"inspect.workspace"}`)})
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"read_output"}`)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -27,7 +27,7 @@ func (r *fakeAddressResolver) ResolveAddress(context.Context, workspace.Address)
 	return workspace.ResolvedAddress{WorkspaceID: workspace.WorkspaceID("ws_01K00000000000000000000000"), LogicalCWD: "src", CWD: r.cwd}, nil
 }
 
-func TestRetryAfterMoveUsesDurableBindingBeforeWorkspaceResolution(t *testing.T) {
+func TestAgentExecutionA1RetryAfterMoveUsesDurableBindingBeforeWorkspaceResolution(t *testing.T) {
 	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
 	if err != nil {
 		t.Fatal(err)

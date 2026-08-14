@@ -10,6 +10,7 @@
         "action": {"const": "start"},
         "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
         "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+        "activity_id": {"type": "string", "minLength": 1, "maxLength": 128, "allOf": [{"not": {"pattern": "/"}}, {"not": {"pattern": "\\\\"}}]},
         "workspace_hint": {
           "type": "object",
           "additionalProperties": false,
@@ -72,6 +73,8 @@
       "required": ["action", "session_id", "kill_id"]
     },
     {"properties": {"action": {"const": "inspect.server"}}, "required": ["action"]},
+    {"properties": {"action": {"const": "inspect.workspace"}, "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"}}, "required": ["action", "workspace_id"]},
+    {"properties": {"action": {"const": "inspect.activity"}, "activity_id": {"type": "string", "minLength": 1, "maxLength": 128}}, "required": ["action", "activity_id"]},
     {"properties": {"action": {"const": "inspect.project"}, "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"}}, "required": ["action", "workspace_id"]}
   ]
 }

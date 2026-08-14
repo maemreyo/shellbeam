@@ -66,7 +66,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Workspace: out.Workspace, Activity: out.Activity}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -83,6 +83,7 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 	switch in.Action {
 	case "start":
 		req.OperationID = in.Start.OperationID
+		req.ActivityID = in.Start.ActivityID
 		req.WorkspaceID = in.Start.WorkspaceID
 		req.WorkspaceHint = in.Start.WorkspaceHint
 		req.Command = in.Start.Command
@@ -103,8 +104,10 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.InputOffset = in.Write.InputOffset
 		req.Chars = in.Write.Chars
 		req.EOF = in.Write.EOF
-	case "inspect.project":
+	case "inspect.project", "inspect.workspace":
 		req.WorkspaceID = in.WorkspaceID
+	case "inspect.activity":
+		req.ActivityID = in.ActivityID
 	case "kill":
 		req.SessionID = in.Kill.SessionID
 		req.KillID = in.Kill.KillID

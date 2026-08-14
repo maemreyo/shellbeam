@@ -62,7 +62,7 @@ func TestTokenAndTransportOverridesRemainPresenceOnly(t *testing.T) {
 	}
 }
 
-func TestIdentitySnapshotAndFindingsDoNotSerializeRawEmailOrSecretValues(t *testing.T) {
+func TestNoSecretIdentitySnapshotAndFindingsDoNotSerializeRawEmailOrSecretValues(t *testing.T) {
 	profile := testProfiles()["work"]
 	secretEmail := "very-secret-email@example.invalid"
 	obs := Observation{Commit: CommitObservation{AuthorEmail: secretEmail, CommitterEmail: secretEmail, Source: CommitSourceEnvironment}}

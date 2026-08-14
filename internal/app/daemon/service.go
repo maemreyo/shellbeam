@@ -79,6 +79,14 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	return &Service{store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{}}
 }
 
+func NewServiceWithExecutionContext(store Store, owner ProcessOwner, resolver WorkspaceResolver, observer WorkspaceObserver, tracker ActivityTracker, options Options) *Service {
+	service := NewService(store, owner, options)
+	service.resolver = resolver
+	service.observer = observer
+	service.activityTracker = tracker
+	return service
+}
+
 func (s *Service) CapabilityCatalog() capability.Catalog {
 	return s.options.Capabilities.Clone()
 }

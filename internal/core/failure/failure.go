@@ -17,6 +17,7 @@ const (
 	OperationConflict         Code = "operation_conflict"
 	OperationMetadataConflict Code = "operation_metadata_conflict"
 	WorkspaceNotFound         Code = "workspace_not_found"
+	ActivityNotFound          Code = "activity_not_found"
 	WorkspaceAddressEscape    Code = "workspace_address_escape"
 	ManifestInvalid           Code = "manifest_invalid"
 	ManifestReviewRequired    Code = "manifest_review_required"
@@ -47,6 +48,7 @@ var publicSpecs = map[Code]publicSpec{
 	OperationConflict:         {message: "operation conflicts with an existing intent", details: keys("operation_id")},
 	OperationMetadataConflict: {message: "operation metadata conflicts with existing metadata", details: keys("operation_id", "field")},
 	WorkspaceNotFound:         {message: "workspace not found", details: keys("workspace_id")},
+	ActivityNotFound:          {message: "activity not found", details: keys("activity_id")},
 	WorkspaceAddressEscape:    {message: "workspace address escapes registered root", details: keys("workspace_id", "cwd")},
 	ManifestInvalid:           {message: "project manifest is invalid", details: keys("field", "reason")},
 	ManifestReviewRequired:    {message: "project manifest review required", details: keys("manifest_version", "reason")},

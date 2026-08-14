@@ -50,6 +50,47 @@ func TestWorktreeInspectNormalLinkedSymlinkAndMoveContinuity(t *testing.T) {
 	}
 }
 
+func TestAgentExecutionA1ResolveWorktreeRootIsIndependentOfProcessCWD(t *testing.T) {
+	repo := initRepository(t)
+	adapter := New()
+	ctx := context.Background()
+	primary, err := adapter.Inspect(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := adapter.ResolveWorktreeRoot(ctx, primary.GitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != repo {
+		t.Fatalf("primary root=%q want %q", got, repo)
+	}
+
+	linkedPath := filepath.Join(t.TempDir(), "linked")
+	runGit(t, repo, "worktree", "add", "-b", "resolve-root", linkedPath)
+	linked, err := adapter.Inspect(ctx, linkedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = adapter.ResolveWorktreeRoot(ctx, linked.GitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != canonicalPath(t, linkedPath) {
+		t.Fatalf("linked root=%q want %q", got, canonicalPath(t, linkedPath))
+	}
+
+	moved := filepath.Join(filepath.Dir(linkedPath), "moved")
+	runGit(t, repo, "worktree", "move", linkedPath, moved)
+	got, err = adapter.ResolveWorktreeRoot(ctx, linked.GitDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != canonicalPath(t, moved) {
+		t.Fatalf("moved root=%q want %q", got, canonicalPath(t, moved))
+	}
+}
+
 func TestWorktreeInspectBareRepositoryAndListPorcelain(t *testing.T) {
 	bare := filepath.Join(t.TempDir(), "bare.git")
 	runGit(t, "", "init", "--bare", bare)
