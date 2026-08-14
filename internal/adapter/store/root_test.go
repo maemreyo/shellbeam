@@ -31,3 +31,20 @@ func TestOpenRejectsUnsafeRoot(t *testing.T) {
 		t.Fatal("symlink accepted")
 	}
 }
+
+func TestOpenRejectsObservationObligationSymlink(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	if err := os.MkdirAll(filepath.Join(root, "observations"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "obligations-target")
+	if err := os.Mkdir(target, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "observations", "obligations")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(root, Limits{MaxSessions: 1, MaxSessionOutput: 1024, MaxTotalState: 1 << 20, ControlReserve: 128}); err == nil {
+		t.Fatal("observation obligation symlink accepted")
+	}
+}

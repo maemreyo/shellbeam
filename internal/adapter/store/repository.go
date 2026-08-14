@@ -25,13 +25,15 @@ type Limits struct {
 	ControlReserve   int64
 }
 type Repository struct {
-	root       string
-	limits     Limits
-	mu         sync.Mutex
-	admit      sync.Mutex
-	terminalMu sync.Mutex
-	writer     atomicWriter
-	locks      map[operation.ID]*sync.Mutex
+	root                     string
+	limits                   Limits
+	mu                       sync.Mutex
+	admit                    sync.Mutex
+	terminalMu               sync.Mutex
+	observationMu            sync.Mutex
+	observationHighWatermark uint64
+	writer                   atomicWriter
+	locks                    map[operation.ID]*sync.Mutex
 }
 
 func Open(root string, limits Limits) (*Repository, error) {
@@ -65,7 +67,11 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	return &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}}, nil
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}}
+	if err := repository.initObservationStore(); err != nil {
+		return nil, err
+	}
+	return repository, nil
 }
 
 func (r *Repository) lock(id operation.ID) func() {

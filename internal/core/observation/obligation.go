@@ -13,6 +13,20 @@ const (
 	ObligationAborted   ObligationState = "aborted"
 )
 
+type PrepareRequest struct {
+	Kind        EventKind   `json:"kind"`
+	Correlation Correlation `json:"correlation"`
+	SubjectRef  string      `json:"subject_ref"`
+	Summary     string      `json:"summary,omitempty"`
+}
+
+func (r PrepareRequest) Validate() error {
+	if !validEventKind(r.Kind) || !safeText(r.SubjectRef, MaxSubjectBytes) || (r.Summary != "" && !safeText(r.Summary, MaxSummaryBytes)) {
+		return fmt.Errorf("invalid observation prepare request")
+	}
+	return r.Correlation.Validate()
+}
+
 type ObservationObligation struct {
 	SchemaVersion int             `json:"schema_version"`
 	ChangeSeq     ChangeSeq       `json:"change_seq"`
