@@ -12,29 +12,40 @@ type Code string
 func (c Code) Error() string { return string(c) }
 
 const (
-	InvalidInput                   Code = "invalid_input"
-	FeatureUnavailable             Code = "feature_unavailable"
-	OperationConflict              Code = "operation_conflict"
-	OperationMetadataConflict      Code = "operation_metadata_conflict"
-	WorkspaceNotFound              Code = "workspace_not_found"
-	ActivityNotFound               Code = "activity_not_found"
-	WorkspaceAddressEscape         Code = "workspace_address_escape"
-	ManifestInvalid                Code = "manifest_invalid"
-	ManifestReviewRequired         Code = "manifest_review_required"
-	IdentityObservationFailed      Code = "identity_observation_failed"
-	EventCursorInvalid             Code = "event_cursor_invalid"
-	EventCursorExpired             Code = "event_cursor_expired"
-	EventContinuityUnavailable     Code = "event_continuity_unavailable"
-	StructuredAdapterUnavailable   Code = "structured_adapter_unavailable"
-	StructuredAdapterUnsupported   Code = "structured_adapter_unsupported"
-	StructuredResultMalformed      Code = "structured_result_malformed"
-	StructuredResultPartial        Code = "structured_result_partial"
-	StructuredResultBudgetExceeded Code = "structured_result_budget_exceeded"
-	StructuredResultNotFound       Code = "structured_result_not_found"
-	CapacityExceeded               Code = "capacity_exceeded"
-	PersistenceUnavailable         Code = "persistence_unavailable"
-	StorageReserveExhausted        Code = "storage_reserve_exhausted"
-	Internal                       Code = "internal"
+	InvalidInput                    Code = "invalid_input"
+	FeatureUnavailable              Code = "feature_unavailable"
+	OperationConflict               Code = "operation_conflict"
+	OperationMetadataConflict       Code = "operation_metadata_conflict"
+	WorkspaceNotFound               Code = "workspace_not_found"
+	ActivityNotFound                Code = "activity_not_found"
+	WorkspaceAddressEscape          Code = "workspace_address_escape"
+	ManifestInvalid                 Code = "manifest_invalid"
+	ManifestReviewRequired          Code = "manifest_review_required"
+	IdentityObservationFailed       Code = "identity_observation_failed"
+	EventCursorInvalid              Code = "event_cursor_invalid"
+	EventCursorExpired              Code = "event_cursor_expired"
+	EventContinuityUnavailable      Code = "event_continuity_unavailable"
+	StructuredAdapterUnavailable    Code = "structured_adapter_unavailable"
+	StructuredAdapterUnsupported    Code = "structured_adapter_unsupported"
+	StructuredResultMalformed       Code = "structured_result_malformed"
+	StructuredResultPartial         Code = "structured_result_partial"
+	StructuredResultBudgetExceeded  Code = "structured_result_budget_exceeded"
+	StructuredResultNotFound        Code = "structured_result_not_found"
+	TelemetryUnavailable            Code = "telemetry_unavailable"
+	TelemetryPartial                Code = "telemetry_partial"
+	TelemetryBudgetExceeded         Code = "telemetry_budget_exceeded"
+	TelemetryIncompatibleHistory    Code = "telemetry_incompatible_history"
+	ResourceObservationUnavailable  Code = "resource_observation_unavailable"
+	ResourceObservationPartial      Code = "resource_observation_partial"
+	ResourceLimitUnsupported        Code = "resource_limit_unsupported"
+	ReproNotFound                   Code = "repro_not_found"
+	ReproMaterializationUnavailable Code = "repro_materialization_unavailable"
+	ReproSourceUnavailable          Code = "repro_source_unavailable"
+	ReproReferenceCompacted         Code = "repro_reference_compacted"
+	CapacityExceeded                Code = "capacity_exceeded"
+	PersistenceUnavailable          Code = "persistence_unavailable"
+	StorageReserveExhausted         Code = "storage_reserve_exhausted"
+	Internal                        Code = "internal"
 )
 
 type Failure struct {
@@ -52,29 +63,40 @@ type publicSpec struct {
 }
 
 var publicSpecs = map[Code]publicSpec{
-	InvalidInput:                   {message: "invalid input", details: keys("field", "reason")},
-	FeatureUnavailable:             {message: "feature unavailable", details: keys("feature", "required_version")},
-	OperationConflict:              {message: "operation conflicts with an existing intent", details: keys("operation_id")},
-	OperationMetadataConflict:      {message: "operation metadata conflicts with existing metadata", details: keys("operation_id", "field")},
-	WorkspaceNotFound:              {message: "workspace not found", details: keys("workspace_id")},
-	ActivityNotFound:               {message: "activity not found", details: keys("activity_id")},
-	WorkspaceAddressEscape:         {message: "workspace address escapes registered root", details: keys("workspace_id", "cwd")},
-	ManifestInvalid:                {message: "project manifest is invalid", details: keys("field", "reason")},
-	ManifestReviewRequired:         {message: "project manifest review required", details: keys("manifest_version", "reason")},
-	IdentityObservationFailed:      {message: "identity observation failed", retryable: true, details: keys("provider", "reason")},
-	EventCursorInvalid:             {message: "event cursor is invalid", details: keys("reason")},
-	EventCursorExpired:             {message: "event cursor has expired", details: keys("reason")},
-	EventContinuityUnavailable:     {message: "event continuity unavailable", retryable: true, details: keys("reason")},
-	StructuredAdapterUnavailable:   {message: "structured adapter unavailable", retryable: true, details: keys("adapter", "reason")},
-	StructuredAdapterUnsupported:   {message: "structured adapter unsupported", details: keys("adapter")},
-	StructuredResultMalformed:      {message: "structured result malformed", details: keys("adapter", "reason")},
-	StructuredResultPartial:        {message: "structured result partial", details: keys("adapter", "reason")},
-	StructuredResultBudgetExceeded: {message: "structured result budget exceeded", retryable: true, details: keys("adapter", "reason")},
-	StructuredResultNotFound:       {message: "structured result not found", details: keys("operation_id", "derivation_key")},
-	CapacityExceeded:               {message: "capacity exceeded", retryable: true},
-	PersistenceUnavailable:         {message: "persistence unavailable", retryable: true},
-	StorageReserveExhausted:        {message: "storage reserve exhausted", retryable: true},
-	Internal:                       {message: "internal error"},
+	InvalidInput:                    {message: "invalid input", details: keys("field", "reason")},
+	FeatureUnavailable:              {message: "feature unavailable", details: keys("feature", "required_version")},
+	OperationConflict:               {message: "operation conflicts with an existing intent", details: keys("operation_id")},
+	OperationMetadataConflict:       {message: "operation metadata conflicts with existing metadata", details: keys("operation_id", "field")},
+	WorkspaceNotFound:               {message: "workspace not found", details: keys("workspace_id")},
+	ActivityNotFound:                {message: "activity not found", details: keys("activity_id")},
+	WorkspaceAddressEscape:          {message: "workspace address escapes registered root", details: keys("workspace_id", "cwd")},
+	ManifestInvalid:                 {message: "project manifest is invalid", details: keys("field", "reason")},
+	ManifestReviewRequired:          {message: "project manifest review required", details: keys("manifest_version", "reason")},
+	IdentityObservationFailed:       {message: "identity observation failed", retryable: true, details: keys("provider", "reason")},
+	EventCursorInvalid:              {message: "event cursor is invalid", details: keys("reason")},
+	EventCursorExpired:              {message: "event cursor has expired", details: keys("reason")},
+	EventContinuityUnavailable:      {message: "event continuity unavailable", retryable: true, details: keys("reason")},
+	StructuredAdapterUnavailable:    {message: "structured adapter unavailable", retryable: true, details: keys("adapter", "reason")},
+	StructuredAdapterUnsupported:    {message: "structured adapter unsupported", details: keys("adapter")},
+	StructuredResultMalformed:       {message: "structured result malformed", details: keys("adapter", "reason")},
+	StructuredResultPartial:         {message: "structured result partial", details: keys("adapter", "reason")},
+	StructuredResultBudgetExceeded:  {message: "structured result budget exceeded", retryable: true, details: keys("adapter", "reason")},
+	StructuredResultNotFound:        {message: "structured result not found", details: keys("operation_id", "derivation_key")},
+	TelemetryUnavailable:            {message: "execution telemetry unavailable", retryable: true, details: keys("operation_id", "reason")},
+	TelemetryPartial:                {message: "execution telemetry partial", details: keys("operation_id", "reason")},
+	TelemetryBudgetExceeded:         {message: "execution telemetry budget exceeded", retryable: true, details: keys("operation_id", "reason")},
+	TelemetryIncompatibleHistory:    {message: "execution telemetry history incompatible", details: keys("operation_id", "reason")},
+	ResourceObservationUnavailable:  {message: "resource observation unavailable", details: keys("metric", "reason")},
+	ResourceObservationPartial:      {message: "resource observation partial", details: keys("metric", "reason")},
+	ResourceLimitUnsupported:        {message: "resource limit unsupported", details: keys("metric", "reason")},
+	ReproNotFound:                   {message: "reproduction capsule not found", details: keys("repro_id")},
+	ReproMaterializationUnavailable: {message: "reproduction materialization unavailable", retryable: true, details: keys("operation_id", "reason")},
+	ReproSourceUnavailable:          {message: "reproduction source unavailable", details: keys("repro_id", "reason")},
+	ReproReferenceCompacted:         {message: "reproduction reference compacted", details: keys("repro_id", "ref_id")},
+	CapacityExceeded:                {message: "capacity exceeded", retryable: true},
+	PersistenceUnavailable:          {message: "persistence unavailable", retryable: true},
+	StorageReserveExhausted:         {message: "storage reserve exhausted", retryable: true},
+	Internal:                        {message: "internal error"},
 }
 
 var legacyCodes = map[string]Code{

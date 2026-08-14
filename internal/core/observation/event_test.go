@@ -31,3 +31,15 @@ func TestEventAndObligationClosedVocabulary(t *testing.T) {
 		}
 	}
 }
+
+func TestA4EventKindsAreInClosedVocabulary(t *testing.T) {
+	seen := map[EventKind]bool{}
+	for _, kind := range InitialEventKinds() {
+		seen[kind] = true
+	}
+	for _, want := range []EventKind{EventTelemetryChanged, EventReproRecorded} {
+		if !seen[want] {
+			t.Fatalf("A4 event kind %q missing", want)
+		}
+	}
+}

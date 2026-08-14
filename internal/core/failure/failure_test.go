@@ -114,3 +114,27 @@ func TestFailurePublicCodeSet(t *testing.T) {
 		}
 	}
 }
+
+func TestA4FailureCodesAreStableAndDoNotLeakDetails(t *testing.T) {
+	codes := []Code{
+		TelemetryUnavailable, TelemetryPartial, TelemetryBudgetExceeded, TelemetryIncompatibleHistory,
+		ResourceObservationUnavailable, ResourceObservationPartial, ResourceLimitUnsupported,
+		ReproNotFound, ReproMaterializationUnavailable, ReproSourceUnavailable, ReproReferenceCompacted,
+	}
+	for _, code := range codes {
+		public := Public(New(code, map[string]string{
+			"operation_id": "op-1", "repro_id": "repro_01K00000000000000000000000", "ref_id": "result:1",
+			"metric": "max_rss", "reason": "bounded", "path": "/Users/alice/.ssh/id_work token=secret",
+		}, errors.New("private /Users/alice/.ssh/id_work token=secret")))
+		if public.Code != code || public.Message == "" {
+			t.Fatalf("missing A4 failure spec for %q: %#v", code, public)
+		}
+		data, err := json.Marshal(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "id_work") || strings.Contains(string(data), "token=secret") {
+			t.Fatalf("A4 public failure leaked private detail: %s", data)
+		}
+	}
+}

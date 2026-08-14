@@ -27,32 +27,61 @@ const (
 	FeatureEventJournal           Feature = "event_journal"
 	FeatureEventSnapshotRecovery  Feature = "event_snapshot_recovery"
 	FeatureCodeIntelligence       Feature = "code_intelligence"
+	FeatureExecutionTelemetry     Feature = "execution_telemetry"
+	FeatureReproductionCapsules   Feature = "reproduction_capsules"
 )
 
 type Limits struct {
-	CommandBytes             int   `json:"command_bytes"`
-	ResponseBytes            int   `json:"response_bytes"`
-	SessionOutputBytes       int64 `json:"session_output_bytes"`
-	RuntimeMS                int64 `json:"runtime_ms"`
-	LiveSessions             int   `json:"live_sessions"`
-	ActivityHistory          int   `json:"activity_history"`
-	EventJournalMaxEvents    int   `json:"event_journal_max_events,omitempty"`
-	EventCursorBytes         int   `json:"event_cursor_bytes,omitempty"`
-	EventSnapshotFacts       int   `json:"event_snapshot_facts,omitempty"`
-	StructuredInspectRecords int   `json:"structured_inspect_records,omitempty"`
+	CommandBytes                  int   `json:"command_bytes"`
+	ResponseBytes                 int   `json:"response_bytes"`
+	SessionOutputBytes            int64 `json:"session_output_bytes"`
+	RuntimeMS                     int64 `json:"runtime_ms"`
+	LiveSessions                  int   `json:"live_sessions"`
+	ActivityHistory               int   `json:"activity_history"`
+	EventJournalMaxEvents         int   `json:"event_journal_max_events,omitempty"`
+	EventCursorBytes              int   `json:"event_cursor_bytes,omitempty"`
+	EventSnapshotFacts            int   `json:"event_snapshot_facts,omitempty"`
+	StructuredInspectRecords      int   `json:"structured_inspect_records,omitempty"`
+	TelemetryMaxSamples           int   `json:"telemetry_max_samples,omitempty"`
+	TelemetryMaxKeys              int   `json:"telemetry_max_keys,omitempty"`
+	TelemetryMaxKeysPerRepository int   `json:"telemetry_max_keys_per_repository,omitempty"`
+	TelemetryMaxSamplesPerKey     int   `json:"telemetry_max_samples_per_key,omitempty"`
+	TelemetryInspectSamples       int   `json:"telemetry_inspect_samples,omitempty"`
+	ReproMaxCapsules              int   `json:"repro_max_capsules,omitempty"`
+	ReproMaxReferences            int   `json:"repro_max_references,omitempty"`
+	ReproMetadataBytes            int   `json:"repro_metadata_bytes,omitempty"`
+}
+
+type ResourceQuality string
+
+const (
+	ResourceExact            ResourceQuality = "exact"
+	ResourcePlatformReported ResourceQuality = "platform_reported"
+	ResourceSampled          ResourceQuality = "sampled"
+	ResourceUnavailable      ResourceQuality = "unavailable"
+)
+
+type ResourceObservationSupport struct {
+	CPUTime          ResourceQuality `json:"cpu_time"`
+	MaxRSS           ResourceQuality `json:"max_rss"`
+	IOBytes          ResourceQuality `json:"io_bytes"`
+	ProcessCountPeak ResourceQuality `json:"process_count_peak"`
 }
 
 type Catalog struct {
-	ProtocolVersion            int                      `json:"shellbeam_protocol_version"`
-	ReceiptSchemaVersions      []int                    `json:"receipt_schema_versions"`
-	ManifestVersions           []int                    `json:"project_manifest_schema_versions"`
-	EventCursorSchemaVersions  []int                    `json:"event_cursor_schema_versions,omitempty"`
-	ResultCursorSchemaVersions []int                    `json:"result_cursor_schema_versions,omitempty"`
-	StructuredAdapterIDs       []string                 `json:"structured_adapter_ids,omitempty"`
-	StructuredResultKinds      []string                 `json:"structured_result_kinds,omitempty"`
-	StructuredLifecycle        bool                     `json:"structured_lifecycle,omitempty"`
-	Features                   map[Feature]Availability `json:"features"`
-	Limits                     Limits                   `json:"limits"`
+	ProtocolVersion            int                         `json:"shellbeam_protocol_version"`
+	ReceiptSchemaVersions      []int                       `json:"receipt_schema_versions"`
+	ManifestVersions           []int                       `json:"project_manifest_schema_versions"`
+	EventCursorSchemaVersions  []int                       `json:"event_cursor_schema_versions,omitempty"`
+	ResultCursorSchemaVersions []int                       `json:"result_cursor_schema_versions,omitempty"`
+	StructuredAdapterIDs       []string                    `json:"structured_adapter_ids,omitempty"`
+	StructuredResultKinds      []string                    `json:"structured_result_kinds,omitempty"`
+	StructuredLifecycle        bool                        `json:"structured_lifecycle,omitempty"`
+	TelemetrySchemaVersions    []int                       `json:"telemetry_schema_versions,omitempty"`
+	ReproSchemaVersions        []int                       `json:"repro_schema_versions,omitempty"`
+	ResourceObservation        *ResourceObservationSupport `json:"resource_observation,omitempty"`
+	Features                   map[Feature]Availability    `json:"features"`
+	Limits                     Limits                      `json:"limits"`
 }
 
 var targetFeatures = []Feature{
@@ -73,6 +102,8 @@ var targetFeatures = []Feature{
 	FeatureEventJournal,
 	FeatureEventSnapshotRecovery,
 	FeatureCodeIntelligence,
+	FeatureExecutionTelemetry,
+	FeatureReproductionCapsules,
 }
 
 func TargetFeatures() []Feature {
@@ -106,6 +137,12 @@ func (c Catalog) Clone() Catalog {
 	out.ResultCursorSchemaVersions = append([]int(nil), c.ResultCursorSchemaVersions...)
 	out.StructuredAdapterIDs = append([]string(nil), c.StructuredAdapterIDs...)
 	out.StructuredResultKinds = append([]string(nil), c.StructuredResultKinds...)
+	out.TelemetrySchemaVersions = append([]int(nil), c.TelemetrySchemaVersions...)
+	out.ReproSchemaVersions = append([]int(nil), c.ReproSchemaVersions...)
+	if c.ResourceObservation != nil {
+		resource := *c.ResourceObservation
+		out.ResourceObservation = &resource
+	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
 		out.Features[feature] = availability
@@ -149,5 +186,36 @@ func (c Catalog) WithStructuredResults(adapterIDs, resultKinds []string, maxReco
 func (c Catalog) WithCodeIntelligence() Catalog {
 	out := c.Clone()
 	out.Features[FeatureCodeIntelligence] = Available
+	return out
+}
+
+func (c Catalog) WithExecutionTelemetry(maxSamples, maxKeys, maxKeysPerRepository, maxSamplesPerKey, inspectSamples int) Catalog {
+	out := c.Clone()
+	if maxSamples < 1 || maxKeys < 1 || maxKeysPerRepository < 1 || maxSamplesPerKey < 1 || inspectSamples < 1 {
+		return out
+	}
+	out.Features[FeatureExecutionTelemetry] = Available
+	out.TelemetrySchemaVersions = []int{1}
+	out.Limits.TelemetryMaxSamples = maxSamples
+	out.Limits.TelemetryMaxKeys = maxKeys
+	out.Limits.TelemetryMaxKeysPerRepository = maxKeysPerRepository
+	out.Limits.TelemetryMaxSamplesPerKey = maxSamplesPerKey
+	out.Limits.TelemetryInspectSamples = inspectSamples
+	out.ResourceObservation = &ResourceObservationSupport{
+		CPUTime: ResourceUnavailable, MaxRSS: ResourceUnavailable, IOBytes: ResourceUnavailable, ProcessCountPeak: ResourceUnavailable,
+	}
+	return out
+}
+
+func (c Catalog) WithReproductionCapsules(maxCapsules, maxReferences, metadataBytes int) Catalog {
+	out := c.Clone()
+	if maxCapsules < 1 || maxReferences < 1 || metadataBytes < 1 {
+		return out
+	}
+	out.Features[FeatureReproductionCapsules] = Available
+	out.ReproSchemaVersions = []int{1}
+	out.Limits.ReproMaxCapsules = maxCapsules
+	out.Limits.ReproMaxReferences = maxReferences
+	out.Limits.ReproMetadataBytes = metadataBytes
 	return out
 }

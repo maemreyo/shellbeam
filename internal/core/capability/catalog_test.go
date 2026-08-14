@@ -93,3 +93,37 @@ func TestCodeIntelligenceCapabilityRequiresComposition(t *testing.T) {
 		t.Fatal("WithCodeIntelligence mutated baseline")
 	}
 }
+
+func TestExecutionTelemetryAndReproCapabilitiesAreExplicitAndBounded(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureExecutionTelemetry] != Unavailable || base.Features[FeatureReproductionCapsules] != Unavailable || len(base.TelemetrySchemaVersions) != 0 || len(base.ReproSchemaVersions) != 0 || base.ResourceObservation != nil {
+		t.Fatalf("baseline leaked A4 support: %#v", base)
+	}
+	telemetry := base.WithExecutionTelemetry(1024, 256, 64, 64, 128)
+	if telemetry.Features[FeatureExecutionTelemetry] != Available || !reflect.DeepEqual(telemetry.TelemetrySchemaVersions, []int{1}) {
+		t.Fatalf("telemetry capability=%#v", telemetry)
+	}
+	if telemetry.Limits.TelemetryMaxSamples != 1024 || telemetry.Limits.TelemetryMaxKeys != 256 || telemetry.Limits.TelemetryMaxKeysPerRepository != 64 || telemetry.Limits.TelemetryMaxSamplesPerKey != 64 || telemetry.Limits.TelemetryInspectSamples != 128 {
+		t.Fatalf("telemetry limits=%#v", telemetry.Limits)
+	}
+	if telemetry.ResourceObservation == nil || telemetry.ResourceObservation.CPUTime != ResourceUnavailable || telemetry.ResourceObservation.MaxRSS != ResourceUnavailable || telemetry.ResourceObservation.IOBytes != ResourceUnavailable || telemetry.ResourceObservation.ProcessCountPeak != ResourceUnavailable {
+		t.Fatalf("resource support overclaimed: %#v", telemetry.ResourceObservation)
+	}
+	repro := telemetry.WithReproductionCapsules(256, 32, 65536)
+	if repro.Features[FeatureReproductionCapsules] != Available || !reflect.DeepEqual(repro.ReproSchemaVersions, []int{1}) || repro.Limits.ReproMaxCapsules != 256 || repro.Limits.ReproMaxReferences != 32 || repro.Limits.ReproMetadataBytes != 65536 {
+		t.Fatalf("repro capability=%#v", repro)
+	}
+	if base.Features[FeatureExecutionTelemetry] != Unavailable || base.ResourceObservation != nil {
+		t.Fatal("A4 composition mutated baseline")
+	}
+}
+
+func TestA4CapabilityRejectsNonPositiveBounds(t *testing.T) {
+	base := Baseline(Limits{})
+	if got := base.WithExecutionTelemetry(0, 1, 1, 1, 1); got.Features[FeatureExecutionTelemetry] != Unavailable {
+		t.Fatalf("invalid telemetry bounds advertised: %#v", got)
+	}
+	if got := base.WithReproductionCapsules(1, 0, 1); got.Features[FeatureReproductionCapsules] != Unavailable {
+		t.Fatalf("invalid repro bounds advertised: %#v", got)
+	}
+}
