@@ -15,7 +15,6 @@ import (
 )
 
 func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
-	_ = ctx
 	unlock := r.lock(want.OperationID)
 	defer unlock()
 	r.admit.Lock()
@@ -43,19 +42,31 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	if want.CreatedAt.IsZero() {
 		want.CreatedAt = time.Now().UTC()
 	}
-	if result := r.writer.Create(path, want); result.Err != nil {
-		if !errors.Is(result.Err, os.ErrExist) {
-			return existing, false, result
-		}
-		if err = readStrict(path, &existing); err != nil {
-			return existing, false, app.StoreResult{Durability: app.AmbiguousChange, Err: err}
-		}
-		return r.replayReservation(want, existing)
+	seq, prepared := r.prepareAdmissionObservation(ctx, want)
+	if prepared.Err != nil {
+		return existing, false, prepared
 	}
-	if result := r.ensureSessionMetadata(want); result.Err != nil {
-		return want, false, result
+	result := r.writer.Create(path, want)
+	if result.Err != nil {
+		if errors.Is(result.Err, os.ErrExist) {
+			r.abortObservationBestEffort(seq, observationAbortConflict)
+			if err = readStrict(path, &existing); err != nil {
+				return existing, false, withObservationSeq(app.StoreResult{Durability: app.AmbiguousChange, Err: err}, seq)
+			}
+			stored, created, replay := r.replayReservation(want, existing)
+			return stored, created, withObservationSeq(replay, seq)
+		}
+		if result.Durability == app.NoDurableChange || !r.reservationFileMatches(path, want) {
+			r.abortObservationBestEffort(seq, observationAbortWriteFailed)
+		}
+		return existing, false, withObservationSeq(result, seq)
 	}
-	return want, true, app.StoreResult{Durability: app.DurableChange}
+	r.commitObservationBestEffort(seq)
+	metadata := withObservationSeq(r.ensureSessionMetadata(want), seq)
+	if metadata.Err != nil {
+		return want, false, metadata
+	}
+	return want, true, metadata
 }
 
 func (r *Repository) replayReservation(want, existing operation.Reservation) (operation.Reservation, bool, app.StoreResult) {

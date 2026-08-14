@@ -17,8 +17,9 @@ const (
 )
 
 type StoreResult struct {
-	Durability Durability
-	Err        error
+	Durability     Durability
+	ObservationSeq uint64
+	Err            error
 }
 
 type Store interface {
@@ -32,4 +33,10 @@ type Store interface {
 	AppendOutput(context.Context, operation.SessionID, []byte) (int, StoreResult)
 	ReadOutput(context.Context, operation.SessionID, int64, int) ([]byte, int64, error)
 	Compact(context.Context, operation.SessionID) StoreResult
+}
+
+type processObservationStore interface {
+	PrepareProcessStartedObservation(context.Context, string, string) StoreResult
+	CommitObservationSequence(context.Context, uint64) StoreResult
+	AbortObservationSequence(context.Context, uint64, string) StoreResult
 }

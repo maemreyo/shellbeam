@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -36,5 +37,25 @@ func TestPublishThenCompactPreservesTombstone(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(r.root, "sessions", "s", "receipt.json")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestObservationTerminalPublicationIsExactlyOnce(t *testing.T) {
+	r, rec := terminalRepository(t)
+	before, err := r.ObservationHighWatermark(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := r.PublishTerminal(context.Background(), rec)
+	if first.Err != nil || first.ObservationSeq != uint64(before+1) {
+		t.Fatalf("first=%#v before=%d", first, before)
+	}
+	second := r.PublishTerminal(context.Background(), rec)
+	if second.Err != nil || second.ObservationSeq != 0 {
+		t.Fatalf("replay=%#v", second)
+	}
+	obligations, err := r.ListObservationObligations(context.Background(), before, 10)
+	if err != nil || len(obligations) != 1 || obligations[0].Kind != observation.EventProcessTerminal || obligations[0].State != observation.ObligationCommitted || obligations[0].SubjectRef != "receipt:s" {
+		t.Fatalf("obligations=%#v err=%v", obligations, err)
 	}
 }

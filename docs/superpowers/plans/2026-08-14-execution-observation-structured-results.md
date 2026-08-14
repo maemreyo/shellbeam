@@ -295,9 +295,9 @@ git commit -m "feat: persist observation obligations"
 
 For a newly created operation, require a prepared `operation_admitted` obligation to exist before the authoritative operation file becomes visible. If canonical publication fails, abort the prepared obligation. Retry of the same operation must not allocate a second committed logical event.
 
-- [ ] **Step 2: Integrate process-start obligation with running-session publication**
+- [ ] **Step 2: Integrate process-start obligation before spawn with post-spawn resolution**
 
-The `AdvanceSession` transition that first establishes spawn success prepares `process_started`. Repeated running snapshots do not create duplicate process-start obligations.
+Prepare the `process_started` obligation immediately before `Owner.Start()` can create the child, then commit it only after `Owner.Start()` returns authoritative spawn success; abort it on spawn failure. This preserves sequence order even when the process adapter's capture goroutine publishes output before `Owner.Start()` returns. The subsequent `AdvanceSession(Running)` remains canonical session-state publication and must not allocate a second process-start obligation.
 
 - [ ] **Step 3: Integrate output-range obligations**
 

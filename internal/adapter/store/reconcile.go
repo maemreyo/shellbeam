@@ -13,6 +13,9 @@ import (
 )
 
 func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation string) error {
+	if err := r.reconcilePreparedExecutionObservations(ctx); err != nil {
+		return err
+	}
 	if err := r.repairCommittedOperations(ctx); err != nil {
 		return err
 	}

@@ -153,10 +153,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation.binding)
 	spec.CWD = executionCWD
 	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
-	if s.coherence != nil {
-		live.coherenceLease = s.coherence.BeginManagedShell()
+	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
+	if processObservation.Err != nil {
+		return View{}, failure.Normalize(processObservation.Err)
 	}
-	s.put(live)
+	s.activateLiveSession(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
 	live.spawn = spawn
@@ -167,6 +168,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	live.notify()
 	live.mu.Unlock()
 	if spawnErr != nil {
+		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
 		s.finishSpawnFailure(live)
 		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
 		if viewErr == nil {
@@ -174,6 +176,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 		}
 		return view, viewErr
 	}
+	s.resolveProcessStartedObservation(processObservation.ObservationSeq, true)
 	snap := session.Snapshot{SchemaVersion: 1, OperationID: req.OperationID, SessionID: sid, DaemonIncarnation: s.options.Incarnation, State: session.Running, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
 	if got := s.store.AdvanceSession(context.Background(), snap); got.Err != nil {
 		h.Signal("TERM")
@@ -188,6 +191,36 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 		s.enrichWorkspaceContext(&view, workspaceObservation.context, req.WorkspaceHint)
 	}
 	return view, viewErr
+}
+
+func (s *Service) activateLiveSession(live *liveSession) {
+	if s.coherence != nil {
+		live.coherenceLease = s.coherence.BeginManagedShell()
+	}
+	s.put(live)
+}
+
+func (s *Service) prepareProcessStartedObservation(operationID, sessionID string) StoreResult {
+	store, ok := s.store.(processObservationStore)
+	if !ok {
+		return StoreResult{}
+	}
+	return store.PrepareProcessStartedObservation(context.Background(), operationID, sessionID)
+}
+
+func (s *Service) resolveProcessStartedObservation(seq uint64, success bool) {
+	if seq == 0 {
+		return
+	}
+	store, ok := s.store.(processObservationStore)
+	if !ok {
+		return
+	}
+	if success {
+		_ = store.CommitObservationSequence(context.Background(), seq)
+		return
+	}
+	_ = store.AbortObservationSequence(context.Background(), seq, "spawn_failed")
 }
 
 type sessionSink struct {

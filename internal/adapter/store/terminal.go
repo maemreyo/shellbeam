@@ -19,7 +19,7 @@ func (r *Repository) AdvanceSession(_ context.Context, v session.Snapshot) app.S
 	return r.writer.Replace(filepath.Join(r.root, "sessions", v.SessionID, "metadata.json"), v)
 }
 
-func (r *Repository) PublishTerminal(_ context.Context, v receipt.Receipt) app.StoreResult {
+func (r *Repository) PublishTerminal(ctx context.Context, v receipt.Receipt) app.StoreResult {
 	if err := v.Validate(); err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
@@ -37,19 +37,30 @@ func (r *Repository) PublishTerminal(_ context.Context, v receipt.Receipt) app.S
 	if !errors.Is(err, ErrNotFound) {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
+	seq, prepared := r.prepareTerminalObservation(ctx, v)
+	if prepared.Err != nil {
+		return prepared
+	}
 	result := r.writer.Create(path, v)
 	if result.Err != nil {
-		if !errors.Is(result.Err, os.ErrExist) {
-			return result
+		if errors.Is(result.Err, os.ErrExist) {
+			r.abortObservationBestEffort(seq, observationAbortConflict)
+			if err = readStrict(path, &existing); err != nil {
+				return withObservationSeq(app.StoreResult{Durability: app.AmbiguousChange, Err: err}, seq)
+			}
+			if !reflect.DeepEqual(existing, v) {
+				return withObservationSeq(app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("terminal_conflict")}, seq)
+			}
+			repaired := r.repairTerminalMetadata(v)
+			return withObservationSeq(repaired, seq)
 		}
-		if err = readStrict(path, &existing); err != nil {
-			return app.StoreResult{Durability: app.AmbiguousChange, Err: err}
+		if result.Durability == app.NoDurableChange || !r.receiptFileMatches(path, v) {
+			r.abortObservationBestEffort(seq, observationAbortWriteFailed)
 		}
-		if !reflect.DeepEqual(existing, v) {
-			return app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("terminal_conflict")}
-		}
+		return withObservationSeq(result, seq)
 	}
-	return r.repairTerminalMetadata(v)
+	r.commitObservationBestEffort(seq)
+	return withObservationSeq(r.repairTerminalMetadata(v), seq)
 }
 
 func (r *Repository) repairTerminalMetadata(v receipt.Receipt) app.StoreResult {

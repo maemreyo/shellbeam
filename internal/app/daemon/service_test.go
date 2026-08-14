@@ -7,6 +7,7 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -253,5 +254,70 @@ func TestV2TerminalReceiptRedactsCaptureFailureDiagnostics(t *testing.T) {
 	}
 	if terminal.Receipt.FailureReason != "output_capture_failed" {
 		t.Fatalf("unsafe failure reason=%q", terminal.Receipt.FailureReason)
+	}
+}
+
+type eagerObservationOwner struct{}
+
+func (eagerObservationOwner) Start(ctx context.Context, _ operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	if err := sink.Append(ctx, []byte("early")); err != nil {
+		return nil, receipt.SpawnEvidence{Attempted: true}, err
+	}
+	return fakeHandle{}, receipt.SpawnEvidence{Attempted: true, Succeeded: true}, nil
+}
+
+func TestObservationProcessStartedSequencePrecedesEagerOutput(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(st, eagerObservationOwner{}, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "obs-eager-output", Command: "true", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForTerminal(t, svc, started.SessionID)
+	obligations, err := st.ListObservationObligations(context.Background(), 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []observation.EventKind{observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal}
+	if len(obligations) != len(want) {
+		t.Fatalf("obligations=%#v", obligations)
+	}
+	for i, kind := range want {
+		if obligations[i].Kind != kind || obligations[i].State != observation.ObligationCommitted {
+			t.Fatalf("obligation[%d]=%#v", i, obligations[i])
+		}
+	}
+}
+
+type observationSpawnFailureOwner struct{}
+
+func (observationSpawnFailureOwner) Start(context.Context, operation.ExecutionSpec, app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	return nil, receipt.SpawnEvidence{Attempted: true, ErrorCode: "spawn_failed"}, errors.New("spawn failed")
+}
+
+func TestObservationSpawnFailureAbortsProcessStartedObligation(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := app.NewService(st, observationSpawnFailureOwner{}, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "obs-spawn-fail", Command: "missing", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !started.State.Terminal() {
+		_ = waitForTerminal(t, svc, started.SessionID)
+	}
+	obligations, err := st.ListObservationObligations(context.Background(), 0, 10)
+	if err != nil || len(obligations) != 3 {
+		t.Fatalf("obligations=%#v err=%v", obligations, err)
+	}
+	if obligations[0].Kind != observation.EventOperationAdmitted || obligations[0].State != observation.ObligationCommitted ||
+		obligations[1].Kind != observation.EventProcessStarted || obligations[1].State != observation.ObligationAborted ||
+		obligations[2].Kind != observation.EventProcessTerminal || obligations[2].State != observation.ObligationCommitted {
+		t.Fatalf("obligations=%#v", obligations)
 	}
 }

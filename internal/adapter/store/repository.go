@@ -106,40 +106,25 @@ func (r *Repository) LoadSession(_ context.Context, id operation.SessionID) (ses
 	return v, readStrict(filepath.Join(r.root, "sessions", string(id), "metadata.json"), &v)
 }
 
-func (r *Repository) AppendOutput(_ context.Context, id operation.SessionID, b []byte) (int, app.StoreResult) {
+func (r *Repository) AppendOutput(ctx context.Context, id operation.SessionID, b []byte) (int, app.StoreResult) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	path := filepath.Join(r.root, "sessions", string(id), "output.log")
-	info, err := os.Stat(path)
-	var size int64
-	if err == nil {
-		size = info.Size()
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return 0, app.StoreResult{Durability: app.NoDurableChange, Err: err}
-	}
-	if size+int64(len(b)) > r.limits.MaxSessionOutput {
-		return 0, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("output_limit_exceeded")}
-	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	start, err := outputSize(path)
 	if err != nil {
 		return 0, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	n, werr := f.Write(b)
-	serr := f.Sync()
-	cerr := f.Close()
-	if werr != nil {
-		return n, app.StoreResult{Durability: app.AmbiguousChange, Err: werr}
+	if start+int64(len(b)) > r.limits.MaxSessionOutput {
+		return 0, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("output_limit_exceeded")}
 	}
-	if n != len(b) {
-		return n, app.StoreResult{Durability: app.AmbiguousChange, Err: io.ErrShortWrite}
+	seq, prepared := r.prepareOutputObservation(ctx, id, start, start+int64(len(b)))
+	if prepared.Err != nil {
+		return 0, prepared
 	}
-	if serr != nil {
-		return n, app.StoreResult{Durability: app.AmbiguousChange, Err: serr}
-	}
-	if cerr != nil {
-		return n, app.StoreResult{Durability: app.DurableChange, Err: cerr}
-	}
-	return n, app.StoreResult{Durability: app.DurableChange}
+	n, result := appendOutputBytes(path, b)
+	r.finishOutputObservation(seq, path, start, start+int64(len(b)), result)
+	result.ObservationSeq = uint64(seq)
+	return n, result
 }
 
 func (r *Repository) ReadOutput(_ context.Context, id operation.SessionID, cursor int64, max int) ([]byte, int64, error) {

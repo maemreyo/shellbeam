@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -24,7 +25,7 @@ func TestReservationFaultBoundariesRecoverWithoutDuplicateAuthorization(t *testi
 		t.Run(point, func(t *testing.T) {
 			root := filepath.Join(t.TempDir(), "state")
 			r := openRecoveryRepository(t, root)
-			r.writer = failAtomicWriter(point)
+			r.writer = failCanonicalBoundaryWriter(point)
 			res := operation.Reservation{
 				SchemaVersion: 1, OperationID: "fault-op", SessionID: "fault-session",
 				Fingerprint: "fingerprint", Command: "true", CWD: "/",
@@ -74,7 +75,7 @@ func TestTerminalFaultBoundariesPreserveOneImmutableReceipt(t *testing.T) {
 	for _, point := range persistenceFaultPoints {
 		t.Run(point, func(t *testing.T) {
 			r, rec := terminalRepository(t)
-			r.writer = failAtomicWriter(point)
+			r.writer = failCanonicalBoundaryWriter(point)
 			if result := r.PublishTerminal(context.Background(), rec); result.Err == nil {
 				t.Fatal("fault did not interrupt terminal publication")
 			}
@@ -111,6 +112,23 @@ func failAtomicWriter(point string) atomicWriter {
 		if !failed && got == point {
 			failed = true
 			return errors.New("injected persistence fault: " + point)
+		}
+		return nil
+	}}
+}
+
+func failCanonicalBoundaryWriter(point string) atomicWriter {
+	nth := 1
+	if strings.HasPrefix(point, "replace.") {
+		nth = 2
+	}
+	seen := 0
+	return atomicWriter{fail: func(got string) error {
+		if got == point {
+			seen++
+			if seen == nth {
+				return errors.New("injected canonical persistence fault: " + point)
+			}
 		}
 		return nil
 	}}
