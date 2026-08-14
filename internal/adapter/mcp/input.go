@@ -113,25 +113,8 @@ func validateV2(v input) error {
 		return v.CodeQuery.Validate()
 	case "inspect.structured":
 		return (structuredapp.InspectRequest{OperationID: v.OperationID, Filter: structuredapp.RecordFilter{RecordKind: v.RecordKind, Severity: v.Severity, Path: v.Path, TestStatus: v.TestStatus}, Continuation: v.Continuation, MaxRecords: v.MaxRecords}).Validate()
-	case "inspect.telemetry":
-		if _, err := operation.ParseID(v.OperationID); err != nil {
-			return err
-		}
-		if v.MaxSamples < 1 || v.MaxSamples > telemetryapp.MaxInspectSamples {
-			return fmt.Errorf("invalid max_samples")
-		}
-		return nil
-	case "repro.create":
-		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
-		if v.CapturePolicy != nil {
-			policy = *v.CapturePolicy
-		}
-		return (reprocore.CreateRequest{CreateID: v.ReproCreateID, OperationID: v.OperationID, Policy: policy}).Validate()
-	case "inspect.repro":
-		if !validReproIDInput(v.ReproID) {
-			return fmt.Errorf("invalid repro_id")
-		}
-		return nil
+	case "inspect.telemetry", "repro.create", "inspect.repro":
+		return validateA4Input(v)
 	case "inspect.events":
 		if v.Target == nil {
 			return fmt.Errorf("inspect.events requires target")
@@ -182,6 +165,29 @@ func validateV2(v input) error {
 		return fmt.Errorf("invalid structured adapter")
 	}
 	return validateNonNegative(v)
+}
+
+func validateA4Input(v input) error {
+	switch v.Action {
+	case "inspect.telemetry":
+		if _, err := operation.ParseID(v.OperationID); err != nil {
+			return err
+		}
+		if v.MaxSamples < 1 || v.MaxSamples > telemetryapp.MaxInspectSamples {
+			return fmt.Errorf("invalid max_samples")
+		}
+	case "repro.create":
+		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
+		if v.CapturePolicy != nil {
+			policy = *v.CapturePolicy
+		}
+		return (reprocore.CreateRequest{CreateID: v.ReproCreateID, OperationID: v.OperationID, Policy: policy}).Validate()
+	case "inspect.repro":
+		if !validReproIDInput(v.ReproID) {
+			return fmt.Errorf("invalid repro_id")
+		}
+	}
+	return nil
 }
 
 func validateV1(v input) error {

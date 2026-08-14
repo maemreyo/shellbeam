@@ -88,7 +88,21 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	})
 	projectSvc := projectapp.New(store, projectadapter.NewLoader(), store)
 	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
-	server, err := ipcadapter.ListenPending(paths.RuntimeDir, actions)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, structuredScheduler, telemetryScheduler)
+}
+
+func serveDaemonRuntime(
+	ctx context.Context,
+	runtimeDir string,
+	terminationGrace time.Duration,
+	store *storeadapter.Repository,
+	incarnation string,
+	svc *daemonapp.Service,
+	actions *daemonActions,
+	structuredScheduler *structuredWorkerProxy,
+	telemetryScheduler *telemetryWorkerProxy,
+) error {
+	server, err := ipcadapter.ListenPending(runtimeDir, actions)
 	if err != nil {
 		return err
 	}
@@ -112,12 +126,9 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	if err != nil {
 		return err
 	}
-	reproService := reproapp.New(store)
 	observationRuntime, err := newExecutionObservationRuntime(startupCtx, store)
 	if err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
-		defer cancel()
-		_ = telemetryRuntime.shutdown(shutdownCtx)
+		shutdownTelemetry(telemetryRuntime, terminationGrace)
 		return err
 	}
 	structuredScheduler.bind(observationRuntime.worker)
@@ -125,27 +136,33 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	actions.events = observationRuntime.events
 	actions.structured = observationRuntime.structured
 	actions.telemetry = telemetryRuntime.service
-	actions.repro = reproService
+	actions.repro = reproapp.New(store)
 	observationRuntime.startMaterialization(ctx)
 	server.MarkReady()
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
-		defer cancel()
-		_ = observationRuntime.shutdown(shutdownCtx)
-	}()
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
-		defer cancel()
-		_ = telemetryRuntime.shutdown(shutdownCtx)
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
-		defer cancel()
-		_ = svc.Shutdown(shutdownCtx)
-		_ = server.Close()
-	}()
+	defer shutdownObservation(observationRuntime, terminationGrace)
+	defer shutdownTelemetry(telemetryRuntime, terminationGrace)
+	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
+}
+
+func shutdownObservation(runtime *executionObservationRuntime, grace time.Duration) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*grace)
+	defer cancel()
+	_ = runtime.shutdown(shutdownCtx)
+}
+
+func shutdownTelemetry(runtime *executionTelemetryRuntime, grace time.Duration) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*grace)
+	defer cancel()
+	_ = runtime.shutdown(shutdownCtx)
+}
+
+func shutdownDaemonOnContext(ctx context.Context, svc *daemonapp.Service, server *ipcadapter.Server, grace time.Duration) {
+	<-ctx.Done()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*grace)
+	defer cancel()
+	_ = svc.Shutdown(shutdownCtx)
+	_ = server.Close()
 }
 
 type daemonCoherenceAdapter struct {

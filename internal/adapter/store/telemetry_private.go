@@ -111,96 +111,31 @@ func planTelemetryEvictions(entries []telemetryEntry, incoming core.PerformanceR
 		return nil, err
 	}
 	removed := map[string]bool{}
-	removeEntry := func(entry telemetryEntry) { removed[entry.record.DerivationKey] = true }
-	active := func() []telemetryEntry {
-		out := make([]telemetryEntry, 0, len(entries))
-		for _, entry := range entries {
-			if !removed[entry.record.DerivationKey] {
-				out = append(out, entry)
-			}
-		}
-		return out
-	}
-
 	if limits.MaxTelemetryAge > 0 {
 		for _, entry := range entries {
-			if age := now.Sub(entry.record.CapturedAt); age > limits.MaxTelemetryAge {
-				removeEntry(entry)
+			if now.Sub(entry.record.CapturedAt) > limits.MaxTelemetryAge {
+				removeTelemetryEntry(removed, entry)
 			}
 		}
 	}
-
-	matching := func(values []telemetryEntry, predicate func(telemetryEntry) bool) []telemetryEntry {
-		out := make([]telemetryEntry, 0, len(values))
-		for _, entry := range values {
-			if predicate(entry) {
-				out = append(out, entry)
-			}
-		}
-		return out
-	}
-
-	current := active()
-	sameKey := matching(current, func(entry telemetryEntry) bool { return entry.compatibilityKey == incomingKey })
-	for len(sameKey)+1 > limits.MaxTelemetrySamplesPerKey {
-		removeEntry(sameKey[0])
-		sameKey = sameKey[1:]
-	}
-
-	if incoming.RepositoryID != "" {
-		current = active()
-		if !containsTelemetryKeyForRepo(current, incoming.RepositoryID, incomingKey) {
-			for distinctTelemetryKeysForRepo(current, incoming.RepositoryID) >= limits.MaxTelemetryKeysPerRepository {
-				key, ok := leastRecentlyObservedTelemetryKey(current, incoming.RepositoryID)
-				if !ok {
-					break
-				}
-				for _, entry := range current {
-					if entry.compatibilityKey == key {
-						removeEntry(entry)
-					}
-				}
-				current = active()
-			}
-		}
-	}
-
-	current = active()
-	if !containsTelemetryKey(current, incomingKey) {
-		for distinctTelemetryKeys(current) >= limits.MaxTelemetryKeys {
-			key, ok := leastRecentlyObservedTelemetryKey(current, "")
-			if !ok {
-				break
-			}
-			for _, entry := range current {
-				if entry.compatibilityKey == key {
-					removeEntry(entry)
-				}
-			}
-			current = active()
-		}
-	}
-
-	current = active()
+	applyTelemetryKeyLimits(entries, removed, incoming, incomingKey, limits)
+	current := activeTelemetryEntries(entries, removed)
 	for len(current)+1 > limits.MaxTelemetrySamples {
-		removeEntry(current[0])
-		current = active()
+		removeTelemetryEntry(removed, current[0])
+		current = activeTelemetryEntries(entries, removed)
 	}
-
-	current = active()
 	var totalBytes int64
 	for _, entry := range current {
 		totalBytes += entry.size
 	}
 	for totalBytes+incomingSize > limits.MaxTelemetryBytes && len(current) > 0 {
-		removeEntry(current[0])
+		removeTelemetryEntry(removed, current[0])
 		totalBytes -= current[0].size
-		current = active()
+		current = activeTelemetryEntries(entries, removed)
 	}
 	if totalBytes+incomingSize > limits.MaxTelemetryBytes {
 		return nil, fmt.Errorf("telemetry_budget_exceeded")
 	}
-
 	out := make([]telemetryEntry, 0, len(removed))
 	for _, entry := range entries {
 		if removed[entry.record.DerivationKey] {
@@ -209,6 +144,62 @@ func planTelemetryEvictions(entries []telemetryEntry, incoming core.PerformanceR
 	}
 	sortTelemetryOldest(out)
 	return out, nil
+}
+
+func activeTelemetryEntries(entries []telemetryEntry, removed map[string]bool) []telemetryEntry {
+	out := make([]telemetryEntry, 0, len(entries))
+	for _, entry := range entries {
+		if !removed[entry.record.DerivationKey] {
+			out = append(out, entry)
+		}
+	}
+	return out
+}
+
+func removeTelemetryEntry(removed map[string]bool, entry telemetryEntry) {
+	removed[entry.record.DerivationKey] = true
+}
+
+func removeTelemetryCompatibilityKey(entries []telemetryEntry, removed map[string]bool, key string) {
+	for _, entry := range entries {
+		if entry.compatibilityKey == key {
+			removeTelemetryEntry(removed, entry)
+		}
+	}
+}
+
+func applyTelemetryKeyLimits(entries []telemetryEntry, removed map[string]bool, incoming core.PerformanceRecord, incomingKey string, limits Limits) {
+	current := activeTelemetryEntries(entries, removed)
+	sameKey := make([]telemetryEntry, 0, len(current))
+	for _, entry := range current {
+		if entry.compatibilityKey == incomingKey {
+			sameKey = append(sameKey, entry)
+		}
+	}
+	for len(sameKey)+1 > limits.MaxTelemetrySamplesPerKey {
+		removeTelemetryEntry(removed, sameKey[0])
+		sameKey = sameKey[1:]
+	}
+	if incoming.RepositoryID != "" {
+		current = activeTelemetryEntries(entries, removed)
+		for !containsTelemetryKeyForRepo(current, incoming.RepositoryID, incomingKey) && distinctTelemetryKeysForRepo(current, incoming.RepositoryID) >= limits.MaxTelemetryKeysPerRepository {
+			key, ok := leastRecentlyObservedTelemetryKey(current, incoming.RepositoryID)
+			if !ok {
+				break
+			}
+			removeTelemetryCompatibilityKey(current, removed, key)
+			current = activeTelemetryEntries(entries, removed)
+		}
+	}
+	current = activeTelemetryEntries(entries, removed)
+	for !containsTelemetryKey(current, incomingKey) && distinctTelemetryKeys(current) >= limits.MaxTelemetryKeys {
+		key, ok := leastRecentlyObservedTelemetryKey(current, "")
+		if !ok {
+			break
+		}
+		removeTelemetryCompatibilityKey(current, removed, key)
+		current = activeTelemetryEntries(entries, removed)
+	}
 }
 
 func containsTelemetryKey(entries []telemetryEntry, key string) bool {

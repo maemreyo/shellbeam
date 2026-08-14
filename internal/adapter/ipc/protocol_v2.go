@@ -240,6 +240,22 @@ func validateRequestV2(v RequestV2) error {
 		}
 	case "inspect.structured":
 		return validateStructuredInspectV2(v)
+	case "inspect.telemetry", "repro.create", "inspect.repro":
+		return validateA4RequestV2(v)
+	case "inspect.code":
+		return validateCodeInspectV2(v)
+	case "inspect.events":
+		return validateEventInspectV2(v)
+	case "kill":
+		if v.SessionID == "" || v.KillID == "" {
+			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
+		}
+	}
+	return nil
+}
+
+func validateA4RequestV2(v RequestV2) error {
+	switch v.Action {
 	case "inspect.telemetry":
 		if _, err := operation.ParseID(v.OperationID); err != nil || v.MaxSamples < 1 || v.MaxSamples > telemetryapp.MaxInspectSamples {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "inspect.telemetry"}, fmt.Errorf("invalid telemetry inspection"))
@@ -255,14 +271,6 @@ func validateRequestV2(v RequestV2) error {
 	case "inspect.repro":
 		if !validReproIDV2(v.ReproID) {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "repro_id"}, fmt.Errorf("invalid repro id"))
-		}
-	case "inspect.code":
-		return validateCodeInspectV2(v)
-	case "inspect.events":
-		return validateEventInspectV2(v)
-	case "kill":
-		if v.SessionID == "" || v.KillID == "" {
-			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
 		}
 	}
 	return nil

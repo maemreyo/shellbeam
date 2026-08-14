@@ -50,80 +50,30 @@ func newService(repository Repository, platform, architecture string) (*Service,
 	}, nil
 }
 
+type terminalAuthority struct {
+	receipt          receipt.Receipt
+	receiptDigest    string
+	reservation      operation.Reservation
+	snapshot         session.Snapshot
+	commandSemantics string
+	repositoryID     string
+	workspaceID      string
+	scope            core.ScopeClass
+}
+
 func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt) (core.PerformanceRecord, error) {
 	if s == nil || s.repository == nil {
 		return core.PerformanceRecord{}, fmt.Errorf("telemetry repository unavailable")
 	}
-	if err := ctx.Err(); err != nil {
-		return core.PerformanceRecord{}, err
-	}
-	if err := scheduled.Validate(); err != nil || !scheduled.State.Terminal() {
-		return core.PerformanceRecord{}, fmt.Errorf("invalid telemetry terminal receipt")
-	}
-	operationID, err := operation.ParseID(scheduled.OperationID)
+	authority, err := s.loadTerminalAuthority(ctx, scheduled)
 	if err != nil {
 		return core.PerformanceRecord{}, err
 	}
-	sessionID, err := operation.ParseSessionID(scheduled.SessionID)
-	if err != nil {
-		return core.PerformanceRecord{}, err
-	}
-
-	stored, err := s.repository.LoadReceipt(ctx, sessionID)
-	if err != nil {
-		return core.PerformanceRecord{}, err
-	}
-	if err := stored.Validate(); err != nil || !stored.State.Terminal() || stored.OperationID != string(operationID) || stored.SessionID != string(sessionID) {
-		return core.PerformanceRecord{}, fmt.Errorf("durable terminal receipt mismatch")
-	}
-	scheduledDigest, err := receipt.Digest(scheduled)
-	if err != nil {
-		return core.PerformanceRecord{}, err
-	}
-	storedDigest, err := receipt.Digest(stored)
-	if err != nil {
-		return core.PerformanceRecord{}, err
-	}
-	if scheduledDigest != storedDigest {
-		return core.PerformanceRecord{}, fmt.Errorf("scheduled terminal receipt is not durable authority")
-	}
-
-	reservation, err := s.repository.LoadOperation(ctx, operationID)
-	if err != nil {
-		return core.PerformanceRecord{}, err
-	}
-	if reservation.OperationID != operationID || reservation.SessionID != sessionID || reservation.CreatedAt.IsZero() {
-		return core.PerformanceRecord{}, fmt.Errorf("telemetry reservation mismatch")
-	}
-	commandSemantics := stored.ExecutionFingerprint
-	if commandSemantics == "" {
-		commandSemantics = reservation.ExecutionFingerprint
-	}
-	if stored.ExecutionFingerprint != "" && reservation.ExecutionFingerprint != "" && stored.ExecutionFingerprint != reservation.ExecutionFingerprint {
-		return core.PerformanceRecord{}, fmt.Errorf("telemetry execution fingerprint mismatch")
-	}
-
-	snapshot, err := s.repository.LoadSession(ctx, sessionID)
-	if err != nil {
-		return core.PerformanceRecord{}, err
-	}
-	if snapshot.OperationID != stored.OperationID || snapshot.SessionID != stored.SessionID || !snapshot.State.Terminal() || snapshot.State != stored.State || snapshot.Outcome != stored.Outcome || snapshot.UpdatedAt.IsZero() {
-		return core.PerformanceRecord{}, fmt.Errorf("telemetry terminal session mismatch")
-	}
-
-	repositoryID, workspaceID := receiptWorkspaceBinding(stored)
-	if reservation.WorkspaceID != "" && workspaceID != "" && reservation.WorkspaceID != workspaceID {
-		return core.PerformanceRecord{}, fmt.Errorf("telemetry workspace binding mismatch")
-	}
-	scope, err := executionScope(reservation.ExecutionMode, stored.ExecutionMode)
-	if err != nil {
-		return core.PerformanceRecord{}, err
-	}
-	wallMS := snapshot.UpdatedAt.Sub(reservation.CreatedAt).Milliseconds()
+	wallMS := authority.snapshot.UpdatedAt.Sub(authority.reservation.CreatedAt).Milliseconds()
 	if wallMS < 0 {
 		wallMS = 0
 	}
-	derivationKey, err := core.DerivationKey(storedDigest, s.producer, derivationSchemaVersion, s.configDigest)
+	derivationKey, err := core.DerivationKey(authority.receiptDigest, s.producer, derivationSchemaVersion, s.configDigest)
 	if err != nil {
 		return core.PerformanceRecord{}, err
 	}
@@ -131,12 +81,12 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 	record := core.PerformanceRecord{
 		SchemaVersion: core.SchemaVersion, DerivationKey: derivationKey, DerivationSchemaVersion: derivationSchemaVersion,
 		DerivationConfigDigest: s.configDigest, Producer: s.producer,
-		OperationID: stored.OperationID, SessionID: stored.SessionID, ReceiptDigest: storedDigest,
-		RepositoryID: repositoryID, WorkspaceID: workspaceID, ActivityID: reservation.ActivityID,
-		CommandSemanticsFingerprint: commandSemantics, ScopeClass: scope,
+		OperationID: authority.receipt.OperationID, SessionID: authority.receipt.SessionID, ReceiptDigest: authority.receiptDigest,
+		RepositoryID: authority.repositoryID, WorkspaceID: authority.workspaceID, ActivityID: authority.reservation.ActivityID,
+		CommandSemanticsFingerprint: authority.commandSemantics, ScopeClass: authority.scope,
 		Platform: s.platform, Architecture: s.architecture,
-		WallMS: wallMS, OutputBytes: stored.OutputBytes, InputAcceptedBytes: stored.InputAcceptedBytes, InputDeliveredBytes: stored.InputDeliveredBytes,
-		TerminalOutcome: stored.Outcome, TimedOut: stored.Outcome == session.Timeout, CapturedAt: snapshot.UpdatedAt,
+		WallMS: wallMS, OutputBytes: authority.receipt.OutputBytes, InputAcceptedBytes: authority.receipt.InputAcceptedBytes, InputDeliveredBytes: authority.receipt.InputDeliveredBytes,
+		TerminalOutcome: authority.receipt.Outcome, TimedOut: authority.receipt.Outcome == session.Timeout, CapturedAt: authority.snapshot.UpdatedAt,
 		Lifecycle: core.LifecycleTerminal, Completeness: core.CompletenessPartial,
 		Resources: core.ResourceMetrics{
 			CPUUserMS: unavailable, CPUSystemMS: unavailable, MaxRSSBytes: unavailable,
@@ -150,6 +100,74 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 		return core.PerformanceRecord{}, err
 	}
 	return record, nil
+}
+
+func (s *Service) loadTerminalAuthority(ctx context.Context, scheduled receipt.Receipt) (terminalAuthority, error) {
+	if err := ctx.Err(); err != nil {
+		return terminalAuthority{}, err
+	}
+	if err := scheduled.Validate(); err != nil || !scheduled.State.Terminal() {
+		return terminalAuthority{}, fmt.Errorf("invalid telemetry terminal receipt")
+	}
+	operationID, err := operation.ParseID(scheduled.OperationID)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	sessionID, err := operation.ParseSessionID(scheduled.SessionID)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	stored, err := s.repository.LoadReceipt(ctx, sessionID)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	if err := stored.Validate(); err != nil || !stored.State.Terminal() || stored.OperationID != string(operationID) || stored.SessionID != string(sessionID) {
+		return terminalAuthority{}, fmt.Errorf("durable terminal receipt mismatch")
+	}
+	scheduledDigest, err := receipt.Digest(scheduled)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	storedDigest, err := receipt.Digest(stored)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	if scheduledDigest != storedDigest {
+		return terminalAuthority{}, fmt.Errorf("scheduled terminal receipt is not durable authority")
+	}
+	reservation, err := s.repository.LoadOperation(ctx, operationID)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	if reservation.OperationID != operationID || reservation.SessionID != sessionID || reservation.CreatedAt.IsZero() {
+		return terminalAuthority{}, fmt.Errorf("telemetry reservation mismatch")
+	}
+	commandSemantics := stored.ExecutionFingerprint
+	if commandSemantics == "" {
+		commandSemantics = reservation.ExecutionFingerprint
+	}
+	if stored.ExecutionFingerprint != "" && reservation.ExecutionFingerprint != "" && stored.ExecutionFingerprint != reservation.ExecutionFingerprint {
+		return terminalAuthority{}, fmt.Errorf("telemetry execution fingerprint mismatch")
+	}
+	snapshot, err := s.repository.LoadSession(ctx, sessionID)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	if snapshot.OperationID != stored.OperationID || snapshot.SessionID != stored.SessionID || !snapshot.State.Terminal() || snapshot.State != stored.State || snapshot.Outcome != stored.Outcome || snapshot.UpdatedAt.IsZero() {
+		return terminalAuthority{}, fmt.Errorf("telemetry terminal session mismatch")
+	}
+	repositoryID, workspaceID := receiptWorkspaceBinding(stored)
+	if reservation.WorkspaceID != "" && workspaceID != "" && reservation.WorkspaceID != workspaceID {
+		return terminalAuthority{}, fmt.Errorf("telemetry workspace binding mismatch")
+	}
+	scope, err := executionScope(reservation.ExecutionMode, stored.ExecutionMode)
+	if err != nil {
+		return terminalAuthority{}, err
+	}
+	return terminalAuthority{
+		receipt: stored, receiptDigest: storedDigest, reservation: reservation, snapshot: snapshot,
+		commandSemantics: commandSemantics, repositoryID: repositoryID, workspaceID: workspaceID, scope: scope,
+	}, nil
 }
 
 func receiptWorkspaceBinding(rec receipt.Receipt) (string, string) {

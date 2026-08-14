@@ -89,19 +89,22 @@ func (r *Repository) CreateRepro(ctx context.Context, requestFingerprint string,
 		return core.Capsule{}, false, err
 	}
 
-	path := r.reproCreatePath(capsule.CreateID)
-	result := r.writer.Create(path, record)
+	return r.writeReproCreateLocked(requestFingerprint, record, seq)
+}
+
+func (r *Repository) writeReproCreateLocked(requestFingerprint string, record reproCreateRecord, seq observation.ChangeSeq) (core.Capsule, bool, error) {
+	capsule := record.Capsule
+	result := r.writer.Create(r.reproCreatePath(capsule.CreateID), record)
 	if result.Err == nil {
 		r.commitObservationBestEffort(seq)
 		return capsule, true, nil
 	}
 	if errors.Is(result.Err, os.ErrExist) {
 		current, err := r.readReproCreateRecordUnlocked(capsule.CreateID)
+		r.abortObservationBestEffort(seq, observationAbortConflict)
 		if err == nil && current.RequestFingerprint == requestFingerprint {
-			r.abortObservationBestEffort(seq, observationAbortConflict)
 			return current.Capsule, false, nil
 		}
-		r.abortObservationBestEffort(seq, observationAbortConflict)
 		if err == nil {
 			return core.Capsule{}, false, fmt.Errorf("operation_metadata_conflict")
 		}
