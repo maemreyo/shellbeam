@@ -30,6 +30,9 @@ type Limits struct {
 	MaxTelemetryKeysPerRepository int
 	MaxTelemetrySamplesPerKey     int
 	MaxTelemetryAge               time.Duration
+	MaxReproCapsules              int
+	MaxReproBytes                 int64
+	MaxReproAge                   time.Duration
 }
 type Repository struct {
 	root                     string
@@ -42,6 +45,7 @@ type Repository struct {
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
 	telemetryMu              sync.Mutex
+	reproMu                  sync.Mutex
 	observationHighWatermark uint64
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
@@ -54,9 +58,14 @@ const (
 	defaultMaxTelemetryKeys                    = 512
 	defaultMaxTelemetryKeysPerRepository       = 128
 	defaultMaxTelemetrySamplesPerKey           = 64
+	defaultMaxReproCapsules                    = 256
+	defaultMaxReproBytes                 int64 = 16 << 20
 )
 
-const defaultMaxTelemetryAge = 30 * 24 * time.Hour
+const (
+	defaultMaxTelemetryAge = 30 * 24 * time.Hour
+	defaultMaxReproAge     = 30 * 24 * time.Hour
+)
 
 func normalizeTelemetryLimits(limits Limits) Limits {
 	if limits.MaxTelemetrySamples == 0 {
@@ -77,6 +86,15 @@ func normalizeTelemetryLimits(limits Limits) Limits {
 	if limits.MaxTelemetryAge == 0 {
 		limits.MaxTelemetryAge = defaultMaxTelemetryAge
 	}
+	if limits.MaxReproCapsules == 0 {
+		limits.MaxReproCapsules = defaultMaxReproCapsules
+	}
+	if limits.MaxReproBytes == 0 {
+		limits.MaxReproBytes = defaultMaxReproBytes
+	}
+	if limits.MaxReproAge == 0 {
+		limits.MaxReproAge = defaultMaxReproAge
+	}
 	return limits
 }
 
@@ -85,7 +103,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 	if !filepath.IsAbs(root) {
 		return nil, fmt.Errorf("state root must be absolute")
 	}
-	if limits.MaxSessions < 1 || limits.ControlReserve < 1 || limits.MaxTelemetrySamples < 1 || limits.MaxTelemetryBytes < 1 || limits.MaxTelemetryKeys < 1 || limits.MaxTelemetryKeysPerRepository < 1 || limits.MaxTelemetrySamplesPerKey < 1 || limits.MaxTelemetryAge < 0 {
+	if limits.MaxSessions < 1 || limits.ControlReserve < 1 || limits.MaxTelemetrySamples < 1 || limits.MaxTelemetryBytes < 1 || limits.MaxTelemetryKeys < 1 || limits.MaxTelemetryKeysPerRepository < 1 || limits.MaxTelemetrySamplesPerKey < 1 || limits.MaxTelemetryAge < 0 || limits.MaxReproCapsules < 1 || limits.MaxReproBytes < 1 || limits.MaxReproAge < 0 {
 		return nil, fmt.Errorf("invalid limits")
 	}
 	if info, err := os.Lstat(root); err == nil {
@@ -123,6 +141,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initTelemetryStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initReproStore(); err != nil {
 		return nil, err
 	}
 	return repository, nil
