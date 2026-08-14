@@ -44,6 +44,8 @@ func runWorkspace(ctx context.Context, args []string, out io.Writer) error {
 			return err
 		}
 		return writeWorkspaceList(out, opts.jsonOutput, workspaces)
+	case "preflight":
+		return runWorkspacePreflight(ctx, args[1:], out)
 	case "inspect":
 		if len(args) < 2 {
 			return workspaceUsage()
@@ -248,5 +250,5 @@ func writeWorkspaceList(out io.Writer, jsonOutput bool, records []core.Workspace
 }
 
 func workspaceUsage() error {
-	return fmt.Errorf("usage: shellbeam workspace <list|inspect|attach|create|rename|forget|remove>")
+	return fmt.Errorf("usage: shellbeam workspace <list|inspect|preflight|attach|create|rename|forget|remove>")
 }

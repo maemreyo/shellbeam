@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -181,5 +182,54 @@ func runWorkspaceGit(t *testing.T, dir string, args ...string) {
 	}
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %q: %v\n%s", args, err, output)
+	}
+}
+
+func TestWorkspaceCLIPreflightIsWarningOnlyAndRedacted(t *testing.T) {
+	repo := initWorkspaceCLIRepo(t)
+	stateDir := filepath.Join(t.TempDir(), "state")
+	out, errOut, code := runWorkspaceCLI(t, "workspace", "attach", repo, "--label", "primary", "--state-dir", stateDir, "--json")
+	if code != 0 {
+		t.Fatalf("attach code=%d stderr=%q", code, errOut)
+	}
+	var attached core.Workspace
+	if err := json.Unmarshal([]byte(out), &attached); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	configText := fmt.Sprintf("schema_version = 1\nmax_concurrent_sessions = 4\nstate_dir = %q\n\n[git_profiles.work]\ncommit_emails = [\"other@company.example\"]\n\n[git_workspace_profiles]\n%q = \"work\"\n", stateDir, string(attached.ID))
+	if err := os.WriteFile(configPath, []byte(configText), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, errOut, code = runWorkspaceCLI(t, "workspace", "preflight", "primary", "--effect", "verify", "--config", configPath, "--json")
+	if code != 0 {
+		t.Fatalf("preflight code=%d stderr=%q", code, errOut)
+	}
+	var result struct {
+		Effect     string `json:"effect"`
+		Resolution struct {
+			ProfileName string `json:"profile_name"`
+		} `json:"resolution"`
+		Findings []struct {
+			Code string `json:"code"`
+		} `json:"findings"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Effect != "verify" || result.Resolution.ProfileName != "work" {
+		t.Fatalf("result=%#v", result)
+	}
+	foundMismatch := false
+	for _, finding := range result.Findings {
+		if finding.Code == "commit_identity_mismatch" {
+			foundMismatch = true
+		}
+	}
+	if !foundMismatch {
+		t.Fatalf("missing mismatch finding: %s", out)
+	}
+	if strings.Contains(out, "other@company.example") || strings.Contains(out, "shellbeam@example.invalid") {
+		t.Fatalf("identity email leaked: %s", out)
 	}
 }

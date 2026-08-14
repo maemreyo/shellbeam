@@ -4,31 +4,36 @@ package config
 import (
 	"fmt"
 	"path/filepath"
+
+	gitidentity "github.com/maemreyo/shellbeam/internal/core/gitidentity"
 )
 
 type Config struct {
-	SchemaVersion              int    `toml:"schema_version" json:"schema_version"`
-	RuntimeDir                 string `toml:"runtime_dir" json:"runtime_dir"`
-	StateDir                   string `toml:"state_dir" json:"state_dir"`
-	Shell                      string `toml:"shell" json:"shell"`
-	MaxConcurrentSessions      int    `toml:"max_concurrent_sessions" json:"max_concurrent_sessions"`
-	DefaultYieldMS             int64  `toml:"default_yield_ms" json:"default_yield_ms"`
-	MaxYieldMS                 int64  `toml:"max_yield_ms" json:"max_yield_ms"`
-	DefaultMaxOutputBytes      int    `toml:"default_max_output_bytes" json:"default_max_output_bytes"`
-	MaxResponseOutputBytes     int    `toml:"max_response_output_bytes" json:"max_response_output_bytes"`
-	MaxCommandBytes            int    `toml:"max_command_bytes" json:"max_command_bytes"`
-	MaxStdinCallBytes          int    `toml:"max_stdin_call_bytes" json:"max_stdin_call_bytes"`
-	MaxQueuedInputSessionBytes int    `toml:"max_queued_input_session_bytes" json:"max_queued_input_session_bytes"`
-	MaxQueuedInputTotalBytes   int    `toml:"max_queued_input_total_bytes" json:"max_queued_input_total_bytes"`
-	MaxSessionOutputBytes      int64  `toml:"max_session_output_bytes" json:"max_session_output_bytes"`
-	MaxTotalStateBytes         int64  `toml:"max_total_state_bytes" json:"max_total_state_bytes"`
-	MinFreeSpaceBytes          int64  `toml:"min_free_space_bytes" json:"min_free_space_bytes"`
-	ControlReserveSessionBytes int64  `toml:"control_reserve_session_bytes" json:"control_reserve_session_bytes"`
-	TerminalRetentionHours     int    `toml:"terminal_retention_hours" json:"terminal_retention_hours"`
-	MaxTimeoutMS               int64  `toml:"max_timeout_ms" json:"max_timeout_ms"`
-	TerminationGraceMS         int64  `toml:"termination_grace_ms" json:"termination_grace_ms"`
-	FinalizeRetryMinMS         int64  `toml:"finalize_retry_min_ms" json:"finalize_retry_min_ms"`
-	FinalizeRetryMaxMS         int64  `toml:"finalize_retry_max_ms" json:"finalize_retry_max_ms"`
+	GitProfiles                map[string]gitidentity.Profile `toml:"git_profiles" json:"git_profiles,omitempty"`
+	GitRepositoryProfiles      map[string]string              `toml:"git_repository_profiles" json:"git_repository_profiles,omitempty"`
+	GitWorkspaceProfiles       map[string]string              `toml:"git_workspace_profiles" json:"git_workspace_profiles,omitempty"`
+	SchemaVersion              int                            `toml:"schema_version" json:"schema_version"`
+	RuntimeDir                 string                         `toml:"runtime_dir" json:"runtime_dir"`
+	StateDir                   string                         `toml:"state_dir" json:"state_dir"`
+	Shell                      string                         `toml:"shell" json:"shell"`
+	MaxConcurrentSessions      int                            `toml:"max_concurrent_sessions" json:"max_concurrent_sessions"`
+	DefaultYieldMS             int64                          `toml:"default_yield_ms" json:"default_yield_ms"`
+	MaxYieldMS                 int64                          `toml:"max_yield_ms" json:"max_yield_ms"`
+	DefaultMaxOutputBytes      int                            `toml:"default_max_output_bytes" json:"default_max_output_bytes"`
+	MaxResponseOutputBytes     int                            `toml:"max_response_output_bytes" json:"max_response_output_bytes"`
+	MaxCommandBytes            int                            `toml:"max_command_bytes" json:"max_command_bytes"`
+	MaxStdinCallBytes          int                            `toml:"max_stdin_call_bytes" json:"max_stdin_call_bytes"`
+	MaxQueuedInputSessionBytes int                            `toml:"max_queued_input_session_bytes" json:"max_queued_input_session_bytes"`
+	MaxQueuedInputTotalBytes   int                            `toml:"max_queued_input_total_bytes" json:"max_queued_input_total_bytes"`
+	MaxSessionOutputBytes      int64                          `toml:"max_session_output_bytes" json:"max_session_output_bytes"`
+	MaxTotalStateBytes         int64                          `toml:"max_total_state_bytes" json:"max_total_state_bytes"`
+	MinFreeSpaceBytes          int64                          `toml:"min_free_space_bytes" json:"min_free_space_bytes"`
+	ControlReserveSessionBytes int64                          `toml:"control_reserve_session_bytes" json:"control_reserve_session_bytes"`
+	TerminalRetentionHours     int                            `toml:"terminal_retention_hours" json:"terminal_retention_hours"`
+	MaxTimeoutMS               int64                          `toml:"max_timeout_ms" json:"max_timeout_ms"`
+	TerminationGraceMS         int64                          `toml:"termination_grace_ms" json:"termination_grace_ms"`
+	FinalizeRetryMinMS         int64                          `toml:"finalize_retry_min_ms" json:"finalize_retry_min_ms"`
+	FinalizeRetryMaxMS         int64                          `toml:"finalize_retry_max_ms" json:"finalize_retry_max_ms"`
 }
 
 func Defaults() Config {
@@ -46,6 +51,9 @@ func (c Config) Validate() error {
 		if p != "" && !filepath.IsAbs(p) {
 			return fmt.Errorf("configured path must be absolute")
 		}
+	}
+	if err := c.ValidateGitIdentityProfiles(); err != nil {
+		return err
 	}
 	return nil
 }

@@ -876,23 +876,23 @@ shellbeam workspace preflight [<label-or-id>] --effect push|pr|tag|release|publi
 
 Profiles hold expectations only: SSH host aliases, remote owner/URL patterns, commit emails, signing-key fingerprints, GitHub host/user. They never contain token values, private keys, or passphrases.
 
-- [ ] **Step 1: Write failing profile-resolution tests**
+- [x] **Step 1: Write failing profile-resolution tests**
 
 Resolution order is workspace override, repository binding, unique remote-rule match, then unknown. Cover ambiguous matches and per-worktree config. Test commit, transport, and GitHub CLI identities independently.
 
 Fixtures include company remote with personal email, personal SSH alias, wrong stored `gh` account, token override, host/repository/config-dir overrides, author/committer/transport runtime overrides, generic `github.com`, and unknown profile.
 
-- [ ] **Step 2: Prove shallow hot-path safety**
+- [x] **Step 2: Prove shallow hot-path safety**
 
 With fake runners and an SSH config containing `Match exec`, assert ordinary admission invokes neither `ssh` nor `gh`. It may inspect safe environment-presence classes and cached local Git configuration in the target cwd.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./api/schema ./internal/core/gitidentity ./internal/app/gitidentity ./internal/adapter/git ./internal/config ./cmd/shellbeam -run 'TestIdentity|TestProfile|TestPreflight|TestNoSSHOrGHOnAdmission' -count=1
 ```
 
-- [ ] **Step 4: Implement shallow and explicit deep observation**
+- [x] **Step 4: Implement shallow and explicit deep observation**
 
 Shallow preflight is local, bounded, and non-networking. `--deep` may run bounded `ssh -G <alias>` and `gh auth status --active --hostname <host>` because the caller explicitly requested it. Record safe classifications/fingerprints only.
 
@@ -900,11 +900,11 @@ When a token override is present, report the stored user separately and effectiv
 
 Cause-deduplicate mismatch advisories so ordinary file edits do not repeat account warnings.
 
-- [ ] **Step 5: Add redaction and timeout tests**
+- [x] **Step 5: Add redaction and timeout tests**
 
 Seed fake tokens, private-key paths, emails, and hostile command output. Assert no token/private-key contents reach logs, receipts, JSON responses, or advisories. Deep probe timeout degrades to an advisory and never affects unrelated execution.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```bash
 go test ./api/schema ./internal/core/gitidentity ./internal/app/gitidentity ./internal/adapter/git ./internal/config ./cmd/shellbeam ./internal/observability -count=1
