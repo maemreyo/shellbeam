@@ -17,6 +17,7 @@ type Options struct {
 	TerminationGrace    time.Duration
 	Capabilities        capability.Catalog
 	StructuredWorker    StructuredWorker
+	TelemetryWorker     TelemetryWorker
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`
@@ -38,6 +39,10 @@ type StartRequest struct {
 type StructuredWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to parser execution.
 	ScheduleTerminal(context.Context, receipt.Receipt, string) error
+}
+type TelemetryWorker interface {
+	// ScheduleTerminal must be bounded and non-blocking with respect to telemetry derivation.
+	ScheduleTerminal(context.Context, receipt.Receipt) error
 }
 type PollRequest struct {
 	SessionID      string `json:"session_id"`
