@@ -79,3 +79,64 @@ func (s *observerSource) Snapshot(_ context.Context, workspace core.Workspace) c
 func observerWorkspace(id, root string, now time.Time) core.Workspace {
 	return core.Workspace{SchemaVersion: core.SchemaVersion, ID: core.WorkspaceID(id), RepositoryID: core.RepositoryID("repo_01K00000000000000000000000"), Label: "observer", Root: root, GitDir: root + "/.git", CreatedAt: now, LastSeenAt: now}
 }
+
+func TestSnapshotObserverBindAndCachedNeverFallBackToFreshSampling(t *testing.T) {
+	now := time.Now().UTC()
+	workspace := observerWorkspace("ws_01K00000000000000000000000", "/repo", now)
+	registry := &observerRegistry{workspaces: []core.Workspace{workspace}}
+	source := &countingObserverSource{
+		cached: core.FastSnapshot{SchemaVersion: core.SnapshotSchemaVersion, Quality: core.QualityUnavailable, ObservedAt: now, DiagnosticCode: "workspace_cache_empty"},
+		fresh:  core.FastSnapshot{SchemaVersion: core.SnapshotSchemaVersion, Quality: core.QualityFresh, ObservedAt: now},
+	}
+	observer := NewObserver(registry, source)
+
+	binding := observer.Bind(context.Background(), "/repo/pkg")
+	if binding.WorkspaceID != workspace.ID || binding.RepositoryID != workspace.RepositoryID || source.cachedCalls != 0 || source.freshCalls != 0 || source.snapshotCalls != 0 {
+		t.Fatalf("binding=%#v source=%#v", binding, source)
+	}
+
+	cached := observer.ObserveCached(context.Background(), "/repo/pkg")
+	if cached.DiagnosticCode != "workspace_cache_empty" || source.cachedCalls != 1 || source.freshCalls != 0 || source.snapshotCalls != 0 {
+		t.Fatalf("cached=%#v source=%#v", cached, source)
+	}
+
+	fresh := observer.ObserveFresh(context.Background(), "/repo/pkg")
+	if fresh.Quality != core.QualityFresh || source.freshCalls != 1 || source.snapshotCalls != 0 {
+		t.Fatalf("fresh=%#v source=%#v", fresh, source)
+	}
+}
+
+func TestSnapshotObserverCachedWithoutCachedSourceIsUnavailableWithoutSampling(t *testing.T) {
+	now := time.Now().UTC()
+	workspace := observerWorkspace("ws_01K00000000000000000000000", "/repo", now)
+	source := &observerSource{snapshot: core.FastSnapshot{SchemaVersion: core.SnapshotSchemaVersion, Quality: core.QualityFresh, ObservedAt: now}}
+	observer := NewObserver(&observerRegistry{workspaces: []core.Workspace{workspace}}, source)
+
+	got := observer.ObserveCached(context.Background(), "/repo")
+	if got.Quality != core.QualityUnavailable || got.DiagnosticCode != "workspace_cache_unavailable" || source.calls != 0 {
+		t.Fatalf("snapshot=%#v sourceCalls=%d", got, source.calls)
+	}
+}
+
+type countingObserverSource struct {
+	cached        core.FastSnapshot
+	fresh         core.FastSnapshot
+	cachedCalls   int
+	freshCalls    int
+	snapshotCalls int
+}
+
+func (s *countingObserverSource) Snapshot(_ context.Context, _ core.Workspace) core.FastSnapshot {
+	s.snapshotCalls++
+	return s.fresh
+}
+
+func (s *countingObserverSource) SnapshotCached(_ context.Context, _ core.Workspace) core.FastSnapshot {
+	s.cachedCalls++
+	return s.cached
+}
+
+func (s *countingObserverSource) SnapshotFresh(_ context.Context, _ core.Workspace) core.FastSnapshot {
+	s.freshCalls++
+	return s.fresh
+}

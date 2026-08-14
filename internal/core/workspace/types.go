@@ -19,6 +19,11 @@ type Repository struct {
 	LastSeenAt    time.Time    `json:"last_seen_at"`
 }
 
+type Binding struct {
+	RepositoryID RepositoryID `json:"repository_id,omitempty"`
+	WorkspaceID  WorkspaceID  `json:"workspace_id,omitempty"`
+}
+
 type Workspace struct {
 	SchemaVersion int          `json:"schema_version"`
 	ID            WorkspaceID  `json:"workspace_id"`

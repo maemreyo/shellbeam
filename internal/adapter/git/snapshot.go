@@ -23,6 +23,18 @@ func (r *Repository) SnapshotFresh(ctx context.Context, workspace core.Workspace
 	return r.snapshot(ctx, workspace, false)
 }
 
+func (r *Repository) SnapshotCached(_ context.Context, workspace core.Workspace) core.FastSnapshot {
+	now := r.snapshotOptions.Now().UTC()
+	if err := workspace.Validate(); err != nil {
+		return unavailableSnapshot(workspace, now, "workspace_invalid")
+	}
+	cached, ok, _ := r.snapshots.lookup(snapshotCacheKey(workspace), now, r.snapshotOptions.TTL)
+	if !ok {
+		return unavailableSnapshot(workspace, now, "workspace_cache_empty")
+	}
+	return cached
+}
+
 func (r *Repository) snapshot(ctx context.Context, workspace core.Workspace, allowWarmCache bool) core.FastSnapshot {
 	now := r.snapshotOptions.Now().UTC()
 	if err := workspace.Validate(); err != nil {

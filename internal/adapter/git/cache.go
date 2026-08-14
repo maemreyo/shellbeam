@@ -51,6 +51,7 @@ func (c *snapshotCache) lookup(key string, now time.Time, ttl time.Duration) (co
 		got.DiagnosticCode = ""
 		return got, true, true
 	}
+	got.Quality = core.QualityStale
 	return got, true, false
 }
 

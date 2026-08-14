@@ -148,3 +148,32 @@ func cacheWorkspace() core.Workspace {
 func cleanStatusOutput() []byte {
 	return []byte("# branch.oid " + strings.Repeat("a", 40) + "\x00# branch.head main\x00")
 }
+
+func TestSnapshotCachedNeverSpawnsGitForEmptyOrStaleCache(t *testing.T) {
+	clock := newSnapshotClock()
+	runner := &snapshotRunner{output: cleanStatusOutput()}
+	adapter := newRepository(runner, SnapshotOptions{TTL: 100 * time.Millisecond, Budget: 50 * time.Millisecond, Now: clock.Now})
+	workspace := cacheWorkspace()
+
+	empty := adapter.SnapshotCached(context.Background(), workspace)
+	if empty.Quality != core.QualityUnavailable || empty.DiagnosticCode != "workspace_cache_empty" || runner.CallCount() != 0 {
+		t.Fatalf("empty=%#v calls=%d", empty, runner.CallCount())
+	}
+
+	fresh := adapter.SnapshotFresh(context.Background(), workspace)
+	calls := runner.CallCount()
+	if fresh.Quality != core.QualityFresh || calls == 0 {
+		t.Fatalf("fresh=%#v calls=%d", fresh, calls)
+	}
+
+	cached := adapter.SnapshotCached(context.Background(), workspace)
+	if cached.Quality != core.QualityCached || cached.Generation != fresh.Generation || runner.CallCount() != calls {
+		t.Fatalf("cached=%#v calls=%d wantCalls=%d", cached, runner.CallCount(), calls)
+	}
+
+	clock.Advance(time.Second)
+	stale := adapter.SnapshotCached(context.Background(), workspace)
+	if stale.Quality != core.QualityStale || stale.Generation != fresh.Generation || stale.CacheAgeMS < 1000 || runner.CallCount() != calls {
+		t.Fatalf("stale=%#v calls=%d wantCalls=%d", stale, runner.CallCount(), calls)
+	}
+}
