@@ -6,9 +6,12 @@ import (
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
+	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
+	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	projectcore "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -36,7 +39,8 @@ func runDaemon(ctx context.Context, args []string) error {
 		TerminationGrace:    time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
 		Capabilities:        catalog,
 	})
-	server, err := ipcadapter.Listen(paths.RuntimeDir, svc)
+	projectSvc := projectapp.New(store, projectadapter.NewLoader())
+	server, err := ipcadapter.Listen(paths.RuntimeDir, daemonActions{Actions: svc, project: projectSvc})
 	if err != nil {
 		return err
 	}
@@ -52,4 +56,13 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = server.Close()
 	}()
 	return server.Serve()
+}
+
+type daemonActions struct {
+	ipcadapter.Actions
+	project *projectapp.Service
+}
+
+func (a daemonActions) InspectProject(ctx context.Context, workspaceID string) (projectcore.Inspection, error) {
+	return a.project.Inspect(ctx, workspaceID)
 }

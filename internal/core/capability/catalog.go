@@ -66,10 +66,11 @@ func Baseline(limits Limits) Catalog {
 		features[feature] = Unavailable
 	}
 	features[FeatureArgvMode] = Available
+	features[FeatureProjectManifest] = Available
 	return Catalog{
 		ProtocolVersion:       2,
 		ReceiptSchemaVersions: []int{1, 2},
-		ManifestVersions:      []int{},
+		ManifestVersions:      []int{1},
 		Features:              features,
 		Limits:                limits,
 	}

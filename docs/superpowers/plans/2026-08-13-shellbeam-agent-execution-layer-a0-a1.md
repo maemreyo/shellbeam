@@ -946,27 +946,27 @@ git commit -m "feat: advise on repository git identity"
 - `inspect project` returns `absent`, `valid`, `invalid`, or `review_due`, plus schema version, discovery/review fingerprints, confidence/provenance, and declared capabilities.
 - Inspection/validation never executes manifest commands.
 
-- [ ] **Step 1: Write failing parser/status tests**
+- [x] **Step 1: Write failing parser/status tests**
 
 Cover absent file, minimal valid file, complete sample, unknown table/key, oversized file, invalid UTF-8, absolute/escaping path, duplicate IDs, bad profile reference, unsupported schema version, stable canonical fingerprint, review-fingerprint drift, and parser fuzzing.
 
-- [ ] **Step 2: Prove non-execution**
+- [x] **Step 2: Prove non-execution**
 
 Use a manifest declaring a command that would create a sentinel file. Call loader, validator, status, IPC inspect, and MCP inspect; assert the sentinel never exists and the process runner port is never invoked.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./api/schema ./internal/core/project ./internal/app/project ./internal/adapter/project ./internal/adapter/ipc ./internal/adapter/mcp -run 'TestManifest|TestProjectStatus|TestInspectionDoesNotExecute' -count=1
 ```
 
-- [ ] **Step 4: Implement deterministic inspection**
+- [x] **Step 4: Implement deterministic inspection**
 
 Use the already pinned TOML v2 dependency. Decode syntax into a raw closed representation, then validate semantic references into immutable core facts. Normalize repository-relative paths without touching their targets. Never interpolate environment variables or shell syntax during inspection.
 
 Return command IDs and exact argv/shell declarations as data. Actual execution remains the ordinary `start` path and requires the caller to choose a command.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 ```bash
 go test ./api/schema ./internal/core/project ./internal/app/project ./internal/adapter/project ./internal/adapter/ipc ./internal/adapter/mcp -count=1

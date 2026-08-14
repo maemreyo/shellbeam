@@ -71,6 +71,7 @@
       },
       "required": ["action", "session_id", "kill_id"]
     },
-    {"properties": {"action": {"const": "inspect.server"}}, "required": ["action"]}
+    {"properties": {"action": {"const": "inspect.server"}}, "required": ["action"]},
+    {"properties": {"action": {"const": "inspect.project"}, "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"}}, "required": ["action", "workspace_id"]}
   ]
 }

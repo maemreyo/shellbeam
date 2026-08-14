@@ -65,6 +65,8 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
 	case "write":
 		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
+	case "inspect.project":
+		request.WorkspaceID = in.WorkspaceID
 	case "kill":
 		signal := in.Signal
 		if signal == "" {
@@ -110,6 +112,12 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
+	case "inspect.project":
+		if out.Project == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "project inspection missing", false)
+		}
+		body["project"] = out.Project
+		summary = "inspect.project: " + string(out.Project.Status)
 	case "inspect.server":
 		if out.Server == nil {
 			return toolErrorV2(action, "invalid_daemon_response", "server catalog missing", false)

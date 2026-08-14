@@ -66,6 +66,10 @@ func validateForVersion(version int, v input, raw []byte) error {
 }
 
 func validateV2(v input) error {
+	if v.Action == "inspect.project" {
+		_, err := workspace.ParseWorkspaceID(v.WorkspaceID)
+		return err
+	}
 	if v.Action != "start" {
 		return validateV1(v)
 	}
@@ -184,6 +188,8 @@ func v2ActionFields(action string) []string {
 		return []string{"session_id", "kill_id", "signal"}
 	case "inspect.server":
 		return nil
+	case "inspect.project":
+		return []string{"workspace_id"}
 	default:
 		return nil
 	}
@@ -191,7 +197,7 @@ func v2ActionFields(action string) []string {
 
 func isDeferredAction(action string) bool {
 	switch action {
-	case "inspect.workspace", "inspect.activity", "inspect.project", "read_output":
+	case "inspect.workspace", "inspect.activity", "read_output":
 		return true
 	default:
 		return false

@@ -21,15 +21,15 @@ func TestCatalogBaselineIsHonestAboutCurrentSupport(t *testing.T) {
 	if !reflect.DeepEqual(catalog.ReceiptSchemaVersions, []int{1, 2}) {
 		t.Fatalf("receipt versions=%v", catalog.ReceiptSchemaVersions)
 	}
-	if len(catalog.ManifestVersions) != 0 {
-		t.Fatalf("manifest advertised before implementation: %v", catalog.ManifestVersions)
+	if !reflect.DeepEqual(catalog.ManifestVersions, []int{1}) {
+		t.Fatalf("manifest versions=%v", catalog.ManifestVersions)
 	}
 	if !reflect.DeepEqual(catalog.Limits, limits) {
 		t.Fatalf("limits=%#v want %#v", catalog.Limits, limits)
 	}
 	for _, feature := range TargetFeatures() {
 		want := Unavailable
-		if feature == FeatureArgvMode {
+		if feature == FeatureArgvMode || feature == FeatureProjectManifest {
 			want = Available
 		}
 		if got := catalog.Features[feature]; got != want {

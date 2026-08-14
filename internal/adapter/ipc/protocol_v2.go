@@ -10,6 +10,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -50,6 +51,7 @@ type ResponseV2 struct {
 	View      *app.View           `json:"view,omitempty"`
 	Result    *receipt.Result     `json:"result,omitempty"`
 	Server    *capability.Catalog `json:"server,omitempty"`
+	Project   *project.Inspection `json:"project,omitempty"`
 	Error     *Error              `json:"error,omitempty"`
 }
 
@@ -122,6 +124,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":
 		return []string{"session_id", "kill_id", "signal"}
+	case "inspect.project":
+		return []string{"workspace_id"}
 	default:
 		return nil
 	}
@@ -170,6 +174,10 @@ func validateRequestV2(v RequestV2) error {
 		if v.SessionID == "" || (v.Chars == "" && !v.EOF) || (v.Chars != "" && v.EOF) {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "invalid_write"}, fmt.Errorf("invalid write request"))
 		}
+	case "inspect.project":
+		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, err)
+		}
 	case "kill":
 		if v.SessionID == "" || v.KillID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
@@ -180,7 +188,7 @@ func validateRequestV2(v RequestV2) error {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server":
+	case "start", "poll", "write", "kill", "inspect.server", "inspect.project":
 		return true
 	default:
 		return false
@@ -189,7 +197,7 @@ func isSupportedV2Action(action string) bool {
 
 func isDeferredV2Action(action string) bool {
 	switch action {
-	case "inspect.workspace", "inspect.activity", "inspect.project", "read_output":
+	case "inspect.workspace", "inspect.activity", "read_output":
 		return true
 	default:
 		return false

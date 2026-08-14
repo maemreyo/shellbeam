@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"net"
 	"net/http"
 	"os"
@@ -22,6 +24,10 @@ type Actions interface {
 	Write(context.Context, app.WriteRequest) (app.View, error)
 	Kill(context.Context, app.KillRequest) (app.View, error)
 	InspectServer(context.Context) (app.ServerInfo, error)
+}
+
+type ProjectActions interface {
+	InspectProject(context.Context, string) (project.Inspection, error)
 }
 
 type socketDialer func(string, time.Duration) (net.Conn, error)
@@ -248,12 +254,22 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		err = callErr
 		catalog := info.Capabilities
 		resp.Server = &catalog
+	case "inspect.project":
+		projectActions, ok := s.actions.(ProjectActions)
+		if !ok {
+			err = failure.New(failure.FeatureUnavailable, map[string]string{"feature": "inspect.project"}, nil)
+			break
+		}
+		inspection, callErr := projectActions.InspectProject(r.Context(), req.WorkspaceID)
+		err = callErr
+		resp.Project = &inspection
 	}
 	resp.OK = err == nil
 	if err != nil {
 		resp.View = nil
 		resp.Result = nil
 		resp.Server = nil
+		resp.Project = nil
 		resp.Error = errorEnvelope(err)
 	}
 	writeResponseV2(w, resp)
