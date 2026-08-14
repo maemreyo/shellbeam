@@ -1,10 +1,11 @@
 # ShellBeam Workspace, Worktree, and Git Identity Design
 
-**Status:** Approved target design; A0/A1 implementation planned
+**Status:** Approved baseline; Lazy Workspace Freshness revision review-ready before implementation planning
 **Date:** 2026-08-13
+**Revision:** 2026-08-14 — Lazy Workspace Freshness / E29 composition hardening
 **Scope:** Phase A developer experience and provenance
-**Companion designs:** [Agent Execution Layer](./2026-08-13-agent-execution-layer-design.md) and [Project Capability Manifest and Agent Onboarding](./2026-08-13-project-capability-onboarding-design.md)
-**Implementation plan:** [Agent Execution Layer A0/A1](../plans/2026-08-13-shellbeam-agent-execution-layer-a0-a1.md)
+**Companion designs:** [Agent Execution Layer](./2026-08-13-agent-execution-layer-design.md), [Project Capability Manifest and Agent Onboarding](./2026-08-13-project-capability-onboarding-design.md), [Agent Execution Observation Roadmap](./2026-08-14-agent-execution-observation-roadmap-design.md), and [Structured Code Intelligence](./2026-08-14-structured-code-intelligence-design.md)
+**Implementation plan:** [Agent Execution Layer A0/A1](../plans/2026-08-13-shellbeam-agent-execution-layer-a0-a1.md) covers the approved baseline; the Lazy Workspace Freshness revision remains outside that plan until this review gate is approved.
 
 ## 1. Decision
 
@@ -142,9 +143,9 @@ Workspace observation has three modes:
 
 | Mode | Behavior |
 | --- | --- |
-| `off` | Do not collect Git workspace metadata. |
-| `observe` | Record provenance without user-facing advisories. |
-| `warn` | Record provenance and return compact advisories. This is the default. |
+| `off` | Do not perform Git workspace sampling; cheap registry/workspace binding may still exist for command addressing. |
+| `observe` | Record available cached/explicitly requested provenance without user-facing advisories; this mode does not force a fresh Git sample on every shell command. |
+| `warn` | As `observe`, plus compact advisories from facts that are actually available/observed. This is the default and still does not force ordinary pre/post Git sampling. |
 
 There is no normal coding-mode `require` or exclusive lock. A mismatch never changes a successfully executed command into a ShellBeam failure.
 
@@ -152,48 +153,160 @@ Release verification is different: ShellBeam may execute a release command from 
 
 ## 6. Runtime data flow
 
-For a command whose `cwd` belongs to a registered or discoverable Git worktree:
+Workspace binding, workspace sampling, and exact source evidence are separate operations. A shell command does not pay for a fresh Git observation merely because it runs inside a registered worktree.
 
-1. Resolve the canonical worktree and repository identity.
-2. Read the latest bounded workspace snapshot and schedule a refresh when stale.
-3. Resolve any soft `workspace_hint` and evaluate context transitions and advisories against the current facts.
-4. Start the command using existing durable operation semantics.
-5. Return context events and advisories in the same `local_shell` response; never add a workspace-only round trip.
-6. At terminal finalization, read or refresh a lightweight post-execution snapshot when workspace observation is enabled.
-7. Bind the receipt to the pre/post snapshots, including their quality, and record whether an observed change occurred.
+For an ordinary `local_shell` command that does **not** explicitly request an activity baseline, fresh workspace provenance, verification, or another freshness-sensitive capability:
 
-Workspace observations are excluded from the ordinary `operation_id` intent fingerprint. A transport retry after an edit must still replay the already-bound operation instead of producing `operation_conflict`.
+1. Resolve only the cheapest safe workspace/repository binding available from the registry/canonical worktree identity. Failure to bind degrades to an unbound shell operation and never blocks execution.
+2. Immediately before the child can run, call the internal `WorkspaceCoherenceTracker.BeginManagedShell()` transition. This increments one daemon/state-root managed-shell freshness epoch and the count of active managed shell operations.
+3. Spawn using the existing durable operation semantics. Ordinary admission performs no Git status refresh, filesystem watcher work, language-server startup, or semantic indexing solely for workspace freshness.
+4. While the child runs, no automatic workspace reconcile or diagnostics are triggered.
+5. On spawn failure or once the ShellBeam-managed operation reaches its owned terminal/reap boundary, call `EndManagedShell()`. This decrements the active-managed count and increments the freshness epoch again.
+6. Publish an ordinary receipt with cheap binding plus cached/unreconciled workspace provenance. The default post-command workspace observation is `unreconciled`; terminal finalization does not run Git merely to make the receipt look more complete.
 
-Test, build, indexing, and release subsystems key cache/evidence to the appropriate exact snapshot digest rather than the fast generation. This does not change shell-operation idempotency.
+An explicit activity baseline is an intentional exception. When a caller supplies `activity_id` and the activity contract requires a pre-edit Git-aware baseline, ShellBeam may pay the bounded baseline-observation cost before the first admitted activity operation. If no valid pre-edit baseline exists, later `activity_delta` queries report degraded/unavailable/diverged quality rather than inventing which changes belong to the activity.
 
-### 6.1 Latency budget
+Freshness-sensitive consumers such as workspace-delta inspection, changed-file diagnostics, affected-test selection, and project checks request a bounded sample when they need one. Test/build/release/evidence paths that require exact source authority continue to use the separate exact-source-snapshot contract; a Git workspace sample never substitutes for that evidence.
 
-Workspace assistance must not turn every shell command into a synchronous repository scan. The observer therefore:
+Workspace sampling/coherence metadata is excluded from ordinary `operation_id` execution intent. A transport retry after workspace invalidation or an edit replays the already-bound operation rather than producing an operation conflict or respawn. Cached/observed context/advisories may piggyback on an existing response when available; ShellBeam never adds a mandatory workspace-only model round trip.
 
-- caches immutable repository identity and recent workspace snapshots;
-- uses Git's stable plumbing/porcelain output instead of walking `.git` directly;
-- incrementally rehashes only dirty paths whose safe file metadata changed;
-- performs no network, SSH, or GitHub CLI access during ordinary command admission;
-- applies a small configurable synchronous budget and degrades to `cached` or `unavailable` when that budget is exceeded;
-- refreshes stale observations in the background when safe.
+### 6.1 `WorkspaceCoherenceTracker`
 
-Exceeding the observation budget never delays process spawn indefinitely. The initial target is no more than 25 ms p95 warm overhead and 150 ms p95 cold overhead on the reference repositories; measured evidence may tune these values. Exact dirty-state computation belongs inside `devctl` test/build/release execution, where its cost is part of the requested operation rather than an extra MCP round trip.
+`WorkspaceCoherenceTracker` is a typed internal cache-coherence dependency, **not** a hook/plugin system. Its conceptual surface is:
 
-The enforceable work-budget invariants are:
+```text
+BeginManagedShell() -> managed_shell_lease
+EndManagedShell(managed_shell_lease)
+Invalidate(reason)
+CaptureBarrier() -> {
+  daemon_incarnation,
+  state_root_shell_freshness_epoch,
+  active_managed_shell_operations
+}
+```
 
-- warm admission with a valid cache performs zero network, zero `ssh`, zero `gh`, and zero subprocesses;
-- cold or stale admission performs at most two bounded local Git subprocesses and obeys the configured wall-clock budget;
-- no ordinary admission runs `ssh -G`, `gh auth status`, credential helpers, hooks, or user-configured external probes;
-- budget exhaustion returns cached or unavailable provenance and starts the requested process normally;
-- deeper identity inspection occurs only in an explicit external-effect/identity preflight or explicit verification command.
+There is no public `registerHook`, callback priority, plugin registration, generic retry, or hook-ordering protocol.
+
+The epoch is state-root scoped because arbitrary shell commands are not filesystem-confined to their bound `cwd`: a command associated with workspace A can write workspace B or an unrelated path. Per-workspace invalidation may exist later as an optimization hint, but it is not correctness authority without a proven execution-confinement boundary.
+
+Normative semantics:
+
+- `BeginManagedShell` increments the epoch **before the child can mutate the filesystem**; false-positive invalidation is preferred to false-current cache reuse.
+- `EndManagedShell` increments the epoch on spawn failure or at the managed operation's terminal/reap boundary and consumes the lease exactly once.
+- `active_managed_shell_operations` counts operations whose lifecycle ShellBeam still owns. Zero does **not** prove that no writer exists: escaped descendants, abandoned processes, editor saves, manual terminals, and external tools remain outside that guarantee.
+- `state_root_shell_freshness_epoch` is the invalidation authority for ShellBeam-known shell lifecycle transitions only. Epoch stability does **not** prove that the filesystem is unchanged.
+- explicit ShellBeam-owned source mutations that bypass `local_shell` (for example a future/experimental checkpoint restore) call the same typed `Invalidate(reason)` boundary around their mutation semantics; this does not create a generic hook registry.
+- the epoch is non-durable cache-coherence state. Daemon restart discards/reclassifies cached workspace samples rather than replaying speculative invalidation through durable E21 `change_seq`.
+- active managed operations do not make a newly sampled result unusable. They prevent promotion of that sample into a reusable-current cache entry because an owned operation may write after the sample.
+
+A long-running `npm run dev`, generator, watcher, or test server therefore does not make explicit workspace/diagnostic queries fail forever. The query may consume a freshly sampled result now with `cache_eligible=false` and declared managed overlap.
+
+### 6.2 `WorkspaceDeltaSampler`
+
+`WorkspaceDeltaSampler` establishes bounded, freshly sampled workspace/VCS facts when a consumer explicitly needs them. `freshly_sampled` means the facts were sampled during the current request with declared managed-shell overlap/coherence state; it is **not** an atomic filesystem consistency cut.
+
+For Git-backed workspaces, the default adapter uses Git's machine-readable porcelain/plumbing semantics instead of raw recursive filesystem walks. Fast context summaries may use directory-level untracked reporting such as `--untracked-files=normal`; an explicit path-level code-selection sample uses individual untracked files such as `--untracked-files=all` within configured file/byte/time budgets. Budget exhaustion produces `selection_completeness=partial|unavailable` rather than pretending the list is complete.
+
+The generic sampler emits typed source/VCS transitions without learning language-specific configuration semantics:
+
+```text
+ChangeRecord
+  path_transition:
+    none | added | modified | deleted | replaced | unmerged
+  old_path?
+  new_path?
+
+  source_transition:
+    unchanged | bytes_changed | availability_changed | identity_changed
+
+  vcs_transition:
+    none | index | head | ref | staged | other
+
+  structural_flags:
+    untracked?
+    submodule?
+    type_changed?
+```
+
+`replaced` is optional and used only when the adapter can actually establish replacement; ordinary modification plus `identity_changed` is sufficient otherwise. Rename recognition is optional: delete + add is always sufficient for correctness, and expensive rename detection must never be required to synchronize a provider or publish a correct delta.
+
+The sampler preserves these boundaries:
+
+- a clean dirty set does not prove an unchanged source view. Switch/reset/rebase/ref/HEAD transitions cause bounded reconciliation of actual source transitions where possible; a HEAD-only change such as a commit does not automatically imply source bytes changed or require semantic-provider reload;
+- Git-visible delta is selection input, not semantic-input completeness authority. Ignored/generated files are not scanned as an unbounded universe. Existing source-input policy and provider-specific bounded discovery/widening handle relevant ignored/generated inputs, otherwise `selection_completeness` is reduced honestly;
+- `assume-unchanged` and related repository modes may make Git `selection_completeness` incomplete. Expensive repository-wide mode discovery belongs in cached readiness/capability observation rather than every diagnostics query;
+- sparse-checkout semantics follow Git's index/worktree rules; path absence is not reinterpreted as deletion by raw filesystem heuristics;
+- a parent repository treats a submodule as an opaque typed transition unless that nested repository is independently registered/reconciled; exact evidence keeps the stronger predecessor submodule rules;
+- path presentation normalization is not path identity. Case folding or Unicode presentation must not merge distinct Git/source transitions, especially on macOS;
+- non-Git workspaces may report changed-file selection unavailable while explicit file diagnostics/navigation continue through their provider/`SourceRef` path.
+
+Sampling captures the managed-shell barrier before and after observation. If a ShellBeam-known lifecycle transition overlaps the sample, the sample may still be consumed as a bounded observation, but it is not promoted to a reusable-current cache entry. If the epoch changes later during a semantic query, selection completeness may become `potentially_stale`; exact source correlation for already-bound returned records is evaluated independently.
+
+### 6.3 Activity and workspace selection semantics
+
+The model-facing meaning of `changed_files` is explicit:
+
+```text
+activity_id supplied + valid pre-edit baseline
+  -> selection_basis = activity_delta
+  -> observed_since_baseline paths
+
+no activity_id
+  -> selection_basis = workspace_dirty
+```
+
+No hidden "current activity" is inferred. If the activity baseline is late, unavailable, or diverged because of branch/reset/rebase/source-view transitions, ShellBeam does not silently reinterpret the request as whole-workspace dirty state. It returns bounded best-available activity-path facts when possible plus explicit `selection_completeness` and `fallback_available=workspace_dirty`.
+
+A `valid pre-edit baseline` is not merely a dirty-count summary. It must retain enough bounded path-level Git state, with explicit completeness, to distinguish inherited dirty paths from later observed transitions. If path-level untracked enumeration or another required baseline dimension exceeded budget, the activity baseline remains usable only at its declared partial quality and later `activity_delta` selection cannot claim completeness.
+
+The activity/workspace selection visible to the model is not a causal claim that a particular command wrote those files. Arbitrary-shell causal attribution remains tracing/sandbox territory. It is also not allowed to restrict hidden provider synchronization required for semantic correctness.
+
+### 6.4 Receipt provenance
+
+Workspace receipt provenance is a tagged truth contract rather than an implication that every command paid for pre/post Git status:
+
+```text
+workspace_provenance
+  binding:
+    repository_id?
+    workspace_id?
+
+  pre:
+    kind = freshly_sampled | cached | unreconciled
+    sample_ref/quality?       # only when available
+
+  post:
+    kind = freshly_sampled | unreconciled
+    sample_ref/quality?       # only when explicitly required/available
+    observation_invalidated?  # true for an arbitrary managed shell path
+```
+
+Default ordinary shell behavior is `pre=cached|unreconciled` and `post=unreconciled`. An immutable receipt therefore tells the truth: ShellBeam knows the command could have invalidated prior observations but did not pay to prove actual post-state.
+
+A capability that explicitly requires sampled pre/post workspace facts may request them. A verification/evidence path that requires exact source authority still uses `ExactSourceSnapshot`; `freshly_sampled` workspace provenance never becomes an exact source/evidence claim.
+
+### 6.5 Latency and work budget
+
+Lazy freshness must reduce, not relocate, ordinary shell tax.
+
+For an ordinary shell command with no explicit activity-baseline/freshness/identity-preflight request:
+
+- workspace binding uses cached/registry facts only and performs zero Git subprocesses for freshness;
+- `BeginManagedShell`/`EndManagedShell` are O(1) in-memory coherence transitions;
+- no watcher, filesystem scan, language provider, SSH, `gh`, credential helper, or background diagnostic work is started solely because the command runs;
+- observation failure never delays or changes child execution.
+
+Explicit workspace sampling is separately budgeted by wall time, selected paths, selected source bytes, Git subprocess count, and response size. It may return `partial`, `cached`, `unavailable`, or `potentially_stale` quality. Exact dirty/source computation required by test/build/release evidence remains part of the requested authoritative operation, not an implicit local-shell round trip.
+
+The predecessor 25 ms p95 warm / 150 ms p95 cold workspace-assistance figures remain reference ceilings for explicit/cached observation behavior, not an allowance to run a Git refresh on every ordinary admission.
 
 ## 7. Context and advisory UX
 
 ShellBeam separates routine workflow facts from actionable risk signals.
 
-`context_events` include transitions such as workspace, branch, HEAD, remote, and dirty-generation changes. They are neutral context, not warnings. They use a transition fingerprint and are emitted once for the observed transition.
+`context_events` include **observed** transitions such as workspace, branch, HEAD, remote, and dirty-generation changes. They are neutral context, not warnings. They use a transition fingerprint and are emitted once when an explicit/cached observation actually establishes the transition; ordinary shell completion never invents a transition merely because its coherence epoch changed.
 
-To avoid turning normal editing into chatter, dirty-generation change is receipt-only by default. It enters the response event array only when it invalidates a reused context/index/test claim or when verbose workspace reporting was requested. Workspace, branch, HEAD, and remote transitions may be summarized once because they materially change task orientation.
+To avoid turning normal editing into chatter, dirty-generation change is receipt/inspect-only by default and appears only after a workspace sample establishes it. It enters the response event array only when it invalidates a reused context/index/test claim or when verbose workspace reporting was requested. Workspace, branch, HEAD, and remote transitions may be summarized once when observed because they materially change task orientation.
 
 `advisories` include soft-affinity mismatch, Git profile mismatch, effective-identity ambiguity, credential overrides, and observation failure. They are:
 
@@ -449,7 +562,7 @@ The search provider remains an optional external CLI/provider, not a dependency 
 
 ### 12.4 Receipts and release evidence
 
-Ordinary command receipts include fast best-effort workspace provenance without changing command success. Test/build receipts use the exact source snapshot and distinguish its content and VCS-state digests. Official release evidence requires an exact clean commit-tree view and matching required identity policy; otherwise execution results remain available but are labeled unverified.
+Ordinary command receipts include cheap binding plus tagged cached/unreconciled workspace provenance without changing command success; they do not imply that Git was sampled before or after the child. An explicit workspace/activity capability may attach freshly sampled facts. Test/build receipts use the separate exact source snapshot and distinguish its content and VCS-state digests. Official release evidence requires an exact clean commit-tree view and matching required identity policy; otherwise execution results remain available but are labeled unverified.
 
 ## 13. Configuration ownership and privacy
 
@@ -466,16 +579,21 @@ Workspace and identity observation is best effort. Failure to run Git, SSH confi
 
 Registry corruption is isolated from process execution. ShellBeam may rebuild discoverable workspace metadata from Git and retain historical receipts by opaque IDs. It must not silently recreate destructive intent.
 
-If provenance changes while a command runs, both pre- and post-generation are retained. ShellBeam reports that the workspace changed during execution rather than guessing which source state the process actually read at each instant.
+If explicit sampled pre/post provenance establishes a generation transition while a command runs, both observations are retained. An ordinary unreconciled post receipt reports only that prior observations were invalidated; it does not guess that source actually changed, which process caused a change, or which source state the child read at each instant.
 
 ## 15. Validation strategy
 
 ### 15.1 Workspace behavior
 
+- Ordinary shell admission with no explicit activity/freshness request performs cheap binding plus managed-shell invalidation and **zero Git subprocesses** for workspace freshness.
+- A short command that edits a file cannot reuse its pre-command TTL-cached snapshot as if it were an observed post-state; the default post receipt is unreconciled.
+- `BeginManagedShell` invalidates before spawn and `EndManagedShell` invalidates on spawn failure/managed terminal exactly once.
+- A long-running managed shell may overlap an explicit sample; the sample remains usable now but is not cache-promoted while managed overlap exists.
+- Epoch stability and `active_managed_shell_operations==0` are never claimed as proof that external/escaped writers do not exist.
 - Reuse one worktree from multiple conversations without denial.
 - Use multiple workspaces from one conversation.
 - Supply matching, mismatching, changed, and omitted soft workspace hints; verify execution always continues and hints never affect operation identity.
-- Switch branch, reset HEAD, stash, change remotes, and modify files; verify command execution continues and context/advisory classification is correct.
+- Switch branch, reset/rebase HEAD, stash, commit without worktree-byte changes, change remotes, and modify files; verify command execution continues, clean-to-clean source-view transitions are sampled honestly, and VCS-only transitions do not force semantic reload by themselves.
 - Retry one `operation_id` after the workspace changes; verify no duplicate spawn and no operation conflict.
 - Move a Git worktree or rename a workspace label while preserving historical identity when Git continuity is provable.
 - Attach a pre-existing worktree and avoid accidental duplicate creation.
@@ -514,8 +632,15 @@ If provenance changes while a command runs, both pre- and post-generation are re
 - Verify token override makes effective `gh` user unknown unless separately proven.
 - Verify no token or private-key material appears in logs, receipts, or advisories.
 
-### 15.5 Cache and provenance
+### 15.5 Cache, lazy delta, and provenance
 
+- Fast generation, managed-shell freshness epoch, freshly sampled workspace facts, and the exact source snapshot are never conflated in schema, logs, or claims.
+- Daemon restart invalidates/reclassifies non-durable workspace caches and does not materialize a durable E21 event solely for speculative freshness invalidation.
+- Dirty -> clean/revert, delete, delete+add rename representation, type change, and clean branch switch all produce the generic source/VCS transitions required by downstream consumers even when the current dirty list no longer contains the old path.
+- Fast Git summary may use untracked-directory aggregation; explicit code-selection sampling enumerates individual untracked files within budget and returns partial quality when bounded enumeration cannot complete.
+- Ignored/generated relevance, assume-unchanged, sparse checkout, and submodule cases preserve explicit selection quality/policy rather than being treated as complete filesystem truth.
+- macOS-native tests cover case-only rename and Unicode path presentation without case-folding/normalization collapsing source identity.
+- Non-Git workspace changed-file selection may be unavailable without disabling explicit file diagnostics/navigation.
 - Fast generation and the exact source snapshot are never conflated in schema, logs, or claims.
 - Exact snapshot fixtures cover modified/untracked/ignored/deleted/renamed/intent-to-add paths, symlink text without target traversal, submodules, modes, large streaming files, and unsupported special files.
 - Equivalent source namespaces with different branch/VCS-only metadata have equal source-content digests and distinct VCS-state digests.
@@ -526,19 +651,20 @@ If provenance changes while a command runs, both pre- and post-generation are re
 
 ### 15.6 Work-budget enforcement
 
-- Warm cached admission runs zero subprocesses and no network/SSH/`gh` probes.
-- Cold/stale admission never exceeds two local Git subprocesses or its wall-clock budget.
-- Timeout and malformed Git output degrade to cached/unavailable provenance and still spawn the requested command.
-- Latency benchmarks report p50/p95/p99 separately for cached, cold, dirty-large, and non-repository directories.
+- Ordinary shell admission with no explicit activity-baseline/freshness/identity-preflight request runs zero Git/SSH/`gh` subprocesses for workspace observation.
+- Explicit activity-baseline or workspace-delta sampling is independently bounded by Git subprocess count, wall time, selected files/source bytes, and response bytes.
+- `--untracked-files=all`-style path-level selection is used only for explicit bounded sampling, not ordinary shell admission.
+- Timeout, huge-untracked-tree, or malformed Git output degrades to partial/cached/unavailable provenance and never prevents an unrelated shell command from running.
+- Latency benchmarks report p50/p95/p99 separately for ordinary binding/invalidation, cached inspect, explicit cold sample, dirty-large sample, and non-repository directories.
 
 ## 16. Delivery slices
 
-1. **Observation foundation:** stable repository/worktree identity, fast generation, soft workspace hint, receipt fields, `off|observe|warn`, context events, cause-based advisories, and hard work budgets.
+1. **Observation foundation:** stable repository/worktree identity, `WorkspaceCoherenceTracker`, lazy `WorkspaceDeltaSampler`, fast generation, tagged cached/unreconciled receipt provenance, soft workspace hint, `off|observe|warn`, context events, cause-based advisories, and hard work budgets.
 2. **Reusable registry and CLI:** list, inspect, attach, create with path templates, rename, and forget; soft naming suggestions.
 3. **Exact provenance:** exact source-snapshot/content/VCS digest contracts and `devctl` integration for test/build/release evidence.
 4. **Git identity profiles:** repository default/workspace override, environment-source classification, explicit deep preflight, and redaction tests.
 5. **Material lifecycle:** remove UX with single-confirmation semantics and safe dirty advisories.
-6. **Developer-tool integration:** operation-local build publication, affected-test provenance, and content-keyed optional semantic indexes.
+6. **Developer-tool integration:** operation-local build publication, affected-test provenance, activity/workspace delta selection, and bounded provider-facing source-transition integration without a whole-repo mirror.
 
 Each slice is independently useful. Failure of workspace metadata must degrade to ordinary ShellBeam execution, not disable the local shell.
 
@@ -552,11 +678,13 @@ The design is successful when:
 - an optional soft hint makes accidental workspace mismatch visible without binding or blocking;
 - Git state-changing commands remain executable;
 - context events stay neutral while advisories are compact, cause-deduplicated, actionable, and non-blocking;
-- ordinary receipts honestly identify fast provenance quality, while exact claims use the separate exact source snapshot and its typed digests;
+- ordinary receipts honestly distinguish cached/unreconciled workspace provenance and do not pay for unrequested Git post-state proof;
+- managed-shell epoch/active-count invalidation prevents ShellBeam-known lifecycle transitions from silently reusing stale caches without claiming filesystem containment;
+- freshly sampled workspace facts remain selection/advisory observations, while exact claims use the separate exact source snapshot and its typed digests;
 - company repositories make personal SSH, commit, or `gh` identity mismatches obvious before externally visible operations;
 - ShellBeam stores no GitHub token or SSH private-key contents;
 - one MCP tool and one reasoning agent remain intact;
-- warm workspace observation stays within its latency budget and observation failure cleanly degrades to ordinary execution.
+- ordinary shell binding/invalidation has zero workspace-Git subprocess tax when freshness is not requested, explicit samples stay bounded, and observation failure cleanly degrades to ordinary execution.
 
 ## 18. Reference behavior
 

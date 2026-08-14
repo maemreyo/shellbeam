@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved design extending the existing ShellBeam Agent Execution Layer, Workspace/Worktree/Git Identity, and Project Capability Manifest designs. This document is the umbrella contract for enhancements E21-E29. It does not replace V1, V1 hardening, or E01-E20; it constrains how the new capabilities compose with them.
+Approved E21-E28 baseline extending the existing ShellBeam Agent Execution Layer, Workspace/Worktree/Git Identity, and Project Capability Manifest designs. The E29 + Lazy Workspace Freshness composition in this revision is review-ready and must pass the final design gate before implementation planning. This document remains the umbrella contract for enhancements E21-E29 and does not replace V1, V1 hardening, or E01-E20; it constrains how the new capabilities compose with them.
 
 Companion designs:
 
@@ -382,6 +382,8 @@ New work is staged after the existing Agent Execution Layer foundation without f
 - durable state-root `change_seq` and observation obligation;
 - deterministic derived-record identity/lifecycle;
 - bounded storage/retention primitives;
+- state-root managed-shell cache invalidation (`WorkspaceCoherenceTracker`) plus lazy workspace-delta sampling;
+- explicit separation of model-facing workspace/activity selection, provider synchronization scope, `SourceRef` correlation, and exact-source evidence authority;
 - Agent Ergonomics / No Protocol Choreography contract.
 
 A3a is the hard prerequisite for later automatically derived capabilities.
@@ -437,6 +439,7 @@ With E21-E29 supported but no optional observation/provider feature requested, w
 - zero readiness refresh, telemetry aggregation, repro materialization, or structured-result scan;
 - zero network/SSH/`gh` access;
 - zero additional subprocesses beyond the predecessor warm-admission contract;
+- zero Git subprocesses solely to refresh workspace pre/post provenance for an ordinary shell command that did not explicitly request an activity baseline, workspace freshness, or identity preflight; cheap registry binding plus O(1) managed-shell invalidation is the default;
 - no extra synchronous durability barrier solely to materialize a journal event. The durable observation obligation is committed with the canonical transition mechanism; event projection is decoupled.
 
 The release benchmark compares the same build on the same reference corpus with the roadmap capabilities disabled versus enabled-but-unused. Initial regression gates are **p95 incremental warm-admission <= 5 ms and p99 <= 10 ms**, while the complete operation must also remain inside the predecessor global workspace-assistance ceiling. These numbers are global deltas, not per-capability budgets that may be added together. A design change that cannot meet them must explicitly revise the benchmark contract before release rather than silently weakening the gate.
@@ -445,6 +448,7 @@ The release benchmark compares the same build on the same reference corpus with 
 
 - Cached typed-project-command binding targets p95 <= 10 ms and performs no subprocess/network access.
 - Journal delta inspection, structured-result reads, telemetry/history inspection, and code-intelligence result rendering enforce explicit record/byte/work ceilings. E29 additionally bounds selected files/source bytes, in-flight requests, provider queue depth, restart rate/cooldown, and provider resource observation/enforcement according to platform capability.
+- Changed-file/workspace-delta queries pay for a bounded freshly sampled selection only when requested. Managed-shell overlap prevents cache promotion but does not make the sample unusable; workspace sampling is never relabeled as an exact source/evidence cut.
 - Semantic provider cold start/indexing is explicit code-intelligence work and never part of ordinary `start`; capability-specific startup/query budgets and `initializing`/partial states are reported honestly.
 - Required tracing has an explicit startup/instrumentation budget because it intentionally changes execution admission semantics.
 - Checkpoint capture/restore has explicit path/byte/work budgets and is never implicit.
@@ -477,6 +481,7 @@ The umbrella verification matrix requires all applicable companion tests plus th
 6. **Readiness/binding tests:** manifest v1/v2 compatibility, missing/incompatible prerequisites, secret-safe environment presence, param validation before spawn, retry after manifest change.
 7. **Experimental provider safety tests:** conditional-restore conflict semantics, symlink/special-file behavior, tracing truncation/ownership gaps, and proof advisory traces cannot narrow evidence.
 8. **Native platform gates:** real macOS and Linux evidence for platform-specific resource/provider semantics. Cross-builds are compile evidence only.
+9. **Lazy workspace/provider coherence:** ordinary no-Git admission, managed-shell epoch/active overlap, TTL-cache invalidation, lazy tagged receipt provenance, activity/workspace selection, dirty->clean/delete/source-view transitions, provider sync coverage/restart/config incompatibility, untracked/sparse/submodule/ignored quality, and macOS case/Unicode path behavior.
 
 Fuzz/property tests are expected for cursor decoding, parameter binding, path normalization, structured-result parsers, manifest v2 parsing, and checkpoint restore preconditions.
 
@@ -492,8 +497,8 @@ E21-E25, E28, and the promoted E29 core surface are core-complete only when all 
 6. One execution can produce an immutable reproduction provenance record with an explicit capture cut, stable creation descriptor, and honest post-compaction resolution state.
 7. Project readiness reports manifest-declared prerequisites mechanically without installing or repairing anything.
 8. Typed project commands replay existing `operation_id` bindings before reading current workspace/manifest/provider state and bind safely without shell templating or workflow semantics.
-9. E29 returns bounded semantic diagnostics/navigation through model-oriented queries without exposing LSP choreography and without claiming build/test evidence.
-10. Provider absence/indexing/staleness never blocks ordinary shell execution.
+9. E29 returns bounded semantic diagnostics/navigation through model-oriented queries without exposing LSP/workspace/provider-sync choreography; changed-file selection, provider-sync scope, exact `SourceRef` correlation, and exact evidence remain separate contracts.
+10. Provider absence/indexing/staleness never blocks ordinary shell execution, and ordinary shell workspace provenance uses cheap binding + managed-shell invalidation with lazy/unreconciled pre/post sampling instead of mandatory Git refresh.
 11. Existing receipt/idempotency/ownership/evidence invariants remain green under new schema versions and crash injection.
 12. Enabled-but-unused roadmap capabilities pass the global incremental admission benchmark and storage/work ceilings.
 13. E26/E27 absence or experimental failure does not make core completion incomplete.
@@ -506,6 +511,9 @@ E26/E27 may be described only as `experimental-ready` when their companion provi
 
 This roadmap does not add:
 
+- an always-on workspace watcher or automatic diagnostics after every shell command;
+- a generic lifecycle hook/plugin framework for internal coherence transitions;
+- a ShellBeam-owned editor/patch engine, shadow filesystem, whole-repository provider mirror, or generic semantic-config engine;
 - daemon-side planning or fix recommendations;
 - automatic command scheduling/retry selection;
 - a workflow DSL;

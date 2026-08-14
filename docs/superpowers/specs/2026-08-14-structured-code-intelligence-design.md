@@ -30,6 +30,11 @@ The reasoning agent remains the only component that decides what code change to 
 
 E29 does not provide:
 
+- an always-on filesystem watcher or automatic diagnostics after arbitrary shell commands;
+- a generic lifecycle hook/plugin framework;
+- a ShellBeam editor/patch/transactional file API;
+- a core shadow filesystem, whole-repository provider mirror, or standardized per-path provider sync map;
+- a generic language-semantic configuration engine in the workspace layer;
 - an AI code agent or fix recommender;
 - authoritative build/test success;
 - a replacement for E22 execution-derived structured results;
@@ -122,12 +127,15 @@ Conceptually:
   "action": "inspect",
   "target": "code",
   "workspace_id": "ws_...",
+  "activity_id": "activity_...",
   "query": {
     "kind": "diagnostics",
     "scope": "changed_files"
   }
 }
 ```
+
+`activity_id` is the optional common correlation-envelope field from the umbrella contract; omitting it selects workspace-dirty semantics rather than an inferred current activity.
 
 or:
 
@@ -180,13 +188,31 @@ changed_files
 workspace
 ```
 
-`changed_files` is particularly important for the coding loop. ShellBeam derives the candidate file set from its bounded workspace observation/baseline contract; the semantic provider evaluates those files under its own supported scope. If the provider necessarily analyzes more packages/files internally, that is fine, but the returned model-facing result remains scoped/bounded.
+`changed_files` is particularly important for the coding loop, but it is a **selection contract**, not a provider synchronization protocol. ShellBeam obtains a bounded freshly sampled candidate set from the workspace/activity contract, then the semantic adapter may synchronize or analyze a wider semantic scope internally.
+
+Default model-facing selection is explicit and stateless:
+
+```text
+activity_id supplied + valid pre-edit baseline
+  -> selection_basis = activity_delta
+  -> observed_since_baseline paths
+
+no activity_id
+  -> selection_basis = workspace_dirty
+```
+
+No hidden current activity is inferred. A late/unavailable/diverged activity baseline returns best-available bounded activity-path diagnostics where safe plus explicit `selection_completeness=diverged|partial|unavailable` and `fallback_available=workspace_dirty`; ShellBeam does not force the model through a status/retry choreography or silently reinterpret the scope.
+
+The model-facing selection and hidden provider synchronization scope are different products. Inherited dirty semantic configuration, another module/root, a formerly dirty path that is now clean, a deletion, or a source-view transition may require provider synchronization even though that path is not returned as an activity `changed_files` candidate.
 
 A typical response is deliberately compact:
 
 ```text
 status: ready
-freshness: current
+selection_basis: activity_delta
+sample_freshness: freshly_sampled
+selection_completeness: complete
+source_correlation: exact_for_returned_records
 errors: 2
 warnings: 1
 files: 2
@@ -196,6 +222,23 @@ records:
 ```
 
 Detailed provider provenance is drill-down metadata rather than default token cost.
+
+### 7.1 Selection quality and source authority
+
+A changed-file diagnostics query has independent authority dimensions:
+
+```text
+selection_basis
+sample_freshness
+selection_completeness
+managed_overlap / managed_epoch_at_selection
+source_correlation for returned SourceRefs
+provider/build-scope completeness
+```
+
+A workspace sample is `freshly_sampled`, never an immutable filesystem cut. If `active_managed_shell_operations > 0`, the sample may be consumed immediately but is not promoted as reusable-current. If the managed-shell epoch changes while provider work is in flight, `selection_completeness` becomes `potentially_stale` unless a bounded re-selection proves otherwise. This does **not** automatically downgrade a returned diagnostic whose exact bound `SourceRef` still correlates: a concurrent unrelated command may create `bar.go` while the exact diagnostic for `foo.go` remains valid. Retry-on-epoch-change is reserved for callers that explicitly require complete changed-file selection and only within budget.
+
+The workspace-selection barrier answers which files should be considered. The later `SourceRef` correlation barrier answers whether each returned semantic fact still belongs to the exact bound source representation. Neither barrier is exact build/test/release evidence; those paths retain the predecessor exact-source-snapshot/evidence contract.
 
 ## 8. Diagnostic lifecycle and Event Journal integration
 
@@ -267,26 +310,53 @@ Optional capability mapped to provider call hierarchy where available. Unsupport
 
 ## 10. Source-view contract
 
-E29 v1 is **disk-bound**: its canonical input is the saved workspace source view ShellBeam can observe locally.
+E29 v1 is **disk-bound**: its canonical queryable source is saved local source that ShellBeam can bind to `SourceRef`. A provider may internally model a broader or different semantic scope, but that never weakens source-correlation rules.
 
-A provider session is bound to:
+Each semantic adapter owns a bounded opaque `ProviderSyncState`; core does **not** standardize a whole-workspace `map[path]LastSourceRef`, shadow filesystem, or semantic index. Common metadata is limited to compatibility/coverage facts such as:
 
 ```text
-workspace_id
-repository_id?
-source generation/content identity quality
-provider config fingerprint
-build configuration fingerprint/quality
-provider executable/version
+ProviderSyncState metadata
+  provider_incarnation
+  provider executable/version
+  provider config fingerprint
+  build/environment fingerprint + quality
+  workspace/repository binding
+  semantic_scope descriptor/quality
+  sync_coverage: exact_for_known_paths | provider_managed | partial | unknown
+  adapter_private_sync_token
 ```
 
-Provider adapters are responsible for synchronizing disk changes into their protocol model and for proving which source generation a response corresponds to. Provider-specific document versions/session generations/snapshot IDs are correlation evidence, not canonical source identity. Absence of usable correlation evidence never becomes `current` merely because a path still matches.
+The adapter-private token may reference bounded provider-native state for the paths/builds it actually needs. It is valid only within the declared provider incarnation/config/build identity and coverage. Provider restart, executable/config incompatibility, or incompatible build/environment change discards the old token; ShellBeam never pretends a restarted language server retained synchronization state.
+
+Conceptually, provider synchronization is derived from:
+
+```text
+ProviderSyncPlan
+  = delta(
+      provider_last_synchronized_source_view_or_adapter_state,
+      newly_sampled_workspace/source-transition facts
+      + exact SourceRefs resolved on demand
+    )
+  + provider-specific semantic-context invalidations
+```
+
+This is **not** the literal union of previous/current Git dirty paths. A path that was dirty and becomes clean/reverted still requires `B -> A` synchronization if the provider last saw B. Delete/rename/type transitions likewise reach the adapter even when the current dirty set omits the old representation. Delete + add is sufficient for correctness; rename recognition is an optional bounded presentation/sync optimization.
+
+HEAD/ref changes mean the source view **may** have changed, not that semantic reload is automatically required. Switch/reset/rebase can change many source representations while both endpoints are clean, so the adapter/sampler performs bounded path reconciliation or widens/reloads when necessary. Conversely, `git add` or a commit may alter VCS/HEAD provenance without changing provider-visible source bytes, and must not trigger semantic reload solely because HEAD moved.
+
+Generic workspace sampling never contains language-specific `config_changed`. It reports path/source/VCS transitions. The adapter derives `semantic_context_transition` from its own language/tool semantics. For Go this may include `go.mod`, `go.work`, build flags/environment, `workspaceFiles`, or other provider configuration. A semantic-context transition may widen the effective provider scope beyond caller `changed_files`.
+
+Provider semantic roots may also exceed the caller's registered workspace/activity selection (for example a multi-module workspace). The provider may widen synchronization, but if relevant roots cannot be safely observed/correlated, ShellBeam reports reduced provider/selection completeness rather than claiming full semantic coverage.
+
+Provider adapters are responsible for synchronizing disk changes into their protocol model and for proving which source representation a response corresponds to. Provider-specific document versions/session generations/snapshot IDs are correlation evidence, not canonical source identity. Absence of usable correlation evidence never becomes `current` merely because a path still matches.
 
 Unsaved editor-buffer overlays are deferred. If a future attached editor/LSP integration exposes them, the overlay becomes a distinct source-view identity with exact content/version provenance. It can never silently overwrite or be equated with disk/evidence truth.
 
 ## 11. Provider freshness and source races
 
-A code-intelligence request captures a source-view observation before issuing provider work. The response must be associated with the same source identity or downgraded:
+A code-intelligence request separately captures (a) a workspace-selection sample/barrier and (b) exact `SourceRef` bindings for source facts that require canonical positions. Provider work is then correlated back to those exact bindings.
+
+Per-record source correlation may be:
 
 ```text
 current
@@ -295,7 +365,7 @@ source_changed_during_query
 unknown
 ```
 
-If the workspace changes while a definition/reference/diagnostic query is in flight and the adapter cannot prove the returned result belongs to the bound source representation, ShellBeam returns the old result as stale or retries once within budget; it never relabels it current. A previously issued `source_ref_id` may expire, but it never rebinds to the newer bytes.
+Selection completeness may independently be `complete`, `partial`, `diverged`, `potentially_stale`, or `unavailable`. A managed-shell epoch transition during provider work can make the candidate-set completeness potentially stale without invalidating an exact returned `foo.go` diagnostic whose `SourceRef` still proves the same bytes. If the adapter cannot prove a returned fact belongs to its bound source representation, that fact is stale/unknown or the query retries once within budget; it is never relabeled current. A previously issued `source_ref_id` may expire, but it never rebinds to newer bytes.
 
 Provider caches/indexes have separate readiness states:
 
@@ -520,9 +590,11 @@ This path is covered by the umbrella global incremental admission benchmark.
 
 ### 21.2 Explicit code-intelligence query
 
-Every query/provider family has a bounded input/output/work envelope:
+Every query/provider family has a bounded input/output/work envelope. A `changed_files` query additionally budgets its explicit workspace-delta sample separately from semantic-provider work:
 
 ```text
+workspace-sample wall/Git-process budget
+max candidate files / candidate source bytes
 startup/query wall budget
 max selected files
 max selected source bytes
@@ -543,6 +615,8 @@ Memory/process-resource limits are advertised as **enforced only where the provi
 ### 21.3 Persistent provider capacity
 
 Provider instances are bounded globally/per-workspace with idle TTL/LRU-like eviction that never kills an instance while an owned request is executing. Per-provider restart rate/cooldown and bounded request queues prevent crash-loop or backlog amplification. Eviction affects only semantic-observation cache/lifecycle, not command sessions or evidence.
+
+`ProviderSyncState` is likewise bounded. Adapters advertise/measure the coverage they retain rather than accumulating an unbounded whole-repository path/content mirror. A provider may discard sync state and widen/reload when its bounded state is insufficient; this is preferable to silently reusing incompatible or incomplete synchronization metadata.
 
 ## 22. Privacy and security
 
@@ -582,6 +656,11 @@ source_ref_unavailable
 unsupported_source_encoding
 code_intelligence_provider_busy
 code_intelligence_provider_cooldown
+code_intelligence_selection_partial
+code_intelligence_selection_diverged
+code_intelligence_selection_potentially_stale
+code_intelligence_selection_unavailable
+code_intelligence_provider_scope_incomplete
 code_intelligence_index_stale
 code_intelligence_index_unavailable
 ```
@@ -633,7 +712,9 @@ code_diagnostics_changed
 A handoff/inspect summary may contain:
 
 ```text
-Go semantic provider: ready/current @ generation G
+Go semantic provider: ready @ provider/config/build identity ...
+changed-file selection: basis=activity_delta / sample=freshly_sampled / completeness=complete
+returned-source correlation: exact for 2 files
 changed-file diagnostics: 2 errors / 1 warning
 last semantic query refs: ...
 ```
@@ -649,14 +730,27 @@ It never contains hidden editor conversation state or a narrative recommendation
 - capability negotiation cleanly handles absent/partial providers;
 - provider raw errors normalize to stable ShellBeam statuses;
 - coordinates round-trip across ShellBeam and provider encodings including non-ASCII source.
+- `changed_files` responses keep selection basis/completeness separate from per-record `SourceRef` correlation and provider-scope completeness.
+- adapter-private provider sync state is never exposed as a model-facing per-path protocol.
 
-### 27.2 Source/freshness tests
+### 27.2 Source/freshness and selection tests
 
-- result is bound to the source generation/content observation used for query;
-- concurrent source edit during query yields stale/retry/downgrade, never falsely current;
-- provider restart/index refresh does not reuse stale derivation as current;
+- result is bound to the exact `SourceRef`/provider source representation used for the returned fact;
+- workspace selection is labeled `freshly_sampled` rather than an atomic filesystem cut; active managed operations permit immediate use but prevent reusable-current cache promotion;
+- a managed-shell epoch change during provider work may downgrade candidate-set completeness without downgrading an independently exact returned `SourceRef` fact;
+- concurrent edit of a returned source during query yields stale/retry/downgrade for that source, never falsely current;
+- dirty -> clean/revert still synchronizes the provider from its last seen source to current disk even when `current_changed_files=[]`;
+- deletion and rename are synchronized correctly when rename is represented as delete + add; expensive rename detection is not required;
+- clean branch switch/reset/rebase reconciles actual source transitions or widens/reloads, while VCS-only `git add`/commit does not force semantic reload solely from index/HEAD movement;
+- explicit changed-file selection enumerates individual untracked source paths within budget; huge untracked trees return partial quality rather than an unbounded scan;
+- ignored/generated, assume-unchanged, sparse checkout, and submodule conditions cannot silently upgrade Git-visible selection to complete semantic coverage;
+- `activity_id` with a valid baseline scopes model-facing selection to activity delta; inherited unrelated dirty files are not surfaced as activity changes;
+- a diverged/late/unavailable activity baseline returns bounded best-available results plus explicit degraded quality/fallback rather than silently switching selection basis;
+- non-Git workspace explicit-file diagnostics/navigation work even when `changed_files` selection is unavailable;
+- unborn/detached HEAD and incomparable source-view transitions widen/degrade safely rather than assuming two normal commit SHAs;
+- provider restart/config/build incompatibility discards old `ProviderSyncState` compatibility rather than reusing it as proof;
 - disk source view never silently incorporates editor-only overlay data;
-- build-config-limited reference result advertises its scope/quality.
+- build-config/multi-root-limited result advertises provider scope/quality.
 
 ### 27.3 Go/gopls semantic tests
 
@@ -667,6 +761,7 @@ On native macOS and Linux reference repositories:
 - changed-file diagnostics remain bounded;
 - gopls cold start/indexing and warm reuse/cancellation/restart are exercised;
 - provider source/config/build fingerprints change when relevant configuration changes;
+- Go semantic-context changes such as `go.mod`/`go.work`/provider workspace/build configuration can widen effective sync/diagnostic scope without changing the caller activity selection basis;
 - gopls side-effect profile does not get triggered by unrelated `local_shell start`;
 - no gopls CLI dependency is required by the production provider contract.
 
@@ -694,6 +789,8 @@ For ast-grep-backed query-only structural facts:
 - provider crash cannot corrupt operation/receipt/evidence state;
 - query cancellation/timeout reclaims request resources;
 - provider instance count/idle eviction remains bounded;
+- adapter-owned `ProviderSyncState` remains bounded and declares coverage; core never requires a whole-repository source mirror;
+- provider restart/executable/config/build identity change invalidates incompatible sync tokens;
 - bounded queue/backpressure rejects overload without unbounded accumulation;
 - repeated provider crashes enter restart cooldown/unhealthy state rather than restart indefinitely;
 - selected-file/source-byte input envelopes are enforced;
@@ -707,16 +804,19 @@ E29A/E29B are core-ready only when:
 
 1. An agent can request changed-file semantic diagnostics in one model-oriented inspect call without running a build/test command.
 2. Definition/references/symbols/import declarations/resolved import targets/type definition/type summary are available through a small provider-neutral vocabulary where the selected provider supports them.
-3. The agent never speaks LSP/JSON-RPC, manages document versions/URIs, or traverses AST node IDs on the normal path.
+3. The agent never speaks LSP/JSON-RPC, manages document versions/URIs, traverses AST node IDs, or orchestrates workspace/provider synchronization on the normal path.
 4. Every result carries provider/source/build-config freshness/completeness sufficient to prevent stale or configuration-limited facts from being overclaimed; canonical locations use never-rebound opaque `SourceRef` handles plus exact UTF-8 byte ranges, while unresolved provider targets remain a distinct closed-union member.
-5. E29 observations never become build/test/evidence truth merely by existing.
-6. Provider startup/indexing/absence/failure never blocks ordinary shell execution.
-7. Enabled-but-unused E29 performs zero provider/index/subprocess work on ordinary command admission.
-8. The first Go provider uses mature semantic tooling rather than a ShellBeam reimplementation of Go parsing/type checking/navigation.
-9. Structural provider facts remain syntax-only/query-only and cannot masquerade as semantic symbol identity; direct Tree-sitter integration is deferred and is not an E29 v1 automatic fallback.
-10. SCIP/index consumption, if present, is optional and exact-source-bound; automatic full indexing is not a normal-loop requirement.
-11. Native macOS/Linux tests prove provider lifecycle, stale-source handling, cancellation, capacity, and bounded output.
-12. E29 does not expose source-edit/refactor mutation; the reasoning agent remains the code editor.
+5. `changed_files` exposes explicit activity/workspace selection basis and completeness; provider synchronization may be wider, and exact returned-source correlation remains a separate authority dimension.
+6. Provider synchronization derives from bounded adapter-owned last-sync state plus the newly sampled source view/semantic-context invalidations; core does not maintain a standardized whole-repository source mirror.
+7. Provider sync compatibility is scoped to provider incarnation/executable/config/build identity and declared coverage; incompatible restart/configuration discards the old sync token.
+8. Dirty->clean/revert, deletion, clean source-view transition, semantic-context widening, and untracked-path enumeration are handled without requiring current dirty paths to equal provider sync scope.
+9. E29 observations never become build/test/evidence truth merely by existing; workspace samples remain selection facts and evidence uses the separate exact-source contract.
+10. Provider startup/indexing/absence/failure never blocks ordinary shell execution, and enabled-but-unused E29 performs zero provider/index work on ordinary command admission.
+11. The first Go provider uses mature semantic tooling rather than a ShellBeam reimplementation of Go parsing/type checking/navigation.
+12. Structural provider facts remain syntax-only/query-only and cannot masquerade as semantic symbol identity; direct Tree-sitter integration is deferred and is not an E29 v1 automatic fallback.
+13. SCIP/index consumption, if present, is optional and exact-source-bound; automatic full indexing is not a normal-loop requirement.
+14. Native macOS/Linux tests prove provider lifecycle, stale-source handling, case/Unicode path transitions, cancellation, capacity, bounded output, and lazy selection/sync behavior.
+15. E29 does not expose source-edit/refactor mutation, generic hook registration, watcher-by-default behavior, or provider sync protocol choreography; the reasoning agent remains the code editor.
 
 ## 29. Reference agent flows
 
