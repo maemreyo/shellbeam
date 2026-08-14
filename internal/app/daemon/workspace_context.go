@@ -42,7 +42,10 @@ func (s *Service) enrichReplayWorkspaceContext(ctx context.Context, view *View, 
 	if view == nil || hint == nil || s.observer == nil || storedCWD == "" {
 		return
 	}
-	snapshot := s.observer.Observe(ctx, storedCWD)
+	snapshot := s.observer.ObserveCached(ctx, storedCWD)
+	if snapshot.Quality == workspace.QualityUnavailable {
+		return
+	}
 	s.enrichWorkspaceContext(view, &snapshot, hint)
 }
 

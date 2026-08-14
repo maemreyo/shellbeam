@@ -59,6 +59,7 @@ type liveSession struct {
 	writerDone     chan struct{}
 	done           chan struct{}
 	doneOnce       sync.Once
+	coherenceLease ManagedShellLease
 }
 type inputJob struct {
 	data []byte
@@ -149,9 +150,12 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	workspaceObservation := s.captureWorkspace(ctx, executionCWD)
 	activityReq := req
 	activityReq.CWD = executionCWD
-	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation)
+	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation.binding)
 	spec.CWD = executionCWD
 	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	if s.coherence != nil {
+		live.coherenceLease = s.coherence.BeginManagedShell()
+	}
 	s.put(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
@@ -166,7 +170,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 		s.finishSpawnFailure(live)
 		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
 		if viewErr == nil {
-			s.enrichWorkspaceContext(&view, workspaceObservation.pre, req.WorkspaceHint)
+			s.enrichWorkspaceContext(&view, workspaceObservation.context, req.WorkspaceHint)
 		}
 		return view, viewErr
 	}
@@ -181,7 +185,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	}
 	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	if viewErr == nil {
-		s.enrichWorkspaceContext(&view, workspaceObservation.pre, req.WorkspaceHint)
+		s.enrichWorkspaceContext(&view, workspaceObservation.context, req.WorkspaceHint)
 	}
 	return view, viewErr
 }
@@ -225,7 +229,8 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	rec := s.receiptFor(l, session.Failed, session.Failure)
 	rec.FailureReason = "spawn_failed"
 	rec.Spawn = l.spawn
-	s.attachWorkspaceProvenance(&rec, l.workspace, l.spec.CWD)
+	s.endManagedShell(l)
+	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = session.Failed
@@ -282,7 +287,8 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.Spawn = l.spawn
 	rec.Exit = exit
 	rec.Signal = signalEvidence
-	s.attachWorkspaceProvenance(&rec, l.workspace, l.spec.CWD)
+	s.endManagedShell(l)
+	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = state
@@ -290,6 +296,12 @@ func (s *Service) waitLoop(l *liveSession) {
 	l.notify()
 	l.doneOnce.Do(func() { close(l.done) })
 	l.mu.Unlock()
+}
+
+func (s *Service) endManagedShell(l *liveSession) {
+	if l != nil && l.coherenceLease != nil {
+		l.coherenceLease.End()
+	}
 }
 
 func (s *Service) publishUntilDurable(rec receipt.Receipt) {

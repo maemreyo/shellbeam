@@ -8,15 +8,14 @@ import (
 )
 
 type WorkspaceObserver interface {
-	Observe(context.Context, string) workspace.FastSnapshot
-}
-
-type FreshWorkspaceObserver interface {
-	ObserveFresh(context.Context, string) workspace.FastSnapshot
+	Bind(context.Context, string) workspace.Binding
+	ObserveCached(context.Context, string) workspace.FastSnapshot
 }
 
 type workspaceObservation struct {
-	pre *workspace.FastSnapshot
+	binding workspace.Binding
+	pre     receipt.WorkspaceObservationRef
+	context *workspace.FastSnapshot
 }
 
 func NewServiceWithWorkspaceObserver(store Store, owner ProcessOwner, observer WorkspaceObserver, options Options) *Service {
@@ -25,21 +24,40 @@ func NewServiceWithWorkspaceObserver(store Store, owner ProcessOwner, observer W
 	return service
 }
 
-func (s *Service) captureWorkspace(ctx context.Context, cwd string) workspaceObservation {
-	if s.observer == nil {
-		return workspaceObservation{}
-	}
-	snapshot := s.observer.Observe(ctx, cwd)
-	return workspaceObservation{pre: &snapshot}
+func NewServiceWithExecutionContextAndCoherence(store Store, owner ProcessOwner, resolver WorkspaceResolver, observer WorkspaceObserver, tracker ActivityTracker, coherence WorkspaceCoherence, options Options) *Service {
+	service := NewServiceWithExecutionContext(store, owner, resolver, observer, tracker, options)
+	service.coherence = coherence
+	return service
 }
 
-func (s *Service) attachWorkspaceProvenance(rec *receipt.Receipt, observation workspaceObservation, cwd string) {
-	if rec == nil || rec.SchemaVersion < 2 || observation.pre == nil || s.observer == nil {
+func (s *Service) captureWorkspace(ctx context.Context, cwd string) workspaceObservation {
+	observation := workspaceObservation{pre: receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled}}
+	if s.observer == nil {
+		return observation
+	}
+	observation.binding = s.observer.Bind(ctx, cwd)
+	cached := s.observer.ObserveCached(ctx, cwd)
+	if cached.Quality == workspace.QualityUnavailable || cached.Generation == "" || cached.ObservedAt.IsZero() {
+		observation.pre.DiagnosticCode = cached.DiagnosticCode
+		return observation
+	}
+	observation.pre = receipt.WorkspaceObservationRef{
+		Kind:           receipt.WorkspaceCached,
+		Generation:     cached.Generation,
+		Quality:        cached.Quality,
+		ObservedAt:     cached.ObservedAt,
+		DiagnosticCode: cached.DiagnosticCode,
+	}
+	copy := cached
+	observation.context = &copy
+	return observation
+}
+
+func (s *Service) attachWorkspaceProvenance(rec *receipt.Receipt, observation workspaceObservation) {
+	if rec == nil || rec.SchemaVersion < 2 {
 		return
 	}
-	post := s.observer.Observe(context.Background(), cwd)
-	if observer, ok := s.observer.(FreshWorkspaceObserver); ok {
-		post = observer.ObserveFresh(context.Background(), cwd)
-	}
-	rec.WorkspaceProvenance = receipt.NewWorkspaceProvenance(*observation.pre, post)
+	binding := receipt.WorkspaceBinding{RepositoryID: observation.binding.RepositoryID, WorkspaceID: observation.binding.WorkspaceID}
+	post := receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled, ObservationInvalidated: true}
+	rec.WorkspaceProvenance = receipt.NewWorkspaceProvenanceV2(binding, observation.pre, post, false)
 }

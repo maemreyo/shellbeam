@@ -139,7 +139,7 @@ func TestContextEventEmitsOnceForBranchTransitionAcrossStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	observer := &sequenceWorkspaceObserver{snapshots: []workspace.FastSnapshot{main, main, topic, topic}}
+	observer := &sequenceWorkspaceObserver{snapshots: []workspace.FastSnapshot{main, topic}}
 	svc := app.NewServiceWithWorkspaceObserver(st, &fakeOwner{}, observer, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
 	first, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-context-a", Command: "true", CWD: "/repo"})
 	if err != nil {

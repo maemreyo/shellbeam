@@ -32,13 +32,13 @@ func (s *Service) validateActivityRequest(req StartRequest) error {
 	return nil
 }
 
-func (s *Service) admitActivity(ctx context.Context, req StartRequest, sessionID string, observation workspaceObservation) string {
+func (s *Service) admitActivity(ctx context.Context, req StartRequest, sessionID string, binding workspace.Binding) string {
 	if req.ActivityID == "" || s.activityTracker == nil {
 		return ""
 	}
 	workspaceID := workspace.WorkspaceID(req.WorkspaceID)
-	if observation.pre != nil && observation.pre.WorkspaceID != "" {
-		workspaceID = observation.pre.WorkspaceID
+	if binding.WorkspaceID != "" {
+		workspaceID = binding.WorkspaceID
 	}
 	_, _ = s.activityTracker.Admit(ctx, activity.Admission{
 		ActivityID: activity.ID(req.ActivityID), OperationID: req.OperationID, SessionID: sessionID,
