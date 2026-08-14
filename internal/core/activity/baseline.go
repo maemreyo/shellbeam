@@ -28,14 +28,15 @@ type PathFact struct {
 }
 
 type Baseline struct {
-	SchemaVersion  int                          `json:"schema_version"`
-	WorkspaceID    workspace.WorkspaceID        `json:"workspace_id"`
-	Ref            string                       `json:"ref,omitempty"`
-	Head           string                       `json:"head,omitempty"`
-	Quality        workspace.ObservationQuality `json:"quality"`
-	ObservedAt     time.Time                    `json:"observed_at"`
-	Paths          []PathFact                   `json:"paths,omitempty"`
-	PathsTruncated bool                         `json:"paths_truncated"`
+	SchemaVersion  int                             `json:"schema_version"`
+	WorkspaceID    workspace.WorkspaceID           `json:"workspace_id"`
+	Ref            string                          `json:"ref,omitempty"`
+	Head           string                          `json:"head,omitempty"`
+	Quality        workspace.ObservationQuality    `json:"quality"`
+	ObservedAt     time.Time                       `json:"observed_at"`
+	Paths          []PathFact                      `json:"paths,omitempty"`
+	PathsTruncated bool                            `json:"paths_truncated"`
+	Completeness   workspace.SelectionCompleteness `json:"completeness,omitempty"`
 }
 
 type Observation struct {
@@ -46,6 +47,7 @@ type Observation struct {
 	ObservedAt       time.Time
 	Paths            []PathFact
 	PathsTruncated   bool
+	Completeness     workspace.SelectionCompleteness
 	RebaseInProgress bool
 	HistoryDiverged  bool
 }
@@ -65,7 +67,12 @@ func BaselineFrom(observation Observation) Baseline {
 		paths = paths[:MaxBaselinePathFacts]
 		truncated = true
 	}
-	return Baseline{SchemaVersion: SchemaVersion, WorkspaceID: observation.WorkspaceID, Ref: observation.Ref, Head: observation.Head, Quality: observation.Quality, ObservedAt: observation.ObservedAt.UTC(), Paths: paths, PathsTruncated: truncated}
+	completeness := observationCompleteness(observation.Quality, observation.Completeness, truncated)
+	return Baseline{
+		SchemaVersion: SchemaVersion, WorkspaceID: observation.WorkspaceID, Ref: observation.Ref,
+		Head: observation.Head, Quality: observation.Quality, ObservedAt: observation.ObservedAt.UTC(),
+		Paths: paths, PathsTruncated: truncated, Completeness: completeness,
+	}
 }
 
 func (b Baseline) Validate() error {
@@ -78,7 +85,18 @@ func (b Baseline) Validate() error {
 	if len(b.Paths) > MaxBaselinePathFacts {
 		return fmt.Errorf("baseline path facts exceed limit")
 	}
+	if b.Completeness != "" {
+		if err := b.Completeness.Validate(); err != nil {
+			return err
+		}
+		if b.Completeness == workspace.SelectionComplete && b.PathsTruncated {
+			return fmt.Errorf("complete baseline cannot be truncated")
+		}
+	}
 	if b.Quality == workspace.QualityUnavailable {
+		if b.Completeness == workspace.SelectionComplete {
+			return fmt.Errorf("unavailable baseline cannot be complete")
+		}
 		return nil
 	}
 	if b.Quality != workspace.QualityFresh && b.Quality != workspace.QualityCached && b.Quality != workspace.QualityStale {
@@ -141,7 +159,7 @@ func Compare(baseline Baseline, current Observation) Comparison {
 }
 
 func divergenceReason(baseline Baseline, current Observation) string {
-	if baseline.Quality == workspace.QualityUnavailable || current.Quality == workspace.QualityUnavailable || baseline.PathsTruncated || current.PathsTruncated {
+	if baselineCompleteness(baseline) != workspace.SelectionComplete || observationCompleteness(current.Quality, current.Completeness, current.PathsTruncated) != workspace.SelectionComplete {
 		return "evidence_unavailable"
 	}
 	if baseline.WorkspaceID != current.WorkspaceID {
@@ -157,6 +175,29 @@ func divergenceReason(baseline Baseline, current Observation) string {
 		return "history_diverged"
 	}
 	return ""
+}
+
+func baselineCompleteness(baseline Baseline) workspace.SelectionCompleteness {
+	return observationCompleteness(baseline.Quality, baseline.Completeness, baseline.PathsTruncated)
+}
+
+func observationCompleteness(quality workspace.ObservationQuality, declared workspace.SelectionCompleteness, truncated bool) workspace.SelectionCompleteness {
+	if quality == workspace.QualityUnavailable {
+		return workspace.SelectionUnavailable
+	}
+	if declared != "" {
+		if err := declared.Validate(); err != nil {
+			return workspace.SelectionUnavailable
+		}
+		if truncated && declared == workspace.SelectionComplete {
+			return workspace.SelectionPartial
+		}
+		return declared
+	}
+	if truncated {
+		return workspace.SelectionPartial
+	}
+	return workspace.SelectionComplete
 }
 
 func normalizedFacts(facts []PathFact) []PathFact {
