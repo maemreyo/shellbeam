@@ -79,19 +79,31 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	})
 	projectSvc := projectapp.New(store, projectadapter.NewLoader(), store)
 	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
-	server, err := ipcadapter.Listen(paths.RuntimeDir, actions)
+	server, err := ipcadapter.ListenPending(paths.RuntimeDir, actions)
 	if err != nil {
 		return err
 	}
 	defer server.Close()
-	if err = store.AbandonUnresolved(ctx, incarnation); err != nil {
-		return err
+	startupCtx, cancelStartup := context.WithCancel(ctx)
+	defer cancelStartup()
+	serveDone := make(chan error, 1)
+	go func() {
+		serveDone <- server.Serve()
+		cancelStartup()
+	}()
+	if err = store.AbandonUnresolved(startupCtx, incarnation); err != nil {
+		select {
+		case serveErr := <-serveDone:
+			return serveErr
+		default:
+			return err
+		}
 	}
 	telemetryRuntime, err := newExecutionTelemetryRuntime(store)
 	if err != nil {
 		return err
 	}
-	observationRuntime, err := newExecutionObservationRuntime(ctx, store)
+	observationRuntime, err := newExecutionObservationRuntime(startupCtx, store)
 	if err != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
 		defer cancel()
@@ -104,6 +116,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	actions.structured = observationRuntime.structured
 	actions.telemetry = telemetryRuntime.service
 	observationRuntime.startMaterialization(ctx)
+	server.MarkReady()
 	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
 		defer cancel()
@@ -121,7 +134,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		_ = svc.Shutdown(shutdownCtx)
 		_ = server.Close()
 	}()
-	return server.Serve()
+	return <-serveDone
 }
 
 type daemonCoherenceAdapter struct {

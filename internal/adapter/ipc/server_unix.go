@@ -19,6 +19,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -63,13 +64,25 @@ type Server struct {
 	listener   net.Listener
 	http       *http.Server
 	actions    Actions
+	ready      chan struct{}
+	readyOnce  sync.Once
+	closing    chan struct{}
+	closeOnce  sync.Once
 }
 
 func Listen(runtime string, actions Actions) (*Server, error) {
 	return listen(runtime, actions, dialUnixSocket)
 }
 
+func ListenPending(runtime string, actions Actions) (*Server, error) {
+	return listenWithReadiness(runtime, actions, dialUnixSocket, false)
+}
+
 func listen(runtime string, actions Actions, dial socketDialer) (*Server, error) {
+	return listenWithReadiness(runtime, actions, dial, true)
+}
+
+func listenWithReadiness(runtime string, actions Actions, dial socketDialer, ready bool) (*Server, error) {
 	if err := prepareRuntime(runtime); err != nil {
 		return nil, err
 	}
@@ -84,11 +97,17 @@ func listen(runtime string, actions Actions, dial socketDialer) (*Server, error)
 		return nil, err
 	}
 	auth := &authListener{Listener: ln, uid: uint32(os.Getuid())}
-	s := &Server{socket: socket, socketInfo: socketInfo, listener: auth, actions: actions}
+	s := &Server{
+		socket: socket, socketInfo: socketInfo, listener: auth, actions: actions,
+		ready: make(chan struct{}), closing: make(chan struct{}),
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
 	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
+	if ready {
+		s.MarkReady()
+	}
 	return s, nil
 }
 
@@ -171,6 +190,31 @@ func dialUnixSocket(socket string, timeout time.Duration) (net.Conn, error) {
 }
 
 func (s *Server) SocketPath() string { return s.socket }
+func (s *Server) MarkReady() {
+	s.readyOnce.Do(func() { close(s.ready) })
+}
+
+func (s *Server) awaitReady(ctx context.Context) error {
+	select {
+	case <-s.closing:
+		return http.ErrServerClosed
+	default:
+	}
+	select {
+	case <-s.ready:
+		select {
+		case <-s.closing:
+			return http.ErrServerClosed
+		default:
+			return nil
+		}
+	case <-s.closing:
+		return http.ErrServerClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (s *Server) Serve() error {
 	err := s.http.Serve(s.listener)
 	if err == http.ErrServerClosed {
@@ -179,6 +223,7 @@ func (s *Server) Serve() error {
 	return err
 }
 func (s *Server) Close() error {
+	s.closeOnce.Do(func() { close(s.closing) })
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	err := s.http.Shutdown(ctx)
@@ -213,6 +258,10 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request", http.StatusBadRequest)
 		return
 	}
+	if err := s.awaitReady(r.Context()); err != nil {
+		http.Error(w, "daemon_not_ready", http.StatusServiceUnavailable)
+		return
+	}
 	var view app.View
 	switch req.Payload.Action {
 	case "start":
@@ -242,6 +291,10 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 			action = "unknown"
 		}
 		writeResponseV2(w, ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: action, OK: false, Error: errorEnvelope(err)})
+		return
+	}
+	if err := s.awaitReady(r.Context()); err != nil {
+		writeResponseV2(w, ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action, OK: false, Error: errorEnvelope(err)})
 		return
 	}
 	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
