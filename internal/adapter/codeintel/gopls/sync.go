@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-	"unicode/utf16"
 	"unicode/utf8"
 
 	"go.lsp.dev/protocol"
@@ -321,46 +320,5 @@ func snapshotDocument(document *openDocument, after uint64) synchronizedDocument
 }
 
 func documentEndPosition(source []byte, encoding protocol.PositionEncodingKind) (protocol.Position, error) {
-	line := uint32(0)
-	lineStart := 0
-	for i, b := range source {
-		if b == '\n' {
-			line++
-			lineStart = i + 1
-		}
-	}
-	content := source[lineStart:]
-	if len(content) > 0 && content[len(content)-1] == '\r' {
-		content = content[:len(content)-1]
-	}
-	character, err := encodedUnits(content, encoding)
-	if err != nil {
-		return protocol.Position{}, err
-	}
-	return protocol.Position{Line: line, Character: character}, nil
-}
-
-func encodedUnits(value []byte, encoding protocol.PositionEncodingKind) (uint32, error) {
-	if !utf8.Valid(value) {
-		return 0, fmt.Errorf("invalid UTF-8 source")
-	}
-	switch encoding {
-	case protocol.PositionEncodingKindUTF8:
-		return uint32(len(value)), nil
-	case protocol.PositionEncodingKindUTF32:
-		return uint32(utf8.RuneCount(value)), nil
-	case protocol.PositionEncodingKindUTF16:
-		count := 0
-		for len(value) > 0 {
-			r, size := utf8.DecodeRune(value)
-			if r == utf8.RuneError && size == 1 {
-				return 0, fmt.Errorf("invalid UTF-8 source")
-			}
-			count += len(utf16.Encode([]rune{r}))
-			value = value[size:]
-		}
-		return uint32(count), nil
-	default:
-		return 0, fmt.Errorf("unsupported position encoding %q", encoding)
-	}
+	return lspadapter.ByteOffsetToPosition(source, int64(len(source)), encoding)
 }

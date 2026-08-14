@@ -486,3 +486,68 @@ func samplePaths(sample workspacecore.DeltaSample) []string {
 	sort.Strings(paths)
 	return paths
 }
+
+func TestServicePromotesObservedWorkspaceNavigationLocationToExactSourceRef(t *testing.T) {
+	workspace := serviceTestWorkspace()
+	main := serviceBound("src_01K00000000000000000000051", "main.go", "package p\nvar _ = X\n")
+	target := serviceBound("src_01K00000000000000000000052", "other.go", "package p\nvar X = 1\n")
+	binder := &serviceBinder{current: map[string]BoundSource{"main.go": main, "other.go": target}}
+	response := serviceProviderResponse()
+	response.Locations = []ProviderLocation{{
+		Name: "X", Relationship: "definition", Authority: core.AuthorityMechanical,
+		Completeness: core.CompletenessProviderReported,
+		Location: core.SourceLocation{Kind: core.LocationProviderReported, ProviderReported: &core.ProviderReportedLocation{
+			Origin: core.OriginRepository, SanitizedLogicalPath: "other.go",
+			Line: 2, Column: 5, EndLine: 2, EndColumn: 6, NormalizationQuality: core.NormalizationExact,
+		}},
+		Observation: &LocationObservation{LogicalPath: "other.go", Bytes: append([]byte(nil), target.Bytes...)},
+	}}
+	service := newServiceForTest(t, serviceDeps{workspace: workspace, sample: serviceTestSample(workspace, workspacecore.SelectionComplete), binder: binder, provider: &serviceProvider{response: response}})
+
+	result, err := service.Inspect(t.Context(), InspectRequest{
+		WorkspaceID: string(workspace.ID),
+		Query:       core.Query{Kind: core.QueryDefinition, Path: "main.go", Line: 2, Column: 9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 1 || result.Records[0].LocationTarget == nil {
+		t.Fatalf("records=%#v", result.Records)
+	}
+	location := result.Records[0].LocationTarget.Location
+	if location.Resolved == nil || location.Resolved.SourceRefID != string(target.Ref.ID) {
+		t.Fatalf("location=%+v", location)
+	}
+	if location.Resolved.StartByte != int64(len("package p\nvar ")) || location.Resolved.EndByte != int64(len("package p\nvar X")) {
+		t.Fatalf("resolved range=%+v", location.Resolved)
+	}
+}
+
+func TestServiceDoesNotPromoteWorkspaceLocationWhenObservedBytesChanged(t *testing.T) {
+	workspace := serviceTestWorkspace()
+	main := serviceBound("src_01K00000000000000000000053", "main.go", "package p\nvar _ = X\n")
+	current := serviceBound("src_01K00000000000000000000054", "other.go", "package p\nvar Y = 1\n")
+	binder := &serviceBinder{current: map[string]BoundSource{"main.go": main, "other.go": current}}
+	response := serviceProviderResponse()
+	response.Locations = []ProviderLocation{{
+		Name: "X", Relationship: "definition", Authority: core.AuthorityMechanical,
+		Completeness: core.CompletenessProviderReported,
+		Location: core.SourceLocation{Kind: core.LocationProviderReported, ProviderReported: &core.ProviderReportedLocation{
+			Origin: core.OriginRepository, SanitizedLogicalPath: "other.go",
+			Line: 2, Column: 5, EndLine: 2, EndColumn: 6, NormalizationQuality: core.NormalizationExact,
+		}},
+		Observation: &LocationObservation{LogicalPath: "other.go", Bytes: []byte("package p\nvar X = 1\n")},
+	}}
+	service := newServiceForTest(t, serviceDeps{workspace: workspace, sample: serviceTestSample(workspace, workspacecore.SelectionComplete), binder: binder, provider: &serviceProvider{response: response}})
+
+	result, err := service.Inspect(t.Context(), InspectRequest{
+		WorkspaceID: string(workspace.ID),
+		Query:       core.Query{Kind: core.QueryDefinition, Path: "main.go", Line: 2, Column: 9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 1 || result.Records[0].LocationTarget == nil || result.Records[0].LocationTarget.Location.ProviderReported == nil {
+		t.Fatalf("location was incorrectly promoted: %#v", result.Records)
+	}
+}

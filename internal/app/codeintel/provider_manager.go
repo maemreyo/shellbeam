@@ -258,6 +258,12 @@ func (m *ProviderManager) releaseError(instance *managedProvider, queryErr, cont
 		m.mu.Unlock()
 		return queryErr
 	}
+	if isQueryContractError(queryErr) {
+		instance.lastUsed = time.Now()
+		m.signalLocked()
+		m.mu.Unlock()
+		return queryErr
+	}
 	if current := m.instances[instance.key]; current == instance {
 		delete(m.instances, instance.key)
 	}
@@ -269,6 +275,14 @@ func (m *ProviderManager) releaseError(instance *managedProvider, queryErr, cont
 		_ = provider.Close()
 	}
 	return newError(CodeProviderFailed, true, queryErr)
+}
+
+func isQueryContractError(err error) bool {
+	var contract *Error
+	if !errors.As(err, &contract) || contract.Retryable {
+		return false
+	}
+	return contract.Code == CodeQueryUnsupported || contract.Code == CodeLocationNotResolved
 }
 
 func (m *ProviderManager) releaseSlotLocked(instance *managedProvider) {

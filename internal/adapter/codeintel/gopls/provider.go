@@ -31,13 +31,14 @@ type semanticSession interface {
 }
 
 type Provider struct {
-	mu        sync.Mutex
-	workspace workspacecore.Workspace
-	session   semanticSession
-	metadata  core.ProviderMetadata
-	syncer    *documentSync
-	collector *diagnosticCollector
-	closed    bool
+	mu         sync.Mutex
+	workspace  workspacecore.Workspace
+	session    semanticSession
+	metadata   core.ProviderMetadata
+	syncer     *documentSync
+	collector  *diagnosticCollector
+	navigation *navigationService
+	closed     bool
 }
 
 func startProvider(ctx context.Context, workspace workspacecore.Workspace, options appcodeintel.ProviderStartOptions, config Config, session semanticSession) (*Provider, error) {
@@ -80,13 +81,17 @@ func startProvider(ctx context.Context, workspace workspacecore.Workspace, optio
 		_ = session.Close()
 		return nil, err
 	}
-	return &Provider{
+	provider := &Provider{
 		workspace: workspace,
 		session:   session,
 		metadata:  metadata,
 		syncer:    syncer,
 		collector: newDiagnosticCollector(session, capabilities.PositionEncoding, config.DiagnosticWait),
-	}, nil
+	}
+	if navigationSession, ok := session.(navigationSession); ok {
+		provider.navigation = newNavigationService(navigationSession, navigationCapabilitiesFromServer(result.Capabilities), capabilities.PositionEncoding)
+	}
+	return provider, nil
 }
 
 func initializeParams(workspace workspacecore.Workspace) *protocol.InitializeParams {
@@ -133,9 +138,6 @@ func (p *Provider) Query(ctx context.Context, request appcodeintel.ProviderReque
 	if request.Workspace.ID != p.workspace.ID || request.Workspace.Root != p.workspace.Root {
 		return appcodeintel.ProviderResponse{}, fmt.Errorf("gopls workspace mismatch")
 	}
-	if request.Query.Kind != core.QueryDiagnostics {
-		return appcodeintel.ProviderResponse{Status: core.StatusUnavailable, Metadata: p.metadata}, nil
-	}
 	views := make([]boundSourceView, 0, len(request.SelectedSources))
 	for _, source := range request.SelectedSources {
 		views = append(views, boundSourceView{Source: source})
@@ -144,7 +146,18 @@ func (p *Provider) Query(ctx context.Context, request appcodeintel.ProviderReque
 	if err != nil {
 		return appcodeintel.ProviderResponse{}, err
 	}
-	response := p.collector.Collect(ctx, documents)
+	var response appcodeintel.ProviderResponse
+	if request.Query.Kind == core.QueryDiagnostics {
+		response = p.collector.Collect(ctx, documents)
+	} else {
+		if p.navigation == nil {
+			return appcodeintel.ProviderResponse{}, &appcodeintel.Error{Code: appcodeintel.CodeQueryUnsupported, Cause: fmt.Errorf("navigation session unavailable")}
+		}
+		response, err = p.navigation.Query(ctx, request, documents)
+		if err != nil {
+			return appcodeintel.ProviderResponse{}, err
+		}
+	}
 	response.Metadata = p.metadata
 	if p.syncer.CoveragePartial() {
 		response.Metadata.Coverage = core.SyncPartial

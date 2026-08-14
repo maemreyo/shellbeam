@@ -25,6 +25,8 @@ const (
 	CodeProviderFailed       = "code_intelligence_provider_failed"
 	CodeProviderBusy         = "code_intelligence_provider_busy"
 	CodeProviderCooldown     = "code_intelligence_provider_cooldown"
+	CodeQueryUnsupported     = "code_intelligence_query_unsupported"
+	CodeLocationNotResolved  = "location_not_resolved"
 )
 
 type BoundSource struct {
@@ -110,12 +112,18 @@ type ProviderDiagnostic struct {
 	Completeness     core.RecordCompleteness
 }
 
+type LocationObservation struct {
+	LogicalPath string
+	Bytes       []byte
+}
+
 type ProviderSymbol struct {
 	Name         string
 	Kind         string
 	Location     core.SourceLocation
 	Authority    core.Authority
 	Completeness core.RecordCompleteness
+	Observation  *LocationObservation
 }
 
 type ProviderLocation struct {
@@ -124,6 +132,7 @@ type ProviderLocation struct {
 	Location     core.SourceLocation
 	Authority    core.Authority
 	Completeness core.RecordCompleteness
+	Observation  *LocationObservation
 }
 
 type Error struct {

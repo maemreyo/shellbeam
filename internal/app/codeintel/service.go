@@ -90,6 +90,10 @@ func (s *Service) Inspect(ctx context.Context, request InspectRequest) (core.Res
 	if queryCtx.Err() != nil {
 		return core.Result{}, newError(CodeQueryBudgetExceeded, true, queryCtx.Err())
 	}
+	s.promoteObservedLocations(queryCtx, workspace, &response)
+	if queryCtx.Err() != nil {
+		return core.Result{}, newError(CodeQueryBudgetExceeded, true, queryCtx.Err())
+	}
 	after := s.captureBarrier()
 	selection.ManagedOverlap = selection.ManagedOverlap || before.ActiveManagedShellOperations > 0 || after.ActiveManagedShellOperations > 0
 
@@ -121,6 +125,48 @@ func (s *Service) Inspect(ctx context.Context, request InspectRequest) (core.Res
 		}
 	}
 	return s.fitResult(result)
+}
+
+func (s *Service) promoteObservedLocations(ctx context.Context, workspace workspacecore.Workspace, response *ProviderResponse) {
+	for i := range response.Locations {
+		response.Locations[i].Location = s.promoteObservedLocation(ctx, workspace, response.Locations[i].Location, response.Locations[i].Observation)
+		response.Locations[i].Observation = nil
+	}
+	for i := range response.Symbols {
+		response.Symbols[i].Location = s.promoteObservedLocation(ctx, workspace, response.Symbols[i].Location, response.Symbols[i].Observation)
+		response.Symbols[i].Observation = nil
+	}
+}
+
+func (s *Service) promoteObservedLocation(ctx context.Context, workspace workspacecore.Workspace, location core.SourceLocation, observation *LocationObservation) core.SourceLocation {
+	reported := location.ProviderReported
+	if location.Kind != core.LocationProviderReported || reported == nil || observation == nil ||
+		reported.Origin != core.OriginRepository || reported.NormalizationQuality != core.NormalizationExact ||
+		reported.SanitizedLogicalPath == "" || reported.SanitizedLogicalPath != observation.LogicalPath {
+		return location
+	}
+	bound, err := s.binder.Bind(ctx, workspace, observation.LogicalPath)
+	if err != nil || !bytes.Equal(bound.Bytes, observation.Bytes) || bound.Ref.ResolutionQuality != core.ResolutionExact {
+		return location
+	}
+	start, err := core.DisplayPositionToByteOffset(bound.Bytes, reported.Line, reported.Column)
+	if err != nil {
+		return location
+	}
+	end := start
+	if reported.EndLine != 0 || reported.EndColumn != 0 {
+		end, err = core.DisplayPositionToByteOffset(bound.Bytes, reported.EndLine, reported.EndColumn)
+		if err != nil {
+			return location
+		}
+	}
+	resolved := core.SourceLocation{Kind: core.LocationResolved, Resolved: &core.ResolvedSourceLocation{
+		SourceRefID: string(bound.Ref.ID), StartByte: start, EndByte: end,
+	}}
+	if err := resolved.Validate(); err != nil {
+		return location
+	}
+	return resolved
 }
 
 func (r InspectRequest) Validate() error {

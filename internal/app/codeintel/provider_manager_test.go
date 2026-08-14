@@ -386,3 +386,21 @@ func (p *managerProvider) Close() error {
 
 func (p *managerProvider) callCount() int  { return int(p.calls.Load()) }
 func (p *managerProvider) closeCount() int { return int(p.closes.Load()) }
+
+func TestProviderManagerPreservesNonRetryableQueryContractErrorsWithoutRestart(t *testing.T) {
+	resolver := &managerOptionsResolver{options: managerOptions()}
+	factory := &managerFactory{configure: func(p *managerProvider) {
+		p.queryErr = &Error{Code: CodeQueryUnsupported, Retryable: false, Cause: errors.New("unsupported capability")}
+	}}
+	manager := newProviderManagerForTest(t, factory, resolver, managerLimits())
+	request := managerRequest(serviceTestWorkspace())
+	if _, err := manager.Query(t.Context(), request); ErrorCode(err) != CodeQueryUnsupported || Retryable(err) {
+		t.Fatalf("first err=%v code=%q retryable=%v", err, ErrorCode(err), Retryable(err))
+	}
+	if _, err := manager.Query(t.Context(), request); ErrorCode(err) != CodeQueryUnsupported || Retryable(err) {
+		t.Fatalf("second err=%v code=%q retryable=%v", err, ErrorCode(err), Retryable(err))
+	}
+	if factory.startCount() != 1 || factory.providers[0].closeCount() != 0 {
+		t.Fatalf("contract error restarted provider: starts=%d closes=%d", factory.startCount(), factory.providers[0].closeCount())
+	}
+}

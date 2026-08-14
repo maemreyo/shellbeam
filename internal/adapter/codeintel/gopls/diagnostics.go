@@ -2,9 +2,7 @@ package gopls
 
 import (
 	"context"
-	"fmt"
 	"time"
-	"unicode/utf8"
 
 	"go.lsp.dev/protocol"
 
@@ -118,102 +116,5 @@ func mapSeverity(severity protocol.DiagnosticSeverity) core.Severity {
 }
 
 func lspRangeToByteRange(source []byte, encoding protocol.PositionEncodingKind, value protocol.Range) (core.ByteRange, error) {
-	start, err := lspPositionToByteOffset(source, encoding, value.Start)
-	if err != nil {
-		return core.ByteRange{}, err
-	}
-	end, err := lspPositionToByteOffset(source, encoding, value.End)
-	if err != nil {
-		return core.ByteRange{}, err
-	}
-	result := core.ByteRange{Start: start, End: end}
-	if err := result.Validate(); err != nil {
-		return core.ByteRange{}, err
-	}
-	return result, nil
-}
-
-func lspPositionToByteOffset(source []byte, encoding protocol.PositionEncodingKind, position protocol.Position) (int64, error) {
-	if !utf8.Valid(source) {
-		return 0, fmt.Errorf("invalid UTF-8 source")
-	}
-	lineStart, line, err := sourceLine(source, position.Line)
-	if err != nil {
-		return 0, err
-	}
-	within, err := encodedCharacterToByteOffset(line, encoding, position.Character)
-	if err != nil {
-		return 0, err
-	}
-	return int64(lineStart + within), nil
-}
-
-func sourceLine(source []byte, target uint32) (int, []byte, error) {
-	start := 0
-	line := uint32(0)
-	for i, b := range source {
-		if line == target && b == '\n' {
-			end := i
-			if end > start && source[end-1] == '\r' {
-				end--
-			}
-			return start, source[start:end], nil
-		}
-		if b == '\n' {
-			line++
-			start = i + 1
-		}
-	}
-	if line != target {
-		return 0, nil, fmt.Errorf("LSP line out of range")
-	}
-	end := len(source)
-	if end > start && source[end-1] == '\r' {
-		end--
-	}
-	return start, source[start:end], nil
-}
-
-func encodedCharacterToByteOffset(line []byte, encoding protocol.PositionEncodingKind, character uint32) (int, error) {
-	switch encoding {
-	case protocol.PositionEncodingKindUTF8:
-		if int(character) > len(line) {
-			return 0, fmt.Errorf("UTF-8 position out of range")
-		}
-		if character < uint32(len(line)) && !utf8.RuneStart(line[character]) {
-			return 0, fmt.Errorf("UTF-8 position inside rune")
-		}
-		return int(character), nil
-	case protocol.PositionEncodingKindUTF16, protocol.PositionEncodingKindUTF32:
-		return runeEncodedCharacterToByteOffset(line, encoding, character)
-	default:
-		return 0, fmt.Errorf("unsupported LSP position encoding %q", encoding)
-	}
-}
-
-func runeEncodedCharacterToByteOffset(line []byte, encoding protocol.PositionEncodingKind, character uint32) (int, error) {
-	units := uint32(0)
-	byteOffset := 0
-	for byteOffset < len(line) {
-		if units == character {
-			return byteOffset, nil
-		}
-		r, size := utf8.DecodeRune(line[byteOffset:])
-		if r == utf8.RuneError && size == 1 {
-			return 0, fmt.Errorf("invalid UTF-8 source")
-		}
-		increment := uint32(1)
-		if encoding == protocol.PositionEncodingKindUTF16 && r > 0xFFFF {
-			increment = 2
-		}
-		if units+increment > character {
-			return 0, fmt.Errorf("LSP position inside encoded rune")
-		}
-		units += increment
-		byteOffset += size
-	}
-	if units == character {
-		return byteOffset, nil
-	}
-	return 0, fmt.Errorf("LSP character out of range")
+	return lspadapter.RangeToByteRange(source, value, encoding)
 }
