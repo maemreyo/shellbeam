@@ -89,14 +89,14 @@ type baselineSource struct {
 	calls map[workspace.WorkspaceID]int
 }
 
-func (s *baselineSource) CaptureBaseline(_ context.Context, ws workspace.WorkspaceID, _ string) core.Observation {
+func (s *baselineSource) Sample(_ context.Context, ws workspace.WorkspaceID, _ workspace.DeltaLimits) workspace.DeltaSample {
 	s.mu.Lock()
 	if s.calls == nil {
 		s.calls = map[workspace.WorkspaceID]int{}
 	}
 	s.calls[ws]++
 	s.mu.Unlock()
-	return core.Observation{WorkspaceID: ws, Ref: "refs/heads/main", Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Quality: workspace.QualityFresh, ObservedAt: time.Now().UTC(), Paths: []core.PathFact{{Path: "dirty.go", State: core.PathModified}}}
+	return workspace.DeltaSample{SchemaVersion: workspace.DeltaSampleSchemaVersion, WorkspaceID: ws, Freshness: workspace.SampleFreshlySampled, Completeness: workspace.SelectionComplete, Ref: "refs/heads/main", Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ObservedAt: time.Now().UTC(), Changes: []workspace.ChangeRecord{{PathTransition: workspace.PathModified, NewPath: "dirty.go", SourceTransition: workspace.SourceBytesChanged, VCSTransition: workspace.VCSOther}}, RecordsObserved: 1}
 }
 func (s *baselineSource) Calls(ws workspace.WorkspaceID) int {
 	s.mu.Lock()

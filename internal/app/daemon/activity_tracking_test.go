@@ -10,6 +10,9 @@ import (
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 func TestActivityLazyAdmitOccursOnceAfterAcceptedOperation(t *testing.T) {
@@ -88,4 +91,69 @@ func (t *fakeActivityTracker) Last() activity.Admission {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.admissions[len(t.admissions)-1]
+}
+
+func TestActivityAdmissionCompletesBeforeManagedShellLeaseAndSpawn(t *testing.T) {
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	order := &activityOrderLog{}
+	tracker := &orderingActivityTracker{order: order}
+	coherence := &orderingActivityCoherence{order: order}
+	owner := &orderingActivityOwner{order: order}
+	svc := app.NewServiceWithExecutionContextAndCoherence(store, owner, nil, nil, tracker, coherence, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-activity-order", ActivityID: "activity-order", Command: "true", CWD: "/"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForTerminal(t, svc, started.SessionID)
+	got := order.Snapshot()
+	if len(got) < 3 || got[0] != "admit" || got[1] != "begin" || got[2] != "spawn" {
+		t.Fatalf("order=%v", got)
+	}
+}
+
+type activityOrderLog struct {
+	mu     sync.Mutex
+	events []string
+}
+
+func (l *activityOrderLog) Add(event string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, event)
+}
+func (l *activityOrderLog) Snapshot() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.events...)
+}
+
+type orderingActivityTracker struct{ order *activityOrderLog }
+
+func (t *orderingActivityTracker) Admit(_ context.Context, admission activity.Admission) (activity.Activity, error) {
+	t.order.Add("admit")
+	return activity.New(admission.ActivityID, time.Now().UTC()), nil
+}
+
+type orderingActivityCoherence struct{ order *activityOrderLog }
+
+func (c *orderingActivityCoherence) BeginManagedShell() app.ManagedShellLease {
+	c.order.Add("begin")
+	return orderingActivityLease{order: c.order}
+}
+func (c *orderingActivityCoherence) CaptureBarrier() workspace.CoherenceBarrier {
+	return workspace.CoherenceBarrier{DaemonIncarnation: "d"}
+}
+
+type orderingActivityLease struct{ order *activityOrderLog }
+
+func (l orderingActivityLease) End() { l.order.Add("end") }
+
+type orderingActivityOwner struct{ order *activityOrderLog }
+
+func (o *orderingActivityOwner) Start(context.Context, operation.ExecutionSpec, app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	o.order.Add("spawn")
+	return fakeHandle{}, receipt.SpawnEvidence{Attempted: true, Succeeded: true}, nil
 }

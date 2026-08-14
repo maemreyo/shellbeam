@@ -12,6 +12,6 @@ type Registry interface {
 	SaveActivity(context.Context, core.Activity) error
 }
 
-type BaselineSource interface {
-	CaptureBaseline(context.Context, workspace.WorkspaceID, string) core.Observation
+type WorkspaceSampleSource interface {
+	Sample(context.Context, workspace.WorkspaceID, workspace.DeltaLimits) workspace.DeltaSample
 }

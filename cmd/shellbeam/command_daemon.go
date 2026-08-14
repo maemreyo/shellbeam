@@ -42,8 +42,10 @@ func runDaemon(ctx context.Context, args []string) error {
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
-	activitySvc := activityapp.New(store, nil, activitycore.MaxOperationHistory)
-	svc := daemonapp.NewServiceWithExecutionContext(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonapp.Options{
+	coherence := workspaceapp.NewCoherenceTracker(incarnation)
+	deltaSampler := workspaceapp.NewDeltaSampler(store, gitRepo, coherence)
+	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
+	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
 		MaxQueuedInputBytes: cfg.MaxQueuedInputSessionBytes,
 		TerminationGrace:    time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
@@ -68,6 +70,18 @@ func runDaemon(ctx context.Context, args []string) error {
 		_ = server.Close()
 	}()
 	return server.Serve()
+}
+
+type daemonCoherenceAdapter struct {
+	tracker *workspaceapp.CoherenceTracker
+}
+
+func (a daemonCoherenceAdapter) BeginManagedShell() daemonapp.ManagedShellLease {
+	return a.tracker.BeginManagedShell()
+}
+
+func (a daemonCoherenceAdapter) CaptureBarrier() workspacecore.CoherenceBarrier {
+	return a.tracker.CaptureBarrier()
 }
 
 type daemonActions struct {

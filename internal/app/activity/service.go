@@ -8,21 +8,22 @@ import (
 
 	core "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type Service struct {
 	registry   Registry
-	baseline   BaselineSource
+	samples    WorkspaceSampleSource
 	maxHistory int
 	mu         sync.Mutex
 	locks      map[core.ID]*sync.Mutex
 }
 
-func New(registry Registry, baseline BaselineSource, maxHistory int) *Service {
+func New(registry Registry, samples WorkspaceSampleSource, maxHistory int) *Service {
 	if maxHistory <= 0 {
 		maxHistory = core.MaxOperationHistory
 	}
-	return &Service{registry: registry, baseline: baseline, maxHistory: maxHistory, locks: map[core.ID]*sync.Mutex{}}
+	return &Service{registry: registry, samples: samples, maxHistory: maxHistory, locks: map[core.ID]*sync.Mutex{}}
 }
 
 func (s *Service) Inspect(ctx context.Context, rawID string) (core.Activity, error) {
@@ -65,10 +66,15 @@ func (s *Service) Admit(ctx context.Context, admission core.Admission) (core.Act
 		record = core.New(id, admission.ObservedAt)
 	}
 	if admission.WorkspaceID != "" {
-		if _, exists := record.BaselineFor(admission.WorkspaceID); !exists && s.baseline != nil {
-			observation := s.baseline.CaptureBaseline(ctx, admission.WorkspaceID, admission.CWD)
-			if observation.WorkspaceID == "" {
+		if _, exists := record.BaselineFor(admission.WorkspaceID); !exists && s.samples != nil {
+			sample := s.samples.Sample(ctx, admission.WorkspaceID, workspace.DeltaLimits{})
+			observation := workspaceObservationFromSample(sample)
+			if observation.WorkspaceID == "" || observation.WorkspaceID != admission.WorkspaceID {
 				observation.WorkspaceID = admission.WorkspaceID
+				observation.Quality = workspace.QualityUnavailable
+				observation.Completeness = workspace.SelectionUnavailable
+				observation.Paths = nil
+				observation.PathsTruncated = true
 			}
 			record.AddBaseline(core.BaselineFrom(observation))
 		}
@@ -81,6 +87,18 @@ func (s *Service) Admit(ctx context.Context, admission core.Admission) (core.Act
 		return core.Activity{}, err
 	}
 	return record, nil
+}
+
+func (s *Service) CompareWorkspace(ctx context.Context, rawID string, sample workspace.DeltaSample) (core.Comparison, error) {
+	record, err := s.Inspect(ctx, rawID)
+	if err != nil {
+		return core.Comparison{}, err
+	}
+	baseline, found := record.BaselineFor(sample.WorkspaceID)
+	if !found {
+		return core.Comparison{BaselineDiverged: true, DivergenceReason: "evidence_unavailable"}, nil
+	}
+	return core.Compare(baseline, workspaceObservationFromSample(sample)), nil
 }
 
 func (s *Service) lock(id core.ID) func() {
