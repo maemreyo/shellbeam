@@ -9,6 +9,7 @@ import (
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -32,6 +33,9 @@ func (c *a1InspectBridgeClient) Forward(_ context.Context, req bridge.Request) (
 	case "inspect.server":
 		catalog := capability.Baseline(capability.Limits{})
 		return bridge.Response{Server: &catalog}, nil
+	case "inspect.code":
+		result := codeintel.Result{Status: codeintel.StatusUnavailable, Query: *req.CodeQuery}
+		return bridge.Response{CodeResult: &result}, nil
 	}
 	return bridge.Response{}, nil
 }
@@ -91,5 +95,30 @@ func TestAgentExecutionA1MCPInspectWorkspaceAndActivityNeverSpawn(t *testing.T) 
 	}
 	if client.startCalls != 0 {
 		t.Fatalf("inspect spawned command: starts=%d", client.startCalls)
+	}
+}
+
+func TestAgentExecutionA1MCPInspectCodeMapsClosedQueryAndResult(t *testing.T) {
+	client := &a1InspectBridgeClient{}
+	session, closeSession := currentSession(t, New(bridge.New(client), capability.Baseline(capability.Limits{})))
+	defer closeSession()
+
+	result, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{
+		Name:      "local_shell",
+		Arguments: json.RawMessage(`{"action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","activity_id":"ZMR-111-validator","code_query":{"kind":"diagnostics","scope":"changed_files"}}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("code result=%#v", result)
+	}
+	body, ok := result.StructuredContent.(map[string]any)
+	if !ok || body["code"] == nil {
+		t.Fatalf("code structured=%#v", result.StructuredContent)
+	}
+	if client.last.CodeQuery == nil || client.last.CodeQuery.Kind != codeintel.QueryDiagnostics ||
+		client.last.WorkspaceID != "ws_01K00000000000000000000000" || client.last.ActivityID != "ZMR-111-validator" {
+		t.Fatalf("mapped request=%#v", client.last)
 	}
 }

@@ -141,3 +141,61 @@ func TestLazyWorkspaceProvenanceReceiptSchemaVersionsAndClosure(t *testing.T) {
 		}
 	}
 }
+
+func TestStructuredCodeIntelligenceInspectWireSchemasAreClosed(t *testing.T) {
+	workspaceID := "ws_01K00000000000000000000000"
+	query := map[string]any{"kind": "diagnostics", "scope": "changed_files"}
+	result := map[string]any{"status": "unavailable", "query": query}
+	valid := []struct {
+		schema Name
+		value  map[string]any
+	}{
+		{MCPInputV2, map[string]any{"action": "inspect.code", "workspace_id": workspaceID, "activity_id": "ZMR-111-validator", "code_query": query}},
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.code", "code": result}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "request", "request_id": "code", "action": "inspect.code", "workspace_id": workspaceID, "code_query": query}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "code", "action": "inspect.code", "ok": true, "code": result}},
+	}
+	for _, tc := range valid {
+		if err := resolvedSchema(t, tc.schema).Validate(tc.value); err != nil {
+			t.Errorf("%s rejected inspect.code %#v: %v", tc.schema, tc.value, err)
+		}
+	}
+
+	invalidQueries := []map[string]any{
+		{"kind": "diagnostics", "scope": "changed_files", "uri": "file:///tmp/main.go"},
+		{"kind": "diagnostics", "scope": "changed_files", "document_version": 1.0},
+		{"kind": "diagnostics", "scope": "changed_files", "jsonrpc_id": 7.0},
+		{"kind": "definition", "path": "main.go", "line": 1.0},
+		{"kind": "diagnostics", "scope": "file", "path": "main.go", "line": 1.0, "column": 1.0},
+		{"kind": "diagnostics", "scope": "repository"},
+		{"kind": "hover", "path": "main.go", "line": 1.0, "column": 1.0},
+		{"kind": "diagnostics", "scope": "changed_files", "provider": "mystery"},
+	}
+	for i, codeQuery := range invalidQueries {
+		for _, schemaName := range []Name{MCPInputV2, IPCV2} {
+			value := map[string]any{"action": "inspect.code", "workspace_id": workspaceID, "code_query": codeQuery}
+			if schemaName == IPCV2 {
+				value["ipc_version"] = 2.0
+				value["kind"] = "request"
+				value["request_id"] = "code"
+			}
+			if err := resolvedSchema(t, schemaName).Validate(value); err == nil {
+				t.Errorf("%s accepted invalid code query %d: %#v", schemaName, i, codeQuery)
+			}
+		}
+	}
+	for _, schemaName := range []Name{MCPInputV2, IPCV2} {
+		for _, missing := range []string{"workspace_id", "code_query"} {
+			value := map[string]any{"action": "inspect.code", "workspace_id": workspaceID, "code_query": query}
+			delete(value, missing)
+			if schemaName == IPCV2 {
+				value["ipc_version"] = 2.0
+				value["kind"] = "request"
+				value["request_id"] = "code"
+			}
+			if err := resolvedSchema(t, schemaName).Validate(value); err == nil {
+				t.Errorf("%s accepted inspect.code missing %s", schemaName, missing)
+			}
+		}
+	}
+}

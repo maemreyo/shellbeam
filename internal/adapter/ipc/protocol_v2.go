@@ -12,6 +12,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -31,6 +32,7 @@ type RequestV2 struct {
 	OperationID       string                    `json:"operation_id,omitempty"`
 	WorkspaceID       string                    `json:"workspace_id,omitempty"`
 	ActivityID        string                    `json:"activity_id,omitempty"`
+	CodeQuery         *codeintel.Query          `json:"code_query,omitempty"`
 	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
 	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
 	Command           string                    `json:"command,omitempty"`
@@ -73,6 +75,7 @@ type ResponseV2 struct {
 	Activity   *activity.Activity            `json:"activity,omitempty"`
 	Events     *observationapp.InspectResult `json:"events,omitempty"`
 	Structured *structuredapp.InspectResult  `json:"structured,omitempty"`
+	Code       *codeintel.Result             `json:"code,omitempty"`
 	Error      *Error                        `json:"error,omitempty"`
 }
 
@@ -153,6 +156,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"target", "after_event_cursor", "max_events"}
 	case "inspect.structured":
 		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
+	case "inspect.code":
+		return []string{"workspace_id", "activity_id", "code_query"}
 	default:
 		return nil
 	}
@@ -219,12 +224,32 @@ func validateRequestV2(v RequestV2) error {
 		}
 	case "inspect.structured":
 		return validateStructuredInspectV2(v)
+	case "inspect.code":
+		return validateCodeInspectV2(v)
 	case "inspect.events":
 		return validateEventInspectV2(v)
 	case "kill":
 		if v.SessionID == "" || v.KillID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
 		}
+	}
+	return nil
+}
+
+func validateCodeInspectV2(v RequestV2) error {
+	if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, err)
+	}
+	if v.ActivityID != "" {
+		if _, err := activity.ParseID(v.ActivityID); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
+		}
+	}
+	if v.CodeQuery == nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "code_query"}, fmt.Errorf("code query missing"))
+	}
+	if err := v.CodeQuery.Validate(); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "code_query"}, err)
 	}
 	return nil
 }
@@ -255,7 +280,7 @@ func validateEventInspectV2(v RequestV2) error {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured":
+	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured", "inspect.code":
 		return true
 	default:
 		return false

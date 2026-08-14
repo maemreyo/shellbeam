@@ -10,6 +10,7 @@ import (
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
+	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
@@ -21,6 +22,7 @@ type input struct {
 	OperationID       string                    `json:"operation_id,omitempty"`
 	WorkspaceID       string                    `json:"workspace_id,omitempty"`
 	ActivityID        string                    `json:"activity_id,omitempty"`
+	CodeQuery         *codeintel.Query          `json:"code_query,omitempty"`
 	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
 	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
 	Command           string                    `json:"command,omitempty"`
@@ -90,6 +92,19 @@ func validateV2(v input) error {
 	case "inspect.activity":
 		_, err := activity.ParseID(v.ActivityID)
 		return err
+	case "inspect.code":
+		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
+			return err
+		}
+		if v.ActivityID != "" {
+			if _, err := activity.ParseID(v.ActivityID); err != nil {
+				return err
+			}
+		}
+		if v.CodeQuery == nil {
+			return fmt.Errorf("inspect.code requires code_query")
+		}
+		return v.CodeQuery.Validate()
 	case "inspect.structured":
 		return (structuredapp.InspectRequest{OperationID: v.OperationID, Filter: structuredapp.RecordFilter{RecordKind: v.RecordKind, Severity: v.Severity, Path: v.Path, TestStatus: v.TestStatus}, Continuation: v.Continuation, MaxRecords: v.MaxRecords}).Validate()
 	case "inspect.events":
@@ -241,6 +256,8 @@ func v2ActionFields(action string) []string {
 		return []string{"target", "after_event_cursor", "max_events"}
 	case "inspect.structured":
 		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
+	case "inspect.code":
+		return []string{"workspace_id", "activity_id", "code_query"}
 	default:
 		return nil
 	}

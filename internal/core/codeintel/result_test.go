@@ -203,3 +203,15 @@ func testResultLimits() ResultLimits {
 		MaxRelatedLocations: 8,
 	}
 }
+
+func TestUnavailableResultOmitsUnselectedMetadata(t *testing.T) {
+	result := Result{Status: StatusUnavailable, Query: Query{Kind: QueryDiagnostics, Scope: ScopeChangedFiles}}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(encoded)
+	if strings.Contains(got, `"selection"`) || strings.Contains(got, `"provider"`) {
+		t.Fatalf("unselected metadata leaked: %s", got)
+	}
+}

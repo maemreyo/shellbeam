@@ -79,3 +79,17 @@ func TestStructuredResultsCapabilityIsExplicitAndBounded(t *testing.T) {
 		t.Fatal("structured catalog aliases mutable adapter slice")
 	}
 }
+
+func TestCodeIntelligenceCapabilityRequiresComposition(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureCodeIntelligence] != Unavailable {
+		t.Fatalf("baseline advertised code intelligence: %#v", base.Features)
+	}
+	got := base.WithCodeIntelligence()
+	if got.Features[FeatureCodeIntelligence] != Available {
+		t.Fatalf("composed code intelligence unavailable: %#v", got.Features)
+	}
+	if base.Features[FeatureCodeIntelligence] != Unavailable {
+		t.Fatal("WithCodeIntelligence mutated baseline")
+	}
+}

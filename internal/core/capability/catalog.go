@@ -26,6 +26,7 @@ const (
 	FeatureStructuredLifecycle    Feature = "structured_lifecycle"
 	FeatureEventJournal           Feature = "event_journal"
 	FeatureEventSnapshotRecovery  Feature = "event_snapshot_recovery"
+	FeatureCodeIntelligence       Feature = "code_intelligence"
 )
 
 type Limits struct {
@@ -71,6 +72,7 @@ var targetFeatures = []Feature{
 	FeatureStructuredLifecycle,
 	FeatureEventJournal,
 	FeatureEventSnapshotRecovery,
+	FeatureCodeIntelligence,
 }
 
 func TargetFeatures() []Feature {
@@ -141,5 +143,11 @@ func (c Catalog) WithStructuredResults(adapterIDs, resultKinds []string, maxReco
 	out.StructuredResultKinds = append([]string(nil), resultKinds...)
 	out.StructuredLifecycle = lifecycle
 	out.Limits.StructuredInspectRecords = maxRecords
+	return out
+}
+
+func (c Catalog) WithCodeIntelligence() Catalog {
+	out := c.Clone()
+	out.Features[FeatureCodeIntelligence] = Available
 	return out
 }

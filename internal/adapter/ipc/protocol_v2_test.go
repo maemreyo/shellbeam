@@ -172,3 +172,32 @@ func TestIPCV2ArgvIntentContract(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestIPCV2CodeInspectClosedContract(t *testing.T) {
+	valid := []byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","activity_id":"ZMR-111-validator","code_query":{"kind":"diagnostics","scope":"changed_files"}}`)
+	got, err := decodeRequestV2(bytes.NewReader(valid))
+	if err != nil {
+		t.Fatalf("valid inspect.code rejected: %v", err)
+	}
+	if got.CodeQuery == nil || got.CodeQuery.Kind != "diagnostics" || got.WorkspaceID == "" || got.ActivityID == "" {
+		t.Fatalf("decoded=%#v", got)
+	}
+
+	invalid := [][]byte{
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","code_query":{"kind":"diagnostics","scope":"changed_files"}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000"}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"diagnostics","scope":"changed_files","uri":"file:///tmp/main.go"}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"diagnostics","scope":"changed_files","document_version":1}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"diagnostics","scope":"changed_files","jsonrpc_id":7}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"definition","path":"main.go","line":1}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"diagnostics","scope":"file","path":"main.go","line":1,"column":1}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"diagnostics","scope":"repository"}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"hover","path":"main.go","line":1,"column":1}}`),
+		[]byte(`{"ipc_version":2,"kind":"request","request_id":"code","action":"inspect.code","workspace_id":"ws_01K00000000000000000000000","code_query":{"kind":"diagnostics","scope":"changed_files","provider":"mystery"}}`),
+	}
+	for i, raw := range invalid {
+		if _, err := decodeRequestV2(bytes.NewReader(raw)); !errors.Is(err, failure.InvalidInput) {
+			t.Fatalf("invalid case %d error=%v", i, err)
+		}
+	}
+}

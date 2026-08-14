@@ -5,6 +5,8 @@ import "fmt"
 type QueryKind string
 type Scope string
 
+const ProviderGoSemantic = "go_semantic"
+
 const (
 	QueryDiagnostics           QueryKind = "diagnostics"
 	QuerySymbols               QueryKind = "symbols"
@@ -55,7 +57,7 @@ func (q Query) Validate() error {
 	if err := q.Kind.Validate(); err != nil {
 		return err
 	}
-	if q.Provider != "" && !safeBoundedText(q.Provider, MaxProviderTextBytes) {
+	if q.Provider != "" && (q.Provider != ProviderGoSemantic || !safeBoundedText(q.Provider, MaxProviderTextBytes)) {
 		return fmt.Errorf("invalid code query provider")
 	}
 	if isPositionQuery(q.Kind) {

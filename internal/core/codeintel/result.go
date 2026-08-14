@@ -58,8 +58,8 @@ type SelectionMetadata struct {
 type Result struct {
 	Status    ResultStatus      `json:"status"`
 	Query     Query             `json:"query"`
-	Selection SelectionMetadata `json:"selection,omitempty"`
-	Provider  ProviderMetadata  `json:"provider,omitempty"`
+	Selection SelectionMetadata `json:"selection,omitzero"`
+	Provider  ProviderMetadata  `json:"provider,omitzero"`
 	Records   []Record          `json:"records,omitempty"`
 }
 

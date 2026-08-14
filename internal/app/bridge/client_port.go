@@ -9,6 +9,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -22,6 +23,7 @@ type Request struct {
 	Action            string
 	WorkspaceID       string
 	ActivityID        string
+	CodeQuery         *codeintel.Query
 	Start             daemon.StartRequest
 	Poll              daemon.PollRequest
 	Write             daemon.WriteRequest
@@ -38,6 +40,7 @@ type Response struct {
 	Activity   *activity.Activity
 	Events     *observationapp.InspectResult
 	Structured *structuredapp.InspectResult
+	CodeResult *codeintel.Result
 	Code       string
 	Message    string
 	Retryable  bool

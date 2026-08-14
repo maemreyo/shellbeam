@@ -74,6 +74,13 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.ActivityID = in.ActivityID
 	case "inspect.events":
 		request.EventInspect = observationapp.InspectRequest{Target: *in.Target, AfterEventCursor: in.AfterEventCursor, MaxEvents: in.MaxEvents}
+	case "inspect.code":
+		request.WorkspaceID = in.WorkspaceID
+		request.ActivityID = in.ActivityID
+		if in.CodeQuery != nil {
+			query := *in.CodeQuery
+			request.CodeQuery = &query
+		}
 	case "inspect.structured":
 		request.StructuredInspect = structuredapp.InspectRequest{OperationID: in.OperationID, Filter: structuredapp.RecordFilter{RecordKind: in.RecordKind, Severity: in.Severity, Path: in.Path, TestStatus: in.TestStatus}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
 	case "kill":
@@ -123,6 +130,7 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureEventSnapshotRecovery)
 	delete(out.Features, capability.FeatureStructuredResults)
 	delete(out.Features, capability.FeatureStructuredLifecycle)
+	delete(out.Features, capability.FeatureCodeIntelligence)
 	return out
 }
 
@@ -157,6 +165,12 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 		}
 		body["project"] = out.Project
 		summary = "inspect.project: " + string(out.Project.Status)
+	case "inspect.code":
+		if out.CodeResult == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "code inspection missing", false)
+		}
+		body["code"] = out.CodeResult
+		summary = "inspect.code: " + string(out.CodeResult.Status)
 	case "inspect.structured":
 		if out.Structured == nil {
 			return toolErrorV2(action, "invalid_daemon_response", "structured inspection missing", false)
