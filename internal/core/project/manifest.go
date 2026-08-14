@@ -28,14 +28,15 @@ const (
 )
 
 const (
-	CodeTooLarge        = "project_manifest_too_large"
-	CodeParseError      = "project_manifest_parse_error"
-	CodeSchemaError     = "project_manifest_schema_error"
-	CodeUnsupported     = "project_manifest_unsupported"
-	CodePathEscape      = "project_manifest_path_escape"
-	CodeUnknownCommand  = "project_manifest_unknown_command"
-	CodeDependencyCycle = "project_manifest_dependency_cycle"
-	CodeLimitExceeded   = "project_manifest_limit_exceeded"
+	CodeTooLarge             = "project_manifest_too_large"
+	CodeParseError           = "project_manifest_parse_error"
+	CodeSchemaError          = "project_manifest_schema_error"
+	CodeUnsupported          = "project_manifest_unsupported"
+	CodePathEscape           = "project_manifest_path_escape"
+	CodeUnknownCommand       = "project_manifest_unknown_command"
+	CodeDependencyCycle      = "project_manifest_dependency_cycle"
+	CodeLimitExceeded        = "project_manifest_limit_exceeded"
+	CodeChangedDuringResolve = "project_manifest_changed_during_resolve"
 )
 
 type Error struct {

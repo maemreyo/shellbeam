@@ -18,7 +18,7 @@ import (
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: shellbeam <daemon|mcp|workspace|install|uninstall|status|doctor|version>")
+		fmt.Fprintln(stderr, "usage: shellbeam <daemon|mcp|workspace|project|install|uninstall|status|doctor|version>")
 		return 2
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -33,6 +33,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runMCP(ctx, args[1:])
 	case "workspace":
 		err = runWorkspace(ctx, args[1:], stdout)
+	case "project":
+		err = runProject(ctx, args[1:], stdout)
 	case "install":
 		err = runInstall(ctx, args[1:], false)
 	case "uninstall":

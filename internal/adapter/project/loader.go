@@ -64,7 +64,8 @@ func (l *Loader) Load(ctx context.Context, root string) core.LoadResult {
 	if err != nil {
 		return core.LoadResult{State: core.LoadInvalid, ManifestDigest: core.RawDigest(data), Code: core.ErrorCode(err)}
 	}
-	return core.LoadResult{State: core.LoadValid, Parsed: &parsed, ManifestDigest: core.RawDigest(data)}
+	digest := core.RawDigest(data)
+	return core.LoadResult{State: core.LoadValid, Parsed: &parsed, ManifestDigest: digest, DiscoveryFingerprint: digest}
 }
 
 func withinRoot(root, candidate string) bool {

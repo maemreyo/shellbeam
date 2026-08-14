@@ -39,7 +39,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		TerminationGrace:    time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
 		Capabilities:        catalog,
 	})
-	projectSvc := projectapp.New(store, projectadapter.NewLoader())
+	projectSvc := projectapp.New(store, projectadapter.NewLoader(), store)
 	server, err := ipcadapter.Listen(paths.RuntimeDir, daemonActions{Actions: svc, project: projectSvc})
 	if err != nil {
 		return err

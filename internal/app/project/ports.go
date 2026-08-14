@@ -14,3 +14,8 @@ type WorkspaceLookup interface {
 type Loader interface {
 	Load(context.Context, string) core.LoadResult
 }
+
+type ReviewStore interface {
+	LoadProjectReview(context.Context, workspace.RepositoryID) (core.Review, bool, error)
+	SaveProjectReview(context.Context, core.Review) error
+}

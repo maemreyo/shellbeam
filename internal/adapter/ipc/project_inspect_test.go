@@ -81,7 +81,7 @@ func TestInspectionDoesNotExecuteManifestCommandThroughIPC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.OK || got.Project == nil || got.Project.Status != coreproject.StatusValid {
+	if !got.OK || got.Project == nil || got.Project.Status != coreproject.StatusReviewDue {
 		t.Fatalf("response=%#v", got)
 	}
 	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {

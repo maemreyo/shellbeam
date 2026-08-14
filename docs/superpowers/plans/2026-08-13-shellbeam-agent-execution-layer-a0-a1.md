@@ -1014,33 +1014,33 @@ Onboarding is an agent workflow, not hidden daemon automation:
 7. validate it;
 8. explicitly record review provenance for the exact fingerprint.
 
-- [ ] **Step 1: Write failing review-state tests**
+- [x] **Step 1: Write failing review-state tests**
 
 Cover exact fingerprint review, changed manifest, changed discovery inputs, unsupported version, missing reviewer metadata, review of invalid/absent content, and concurrent atomic review writes. `review_due` is informational and never prevents command execution.
 
-- [ ] **Step 2: Write failing onboarding-instruction tests**
+- [x] **Step 2: Write failing onboarding-instruction tests**
 
 Assert MCP server instructions tell capable agents to inspect manifest status during repository onboarding, assess whether a manifest is warranted, never auto-trust discovered commands, request approval before adding/editing the shared file, and avoid repeated prompts while the reviewed fingerprint is current.
 
 Do not encode language/ecosystem guesses in the daemon. The reasoning agent examines existing `AGENTS.md`, README, build files, CI, scripts, and package metadata using bounded reads.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/core/project ./internal/app/project ./internal/adapter/store ./cmd/shellbeam ./internal/adapter/mcp -run 'TestReview|TestOnboarding|TestProjectCommand' -count=1
 ```
 
-- [ ] **Step 4: Implement explicit review provenance**
+- [x] **Step 4: Implement explicit review provenance**
 
 Persist manifest fingerprint, discovery fingerprint, schema version, reviewed timestamp, tool version, and non-secret reviewer/source class. Do not store conversation content. A review record never changes the manifest and cannot make an invalid manifest valid.
 
 CLI validate exits nonzero for invocation/validation failure; inspect reports status as data. Review requires the caller-provided current fingerprint to prevent acknowledging a file that changed between inspection and review.
 
-- [ ] **Step 5: Document a manual onboarding acceptance flow**
+- [x] **Step 5: Document a manual onboarding acceptance flow**
 
 Extend `docs/testing/tunnel-e2e.md` with a bounded scenario for absent -> assessed -> proposed -> approved/written -> valid -> reviewed -> review_due after source change. Include a negative case proving no file is created merely by inspect.
 
-- [ ] **Step 6: Verify and commit**
+- [x] **Step 6: Verify and commit**
 
 ```bash
 go test ./internal/core/project ./internal/app/project ./internal/adapter/store ./cmd/shellbeam ./internal/adapter/mcp -count=1

@@ -12,8 +12,10 @@ import (
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const projectOnboardingInstructions = "For repository onboarding, inspect.project before relying on project-specific capabilities. Do not auto-trust discovered repository commands and do not automatically write .shellbeam/project.toml. When a shared manifest would be useful, audit bounded repository evidence, propose the focused change, obtain normal user approval before writing it, validate it, then review the exact current discovery_fingerprint. While that reviewed fingerprint is current, avoid repeated onboarding prompts. review_due requests re-review and does not block ordinary execution."
+
 const (
-	Instructions  = "ShellBeam runs commands as the local OS user with full authority. Use it only for intended local execution. For start, create one operation_id and reuse it for every retry; if the outcome is unknown, never create another. Poll with session_id and cursor. For write, use next_input_offset; acceptance means queued, while the terminal receipt proves delivery. For kill, create one kill_id and reuse it. Never infer command success from MCP success; require a terminal receipt and spawn/exit evidence."
+	Instructions  = "ShellBeam runs commands as the local OS user with full authority. Use it only for intended local execution. For start, create one operation_id and reuse it for every retry; if the outcome is unknown, never create another. Poll with session_id and cursor. For write, use next_input_offset; acceptance means queued, while the terminal receipt proves delivery. For kill, create one kill_id and reuse it. Never infer command success from MCP success; require a terminal receipt and spawn/exit evidence. " + projectOnboardingInstructions
 	ExtensionName = "io.github.maemreyo.shellbeam"
 	modernMCP     = "2026-07-28"
 )

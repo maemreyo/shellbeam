@@ -84,3 +84,34 @@ func TestInspectionDoesNotExecuteManifestCommand(t *testing.T) {
 		t.Fatalf("manifest command executed during load: %v", err)
 	}
 }
+
+func TestLoaderDiscoveryFingerprintTracksExactManifestBytes(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".shellbeam"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, ".shellbeam", "project.toml")
+	first := []byte("schema_version=1\n[commands.test]\nargv=[\"true\"]\n")
+	second := []byte("# formatting-only change\nschema_version = 1\n[commands.test]\nargv = [\"true\"]\n")
+	if err := os.WriteFile(path, first, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loader := NewLoader()
+	a := loader.Load(context.Background(), root)
+	if err := os.WriteFile(path, second, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := loader.Load(context.Background(), root)
+	if a.State != core.LoadValid || b.State != core.LoadValid || a.Parsed == nil || b.Parsed == nil {
+		t.Fatalf("a=%#v b=%#v", a, b)
+	}
+	if a.Parsed.Fingerprint != b.Parsed.Fingerprint {
+		t.Fatalf("canonical semantic fingerprint changed: %s %s", a.Parsed.Fingerprint, b.Parsed.Fingerprint)
+	}
+	if a.DiscoveryFingerprint == b.DiscoveryFingerprint {
+		t.Fatal("exact-byte discovery fingerprint did not change")
+	}
+	if a.DiscoveryFingerprint != a.ManifestDigest || b.DiscoveryFingerprint != b.ManifestDigest {
+		t.Fatalf("discovery/digest drift: a=%#v b=%#v", a, b)
+	}
+}

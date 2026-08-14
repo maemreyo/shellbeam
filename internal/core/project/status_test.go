@@ -10,7 +10,7 @@ func TestProjectStatusAbsentValidInvalidAndReviewDue(t *testing.T) {
 	}{
 		{"absent", StatusInput{LoadState: LoadAbsent}, StatusAbsent},
 		{"invalid", StatusInput{LoadState: LoadInvalid}, StatusInvalid},
-		{"valid no review", StatusInput{LoadState: LoadValid, DiscoveryFingerprint: "current"}, StatusValid},
+		{"valid no review", StatusInput{LoadState: LoadValid, DiscoveryFingerprint: "current"}, StatusReviewDue},
 		{"valid reviewed", StatusInput{LoadState: LoadValid, DiscoveryFingerprint: "current", ReviewFingerprint: "current"}, StatusValid},
 		{"review due", StatusInput{LoadState: LoadValid, DiscoveryFingerprint: "current", ReviewFingerprint: "old"}, StatusReviewDue},
 	}

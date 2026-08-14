@@ -9,10 +9,11 @@ const (
 )
 
 type LoadResult struct {
-	State          LoadState
-	Parsed         *Parsed
-	ManifestDigest string
-	Code           string
+	State                LoadState
+	Parsed               *Parsed
+	ManifestDigest       string
+	DiscoveryFingerprint string
+	Code                 string
 }
 
 type Status string
@@ -28,8 +29,10 @@ type StatusInput struct {
 	LoadState            LoadState
 	SchemaVersion        int
 	ManifestDigest       string
+	ManifestFingerprint  string
 	DiscoveryFingerprint string
 	ReviewFingerprint    string
+	Review               *Review
 	Code                 string
 }
 
@@ -50,10 +53,19 @@ func EvaluateStatus(input StatusInput) Status {
 	case LoadAbsent:
 		return StatusAbsent
 	case LoadValid:
-		if input.ReviewFingerprint != "" && input.DiscoveryFingerprint != "" && input.ReviewFingerprint != input.DiscoveryFingerprint {
+		if input.Review != nil {
+			if !input.Review.Current(input.ManifestFingerprint, input.DiscoveryFingerprint, input.SchemaVersion) {
+				return StatusReviewDue
+			}
+			return StatusValid
+		}
+		if input.ReviewFingerprint != "" {
+			if input.DiscoveryFingerprint != "" && input.ReviewFingerprint == input.DiscoveryFingerprint {
+				return StatusValid
+			}
 			return StatusReviewDue
 		}
-		return StatusValid
+		return StatusReviewDue
 	default:
 		return StatusInvalid
 	}
@@ -67,9 +79,13 @@ func NewInspection(input StatusInput, manifest *Manifest) Inspection {
 	} else if status == StatusInvalid {
 		confidence = "low"
 	}
+	reviewFingerprint := input.ReviewFingerprint
+	if input.Review != nil {
+		reviewFingerprint = input.Review.DiscoveryFingerprint
+	}
 	return Inspection{
 		Status: status, SchemaVersion: input.SchemaVersion, ManifestDigest: input.ManifestDigest,
-		DiscoveryFingerprint: input.DiscoveryFingerprint, ReviewFingerprint: input.ReviewFingerprint,
+		DiscoveryFingerprint: input.DiscoveryFingerprint, ReviewFingerprint: reviewFingerprint,
 		Confidence: confidence, Provenance: "workspace_manifest", Code: input.Code, Manifest: manifest,
 	}
 }
