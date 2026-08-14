@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/maemreyo/shellbeam/internal/core/source"
 	core "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
 
@@ -32,7 +33,7 @@ func validateStructuredSummary(summary structuredSummary) error {
 	if summary.SchemaVersion != 1 || !validStructuredKey(summary.DerivationKey) {
 		return fmt.Errorf("invalid_structured_summary")
 	}
-	counts := []int{summary.RecordCount, summary.DiagnosticCount, summary.TestCaseCount, summary.TestSuiteCount, summary.ArtifactCount, summary.MechanicalCount, summary.AdvisoryCount}
+	counts := []int{summary.RecordCount, summary.Errors, summary.Warnings, summary.Files, summary.TestPassed, summary.TestFailed, summary.TestSkipped, summary.DiagnosticCount, summary.TestCaseCount, summary.TestSuiteCount, summary.ArtifactCount, summary.MechanicalCount, summary.AdvisoryCount}
 	for _, count := range counts {
 		if count < 0 || count > MaxStructuredRecords {
 			return fmt.Errorf("invalid_structured_summary")
@@ -116,6 +117,9 @@ func (r *Repository) structuredRecordDir() string {
 func (r *Repository) structuredSummaryDir() string {
 	return filepath.Join(r.structuredRoot(), "summaries")
 }
+func (r *Repository) structuredOperationDir() string {
+	return filepath.Join(r.structuredRoot(), "operations")
+}
 func (r *Repository) rawOutputRefPath(sessionID string) string {
 	return filepath.Join(r.structuredInputDir(), sessionID+".json")
 }
@@ -127,6 +131,9 @@ func (r *Repository) recordPath(key string) string {
 }
 func (r *Repository) summaryPath(key string) string {
 	return filepath.Join(r.structuredSummaryDir(), key+".json")
+}
+func (r *Repository) structuredOperationPath(operationID string) string {
+	return filepath.Join(r.structuredOperationDir(), operationID+".json")
 }
 func (r *Repository) structuredSubjectPresent(ctx context.Context, subject string) (bool, error) {
 	parts := strings.Split(subject, ":")
@@ -141,4 +148,18 @@ func (r *Repository) structuredSubjectPresent(ctx context.Context, subject strin
 		return false, err
 	}
 	return derivation.Lifecycle == core.LifecycleTerminal && string(derivation.ParseOutcome) == parts[3] && string(derivation.Completeness) == parts[4], nil
+}
+
+func diagnosticFileIdentity(location source.SourceLocation) string {
+	switch location.Kind {
+	case source.LocationProviderReported:
+		if location.ProviderReported != nil {
+			return "path:" + location.ProviderReported.SanitizedLogicalPath
+		}
+	case source.LocationResolved:
+		if location.Resolved != nil {
+			return "source:" + location.Resolved.SourceRefID
+		}
+	}
+	return ""
 }

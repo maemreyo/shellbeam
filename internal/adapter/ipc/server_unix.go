@@ -9,6 +9,7 @@ import (
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
@@ -31,6 +32,10 @@ type Actions interface {
 
 type EventActions interface {
 	InspectEvents(context.Context, observationapp.InspectRequest) (observationapp.InspectResult, error)
+}
+
+type StructuredActions interface {
+	InspectStructured(context.Context, structuredapp.InspectRequest) (structuredapp.InspectResult, error)
 }
 
 type ProjectActions interface {
@@ -264,7 +269,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		view, callErr := s.actions.Kill(r.Context(), app.KillRequest{SessionID: req.SessionID, KillID: req.KillID, Signal: req.Signal})
 		err = callErr
 		resp.View = &view
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events":
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
@@ -276,6 +281,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		resp.Workspace = nil
 		resp.Activity = nil
 		resp.Events = nil
+		resp.Structured = nil
 		resp.Error = errorEnvelope(err)
 	}
 	writeResponseV2(w, resp)
@@ -311,6 +317,15 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		}
 		inspection, err := actions.InspectProject(ctx, req.WorkspaceID)
 		resp.Project = &inspection
+		return err
+	case "inspect.structured":
+		actions, ok := s.actions.(StructuredActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		request := structuredapp.InspectRequest{OperationID: req.OperationID, Filter: structuredapp.RecordFilter{RecordKind: req.RecordKind, Severity: req.Severity, Path: req.Path, TestStatus: req.TestStatus}, Continuation: req.Continuation, MaxRecords: req.MaxRecords}
+		result, err := actions.InspectStructured(ctx, request)
+		resp.Structured = &result
 		return err
 	case "inspect.events":
 		actions, ok := s.actions.(EventActions)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	core "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
@@ -34,6 +35,7 @@ type WorkerOptions struct {
 type Worker struct {
 	binder     InputBinder
 	repository Repository
+	index      OperationDerivationBinder
 	reader     Reader
 	adapters   map[string]Adapter
 	limits     Limits
@@ -68,11 +70,15 @@ func NewWorker(binder InputBinder, repository Repository, reader Reader, adapter
 	if len(registry) == 0 {
 		return nil, fmt.Errorf("structured adapter registry empty")
 	}
+	index, ok := repository.(OperationDerivationBinder)
+	if !ok {
+		return nil, fmt.Errorf("structured operation index unavailable")
+	}
 	configHash, err := workerConfigDigest(options.Limits)
 	if err != nil {
 		return nil, err
 	}
-	worker := &Worker{binder: binder, repository: repository, reader: reader, adapters: registry, limits: options.Limits, configHash: configHash, jobs: make(chan workerJob, options.QueueDepth), done: make(chan struct{})}
+	worker := &Worker{binder: binder, repository: repository, index: index, reader: reader, adapters: registry, limits: options.Limits, configHash: configHash, jobs: make(chan workerJob, options.QueueDepth), done: make(chan struct{})}
 	worker.wg.Add(options.MaxWorkers)
 	for range options.MaxWorkers {
 		go worker.run()
@@ -152,6 +158,10 @@ func (w *Worker) process(job workerJob) {
 		if err != nil {
 			return
 		}
+	}
+	operationID, err := operation.ParseID(job.receipt.OperationID)
+	if err != nil || w.index.BindOperationDerivation(ctx, operationID, key) != nil {
+		return
 	}
 	if derivation.Lifecycle == core.LifecycleTerminal {
 		return

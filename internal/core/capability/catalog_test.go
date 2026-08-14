@@ -64,3 +64,18 @@ func TestEventJournalCapabilityIsOnlyAdvertisedWhenComposed(t *testing.T) {
 		t.Fatal("WithEventJournal mutated baseline catalog")
 	}
 }
+
+func TestStructuredResultsCapabilityIsExplicitAndBounded(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureStructuredResults] != Unavailable || base.Features[FeatureStructuredLifecycle] != Unavailable || len(base.ResultCursorSchemaVersions) != 0 || len(base.StructuredAdapterIDs) != 0 || len(base.StructuredResultKinds) != 0 || base.StructuredLifecycle || base.Limits.StructuredInspectRecords != 0 {
+		t.Fatalf("baseline leaked structured support: %#v", base)
+	}
+	got := base.WithStructuredResults([]string{"go-test-json", "go-vet-json"}, []string{"diagnostic", "test_case", "test_suite", "artifact_result"}, 128, true)
+	if got.Features[FeatureStructuredResults] != Available || got.Features[FeatureStructuredLifecycle] != Available || !got.StructuredLifecycle || got.Limits.StructuredInspectRecords != 128 || !reflect.DeepEqual(got.ResultCursorSchemaVersions, []int{1}) || !reflect.DeepEqual(got.StructuredAdapterIDs, []string{"go-test-json", "go-vet-json"}) {
+		t.Fatalf("catalog=%#v", got)
+	}
+	got.StructuredAdapterIDs[0] = "changed"
+	if base.WithStructuredResults([]string{"go-test-json"}, []string{"diagnostic"}, 10, true).StructuredAdapterIDs[0] != "go-test-json" {
+		t.Fatal("structured catalog aliases mutable adapter slice")
+	}
+}

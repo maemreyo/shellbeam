@@ -28,6 +28,12 @@ type structuredSummary struct {
 	SchemaVersion   int    `json:"schema_version"`
 	DerivationKey   string `json:"derivation_key"`
 	RecordCount     int    `json:"record_count"`
+	Errors          int    `json:"errors,omitempty"`
+	Warnings        int    `json:"warnings,omitempty"`
+	Files           int    `json:"files,omitempty"`
+	TestPassed      int    `json:"test_passed,omitempty"`
+	TestFailed      int    `json:"test_failed,omitempty"`
+	TestSkipped     int    `json:"test_skipped,omitempty"`
 	DiagnosticCount int    `json:"diagnostic_count"`
 	TestCaseCount   int    `json:"test_case_count"`
 	TestSuiteCount  int    `json:"test_suite_count"`
@@ -189,12 +195,34 @@ func (r *Repository) ensureStructuredSummaryUnlocked(set structuredRecordSet) er
 
 func summarizeStructuredRecords(set structuredRecordSet) structuredSummary {
 	s := structuredSummary{SchemaVersion: 1, DerivationKey: set.DerivationKey, RecordCount: len(set.Records)}
+	files := make(map[string]struct{})
 	for _, record := range set.Records {
 		switch record.RecordKind {
 		case core.RecordDiagnostic:
 			s.DiagnosticCount++
+			if record.Diagnostic != nil {
+				switch record.Diagnostic.Severity {
+				case core.SeverityError:
+					s.Errors++
+				case core.SeverityWarning:
+					s.Warnings++
+				}
+				if identity := diagnosticFileIdentity(record.Diagnostic.Location); identity != "" {
+					files[identity] = struct{}{}
+				}
+			}
 		case core.RecordTestCase:
 			s.TestCaseCount++
+			if record.TestCase != nil {
+				switch record.TestCase.Status {
+				case core.TestPassed:
+					s.TestPassed++
+				case core.TestFailed, core.TestError:
+					s.TestFailed++
+				case core.TestSkipped:
+					s.TestSkipped++
+				}
+			}
 		case core.RecordTestSuite:
 			s.TestSuiteCount++
 		case core.RecordArtifactResult:
@@ -206,5 +234,6 @@ func summarizeStructuredRecords(set structuredRecordSet) structuredSummary {
 			s.AdvisoryCount++
 		}
 	}
+	s.Files = len(files)
 	return s
 }

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -365,5 +366,43 @@ func TestEventJournalCapabilityDiscoveryAdvertisesLimitsOnlyWhenComposed(t *test
 		got.Limits.EventJournalMaxEvents != 256 || got.Limits.EventCursorBytes != 2048 || got.Limits.EventSnapshotFacts != 64 ||
 		len(got.EventCursorSchemaVersions) != 1 || got.EventCursorSchemaVersions[0] != 1 {
 		t.Fatalf("catalog=%#v", got)
+	}
+}
+
+func TestStructuredCapabilityDiscoveryV2AndLegacyCatalogCompatibility(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{CommandBytes: 123}).WithEventJournal(256, 2048, 64, true).WithStructuredResults([]string{"go-test-json", "go-vet-json"}, []string{"diagnostic", "test_case", "test_suite", "artifact_result"}, 128, true)
+	fake := &discoveryClient{catalog: catalog}
+	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
+	defer closeSession()
+	init := session.InitializeResult()
+	extension, ok := init.Capabilities.Extensions[ExtensionName].(map[string]any)
+	if !ok {
+		t.Fatalf("extension=%#v", init.Capabilities.Extensions[ExtensionName])
+	}
+	body, err := json.Marshal(extension["catalog"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(body, []byte(`"result_cursor_schema_versions"`)) || !bytes.Contains(body, []byte(`"structured_adapter_ids"`)) || !bytes.Contains(body, []byte(`"structured_inspect_records"`)) {
+		t.Fatalf("catalog=%s", body)
+	}
+
+	legacyFake := &discoveryClient{catalog: catalog}
+	legacyServer := New(bridge.New(legacyFake), catalog)
+	forceLegacyDiscovery(legacyServer)
+	legacySession, closeLegacy := currentSession(t, legacyServer)
+	defer closeLegacy()
+	res, err := legacySession.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"inspect.server"}`)})
+	if err != nil || res.IsError {
+		t.Fatalf("legacy result=%#v err=%v", res, err)
+	}
+	legacyBody, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range [][]byte{[]byte(`"event_cursor_schema_versions"`), []byte(`"result_cursor_schema_versions"`), []byte(`"structured_adapter_ids"`), []byte(`"structured_result_kinds"`), []byte(`"structured_lifecycle"`), []byte(`"structured_inspect_records"`)} {
+		if bytes.Contains(legacyBody, forbidden) {
+			t.Fatalf("legacy leaked %s in %s", forbidden, legacyBody)
+		}
 	}
 }

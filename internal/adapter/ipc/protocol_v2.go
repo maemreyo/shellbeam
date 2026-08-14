@@ -9,6 +9,7 @@ import (
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
@@ -16,6 +17,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -49,22 +51,29 @@ type RequestV2 struct {
 	Target            *observationcore.Target   `json:"target,omitempty"`
 	AfterEventCursor  string                    `json:"after_event_cursor,omitempty"`
 	MaxEvents         int                       `json:"max_events,omitempty"`
+	RecordKind        structuredcore.RecordKind `json:"record_kind,omitempty"`
+	Severity          structuredcore.Severity   `json:"severity,omitempty"`
+	Path              string                    `json:"path,omitempty"`
+	TestStatus        structuredcore.TestStatus `json:"test_status,omitempty"`
+	Continuation      string                    `json:"continuation,omitempty"`
+	MaxRecords        int                       `json:"max_records,omitempty"`
 }
 
 type ResponseV2 struct {
-	IPVersion int                           `json:"ipc_version"`
-	Kind      string                        `json:"kind"`
-	RequestID string                        `json:"request_id"`
-	Action    string                        `json:"action"`
-	OK        bool                          `json:"ok"`
-	View      *app.View                     `json:"view,omitempty"`
-	Result    *receipt.Result               `json:"result,omitempty"`
-	Server    *capability.Catalog           `json:"server,omitempty"`
-	Project   *project.Inspection           `json:"project,omitempty"`
-	Workspace *workspace.Workspace          `json:"workspace,omitempty"`
-	Activity  *activity.Activity            `json:"activity,omitempty"`
-	Events    *observationapp.InspectResult `json:"events,omitempty"`
-	Error     *Error                        `json:"error,omitempty"`
+	IPVersion  int                           `json:"ipc_version"`
+	Kind       string                        `json:"kind"`
+	RequestID  string                        `json:"request_id"`
+	Action     string                        `json:"action"`
+	OK         bool                          `json:"ok"`
+	View       *app.View                     `json:"view,omitempty"`
+	Result     *receipt.Result               `json:"result,omitempty"`
+	Server     *capability.Catalog           `json:"server,omitempty"`
+	Project    *project.Inspection           `json:"project,omitempty"`
+	Workspace  *workspace.Workspace          `json:"workspace,omitempty"`
+	Activity   *activity.Activity            `json:"activity,omitempty"`
+	Events     *observationapp.InspectResult `json:"events,omitempty"`
+	Structured *structuredapp.InspectResult  `json:"structured,omitempty"`
+	Error      *Error                        `json:"error,omitempty"`
 }
 
 type v2Header struct {
@@ -142,6 +151,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"activity_id"}
 	case "inspect.events":
 		return []string{"target", "after_event_cursor", "max_events"}
+	case "inspect.structured":
+		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
 	default:
 		return nil
 	}
@@ -206,19 +217,10 @@ func validateRequestV2(v RequestV2) error {
 		if _, err := activity.ParseID(v.ActivityID); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
 		}
+	case "inspect.structured":
+		return validateStructuredInspectV2(v)
 	case "inspect.events":
-		if v.Target == nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "target"}, fmt.Errorf("event target missing"))
-		}
-		if err := v.Target.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "target"}, err)
-		}
-		if v.MaxEvents < 1 || v.MaxEvents > observationapp.MaxInspectEvents {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "max_events"}, fmt.Errorf("invalid max events"))
-		}
-		if v.AfterEventCursor != "" && (!strings.HasPrefix(v.AfterEventCursor, observationapp.EventCursorPrefix) || len(v.AfterEventCursor) > observationapp.MaxEventCursorBytes) {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "after_event_cursor"}, fmt.Errorf("invalid event cursor"))
-		}
+		return validateEventInspectV2(v)
 	case "kill":
 		if v.SessionID == "" || v.KillID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
@@ -227,9 +229,33 @@ func validateRequestV2(v RequestV2) error {
 	return nil
 }
 
+func validateStructuredInspectV2(v RequestV2) error {
+	request := structuredapp.InspectRequest{OperationID: v.OperationID, Filter: structuredapp.RecordFilter{RecordKind: v.RecordKind, Severity: v.Severity, Path: v.Path, TestStatus: v.TestStatus}, Continuation: v.Continuation, MaxRecords: v.MaxRecords}
+	if err := request.Validate(); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "inspect.structured"}, err)
+	}
+	return nil
+}
+
+func validateEventInspectV2(v RequestV2) error {
+	if v.Target == nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "target"}, fmt.Errorf("event target missing"))
+	}
+	if err := v.Target.Validate(); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "target"}, err)
+	}
+	if v.MaxEvents < 1 || v.MaxEvents > observationapp.MaxInspectEvents {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "max_events"}, fmt.Errorf("invalid max events"))
+	}
+	if v.AfterEventCursor != "" && (!strings.HasPrefix(v.AfterEventCursor, observationapp.EventCursorPrefix) || len(v.AfterEventCursor) > observationapp.MaxEventCursorBytes) {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "after_event_cursor"}, fmt.Errorf("invalid event cursor"))
+	}
+	return nil
+}
+
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events":
+	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured":
 		return true
 	default:
 		return false

@@ -22,29 +22,36 @@ const (
 	FeatureEnvironmentFingerprint Feature = "environment_fingerprint"
 	FeatureMutationScopes         Feature = "mutation_scopes"
 	FeatureProjectManifest        Feature = "project_manifest"
+	FeatureStructuredResults      Feature = "structured_results"
+	FeatureStructuredLifecycle    Feature = "structured_lifecycle"
 	FeatureEventJournal           Feature = "event_journal"
 	FeatureEventSnapshotRecovery  Feature = "event_snapshot_recovery"
 )
 
 type Limits struct {
-	CommandBytes          int   `json:"command_bytes"`
-	ResponseBytes         int   `json:"response_bytes"`
-	SessionOutputBytes    int64 `json:"session_output_bytes"`
-	RuntimeMS             int64 `json:"runtime_ms"`
-	LiveSessions          int   `json:"live_sessions"`
-	ActivityHistory       int   `json:"activity_history"`
-	EventJournalMaxEvents int   `json:"event_journal_max_events,omitempty"`
-	EventCursorBytes      int   `json:"event_cursor_bytes,omitempty"`
-	EventSnapshotFacts    int   `json:"event_snapshot_facts,omitempty"`
+	CommandBytes             int   `json:"command_bytes"`
+	ResponseBytes            int   `json:"response_bytes"`
+	SessionOutputBytes       int64 `json:"session_output_bytes"`
+	RuntimeMS                int64 `json:"runtime_ms"`
+	LiveSessions             int   `json:"live_sessions"`
+	ActivityHistory          int   `json:"activity_history"`
+	EventJournalMaxEvents    int   `json:"event_journal_max_events,omitempty"`
+	EventCursorBytes         int   `json:"event_cursor_bytes,omitempty"`
+	EventSnapshotFacts       int   `json:"event_snapshot_facts,omitempty"`
+	StructuredInspectRecords int   `json:"structured_inspect_records,omitempty"`
 }
 
 type Catalog struct {
-	ProtocolVersion           int                      `json:"shellbeam_protocol_version"`
-	ReceiptSchemaVersions     []int                    `json:"receipt_schema_versions"`
-	ManifestVersions          []int                    `json:"project_manifest_schema_versions"`
-	EventCursorSchemaVersions []int                    `json:"event_cursor_schema_versions,omitempty"`
-	Features                  map[Feature]Availability `json:"features"`
-	Limits                    Limits                   `json:"limits"`
+	ProtocolVersion            int                      `json:"shellbeam_protocol_version"`
+	ReceiptSchemaVersions      []int                    `json:"receipt_schema_versions"`
+	ManifestVersions           []int                    `json:"project_manifest_schema_versions"`
+	EventCursorSchemaVersions  []int                    `json:"event_cursor_schema_versions,omitempty"`
+	ResultCursorSchemaVersions []int                    `json:"result_cursor_schema_versions,omitempty"`
+	StructuredAdapterIDs       []string                 `json:"structured_adapter_ids,omitempty"`
+	StructuredResultKinds      []string                 `json:"structured_result_kinds,omitempty"`
+	StructuredLifecycle        bool                     `json:"structured_lifecycle,omitempty"`
+	Features                   map[Feature]Availability `json:"features"`
+	Limits                     Limits                   `json:"limits"`
 }
 
 var targetFeatures = []Feature{
@@ -60,6 +67,8 @@ var targetFeatures = []Feature{
 	FeatureEnvironmentFingerprint,
 	FeatureMutationScopes,
 	FeatureProjectManifest,
+	FeatureStructuredResults,
+	FeatureStructuredLifecycle,
 	FeatureEventJournal,
 	FeatureEventSnapshotRecovery,
 }
@@ -92,6 +101,9 @@ func (c Catalog) Clone() Catalog {
 	out.ReceiptSchemaVersions = append([]int(nil), c.ReceiptSchemaVersions...)
 	out.ManifestVersions = append([]int(nil), c.ManifestVersions...)
 	out.EventCursorSchemaVersions = append([]int(nil), c.EventCursorSchemaVersions...)
+	out.ResultCursorSchemaVersions = append([]int(nil), c.ResultCursorSchemaVersions...)
+	out.StructuredAdapterIDs = append([]string(nil), c.StructuredAdapterIDs...)
+	out.StructuredResultKinds = append([]string(nil), c.StructuredResultKinds...)
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
 		out.Features[feature] = availability
@@ -112,5 +124,22 @@ func (c Catalog) WithEventJournal(maxEvents, cursorBytes, snapshotFacts int, sna
 	if snapshotRecovery {
 		out.Features[FeatureEventSnapshotRecovery] = Available
 	}
+	return out
+}
+
+func (c Catalog) WithStructuredResults(adapterIDs, resultKinds []string, maxRecords int, lifecycle bool) Catalog {
+	out := c.Clone()
+	if maxRecords < 1 || len(adapterIDs) == 0 || len(resultKinds) == 0 {
+		return out
+	}
+	out.Features[FeatureStructuredResults] = Available
+	if lifecycle {
+		out.Features[FeatureStructuredLifecycle] = Available
+	}
+	out.ResultCursorSchemaVersions = []int{1}
+	out.StructuredAdapterIDs = append([]string(nil), adapterIDs...)
+	out.StructuredResultKinds = append([]string(nil), resultKinds...)
+	out.StructuredLifecycle = lifecycle
+	out.Limits.StructuredInspectRecords = maxRecords
 	return out
 }

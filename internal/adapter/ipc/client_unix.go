@@ -66,7 +66,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -114,6 +114,14 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.Target = &target
 		req.AfterEventCursor = in.EventInspect.AfterEventCursor
 		req.MaxEvents = in.EventInspect.MaxEvents
+	case "inspect.structured":
+		req.OperationID = in.StructuredInspect.OperationID
+		req.RecordKind = in.StructuredInspect.Filter.RecordKind
+		req.Severity = in.StructuredInspect.Filter.Severity
+		req.Path = in.StructuredInspect.Filter.Path
+		req.TestStatus = in.StructuredInspect.Filter.TestStatus
+		req.Continuation = in.StructuredInspect.Continuation
+		req.MaxRecords = in.StructuredInspect.MaxRecords
 	case "kill":
 		req.SessionID = in.Kill.SessionID
 		req.KillID = in.Kill.KillID

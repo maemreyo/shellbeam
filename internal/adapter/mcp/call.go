@@ -8,6 +8,8 @@ import (
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -72,6 +74,8 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.ActivityID = in.ActivityID
 	case "inspect.events":
 		request.EventInspect = observationapp.InspectRequest{Target: *in.Target, AfterEventCursor: in.AfterEventCursor, MaxEvents: in.MaxEvents}
+	case "inspect.structured":
+		request.StructuredInspect = structuredapp.InspectRequest{OperationID: in.OperationID, Filter: structuredapp.RecordFilter{RecordKind: in.RecordKind, Severity: in.Severity, Path: in.Path, TestStatus: in.TestStatus}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
 	case "kill":
 		signal := in.Signal
 		if signal == "" {
@@ -87,7 +91,7 @@ func successV1(action string, out bridge.Response) *mcpgo.CallToolResult {
 		if out.Server == nil {
 			return toolError("invalid_daemon_response", "server catalog missing", false)
 		}
-		body := map[string]any{"schema_version": 1, "ok": true, "action": action, "server": out.Server}
+		body := map[string]any{"schema_version": 1, "ok": true, "action": action, "server": legacyCatalogView(*out.Server)}
 		return toolSuccess("inspect.server: capabilities", body)
 	}
 	body := map[string]any{
@@ -102,6 +106,24 @@ func successV1(action string, out bridge.Response) *mcpgo.CallToolResult {
 		body["operation_id"] = out.View.OperationID
 	}
 	return toolSuccess(fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State), body)
+}
+
+func legacyCatalogView(c capability.Catalog) capability.Catalog {
+	out := c.Clone()
+	out.EventCursorSchemaVersions = nil
+	out.ResultCursorSchemaVersions = nil
+	out.StructuredAdapterIDs = nil
+	out.StructuredResultKinds = nil
+	out.StructuredLifecycle = false
+	out.Limits.EventJournalMaxEvents = 0
+	out.Limits.EventCursorBytes = 0
+	out.Limits.EventSnapshotFacts = 0
+	out.Limits.StructuredInspectRecords = 0
+	delete(out.Features, capability.FeatureEventJournal)
+	delete(out.Features, capability.FeatureEventSnapshotRecovery)
+	delete(out.Features, capability.FeatureStructuredResults)
+	delete(out.Features, capability.FeatureStructuredLifecycle)
+	return out
 }
 
 func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
@@ -135,6 +157,12 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 		}
 		body["project"] = out.Project
 		summary = "inspect.project: " + string(out.Project.Status)
+	case "inspect.structured":
+		if out.Structured == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "structured inspection missing", false)
+		}
+		body["structured"] = out.Structured
+		summary = "inspect.structured: " + string(out.Structured.Status)
 	case "inspect.events":
 		if out.Events == nil {
 			return toolErrorV2(action, "invalid_daemon_response", "event inspection missing", false)

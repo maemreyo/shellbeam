@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	core "github.com/maemreyo/shellbeam/internal/core/structuredresult"
@@ -44,6 +45,14 @@ type workerRepo struct {
 
 func newWorkerRepo() *workerRepo {
 	return &workerRepo{derivations: map[string]core.Derivation{}, records: map[string][]core.Record{}}
+}
+func (r *workerRepo) BindOperationDerivation(_ context.Context, _ operation.ID, key string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.derivations[key]; !ok {
+		return errors.New("derivation missing")
+	}
+	return nil
 }
 func (r *workerRepo) PutDerivation(_ context.Context, d core.Derivation) error {
 	r.mu.Lock()
