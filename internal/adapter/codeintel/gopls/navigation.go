@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"go.lsp.dev/protocol"
@@ -197,7 +198,10 @@ func (n *navigationService) typeSummary(ctx context.Context, request appcodeinte
 	if hover == nil {
 		return appcodeintel.ProviderResponse{Status: core.StatusReady}, nil
 	}
-	text := hoverText(hover.Contents)
+	text := normalizeHoverText(hoverText(hover.Contents))
+	if text == "" {
+		return appcodeintel.ProviderResponse{Status: core.StatusReady}, nil
+	}
 	status := core.StatusReady
 	if len(text) > navigationMaxTextBytes {
 		text = boundNavigationText(text, navigationMaxTextBytes)
@@ -370,6 +374,14 @@ func markedStringText(value protocol.MarkedString) string {
 		}
 	}
 	return ""
+}
+
+func normalizeHoverText(value string) string {
+	value = strings.ToValidUTF8(value, "")
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	})
+	return strings.Join(fields, " ")
 }
 
 func boundNavigationText(value string, maxBytes int) string {

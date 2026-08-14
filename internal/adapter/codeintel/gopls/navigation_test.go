@@ -120,6 +120,26 @@ func TestNavigationTypeSummaryUsesBoundedHoverText(t *testing.T) {
 	}
 }
 
+func TestNavigationTypeSummarySanitizesMultilineHoverText(t *testing.T) {
+	root := t.TempDir()
+	ws := testWorkspace(root)
+	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBZ", "package p\nvar X = 1\n")
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	fake := &navigationFakeSession{fakeSession: newFakeSession(), hover: &protocol.Hover{Contents: &protocol.MarkupContent{
+		Kind: protocol.MarkupKindMarkdown, Value: "```go\nvar X int\n```\n\nA bounded summary.",
+	}}}
+	nav := newNavigationService(fake, navigationCapabilities{Hover: true}, protocol.PositionEncodingKindUTF8)
+	response, err := nav.Query(t.Context(), appcodeintel.ProviderRequest{
+		Workspace: ws, Query: core.Query{Kind: core.QueryTypeSummary, Path: "main.go", Line: 2, Column: 5}, SelectedSources: []appcodeintel.BoundSource{source},
+	}, []synchronizedDocument{doc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.TypeSummary != "```go var X int ``` A bounded summary." {
+		t.Fatalf("type summary=%q", response.TypeSummary)
+	}
+}
+
 func TestNavigationCallHierarchyIsProviderReportedNeverExhaustive(t *testing.T) {
 	root := t.TempDir()
 	ws := testWorkspace(root)
