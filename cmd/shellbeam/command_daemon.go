@@ -14,6 +14,7 @@ import (
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
+	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
@@ -21,8 +22,15 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	projectcore "github.com/maemreyo/shellbeam/internal/core/project"
+	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"github.com/oklog/ulid/v2"
+)
+
+const (
+	reproMaxCapsules   = 256
+	reproMetadataBytes = 16 << 20
+	reproRetentionAge  = 30 * 24 * time.Hour
 )
 
 func runDaemon(ctx context.Context, args []string) error {
@@ -40,6 +48,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		MaxTelemetrySamples: telemetryMaxSamples, MaxTelemetryBytes: telemetryMetadataBytes,
 		MaxTelemetryKeys: telemetryMaxKeys, MaxTelemetryKeysPerRepository: telemetryMaxKeysPerRepository,
 		MaxTelemetrySamplesPerKey: telemetryMaxSamplesPerKey, MaxTelemetryAge: telemetryRetentionAge,
+		MaxReproCapsules: reproMaxCapsules, MaxReproBytes: int64(reproMetadataBytes), MaxReproAge: reproRetentionAge,
 	}
 	store, err := storeadapter.Open(paths.StateDir, limits)
 	if err != nil {
@@ -103,6 +112,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	if err != nil {
 		return err
 	}
+	reproService := reproapp.New(store)
 	observationRuntime, err := newExecutionObservationRuntime(startupCtx, store)
 	if err != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Duration(cfg.TerminationGraceMS)*time.Millisecond)
@@ -115,6 +125,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	actions.events = observationRuntime.events
 	actions.structured = observationRuntime.structured
 	actions.telemetry = telemetryRuntime.service
+	actions.repro = reproService
 	observationRuntime.startMaterialization(ctx)
 	server.MarkReady()
 	defer func() {
@@ -157,6 +168,7 @@ type daemonActions struct {
 	events     *observationapp.Service
 	structured *structuredapp.Inspector
 	telemetry  *telemetryapp.Service
+	repro      *reproapp.Service
 	code       daemonCodeInspector
 }
 
@@ -193,6 +205,20 @@ func (a *daemonActions) InspectTelemetry(ctx context.Context, request telemetrya
 	return a.telemetry.Inspect(ctx, request)
 }
 
+func (a *daemonActions) CreateRepro(ctx context.Context, request reprocore.CreateRequest) (reprocore.Capsule, error) {
+	if a.repro == nil {
+		return reprocore.Capsule{}, fmt.Errorf("reproduction capsule service unavailable")
+	}
+	return a.repro.Create(ctx, request)
+}
+
+func (a *daemonActions) InspectRepro(ctx context.Context, reproID string) (reproapp.InspectResult, error) {
+	if a.repro == nil {
+		return reproapp.InspectResult{}, fmt.Errorf("reproduction capsule service unavailable")
+	}
+	return a.repro.Inspect(ctx, reproID)
+}
+
 func daemonCatalog(limits capability.Limits) capability.Catalog {
 	return capability.Baseline(limits).
 		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
@@ -205,5 +231,6 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 			telemetryMaxSamples, telemetryMetadataBytes, telemetryMaxKeys, telemetryMaxKeysPerRepository,
 			telemetryMaxSamplesPerKey, telemetryRetentionAge.Milliseconds(), telemetryapp.MaxInspectSamples,
 		).
+		WithReproductionCapsules(reproMaxCapsules, reprocore.MaxReferenceDescriptors, reproMetadataBytes).
 		WithCodeIntelligence()
 }
