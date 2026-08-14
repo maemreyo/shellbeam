@@ -156,9 +156,57 @@ completeness
 
 The key is deterministic for one logical derivation. Crash recovery upserts the same logical record instead of creating another sample/fact. Lifecycle/completeness may advance monotonically when the exact derivation contract permits it; a completed telemetry sample cannot become a second sample merely because finalization was retried.
 
-`source_refs` point to canonical or immutable observed inputs such as raw-output ranges, receipts, evidence IDs, manifest/source digests, or pinned artifact observations. Derived records do not duplicate large blobs merely for convenience.
+`source_refs` point to canonical or immutable observed inputs such as raw-output ranges, receipts, evidence IDs, manifest/source digests, pinned artifact observations, or opaque source-reference handles. Derived records do not duplicate large blobs merely for convenience.
 
-The primitives never contain raw environment values, tokens, private keys, Git credentials, arbitrary source contents, raw checkpoint payloads, or public deterministic hashes of unknown checkpoint contents.
+### 6.4 Canonical `SourceRef` / `SourceLocation` contract
+
+Structured execution/code facts that need a source position share one location contract rather than inventing provider-specific path/column semantics. `source_ref_id` is a **server-issued opaque identity handle**, not an authorization capability. It is scoped to one ShellBeam state-root/source-view domain and binds immutably to one exact source representation once issued.
+
+Normative identity rules:
+
+- the same `source_ref_id` MUST NOT be rebound to different source bytes or a different source representation after a source change;
+- a source reference may expire or lose its retained backing representation, but an expired ID is never recycled/reused for another source;
+- expiry/unavailability is explicit (`source_ref_expired` / `source_ref_unavailable`) and never silently resolves the old ID against current bytes;
+- provider document versions, LSP session/snapshot generations, index revisions, or parser-specific hashes are correlation proof machinery, not canonical source authority;
+- `source_ref_id` and `resolution_quality` describe identity/resolution only; neither grants filesystem/process authorization.
+
+Conceptually:
+
+```text
+SourceRef
+  source_ref_id                  # opaque, server-issued, never rebound
+  origin: repository | workspace | dependency | toolchain | generated | external
+  source_view_id / epoch ref
+  repository_id?
+  workspace_id?
+  logical_path?                  # safe normalized path when available
+  display_identity?              # bounded/sanitized, never raw host path by default
+  source_encoding: utf-8         # E29 v1 resolved-source contract
+  resolution_quality: exact | observed | unavailable
+
+SourceLocation = closed union
+
+  ResolvedSourceLocation
+    kind = resolved
+    source_ref_id
+    byte_range = [start, end)     # zero-based half-open offsets into exact UTF-8 bytes
+    display_range?                # non-authoritative presentation coordinates + encoding
+
+  ProviderReportedLocation
+    kind = provider_reported
+    origin
+    provider_id/version
+    display_identity?
+    sanitized_logical_path?
+    provider_original_range?      # bounded original coordinate + declared encoding
+    normalization_quality: partial | uncertain | unavailable
+```
+
+`ResolvedSourceLocation` is emitted only when ShellBeam has the exact retained UTF-8 source representation required to validate/convert the range. A provider target in a dependency, toolchain, generated, or external source for which exact bytes are unavailable is represented as `ProviderReportedLocation`; ShellBeam never fabricates a canonical byte range. Any operation requiring a canonical position rejects a provider-reported location with `location_not_resolved` until the exact source representation is resolved.
+
+Repository/workspace locations use safe relative logical paths. Dependency/toolchain/external targets use bounded logical/display identities where possible; host-specific absolute paths are redacted/classified by default. E29 v1 does not introduce a new public deterministic per-file content hash merely to identify a location. Existing predecessor namespace-level `source_content_digest` semantics remain unchanged.
+
+The primitives never contain raw environment values, tokens, private keys, Git credentials, arbitrary source contents, raw checkpoint payloads, public deterministic hashes of unknown checkpoint contents, or newly introduced public deterministic hashes of arbitrary individual source files solely for location identity.
 
 ## 7. New enhancement IDs
 
@@ -211,7 +259,7 @@ code_intelligence:
     semantic: [...]
     structural: [...]
     index: [...]
-  queries: [diagnostics, symbols, definition, references, imports, type_info, ...]
+  queries: [diagnostics, symbols, definition, references, import_declarations, resolved_import_targets, type_definition, type_summary, ...]
 
 safety_checkpoints:
   version: 1
@@ -346,8 +394,8 @@ A3a is the hard prerequisite for later automatically derived capabilities.
 ### A3c: structured code intelligence
 
 - E29A semantic diagnostics, initially Go/gopls over LSP;
-- E29B definition/references/symbols/imports/type facts;
-- optional read-only structural provider backed by ast-grep;
+- E29B definition/references/symbols/import declarations/resolved targets/type-definition/type-summary facts;
+- optional query-only structural provider backed by ast-grep;
 - optional precomputed SCIP consumption deferred until there is demonstrated need.
 
 A3c depends on A3a, not on E22 completion. E29 diagnostics may reuse the E22 diagnostic presentation schema when E22 is available.
@@ -396,7 +444,7 @@ The release benchmark compares the same build on the same reference corpus with 
 ### 14.2 Explicit capability work
 
 - Cached typed-project-command binding targets p95 <= 10 ms and performs no subprocess/network access.
-- Journal delta inspection, structured-result reads, telemetry/history inspection, and code-intelligence result rendering enforce explicit record/byte/work ceilings.
+- Journal delta inspection, structured-result reads, telemetry/history inspection, and code-intelligence result rendering enforce explicit record/byte/work ceilings. E29 additionally bounds selected files/source bytes, in-flight requests, provider queue depth, restart rate/cooldown, and provider resource observation/enforcement according to platform capability.
 - Semantic provider cold start/indexing is explicit code-intelligence work and never part of ordinary `start`; capability-specific startup/query budgets and `initializing`/partial states are reported honestly.
 - Required tracing has an explicit startup/instrumentation budget because it intentionally changes execution admission semantics.
 - Checkpoint capture/restore has explicit path/byte/work budgets and is never implicit.
@@ -412,7 +460,8 @@ Automated privacy tests must prove that persisted/public records do not expose f
 - SSH/private-key material;
 - stdin secrets;
 - checkpoint file contents;
-- raw network payloads.
+- raw network payloads;
+- new public deterministic hashes of arbitrary individual source files introduced solely for E29 location identity.
 
 External absolute paths are redacted or classified according to the concrete companion contract. E26 checkpoint storage is classified as sensitive local content and requires its own security review before an implementation is enabled by default.
 

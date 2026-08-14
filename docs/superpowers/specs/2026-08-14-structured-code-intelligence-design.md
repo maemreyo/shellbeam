@@ -6,12 +6,12 @@ Review-ready E29 companion to the [Agent Execution Observation Roadmap](./2026-0
 
 ## 1. Decision
 
-Add **E29 Structured Code Intelligence** as a bounded read-only fact/query capability behind the existing one-tool `local_shell` surface.
+Add **E29 Structured Code Intelligence** as a bounded query-only fact capability behind the existing one-tool `local_shell` surface. ShellBeam does not request or apply source-tree mutations as part of an E29 fact query; provider side effects are declared separately, and this is not a filesystem-confinement guarantee.
 
 E29 has two promoted core slices and one deferred family:
 
 - **E29A Semantic Diagnostics:** workspace/changed-file syntax, type, compiler-front-end, and analyzer diagnostics from a language-semantic provider.
-- **E29B Semantic Navigation:** symbols, definition, references, imports, type information, and provider-supported call hierarchy using a small model-oriented vocabulary.
+- **E29B Semantic Navigation:** symbols, definition, references, import declarations/resolved import targets, type definition/provider-reported type summary, and provider-supported call hierarchy using a small model-oriented vocabulary.
 - **E29C Generic AST query/transformation:** explicitly deferred. ShellBeam does not expose arbitrary AST node traversal, rewrite DSLs, rename/refactor mutation, or a universal compiler model.
 
 The reasoning agent remains the only component that decides what code change to make. E29 supplies structured code facts that remove repetitive grep/open/compile loops.
@@ -86,8 +86,10 @@ diagnostics
 symbols
 definition
 references
-imports
-type_info
+import_declarations
+resolved_import_targets
+type_definition
+type_summary
 callers
 callees
 ```
@@ -143,17 +145,20 @@ or:
 }
 ```
 
-Positions use one documented ShellBeam coordinate convention. The adapter performs any LSP UTF-16/UTF-8/byte-position translation and validates the exact source content used for translation; the model does not reason about provider-specific coordinate encodings.
+E29 uses the umbrella `SourceRef` / closed `SourceLocation` union as its canonical location contract. E29 v1 resolves canonical locations only for valid UTF-8 source representations. Canonical byte ranges are zero-based and half-open over the exact bytes bound to `source_ref_id`; invalid/non-UTF-8 source that must be canonically addressed returns `unsupported_source_encoding`.
 
-Every query is bounded by response bytes, record count, work/time, and provider-specific concurrency budgets.
+For ergonomic model input, a `path + line + column` address is resolved server-side against one exact disk source view before provider work. ShellBeam display coordinates use 1-based lines and 1-based Unicode-scalar-value columns; they are presentation/addressing convenience, not canonical identity. The adapter converts the bound exact source to the provider's negotiated position encoding and then normalizes provider results back to `ResolvedSourceLocation` only when exact bytes are available. The model never performs UTF-16/UTF-8/provider-coordinate conversion.
+
+A `ProviderReportedLocation` is not a resolved location with optional data missing; it is a different union member/authority class. Queries requiring canonical position reject it with `location_not_resolved` until ShellBeam resolves an exact `SourceRef`.
+
+Every query is bounded by response bytes, record count, selected-file/source-byte input envelope, work/time, provider-specific concurrency, and backpressure budgets.
 
 ## 7. E29A Semantic Diagnostics
 
 Diagnostics are normalized into the same model-facing diagnostic shape used by E22 where fields overlap:
 
 ```text
-path
-range
+location: SourceLocation
 severity
 code?
 message
@@ -240,17 +245,25 @@ Given a source position bound to an exact/known source view, returns zero or mor
 
 Returns bounded references plus scope/build-configuration quality. A provider that only sees one build configuration cannot call the result globally complete.
 
-### 9.4 `imports`
+### 9.4 `import_declarations`
 
-Returns mechanically observed import/module relationships for a file/package where the provider supports them. A syntax-only provider may satisfy this query with lower semantic authority when explicitly labeled.
+Returns mechanically observed import/include/module declarations. A structural provider may satisfy this query because declaration syntax does not imply successful semantic resolution.
 
-### 9.5 `type_info`
+### 9.5 `resolved_import_targets`
 
-Returns bounded provider-supplied symbol/type/signature facts. It does not synthesize a universal type model across languages.
+Returns provider-resolved targets under the exact source view plus provider/config/build-environment provenance. It is semantic and optional; a provider that cannot prove resolution under its current build scope reports unavailable/partial rather than falling back to textual matching.
 
-### 9.6 `callers` / `callees`
+### 9.6 `type_definition`
 
-Optional capability mapped to provider call hierarchy where available. Unsupported/partial call hierarchy is explicit and never approximated from text grep while labeled semantic.
+Returns zero or more normalized `SourceLocation` targets for the provider's type-definition relationship where supported. It does not synthesize a cross-language type hierarchy.
+
+### 9.7 `type_summary`
+
+Returns a bounded provider-reported display fact such as a hover/signature/type string plus provenance. ShellBeam may bound/redact it but does not parse it into a universal type AST/model.
+
+### 9.8 `callers` / `callees`
+
+Optional capability mapped to provider call hierarchy where available. Unsupported/partial call hierarchy is explicit and never approximated from text grep while labeled semantic. `mechanical` describes derivation from the provider contract; it does **not** imply an exhaustive runtime call graph. An empty result cannot prove that no dynamic/configuration-dependent caller or callee exists.
 
 ## 10. Source-view contract
 
@@ -267,7 +280,7 @@ build configuration fingerprint/quality
 provider executable/version
 ```
 
-Provider adapters are responsible for synchronizing disk changes into their protocol model and for proving which source generation a response corresponds to.
+Provider adapters are responsible for synchronizing disk changes into their protocol model and for proving which source generation a response corresponds to. Provider-specific document versions/session generations/snapshot IDs are correlation evidence, not canonical source identity. Absence of usable correlation evidence never becomes `current` merely because a path still matches.
 
 Unsaved editor-buffer overlays are deferred. If a future attached editor/LSP integration exposes them, the overlay becomes a distinct source-view identity with exact content/version provenance. It can never silently overwrite or be equated with disk/evidence truth.
 
@@ -282,7 +295,7 @@ source_changed_during_query
 unknown
 ```
 
-If the workspace changes while a definition/reference/diagnostic query is in flight and the adapter cannot prove the returned result belongs to the new source, ShellBeam returns the old result as stale or retries once within budget; it never relabels it current.
+If the workspace changes while a definition/reference/diagnostic query is in flight and the adapter cannot prove the returned result belongs to the bound source representation, ShellBeam returns the old result as stale or retries once within budget; it never relabels it current. A previously issued `source_ref_id` may expire, but it never rebinds to the newer bytes.
 
 Provider caches/indexes have separate readiness states:
 
@@ -334,7 +347,7 @@ A provider must not directly apply source edits under E29 even if the underlying
 
 ## 14. Reference semantic transport: LSP 3.18
 
-The normative semantic-provider abstraction is **not** tied to one library, but LSP 3.18 is the preferred reference transport because mature language servers already expose diagnostics/navigation over it.
+The normative semantic-provider abstraction is **not** tied to one library. The official LSP landing page lists 3.18 as the current/latest specification family, while the maintained 3.18.x source remains under development; ShellBeam therefore pins the exact selected protocol/meta-model/library revision and capability-negotiates provider support rather than treating the family label as an immutable wire contract.
 
 The ShellBeam adapter owns:
 
@@ -396,7 +409,7 @@ E29 does **not** embed a universal AST engine in core.
 
 ### 16.1 Preferred first structural provider: ast-grep JSON
 
-The recommended first structural integration is an external read-only `ast-grep` provider using its machine-readable JSON/streaming output. ShellBeam can reuse ast-grep's Tree-sitter grammar/query machinery instead of implementing parser grammars and AST matching itself.
+The recommended first structural integration is an external query-only `ast-grep` provider using its machine-readable JSON/streaming output. ShellBeam can reuse ast-grep's Tree-sitter grammar/query machinery instead of implementing parser grammars and AST matching itself.
 
 Promoted structural operations are intentionally boring/model-oriented:
 
@@ -411,9 +424,9 @@ Core does not expose arbitrary ast-grep rewrite/fix options, YAML rule execution
 
 `ast-grep` is an optional executable provider discovered/readiness-checked like other tools. ShellBeam never auto-installs it.
 
-### 16.2 Lower-level fallback: Tree-sitter
+### 16.2 Deferred direct Tree-sitter integration
 
-If a future capability cannot be expressed safely through ast-grep, the official Tree-sitter Go binding is a candidate lower-level provider implementation. Direct embedding is not the default because it would make ShellBeam own grammar lifecycle, native/C binding concerns, node/query lifetime, and language packaging.
+Direct Tree-sitter consumption is **not an E29 v1 fallback**. If a future requirement cannot be expressed safely through ast-grep/custom registered grammars, a direct Tree-sitter provider requires a separate measured design justification. Direct embedding would make ShellBeam own grammar lifecycle, native/C binding concerns, node/query lifetime, query compatibility, and language packaging.
 
 Tree-sitter results are syntax/structure observations. They cannot infer semantic definitions/references/types merely because identifiers have matching text.
 
@@ -456,12 +469,12 @@ code_intelligence:
       kind: lsp
       executable: gopls
       status: available
-      queries: [diagnostics, symbols, definition, references, imports, type_info, callers, callees]
+      queries: [diagnostics, symbols, definition, references, import_declarations, resolved_import_targets, type_definition, type_summary, callers, callees]
       side_effect_profile: [workspace_read, local_cache_write, child_tool_execution, network_possible]
     structural:
       kind: astgrep
       status: optional_available
-      queries: [outline, imports, structural_facts]
+      queries: [outline, import_declarations, structural_facts]
     scip:
       kind: index
       status: unavailable
@@ -507,21 +520,29 @@ This path is covered by the umbrella global incremental admission benchmark.
 
 ### 21.2 Explicit code-intelligence query
 
-Every query has:
+Every query/provider family has a bounded input/output/work envelope:
 
 ```text
 startup/query wall budget
+max selected files
+max selected source bytes
 max result records
 max response bytes
-provider concurrency limit
+max concurrent in-flight requests
+bounded pending queue depth
 cancellation deadline
+provider restart attempts per window
+provider crash-loop cooldown
+resource observation/enforcement quality
 ```
 
-A cold semantic provider may return `starting/indexing` plus a retryable observation handle instead of blocking beyond budget. A warm provider query should be measured independently per language/reference repository; numeric language-specific p95 targets are frozen in implementation planning only after baseline benchmarks because provider cold/warm costs differ materially.
+Backpressure is explicit: when the in-flight/queue budget is full, ShellBeam returns a bounded retryable `provider_busy` status rather than accumulating unbounded requests. Repeated provider failure enters a cooldown/unhealthy state instead of an infinite restart loop. A cold semantic provider may return `starting/indexing` plus a retryable observation handle instead of blocking beyond budget. A warm provider query should be measured independently per language/reference repository; numeric language-specific p95 targets are frozen in implementation planning only after baseline benchmarks because provider cold/warm costs differ materially.
+
+Memory/process-resource limits are advertised as **enforced only where the provider/platform can actually enforce them**. Otherwise ShellBeam reports observed/unknown quality and does not turn telemetry into a containment guarantee.
 
 ### 21.3 Persistent provider capacity
 
-Provider instances are bounded globally/per-workspace with idle TTL/LRU-like eviction that never kills an instance while an owned request is executing. Eviction affects only semantic-observation cache/lifecycle, not command sessions or evidence.
+Provider instances are bounded globally/per-workspace with idle TTL/LRU-like eviction that never kills an instance while an owned request is executing. Per-provider restart rate/cooldown and bounded request queues prevent crash-loop or backlog amplification. Eviction affects only semantic-observation cache/lifecycle, not command sessions or evidence.
 
 ## 22. Privacy and security
 
@@ -530,6 +551,7 @@ E29 provider processes may read source code locally because semantic analysis re
 Rules:
 
 - diagnostic messages/signatures/docs are bounded and source snippets are omitted by default;
+- E29 does not expose a new deterministic per-file content hash solely to identify a source location; public source identity uses opaque `source_ref_id` handles while predecessor namespace-level source digests retain their existing semantics;
 - external/home/system paths are classified/redacted under the workspace privacy contract;
 - raw environment values/credentials are never copied into code-intelligence records;
 - provider side-effect/network capability is visible before explicit startup where practical;
@@ -554,6 +576,12 @@ code_intelligence_result_stale
 code_intelligence_source_changed_during_query
 code_intelligence_build_config_incomplete
 code_intelligence_position_invalid
+location_not_resolved
+source_ref_expired
+source_ref_unavailable
+unsupported_source_encoding
+code_intelligence_provider_busy
+code_intelligence_provider_cooldown
 code_intelligence_index_stale
 code_intelligence_index_unavailable
 ```
@@ -635,7 +663,7 @@ It never contains hidden editor conversation state or a narrative recommendation
 On native macOS and Linux reference repositories:
 
 - undefined symbol/type mismatch appears through E29 before running a build/test command;
-- definition/references/document symbols/type info return provider-backed locations/facts;
+- definition/references/document symbols/type-definition/type-summary return provider-backed locations/facts;
 - changed-file diagnostics remain bounded;
 - gopls cold start/indexing and warm reuse/cancellation/restart are exercised;
 - provider source/config/build fingerprints change when relevant configuration changes;
@@ -644,7 +672,7 @@ On native macOS and Linux reference repositories:
 
 ### 27.4 Structural-provider tests
 
-For ast-grep-backed read-only structural facts:
+For ast-grep-backed query-only structural facts:
 
 - JSON/streaming parser obeys record/byte budgets;
 - syntax-error-tolerant files return honestly scoped structure where supported;
@@ -666,6 +694,10 @@ For ast-grep-backed read-only structural facts:
 - provider crash cannot corrupt operation/receipt/evidence state;
 - query cancellation/timeout reclaims request resources;
 - provider instance count/idle eviction remains bounded;
+- bounded queue/backpressure rejects overload without unbounded accumulation;
+- repeated provider crashes enter restart cooldown/unhealthy state rather than restart indefinitely;
+- selected-file/source-byte input envelopes are enforced;
+- memory/process resource claims distinguish enforced from observed/unavailable quality;
 - no active provider request is killed by cache eviction;
 - automatically derived semantic result uses deterministic derivation identity across retry/materialization.
 
@@ -674,14 +706,14 @@ For ast-grep-backed read-only structural facts:
 E29A/E29B are core-ready only when:
 
 1. An agent can request changed-file semantic diagnostics in one model-oriented inspect call without running a build/test command.
-2. Definition/references/symbols/imports/type information are available through a small provider-neutral vocabulary where the selected provider supports them.
+2. Definition/references/symbols/import declarations/resolved import targets/type definition/type summary are available through a small provider-neutral vocabulary where the selected provider supports them.
 3. The agent never speaks LSP/JSON-RPC, manages document versions/URIs, or traverses AST node IDs on the normal path.
-4. Every result carries provider/source/build-config freshness/completeness sufficient to prevent stale or configuration-limited facts from being overclaimed.
+4. Every result carries provider/source/build-config freshness/completeness sufficient to prevent stale or configuration-limited facts from being overclaimed; canonical locations use never-rebound opaque `SourceRef` handles plus exact UTF-8 byte ranges, while unresolved provider targets remain a distinct closed-union member.
 5. E29 observations never become build/test/evidence truth merely by existing.
 6. Provider startup/indexing/absence/failure never blocks ordinary shell execution.
 7. Enabled-but-unused E29 performs zero provider/index/subprocess work on ordinary command admission.
 8. The first Go provider uses mature semantic tooling rather than a ShellBeam reimplementation of Go parsing/type checking/navigation.
-9. Structural fallback remains syntax-only/read-only and cannot masquerade as semantic symbol identity.
+9. Structural provider facts remain syntax-only/query-only and cannot masquerade as semantic symbol identity; direct Tree-sitter integration is deferred and is not an E29 v1 automatic fallback.
 10. SCIP/index consumption, if present, is optional and exact-source-bound; automatic full indexing is not a normal-loop requirement.
 11. Native macOS/Linux tests prove provider lifecycle, stale-source handling, cancellation, capacity, and bounded output.
 12. E29 does not expose source-edit/refactor mutation; the reasoning agent remains the code editor.
@@ -747,7 +779,7 @@ Production reference transport is LSP; gopls CLI/MCP may be development/prototyp
 - ast-grep JSON/streaming output: https://ast-grep.github.io/guide/tools/json.html
 - Tree-sitter: https://tree-sitter.github.io/tree-sitter/
 
-Prefer ast-grep as the first external read-only structural provider so ShellBeam does not self-implement grammars/query machinery. Direct Tree-sitter embedding is lower-level fallback only after a demonstrated requirement.
+Prefer ast-grep as the first external query-only structural provider so ShellBeam does not self-implement grammars/query machinery. Direct Tree-sitter consumption is deferred and requires a separate measured design justification; it is not an E29 v1 fallback.
 
 ### 30.4 Optional semantic index
 

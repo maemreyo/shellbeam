@@ -243,9 +243,11 @@ A diagnostic record is conceptually:
   "code": "compile",
   "message": "undefined: ServerInfo",
   "location": {
-    "path": "internal/adapter/service/service.go",
-    "line": 81,
-    "column": 12
+    "kind": "provider_reported",
+    "origin": "repository",
+    "sanitized_logical_path": "internal/adapter/service/service.go",
+    "provider_original_range": {"line": 81, "column": 12},
+    "normalization_quality": "partial"
   },
   "source_ref": {
     "output_ref": "out_...",
@@ -254,7 +256,7 @@ A diagnostic record is conceptually:
 }
 ```
 
-Concrete schemas use bounded strings, closed enums where stable, normalized paths when possible, and explicit unavailable states. Records never contain proposed changes, root-cause narratives, fix confidence, or remediation commands.
+Concrete schemas use bounded strings, closed enums where stable, the umbrella `SourceLocation` union for source positions, and explicit unavailable states. E22 may resolve a producer-reported location to `ResolvedSourceLocation` only from already-bound exact source provenance; it does not read arbitrary source solely to upgrade a location. Records never contain proposed changes, root-cause narratives, fix confidence, or remediation commands.
 
 ## 14. Result kinds
 
@@ -370,7 +372,7 @@ Pagination/selectors remain bounded and do not require returning the complete re
 
 ## 20. Source path and provenance safety
 
-Repository-owned result paths are normalized against the bound workspace. Paths escaping the workspace or referring to external/system locations are represented with explicit classification/redaction rather than blindly returned as trusted repo-relative paths.
+Repository-owned result paths are normalized against the bound workspace. Source positions use the umbrella closed `SourceLocation` union: an exact already-bound source representation may yield `ResolvedSourceLocation`; escaping/dependency/toolchain/external or otherwise unresolvable targets remain `ProviderReportedLocation` with explicit classification/redaction and are never given a fabricated canonical byte range.
 
 Structured-result records do not read source files merely to enrich a diagnostic. The reasoning agent can use the location to inspect source separately.
 
