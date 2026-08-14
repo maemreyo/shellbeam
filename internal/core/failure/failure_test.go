@@ -94,6 +94,15 @@ func TestFailurePublicCodeSet(t *testing.T) {
 		ManifestInvalid,
 		ManifestReviewRequired,
 		IdentityObservationFailed,
+		EventCursorInvalid,
+		EventCursorExpired,
+		EventContinuityUnavailable,
+		StructuredAdapterUnavailable,
+		StructuredAdapterUnsupported,
+		StructuredResultMalformed,
+		StructuredResultPartial,
+		StructuredResultBudgetExceeded,
+		StructuredResultNotFound,
 		Internal,
 	} {
 		if code == "" || code.Error() != string(code) {
