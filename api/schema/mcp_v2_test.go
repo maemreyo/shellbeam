@@ -11,6 +11,7 @@ func TestMCPV2SchemasValidateRealPayloads(t *testing.T) {
 	input := resolvedSchema(t, MCPInputV2)
 	validInputs := []map[string]any{
 		{"action": "start", "operation_id": "op", "command": "true", "cwd": "/tmp"},
+		{"action": "start", "operation_id": "op-argv", "argv": []any{"git", "status"}, "cwd": "/tmp", "intent": map[string]any{"kind": "inspect", "mutates_source": false, "external_effect": nil}},
 		{"action": "start", "operation_id": "op-ws", "command": "true", "workspace_id": "ws_01K00000000000000000000000", "cwd": "src", "workspace_hint": map[string]any{"branch": "main"}},
 		{"action": "start", "operation_id": "op-ws-default", "command": "true", "workspace_id": "ws_01K00000000000000000000000"},
 		{"action": "poll", "session_id": "s", "cursor": 0.0},
@@ -28,6 +29,10 @@ func TestMCPV2SchemasValidateRealPayloads(t *testing.T) {
 		{"action": "start", "operation_id": "op", "command": "true", "cwd": "/tmp", "session_id": "s"},
 		{"action": "start", "operation_id": "op", "command": "true", "workspace_id": "ws_01K00000000000000000000000", "cwd": "/tmp"},
 		{"action": "start", "operation_id": "op", "command": "true", "cwd": "relative"},
+		{"action": "start", "operation_id": "op", "command": "true", "argv": []any{"true"}, "cwd": "/tmp"},
+		{"action": "start", "operation_id": "op", "argv": []any{}, "cwd": "/tmp"},
+		{"action": "start", "operation_id": "op", "argv": []any{""}, "cwd": "/tmp"},
+		{"action": "start", "operation_id": "op", "argv": []any{"git"}, "cwd": "/tmp", "intent": map[string]any{"kind": "inspect", "extra": true}},
 	}
 	for _, payload := range invalidInputs {
 		if err := input.Validate(payload); err == nil {

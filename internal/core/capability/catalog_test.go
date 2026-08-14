@@ -28,8 +28,12 @@ func TestCatalogBaselineIsHonestAboutCurrentSupport(t *testing.T) {
 		t.Fatalf("limits=%#v want %#v", catalog.Limits, limits)
 	}
 	for _, feature := range TargetFeatures() {
-		if got := catalog.Features[feature]; got != Unavailable {
-			t.Fatalf("feature %s advertised as %s before implementation", feature, got)
+		want := Unavailable
+		if feature == FeatureArgvMode {
+			want = Available
+		}
+		if got := catalog.Features[feature]; got != want {
+			t.Fatalf("feature %s advertised as %s want %s", feature, got, want)
 		}
 	}
 }

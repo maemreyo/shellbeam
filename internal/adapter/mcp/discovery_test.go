@@ -263,3 +263,18 @@ func TestMCPV2WorkspaceAddressAndHintAreForwarded(t *testing.T) {
 		t.Fatalf("result=%#v request=%#v", res, fake.last)
 	}
 }
+
+func TestMCPV2ArgvIntentAreForwarded(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	fake := &discoveryClient{catalog: catalog}
+	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
+	defer closeSession()
+	args := json.RawMessage(`{"action":"start","operation_id":"op-argv-forward","argv":["git","status"],"cwd":"/tmp","intent":{"kind":"inspect"}}`)
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError || len(fake.last.Start.Argv) != 2 || fake.last.Start.Argv[0] != "git" || fake.last.Start.Intent == nil || fake.last.Start.Intent.Kind != "inspect" {
+		t.Fatalf("result=%#v request=%#v", res, fake.last)
+	}
+}

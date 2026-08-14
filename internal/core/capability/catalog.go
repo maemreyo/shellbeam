@@ -65,6 +65,7 @@ func Baseline(limits Limits) Catalog {
 	for _, feature := range targetFeatures {
 		features[feature] = Unavailable
 	}
+	features[FeatureArgvMode] = Available
 	return Catalog{
 		ProtocolVersion:       2,
 		ReceiptSchemaVersions: []int{1, 2},

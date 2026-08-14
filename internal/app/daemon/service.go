@@ -110,22 +110,16 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err != nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
 	}
-	if req.WorkspaceHint != nil {
-		if err := req.WorkspaceHint.Validate(); err != nil {
-			return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
-		}
+	if err := validateStartMetadata(req); err != nil {
+		return View{}, err
 	}
-	logicalIntent := operation.Intent{Command: req.Command, WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
+	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}
-	intent, err := s.resolveStartIntent(ctx, req)
+	reservation, spec, err := s.prepareStartReservation(ctx, req, id)
 	if err != nil {
 		return View{}, err
-	}
-	reservation, err := s.reservationForStart(req, id, intent)
-	if err != nil {
-		return View{}, invalidIntentFailure(err)
 	}
 	sid := newSessionID()
 	reservation.SessionID = operation.SessionID(sid)
@@ -147,7 +141,8 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	activityReq := req
 	activityReq.CWD = executionCWD
 	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation)
-	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: executionCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	spec.CWD = executionCWD
+	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	s.put(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
@@ -259,7 +254,13 @@ func (s *Service) waitLoop(l *liveSession) {
 	}
 	l.mu.Unlock()
 	rec := s.receiptFor(l, state, outcome)
-	rec.Shell = l.spec.Shell
+	rec.ExecutionMode = string(l.spec.Mode)
+	rec.Executable = l.spec.Executable
+	if l.spec.Mode == operation.ExecutionModeShell {
+		rec.Shell = l.spec.Shell
+	} else {
+		rec.Shell = ""
+	}
 	rec.CWD = l.spec.CWD
 	rec.TTY = l.spec.TTY
 	rec.TimeoutMS = l.spec.TimeoutMS

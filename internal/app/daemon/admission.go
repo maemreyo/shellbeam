@@ -27,7 +27,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if stored.EffectiveRequestFingerprint() != requestFingerprint {
 		return View{}, true, failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID}).Fingerprint()
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -42,7 +42,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
+	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
 	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -64,4 +64,39 @@ func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (ope
 	intent.CWD = resolved.LogicalCWD
 	intent.ResolvedCWD = resolved.CWD
 	return intent, nil
+}
+
+func validateStartMetadata(req StartRequest) error {
+	if req.WorkspaceHint != nil {
+		if err := req.WorkspaceHint.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
+		}
+	}
+	if req.Intent != nil {
+		if err := req.Intent.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
+		}
+	}
+	return nil
+}
+
+func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest, id operation.ID) (operation.Reservation, operation.ExecutionSpec, error) {
+	intent, err := s.resolveStartIntent(ctx, req)
+	if err != nil {
+		return operation.Reservation{}, operation.ExecutionSpec{}, err
+	}
+	mode, err := intent.ExecutionMode()
+	if err != nil {
+		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
+	}
+	executionCWD := intent.ResolvedCWD
+	if executionCWD == "" {
+		executionCWD = req.CWD
+	}
+	spec := bindExecution(s.owner, operation.ExecutionSpec{Mode: mode, Shell: s.options.Shell, Command: req.Command, Argv: append([]string(nil), req.Argv...), CWD: executionCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS})
+	reservation, err := s.reservationForStart(req, id, intent, spec)
+	if err != nil {
+		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
+	}
+	return reservation, spec, nil
 }

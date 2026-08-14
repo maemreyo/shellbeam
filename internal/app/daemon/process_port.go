@@ -13,6 +13,26 @@ type OutputSink interface {
 type ProcessOwner interface {
 	Start(context.Context, operation.ExecutionSpec, OutputSink) (ProcessHandle, receipt.SpawnEvidence, error)
 }
+
+type ExecutionBinder interface {
+	BindExecution(operation.ExecutionSpec) operation.ExecutionSpec
+}
+
+func bindExecution(owner ProcessOwner, spec operation.ExecutionSpec) operation.ExecutionSpec {
+	if binder, ok := owner.(ExecutionBinder); ok {
+		return binder.BindExecution(spec)
+	}
+	if spec.Mode == "" {
+		spec.Mode = operation.ExecutionModeShell
+	}
+	if spec.Mode == operation.ExecutionModeShell {
+		spec.Executable = spec.Shell
+	} else if len(spec.Argv) > 0 {
+		spec.Executable = spec.Argv[0]
+	}
+	return spec
+}
+
 type ProcessHandle interface {
 	Write([]byte) error
 	CloseStdin() error

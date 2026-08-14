@@ -99,6 +99,12 @@ func abandonedReceipt(snap session.Snapshot, reservation operation.Reservation, 
 		rec.RequestFingerprint = reservation.RequestFingerprint
 		rec.ExecutionFingerprint = reservation.ExecutionFingerprint
 		rec.ObservationBindingFingerprint = reservation.ObservationBindingFingerprint
+		rec.ExecutionMode = string(reservation.ExecutionMode)
+		rec.Executable = reservation.Executable
+		rec.Shell = reservation.Shell
+		rec.CWD = reservation.CWD
+		rec.TTY = reservation.TTY
+		rec.TimeoutMS = reservation.TimeoutMS
 		return rec
 	}
 	rec.Fingerprint = reservation.Fingerprint

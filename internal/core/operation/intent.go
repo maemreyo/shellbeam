@@ -11,19 +11,27 @@ import (
 )
 
 type Intent struct {
-	Command        string `json:"command"`
-	WorkspaceID    string `json:"workspace_id,omitempty"`
-	CWD            string `json:"cwd"`
-	ResolvedCWD    string `json:"-"`
-	TTY            bool   `json:"tty"`
-	TimeoutMS      int64  `json:"timeout_ms"`
-	YieldMS        int64  `json:"-"`
-	MaxOutputBytes int    `json:"-"`
+	Command        string   `json:"command,omitempty"`
+	Argv           []string `json:"argv,omitempty"`
+	WorkspaceID    string   `json:"workspace_id,omitempty"`
+	CWD            string   `json:"cwd"`
+	ResolvedCWD    string   `json:"-"`
+	TTY            bool     `json:"tty"`
+	TimeoutMS      int64    `json:"timeout_ms"`
+	YieldMS        int64    `json:"-"`
+	MaxOutputBytes int      `json:"-"`
 }
 
 func (i Intent) Fingerprint() (string, error) {
 	if i.WorkspaceID != "" {
 		return "", fmt.Errorf("workspace addressing requires v2")
+	}
+	mode, err := i.ExecutionMode()
+	if err != nil {
+		return "", err
+	}
+	if mode != ExecutionModeShell {
+		return "", fmt.Errorf("argv execution requires v2")
 	}
 	if err := i.validateCommon(); err != nil {
 		return "", err
@@ -35,6 +43,10 @@ func (i Intent) Fingerprint() (string, error) {
 }
 
 func (i Intent) RequestFingerprint() (string, error) {
+	mode, err := i.ExecutionMode()
+	if err != nil {
+		return "", err
+	}
 	if err := i.validateCommon(); err != nil {
 		return "", err
 	}
@@ -42,12 +54,20 @@ func (i Intent) RequestFingerprint() (string, error) {
 	if err := address.Validate(); err != nil {
 		return "", err
 	}
-	return hashIntent(2, "request", i.Command, i.WorkspaceID, address.LogicalCWD(), i.TTY, i.TimeoutMS, "")
+	logicalCWD := address.LogicalCWD()
+	if mode == ExecutionModeShell {
+		return hashIntent(2, "request", i.Command, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "")
+	}
+	return hashArgvIntent(3, "request", i.Argv, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "")
 }
 
-func (i Intent) ExecutionFingerprint(shell string) (string, error) {
-	if shell == "" {
-		return "", fmt.Errorf("shell is empty")
+func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error) {
+	if effectiveExecutable == "" {
+		return "", fmt.Errorf("effective executable is empty")
+	}
+	mode, err := i.ExecutionMode()
+	if err != nil {
+		return "", err
 	}
 	if err := i.validateCommon(); err != nil {
 		return "", err
@@ -59,12 +79,15 @@ func (i Intent) ExecutionFingerprint(shell string) (string, error) {
 	if !filepath.IsAbs(cwd) {
 		return "", fmt.Errorf("resolved cwd must be absolute")
 	}
-	return hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, shell)
+	if mode == ExecutionModeShell {
+		return hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable)
+	}
+	return hashArgvIntent(3, "execution", i.Argv, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable)
 }
 
 func (i Intent) validateCommon() error {
-	if i.Command == "" {
-		return fmt.Errorf("command is empty")
+	if _, err := i.ExecutionMode(); err != nil {
+		return err
 	}
 	if i.TimeoutMS < 0 {
 		return fmt.Errorf("timeout must be non-negative")
@@ -91,17 +114,33 @@ func hashIntent(version int, kind, command, workspaceID, cwd string, tty bool, t
 }
 
 type ObservationBinding struct {
-	ActivityID string `json:"activity_id,omitempty"`
+	ActivityID string          `json:"activity_id,omitempty"`
+	Intent     *DeclaredIntent `json:"intent,omitempty"`
 }
 
 func (b ObservationBinding) Fingerprint() (string, error) {
-	if b.ActivityID == "" {
-		return "", nil
+	if b.Intent == nil {
+		if b.ActivityID == "" {
+			return "", nil
+		}
+		data, err := json.Marshal(struct {
+			Version    int    `json:"version"`
+			ActivityID string `json:"activity_id,omitempty"`
+		}{Version: 1, ActivityID: b.ActivityID})
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:]), nil
+	}
+	if err := b.Intent.Validate(); err != nil {
+		return "", err
 	}
 	data, err := json.Marshal(struct {
-		Version    int    `json:"version"`
-		ActivityID string `json:"activity_id,omitempty"`
-	}{Version: 1, ActivityID: b.ActivityID})
+		Version    int            `json:"version"`
+		ActivityID string         `json:"activity_id,omitempty"`
+		Intent     DeclaredIntent `json:"intent"`
+	}{Version: 2, ActivityID: b.ActivityID, Intent: *b.Intent})
 	if err != nil {
 		return "", err
 	}

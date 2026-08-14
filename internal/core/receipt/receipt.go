@@ -31,6 +31,8 @@ type Receipt struct {
 	ExecutionFingerprint          string               `json:"execution_fingerprint,omitempty"`
 	ObservationBindingFingerprint string               `json:"observation_binding_fingerprint,omitempty"`
 	DaemonIncarnation             string               `json:"daemon_incarnation"`
+	ExecutionMode                 string               `json:"execution_mode,omitempty"`
+	Executable                    string               `json:"executable,omitempty"`
 	State                         session.State        `json:"state"`
 	Outcome                       session.Outcome      `json:"outcome"`
 	Shell                         string               `json:"shell,omitempty"`

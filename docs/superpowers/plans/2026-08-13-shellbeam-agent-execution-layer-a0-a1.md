@@ -811,19 +811,19 @@ or:
 
 Intent is a closed optional object with `kind`, nullable/optional `mutates_source`, and nullable/optional `external_effect`. Omitted means unknown, not false.
 
-- [ ] **Step 1: Write failing process and schema tests**
+- [x] **Step 1: Write failing process and schema tests**
 
 Cover exact argv boundaries containing spaces, quotes, wildcard characters, empty argument, Unicode, and dash-prefixed values; missing/empty argv; command+argv conflict; PTY and pipe modes; cancellation; process groups; environment inheritance; failed executable lookup; and direct-argv receipt fields.
 
 Test intent enum/unknown fields and prove intent never grants authority or changes execution semantics.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/operation ./internal/adapter/process ./internal/app/daemon ./api/schema -run 'TestArgv|TestExecutionMode|TestIntent|TestFingerprints' -count=1
 ```
 
-- [ ] **Step 3: Implement without shell conversion**
+- [x] **Step 3: Implement without shell conversion**
 
 Use `exec.CommandContext`/existing process-group ownership with `argv[0]` and `argv[1:]`. Never join argv into a shell command or parse a shell command into argv. Preserve the existing configured-shell path unchanged.
 
@@ -835,7 +835,7 @@ Compute:
 
 Exclude yield, cursor, output selectors, response byte limits, and `workspace_hint`.
 
-- [ ] **Step 4: Verify and commit**
+- [x] **Step 4: Verify and commit**
 
 ```bash
 go test ./internal/core/operation ./internal/adapter/process ./internal/app/daemon ./internal/core/receipt ./api/schema -count=1

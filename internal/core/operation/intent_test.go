@@ -109,3 +109,110 @@ func TestAddressRequestFingerprintRejectsMixedOrEscapingAddress(t *testing.T) {
 		}
 	}
 }
+
+func TestArgvFingerprintsPreserveBoundariesAndExecutionBinding(t *testing.T) {
+	intent := Intent{Argv: []string{"tool", "a b", "\"quoted\"", "*", "", "日本語", "--flag"}, CWD: "/tmp", TTY: true, TimeoutMS: 10}
+	requestA, err := intent.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := intent
+	changed.Argv = append([]string(nil), intent.Argv...)
+	changed.Argv[1] = "a  b"
+	requestB, err := changed.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestA == requestB {
+		t.Fatal("argv boundary change did not change request fingerprint")
+	}
+	shell := Intent{Command: `tool a-b quoted wildcard empty unicode flag`, CWD: "/tmp", TTY: true, TimeoutMS: 10}
+	shellRequest, err := shell.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestA == shellRequest {
+		t.Fatal("argv and shell modes shared request fingerprint")
+	}
+	execA, err := intent.ExecutionFingerprint("/usr/bin/tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	execB, err := intent.ExecutionFingerprint("/opt/tool")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if execA == execB {
+		t.Fatal("effective executable did not change execution fingerprint")
+	}
+	if got, err := intent.ExecutionMode(); err != nil || got != ExecutionModeArgv {
+		t.Fatalf("mode=%q err=%v", got, err)
+	}
+}
+
+func TestShellV2FingerprintsRemainUpgradeCompatible(t *testing.T) {
+	intent := Intent{Command: "printf hi", CWD: "/tmp", TTY: true, TimeoutMS: 10}
+	request, err := intent.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	execution, err := intent.ExecutionFingerprint("/bin/sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request != "6d920130b300c6bf7487d8734fcb7094390e29f1571be28a4ea79d62d86a7ff9" {
+		t.Fatalf("request=%s", request)
+	}
+	if execution != "cf903dfb875d0c2fd1c409ce69e70aad11801d426dc6d028e437ce9f65d2f3e4" {
+		t.Fatalf("execution=%s", execution)
+	}
+}
+
+func TestArgvExecutionFormValidation(t *testing.T) {
+	invalid := []Intent{
+		{CWD: "/tmp"},
+		{Argv: []string{}, CWD: "/tmp"},
+		{Argv: []string{""}, CWD: "/tmp"},
+		{Command: "true", Argv: []string{"true"}, CWD: "/tmp"},
+	}
+	for _, got := range invalid {
+		if _, err := got.RequestFingerprint(); err == nil {
+			t.Fatalf("intent %#v accepted", got)
+		}
+	}
+	if _, err := (Intent{Argv: []string{"printf", ""}, CWD: "/tmp"}).RequestFingerprint(); err != nil {
+		t.Fatalf("empty nonzero argv element rejected: %v", err)
+	}
+}
+
+func TestDeclaredIntentIsObservationMetadataOnly(t *testing.T) {
+	yes, no := true, false
+	declared := &DeclaredIntent{Kind: IntentKindTest, MutatesSource: &no, ExternalEffect: &yes}
+	if err := declared.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&DeclaredIntent{Kind: "unknown-kind"}).Validate(); err == nil {
+		t.Fatal("unknown intent kind accepted")
+	}
+	a, err := (ObservationBinding{ActivityID: "a", Intent: declared}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := (ObservationBinding{ActivityID: "a", Intent: &DeclaredIntent{Kind: IntentKindTest, MutatesSource: &no, ExternalEffect: &no}}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := (ObservationBinding{ActivityID: "a"}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a == b || a == legacy {
+		t.Fatalf("observation fingerprints not distinct: %s %s %s", a, b, legacy)
+	}
+	base := Intent{Command: "true", CWD: "/tmp"}
+	requestA, _ := base.RequestFingerprint()
+	requestB, _ := base.RequestFingerprint()
+	if requestA != requestB {
+		t.Fatal("declared intent changed request semantics")
+	}
+}

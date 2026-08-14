@@ -28,7 +28,11 @@ type ptyHandle struct {
 
 func startPTY(spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
 	spawn := receipt.SpawnEvidence{Attempted: true}
-	cmd := exec.Command(spec.Shell, "-lc", spec.Command)
+	cmd, code, err := commandFor(spec)
+	if err != nil {
+		spawn.ErrorCode = code
+		return nil, spawn, err
+	}
 	cmd.Dir = spec.CWD
 	terminal, err := pty.Start(cmd)
 	if err != nil {

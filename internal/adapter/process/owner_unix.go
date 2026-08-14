@@ -34,11 +34,11 @@ func (Owner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.Out
 		return startPTY(spec, sink)
 	}
 	spawn := receipt.SpawnEvidence{Attempted: true}
-	if spec.Shell == "" || spec.Command == "" {
-		spawn.ErrorCode = "invalid_execution_spec"
-		return nil, spawn, errors.New(spawn.ErrorCode)
+	cmd, code, err := commandFor(spec)
+	if err != nil {
+		spawn.ErrorCode = code
+		return nil, spawn, err
 	}
-	cmd := exec.Command(spec.Shell, "-lc", spec.Command)
 	cmd.Dir = spec.CWD
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdinR, stdinW, err := os.Pipe()

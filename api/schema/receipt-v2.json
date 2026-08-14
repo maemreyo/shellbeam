@@ -35,6 +35,8 @@
     "execution_fingerprint": {"type": "string", "minLength": 1},
     "observation_binding_fingerprint": {"type": "string", "minLength": 1},
     "daemon_incarnation": {"type": "string", "minLength": 1},
+    "execution_mode": {"enum": ["shell", "argv"]},
+    "executable": {"type": "string", "minLength": 1},
     "state": {"enum": ["starting", "running", "finalizing", "completed", "failed", "timed_out", "killed", "abandoned"]},
     "outcome": {"enum": ["", "success", "failure", "timeout", "killed", "ambiguous"]},
     "shell": {"type": "string"},

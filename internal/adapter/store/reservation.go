@@ -81,6 +81,20 @@ func validateReservation(v operation.Reservation) error {
 		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
 			return fmt.Errorf("invalid reservation")
 		}
+		switch v.ExecutionMode {
+		case "":
+			// Legacy v2 reservation written before explicit execution-mode binding.
+		case operation.ExecutionModeShell:
+			if v.Command == "" || len(v.Argv) != 0 || v.Shell == "" || v.Executable == "" {
+				return fmt.Errorf("invalid reservation")
+			}
+		case operation.ExecutionModeArgv:
+			if len(v.Argv) == 0 || v.Argv[0] == "" || v.Command != "" || v.Shell != "" || v.Executable == "" {
+				return fmt.Errorf("invalid reservation")
+			}
+		default:
+			return fmt.Errorf("invalid reservation")
+		}
 	default:
 		return fmt.Errorf("invalid reservation")
 	}

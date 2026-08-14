@@ -11,23 +11,25 @@ import (
 )
 
 type input struct {
-	Action         string          `json:"action"`
-	OperationID    string          `json:"operation_id,omitempty"`
-	WorkspaceID    string          `json:"workspace_id,omitempty"`
-	WorkspaceHint  *workspace.Hint `json:"workspace_hint,omitempty"`
-	Command        string          `json:"command,omitempty"`
-	CWD            string          `json:"cwd,omitempty"`
-	TTY            bool            `json:"tty,omitempty"`
-	YieldMS        int64           `json:"yield_time_ms,omitempty"`
-	TimeoutMS      int64           `json:"timeout_ms,omitempty"`
-	MaxOutputBytes int             `json:"max_output_bytes,omitempty"`
-	SessionID      string          `json:"session_id,omitempty"`
-	Cursor         int64           `json:"cursor,omitempty"`
-	InputOffset    int64           `json:"input_offset,omitempty"`
-	Chars          string          `json:"chars,omitempty"`
-	EOF            bool            `json:"eof,omitempty"`
-	KillID         string          `json:"kill_id,omitempty"`
-	Signal         string          `json:"signal,omitempty"`
+	Action         string                    `json:"action"`
+	OperationID    string                    `json:"operation_id,omitempty"`
+	WorkspaceID    string                    `json:"workspace_id,omitempty"`
+	WorkspaceHint  *workspace.Hint           `json:"workspace_hint,omitempty"`
+	Command        string                    `json:"command,omitempty"`
+	Argv           []string                  `json:"argv,omitempty"`
+	Intent         *operation.DeclaredIntent `json:"intent,omitempty"`
+	CWD            string                    `json:"cwd,omitempty"`
+	TTY            bool                      `json:"tty,omitempty"`
+	YieldMS        int64                     `json:"yield_time_ms,omitempty"`
+	TimeoutMS      int64                     `json:"timeout_ms,omitempty"`
+	MaxOutputBytes int                       `json:"max_output_bytes,omitempty"`
+	SessionID      string                    `json:"session_id,omitempty"`
+	Cursor         int64                     `json:"cursor,omitempty"`
+	InputOffset    int64                     `json:"input_offset,omitempty"`
+	Chars          string                    `json:"chars,omitempty"`
+	EOF            bool                      `json:"eof,omitempty"`
+	KillID         string                    `json:"kill_id,omitempty"`
+	Signal         string                    `json:"signal,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -67,8 +69,16 @@ func validateV2(v input) error {
 	if v.Action != "start" {
 		return validateV1(v)
 	}
-	if v.OperationID == "" || v.Command == "" {
-		return fmt.Errorf("start requires operation_id and command")
+	if v.OperationID == "" {
+		return fmt.Errorf("start requires operation_id")
+	}
+	if _, err := (operation.Intent{Command: v.Command, Argv: v.Argv}).ExecutionMode(); err != nil {
+		return err
+	}
+	if v.Intent != nil {
+		if err := v.Intent.Validate(); err != nil {
+			return err
+		}
 	}
 	if _, err := operation.ParseID(v.OperationID); err != nil {
 		return err
@@ -165,7 +175,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "workspace_hint", "command", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "workspace_hint", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":

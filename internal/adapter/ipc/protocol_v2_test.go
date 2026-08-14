@@ -135,3 +135,18 @@ func TestIPCV2WorkspaceAddressAndHintContract(t *testing.T) {
 		}
 	}
 }
+
+func TestIPCV2ArgvIntentContract(t *testing.T) {
+	raw := []byte(`{"ipc_version":2,"kind":"request","request_id":"x","action":"start","operation_id":"op","argv":["git","status"],"cwd":"/tmp","intent":{"kind":"inspect"}}`)
+	got, err := decodeRequestV2(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Argv) != 2 || got.Argv[0] != "git" || got.Intent == nil || got.Intent.Kind != "inspect" {
+		t.Fatalf("decoded=%#v", got)
+	}
+	bad := []byte(`{"ipc_version":2,"kind":"request","request_id":"x","action":"start","operation_id":"op","command":"true","argv":["true"],"cwd":"/tmp"}`)
+	if _, err := decodeRequestV2(bytes.NewReader(bad)); !errors.Is(err, failure.InvalidInput) {
+		t.Fatalf("err=%v", err)
+	}
+}

@@ -21,7 +21,13 @@ func TestV2PersistedSchemasAreClosedAndSeparateFingerprints(t *testing.T) {
 				"observation_binding_fingerprint": "obs", "workspace_id": "ws_01K00000000000000000000000", "logical_cwd": "src", "command": "true", "cwd": "/tmp/src",
 				"tty": false, "timeout_ms": 0.0, "shell": "/bin/sh", "daemon_incarnation": "d",
 				"control_reservation_bytes": 0.0, "created_at": "2026-08-13T00:00:00Z",
-			}},
+			}, {
+				"schema_version": 2.0, "operation_id": "op-argv", "session_id": "s-argv",
+				"request_fingerprint": "req-a", "execution_fingerprint": "exec-a", "execution_mode": "argv", "executable": "/bin/echo",
+				"argv": []any{"/bin/echo", "hi"}, "cwd": "/tmp", "tty": false, "timeout_ms": 0.0, "daemon_incarnation": "d",
+				"control_reservation_bytes": 0.0, "created_at": "2026-08-13T00:00:00Z",
+			},
+			},
 			invalid: []map[string]any{
 				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "execution_fingerprint": "exec", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},
 				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "request_fingerprint": "req", "execution_fingerprint": "exec", "fingerprint": "legacy", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},

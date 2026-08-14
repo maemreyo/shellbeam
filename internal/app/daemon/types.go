@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -16,17 +17,19 @@ type Options struct {
 	Capabilities        capability.Catalog
 }
 type StartRequest struct {
-	ProtocolVersion int             `json:"-"`
-	OperationID     string          `json:"operation_id"`
-	ActivityID      string          `json:"activity_id,omitempty"`
-	WorkspaceID     string          `json:"workspace_id,omitempty"`
-	WorkspaceHint   *workspace.Hint `json:"workspace_hint,omitempty"`
-	Command         string          `json:"command"`
-	CWD             string          `json:"cwd"`
-	TTY             bool            `json:"tty"`
-	TimeoutMS       int64           `json:"timeout_ms"`
-	YieldMS         int64           `json:"yield_time_ms"`
-	MaxOutputBytes  int             `json:"max_output_bytes"`
+	ProtocolVersion int                       `json:"-"`
+	OperationID     string                    `json:"operation_id"`
+	ActivityID      string                    `json:"activity_id,omitempty"`
+	WorkspaceID     string                    `json:"workspace_id,omitempty"`
+	WorkspaceHint   *workspace.Hint           `json:"workspace_hint,omitempty"`
+	Command         string                    `json:"command,omitempty"`
+	Argv            []string                  `json:"argv,omitempty"`
+	Intent          *operation.DeclaredIntent `json:"intent,omitempty"`
+	CWD             string                    `json:"cwd"`
+	TTY             bool                      `json:"tty"`
+	TimeoutMS       int64                     `json:"timeout_ms"`
+	YieldMS         int64                     `json:"yield_time_ms"`
+	MaxOutputBytes  int                       `json:"max_output_bytes"`
 }
 type PollRequest struct {
 	SessionID      string `json:"session_id"`

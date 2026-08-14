@@ -86,6 +86,8 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.WorkspaceID = in.Start.WorkspaceID
 		req.WorkspaceHint = in.Start.WorkspaceHint
 		req.Command = in.Start.Command
+		req.Argv = append([]string(nil), in.Start.Argv...)
+		req.Intent = in.Start.Intent
 		req.CWD = in.Start.CWD
 		req.TTY = in.Start.TTY
 		req.TimeoutMS = in.Start.TimeoutMS
