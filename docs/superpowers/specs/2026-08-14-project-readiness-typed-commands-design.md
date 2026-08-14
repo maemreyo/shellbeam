@@ -35,9 +35,11 @@ Requirements and typed parameter definitions require Project Manifest schema v2.
 
 - v2 readers accept valid v1 fixed commands unchanged.
 - v1 readers encountering v2 report `unsupported` and preserve bytes.
+- same-version unknown fields fail closed schema validation as `invalid`; preservation does **not** mean acceptance.
+- a newer unsupported major or negotiated extension that the reader does not understand is `unsupported`, not partially interpreted.
+- onboarding/writers preserve invalid/unsupported unknown bytes rather than stripping fields during an attempted rewrite.
 - a newer daemon does not rewrite/upgrade a v1 manifest automatically.
 - onboarding upgrades only when the capability has concrete benefit, source evidence is strong, and the active request permits repository edits.
-- unknown extensions/newer versions are preserved rather than rewritten.
 
 The manifest digest remains part of command/evidence provenance.
 
@@ -188,11 +190,11 @@ Each bound parameter produces exactly one argv token and never shell syntax. If 
 
 ### 20.1 `string`
 
-A bounded UTF-8/NUL-free scalar producing one argv token. It has no path/package semantics.
+A bounded UTF-8 argv token. It is not shell-interpolated. Because argv integrity does not imply CLI semantic safety, textual positional parameters default to rejecting a leading `-` unless the manifest explicitly sets a lexical policy allowing it.
 
 ### 20.2 `enum`
 
-The value exactly matches one member of a bounded manifest-declared set and binds to that canonical member.
+The value exactly matches one member of a bounded manifest-declared set and binds to that canonical member. An enum may intentionally contain option-like tokens because the allowed vocabulary is explicit.
 
 ### 20.3 `integer`
 
@@ -200,11 +202,17 @@ A bounded integer validated numerically and serialized as canonical base-10.
 
 ### 20.4 `repo_path`
 
-A repository-relative normalized path that cannot escape the bound workspace through `..` or followed symlink. The parameter schema declares whether existence is required rather than leaving the binder to guess.
+A repository-relative token validated under the binder's **binding-time observation contract**: normalization, `..` rejection, declared existence rule, and observed symlink/workspace-root relationship are checked before spawn. The resulting provenance records source generation/path-observation quality.
+
+This is address integrity at binding time, not filesystem confinement. A concurrent actor may change the path after validation, and the child executable ultimately decides how to interpret argv and what filesystem paths it opens. Runtime confinement requires a separate sandbox/FD-based provider contract and is not claimed by E28.
+
+Path-like positional parameters reject leading `-` by default so a caller cannot accidentally turn a positional path into a CLI option. A manifest may explicitly opt into an option-like lexical policy when that is genuinely the canonical command contract.
 
 ### 20.5 `repo_package`
 
-A provider-backed repository package/module identifier with language/toolchain-specific validation. Capability discovery reports providers. If the provider is unavailable, binding returns `parameter_validation_unavailable`; it never downgrades to raw string.
+A provider-backed package/module identifier with language/toolchain-specific validation. Capability discovery reports providers. If the provider is unavailable, binding returns `parameter_validation_unavailable`; it never downgrades to raw string. Package-like values reject leading `-` unless the provider/manifest contract explicitly allows it.
+
+The provider validates syntax/address membership; it does not execute arbitrary package managers/build systems on the hot binding path.
 
 ## 21. Defaults and optional parameters
 
@@ -222,9 +230,9 @@ Projects needing structurally different invocations define separate command IDs.
 
 Fixed shell commands remain valid under manifest v2. Parameterized shell commands are invalid. ShellBeam does not define quoting/interpolation rules for repository-controlled command templates.
 
-## 23. Start request and binding
+## 23. Start request, retry-first lookup, and first-admission binding
 
-Conceptual call:
+Conceptual first call remains:
 
 ```json
 {
@@ -232,25 +240,38 @@ Conceptual call:
   "operation_id": "op_...",
   "workspace_id": "ws_...",
   "project_command_id": "test_package",
-  "params": {
-    "package": "./internal/runtime"
-  }
+  "params": {"package": "./internal/runtime"}
 }
 ```
 
-Binding order is deterministic:
+The idempotency order is normative and matches the predecessor operation contract:
 
-1. resolve the originally bound workspace/repository source view;
-2. load/validate exact active manifest version/digest;
-3. resolve command by ID;
-4. reject shell-form parameterization;
-5. validate supplied parameter names/count/types;
-6. bind whole argv tokens and command cwd;
-7. freeze command/manifest/params/resolved-argv metadata;
-8. compute fingerprints under existing idempotency rules;
-9. admit/spawn through ordinary direct-argv semantics.
+```text
+receive request
+  ↓
+compute caller-stable typed_request_fingerprint
+  ↓
+lookup operation_id BEFORE workspace/manifest/provider reads
+  ├─ exists
+  │    compare caller-stable fingerprint
+  │    replay frozen operation/binding or return operation_conflict
+  │
+  └─ absent
+       durably reserve operation intent/fingerprint
+       resolve logical workspace/cwd
+       load/validate exact manifest
+       resolve project command
+       validate params/provider/lexical policies
+       bind argv/cwd
+       freeze execution + observation binding
+       admit/spawn
+```
 
-No process spawns before binding succeeds.
+`typed_request_fingerprint` contains only caller-stable intent: logical workspace address or exact absolute address where applicable, project command ID, canonical caller parameters/default semantics, TTY, timeout, and explicit execution options. It does **not** contain current manifest digest, provider-derived validation results, provider version, resolved cwd, or resolved argv.
+
+Those resolved facts belong to the frozen first-admission execution/observation binding. Therefore a lost-response retry still replays even if the worktree moved, manifest was deleted/changed, or a package validator/provider was upgraded/unavailable after admission.
+
+No process spawns before first-admission binding succeeds. Existing-operation replay does not need binding to succeed again.
 
 ## 24. Receipt and provenance binding
 
@@ -271,11 +292,13 @@ Operation/receipt metadata records a bounded binding such as:
 
 The binding can be referenced by evidence, telemetry, and reproduction capsules. This parameter system is not intended for secret values.
 
-## 25. Retry and manifest-change semantics
+## 25. Retry and manifest/provider-change semantics
 
-The first accepted operation freezes the binding. A retry with the same `operation_id` replays the original operation and never re-resolves a newer manifest/workspace into a different invocation. Conflicting retry metadata/params returns the existing operation-conflict semantics and never spawns again.
+The first accepted operation freezes the exact manifest digest, command definition, validator/provider identity where relevant, resolved cwd/argv, parameter binding, and observation metadata.
 
-A manifest change after admission cannot mutate old resolved argv, evidence provenance, telemetry, or repro records. A new invocation under the new manifest requires a new `operation_id`.
+A retry with the same `operation_id` performs caller-intent fingerprint validation from persisted data and replays the original operation **without re-reading current workspace/manifest/provider state**. A conflicting caller fingerprint returns `operation_conflict` and never spawns again.
+
+A manifest/source/provider upgrade after admission cannot mutate old resolved argv, evidence provenance, telemetry, code-intelligence associations, or repro records. A new invocation under new semantics requires a new `operation_id`.
 
 ## 26. Command graph boundary
 
@@ -321,13 +344,18 @@ Most missing/incompatible prerequisite observations belong inside a successful r
 
 ## 30. Performance budget
 
-Warm ordinary `start` that does not use a project command performs no readiness refresh. Project-command binding uses cached validated manifest state and bounded deterministic validation. Toolchain/executable probes are lazy/cached outside warm spawn. Package validators cannot execute arbitrary package managers/build systems on the spawn hot path; expensive validation must use an explicit bounded cache/inspection phase or report unavailable.
+Warm ordinary `start` that does not use a project command performs no readiness refresh or typed-command work.
+
+For a project-command first admission with valid caches, binding targets **p95 <= 10 ms incremental local work**, performs zero network access and zero subprocesses, and uses bounded deterministic manifest/parameter validation. This is a capability-specific bound inside the umbrella global admission ceiling, not an additive budget granted to every feature.
+
+Package validators cannot execute arbitrary package managers/build systems on the spawn hot path. Expensive validation uses an explicit cached/inspection phase or returns `parameter_validation_unavailable`. Existing-operation retry bypasses current manifest/provider resolution entirely.
 
 ## 31. Security/privacy requirements
 
-- Readiness never persists/exposes environment values.
+- Readiness never persists/exposes environment values or deterministic hashes of unknown secret values.
 - Parameter values obey ordinary command/receipt size/privacy rules; no secret parameter type exists.
-- `repo_path` rejects workspace/symlink escape under the workspace contract.
+- `repo_path`/`repo_package` provide bind-time lexical/address validation only and never claim sandbox confinement.
+- `argv` binding eliminates shell-template injection but does not by itself make arbitrary CLI tokens semantically safe; positional parameter kinds default to rejecting option-shaped leading `-` tokens unless explicitly allowed.
 - Project data cannot request installation or privilege-changing behavior through readiness metadata.
 - Typed binding never invokes a shell to expand parameters.
 
@@ -335,60 +363,55 @@ Warm ordinary `start` that does not use a project command performs no readiness 
 
 ### 32.1 Manifest v1/v2 tests
 
-- valid v1 fixed commands remain valid under v2 reader;
-- v1 reader rejects/preserves v2 as unsupported;
-- unknown field/version handling;
-- parameterized shell rejection;
-- undefined/duplicate placeholder rejection;
-- invalid requirement syntax rejection;
-- no automatic rewrite on read/inspect.
+- valid v1 fixed commands remain accepted unchanged;
+- same-version unknown field is `invalid` while bytes are preserved by writers;
+- unsupported newer major/extension is `unsupported` and preserved, never partially interpreted;
+- onboarding does not auto-upgrade solely because a newer daemon exists.
 
 ### 32.2 Readiness tests
 
-- compatible/missing/incompatible/unknown/unavailable toolchain states;
-- required/optional executable presence;
-- environment presence/nonempty/absent without value exposure;
-- deterministic top-level fold;
-- cache quality/age/TTL;
-- no project code/external service auto-execution;
-- `not_ready` does not block arbitrary start;
-- probe budget failure downgrades quality honestly.
+- compatible/missing/incompatible/unknown toolchain states are distinct;
+- environment presence does not leak/hash values;
+- cached freshness/TTL quality is explicit;
+- readiness never blocks an otherwise valid arbitrary start and never auto-runs repository bootstrap/service code.
 
-### 32.3 Parameter-binder tests
+### 32.3 Parameter-binder/idempotency tests
 
-- valid/invalid boundaries for every MVP kind;
-- unknown/missing params rejected before spawn;
-- whole-token substitution only;
-- integer canonicalization and enum exactness;
-- repo-path escape/symlink cases;
-- package-provider unavailable/unsupported;
-- no fallback to string;
-- exact resolved-argv goldens;
-- retry after manifest change reuses original binding;
-- conflicting retry never respawns;
-- fuzz/property tests for schema, binder, and path normalization.
+- existing `operation_id` replay succeeds after workspace move, manifest deletion/change, and validator/provider disappearance;
+- conflicting caller-stable typed request fingerprint fails before any current provider/workspace read can spawn;
+- first admission freezes exact manifest/provider/resolved argv facts;
+- parameterized shell commands are rejected;
+- whole-token substitution only; unknown/missing/duplicate params reject before spawn;
+- leading-dash lexical policy distinguishes positional identifier/path from intentional option-like enum;
+- `repo_path` verifies binding-time root/symlink observation but tests explicitly prove the contract does not claim post-bind confinement;
+- provider-backed package validation never silently downgrades to raw string;
+- fuzz/property tests cover parameter decoding, defaults, canonical fingerprint serialization, path normalization, Unicode/size limits, and option-shaped inputs.
 
-### 32.4 Integration tests
+### 32.4 Integration/performance tests
 
-A parameterized project command executes through ordinary direct-argv runtime and produces receipt/evidence/telemetry/repro provenance containing exact manifest digest and resolved binding.
+- receipt/evidence/repro/telemetry references freeze the original manifest/command binding;
+- `depends_on` remains presentation-only and never auto-executes;
+- cached binding meets the p95 local-work target without subprocess/network access;
+- ordinary non-project start performs no readiness/binding work.
 
 ## 33. Acceptance criteria
 
-S3 is complete only when:
+S3 core is complete only when:
 
-1. Readiness identifies compatible, missing, incompatible, unknown, and unavailable prerequisites mechanically without running project code.
+1. Readiness reports deterministic prerequisite status without project repair/installation/service startup.
 2. Environment checks never expose or hash values.
 3. `not_ready`/`partial`/`unavailable` never blocks an otherwise valid arbitrary start.
-4. Typed argv binding is deterministic and occurs entirely before spawn.
-5. Unknown/missing/invalid params fail before process creation.
-6. Parameterized shell commands are schema-rejected.
-7. MVP supports only the declared five parameter kinds and never silently downgrades unsupported providers/kinds.
-8. `repo_path` cannot escape the workspace.
-9. Retry never rebinds an existing operation after manifest/source change.
-10. Receipt/evidence can reference exact manifest digest, command ID, params, and resolved argv.
+4. Existing-operation lookup/replay occurs before current workspace/manifest/provider reads.
+5. Lost-response retry replays the frozen typed command after manifest/provider/source change.
+6. First-admission typed argv binding is deterministic and all invalid params fail before process creation.
+7. Parameterized shell commands are schema-rejected and unsupported providers never downgrade silently.
+8. `repo_path` is explicitly bind-time address integrity, not runtime confinement.
+9. Positional token lexical policy prevents accidental option injection by default while allowing explicit manifest opt-in.
+10. Receipt/evidence can reference exact manifest digest, command ID, parameter binding fingerprint, validator identity, and resolved argv.
 11. `depends_on` cannot trigger implicit execution.
-12. Existing v1 fixed commands continue unchanged.
-13. No install/fix/bootstrap/start-service/workflow semantics exist in daemon readiness/binding logic.
+12. Existing v1 fixed commands continue unchanged; preservation of unknown bytes never means schema acceptance.
+13. Cached binding meets the explicit budget and non-project starts pay no S3 tax.
+14. No install/fix/bootstrap/start-service/workflow semantics exist in daemon readiness/binding logic.
 
 ## 34. Reference agent flow
 

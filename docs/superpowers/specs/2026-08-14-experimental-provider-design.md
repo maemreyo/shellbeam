@@ -35,32 +35,31 @@ It is not:
 - an authorization/lock mechanism;
 - a guarantee that captured files contain no secrets.
 
-## 4. Checkpoint creation request
+## 4. Checkpoint creation request and idempotency
 
-Conceptually:
+Checkpoint creation is an explicit exactly-once local mutation request:
 
 ```json
 {
   "action": "checkpoint_create",
+  "checkpoint_create_id": "chkcreate_...",
   "workspace_id": "ws_...",
   "activity_id": "PI-756",
-  "paths": [
-    "internal/runtime/**",
-    "tests/runtime/**"
-  ]
+  "paths": ["internal/runtime/**", "tests/runtime/**"]
 }
 ```
 
-Path scope is explicit and bounded. There is no `checkpoint_all_dirty=true` or implicit “snapshot whatever the command may mutate” mode.
+The first accepted request durably binds its fingerprint before provider capture begins. Retry of the same `checkpoint_create_id` replays the durable result/checkpoint ID; conflicting scope/provider/options under the same ID return a typed conflict and never capture again.
 
-Glob/pattern expansion uses a deterministic documented matcher, maximum pattern count, maximum expanded entries, byte/work budgets, and workspace-root confinement. If the requested scope cannot be captured completely under the contract, creation fails or reports the exact unsupported paths; it never silently truncates while claiming a complete checkpoint.
+Path scope is explicit and bounded. There is no `checkpoint_all_dirty=true` or implicit “snapshot whatever the command may mutate” mode. Pattern expansion has deterministic matcher/count/entry/byte/work ceilings. If complete requested capture cannot be established, creation reports exact unsupported paths/failure; it never truncates while calling the checkpoint complete.
 
-## 5. Checkpoint metadata
+## 5. Checkpoint metadata and private content identity
 
-A checkpoint public/metadata record includes:
+Public/core checkpoint metadata contains no deterministic content-derived hash of arbitrary captured bytes:
 
 ```text
 checkpoint_id
+checkpoint_create_id
 provider_id/provider_version
 workspace_id
 activity_id?
@@ -69,23 +68,24 @@ created_at
 captured_path_count
 excluded/unsupported path summaries
 total_bytes
-checkpoint_content_identity
 capture_quality
-retention state
+retention_state
+opaque_entry_refs[]
 ```
 
-Per-entry provider metadata preserves enough semantics to restore selected ordinary paths safely:
+Per-entry **provider-private** metadata preserves restore semantics:
 
 ```text
+opaque_entry_ref
 path
 kind: file | directory_marker | symlink | absent
-content_digest?
+private_content_identity?   # never exposed through core/MCP
 size?
 mode/executable_bit?
-symlink_text?
+symlink_text?               # only when policy permits public metadata; otherwise private
 ```
 
-Raw file bytes live only in the provider's private local content store/CAS.
+Raw bytes and content-addressed hashes, if the provider uses them internally, remain only in the provider's sensitive local store. Core/MCP/repro/event records use opaque random or locally keyed non-portable references. This prevents a public SHA/deterministic digest from becoming an offline dictionary oracle for low-entropy secrets embedded in captured files.
 
 ## 6. Path and file-type rules
 
@@ -100,44 +100,54 @@ Checkpoint paths are normalized against the registered workspace.
 
 ## 7. Sensitive-content classification
 
-Checkpoint storage is classified `local_sensitive_content`.
+Checkpoint storage is `local_sensitive_content`. Provider storage is user-only, local by default, excluded from ordinary package/export/repro flows, and never returned as raw content or public deterministic content identity through MCP inspection.
 
-Provider storage must be user-only, local by default, excluded from ordinary package/export/repro flows, and never returned as raw content through MCP inspection. Core stores only bounded metadata/digests/references necessary to identify checkpoint state.
+Known credential/private-key/runtime paths are excluded by policy, but ShellBeam cannot prove arbitrary selected source files contain no secret. Therefore privacy is enforced by **containment**, not by pretending selection can classify all secrets:
 
-Known credential/private-key/runtime paths are excluded by policy, but ShellBeam cannot guarantee an arbitrary selected source file does not itself contain a secret. Documentation and capability discovery must state this limitation.
+- raw bytes/private content-store hashes never leave the provider boundary;
+- core gets opaque entry references only;
+- checkpoint contents/identities are absent from repro/telemetry/evidence/journal payloads;
+- cleanup follows sensitive-content deletion rules;
+- privacy tests include low-entropy secret fixtures and assert their raw value, ordinary hash, and dictionary-comparable deterministic identity are absent from public records.
 
-Checkpoint contents are never included in reproduction capsules.
+## 8. Restore model: explicit conditional restore
 
-## 8. Restore model: compare-and-swap, not overwrite
-
-Restore is explicit and conflict-safe. The provider restores a path only when the caller/provider can establish the expected current state required by the restore request.
-
-Conceptual restore:
+The initial contract does **not** claim a generic filesystem conditional-restore primitive. Restore is an explicit exactly-once mutation with caller-stable `restore_id`:
 
 ```text
+restore_id
 checkpoint_id
 selected paths
-expected-current identities
+provider-established expected-current observations
 ```
 
-For each path:
+Retry of the same `restore_id` replays the durable per-path outcome. A conflicting request fingerprint under the same ID never applies another mutation.
 
-1. observe current path identity under the same normalized semantics;
-2. compare it to the expected-current precondition;
-3. if it matches, apply the checkpoint preimage atomically where practical;
-4. if it differs, return `checkpoint_restore_conflict` and leave that path unchanged.
+Providers advertise conflict-detection semantics by operation/path class, not as a vague boolean:
 
-No force-overwrite flag exists in the initial experimental contract.
+```text
+conflict_detection:
+  regular_file: best_effort | atomic_conditional_replace
+  symlink: best_effort | atomic_conditional_replace | unsupported
+  absent_to_file: best_effort | atomic_conditional_replace | unsupported
+  directory_tree: best_effort | atomic_conditional_replace | unsupported
+```
 
-## 9. Restore semantics for path states
+`best_effort` means the provider compares a pinned/no-follow observation immediately before mutation but cannot prove an arbitrary external writer cannot win a remaining OS race. It must not claim “all concurrent edits conflict”. `atomic_conditional_replace` may be advertised only when the native provider can prove comparison+mutation atomicity for the exact path class under its documented mechanics.
 
-- Checkpoint captured an existing file: restore may recreate that exact captured file/mode when precondition matches.
-- Checkpoint captured a symlink: restore recreates link text without following it, subject to workspace confinement rules.
-- Checkpoint captured `absent`: restore may remove a newly-created path only when exact expected-current identity matches.
-- Directory deletion/restoration is allowed only when the provider can prove the selected directory state under its contract and no unexpected concurrent children would be destroyed.
-- Unsupported/special paths remain conflicts/unsupported rather than best-effort mutation.
+No force-overwrite flag exists in the initial experimental contract. Path traversal uses no-follow/pinned-directory mechanics where the platform provider supports them; capability reporting states the actual guarantee.
 
-A multi-path restore returns per-path results. Global success is impossible when any requested path was not restored.
+## 9. Restore semantics for path states and submodules
+
+- Existing regular file: restore may recreate the captured file/mode only under the provider's advertised conditional-restore semantics.
+- Symlink: restore recreates link text without following it, only if the provider supports that path class safely.
+- Captured `absent`: restore may remove/replace a newly-created selected path only under its expected-current and advertised atomicity contract.
+- Directory tree: no recursive destructive restore unless the provider can prove the declared tree precondition/atomicity; otherwise unsupported or best-effort with no stronger claim.
+- Unsupported/special paths remain unsupported/conflicts rather than best-effort byte mutation.
+
+Initial E26 explicitly **rejects checkpoint scope crossing a Git submodule boundary**. Correct submodule restore would require pinning gitlink, checked-out submodule identity, dirty recursive source state, and concurrent parent/submodule transitions; that semantic expansion is deferred.
+
+A multi-path restore returns a durable per-path outcome. Global success is impossible when any requested path did not meet its requested provider guarantee.
 
 ## 10. Git interaction boundary
 
@@ -183,9 +193,27 @@ It is not:
 - a cross-platform uniform tracing guarantee;
 - a replacement for declared/enforced hermetic inputs.
 
-## 13. Trace observation classes
+## 13. Trace request modes and observation classes
 
-A provider may support independent classes such as:
+Tracing is opt-in and never part of an ordinary command merely because a provider exists:
+
+```text
+trace_mode = off | best_effort | required
+```
+
+### `off`
+
+No tracing provider is started/attached and the ordinary execution fingerprint has no trace semantics.
+
+### `best_effort`
+
+Tracing may be unavailable/partial without preventing spawn **only when attachment is observationally non-invasive under the provider contract**. If the implementation uses a wrapper, preload, namespace change, startup ptrace hold, environment mutation, or another mechanism that can affect child behavior, the instrumentation identity is part of execution/environment provenance even when capture is best-effort.
+
+### `required`
+
+Required tracing is execution semantics. `trace_mode=required` and the requested provider/capability contract belong to the caller request fingerprint. The provider must establish coverage **before child exec/first instruction** and freeze its instrumentation fingerprint before spawn. If required instrumentation cannot be established within the explicit startup budget, the child does not spawn.
+
+A provider may support independent observation classes:
 
 ```text
 filesystem_reads
@@ -198,9 +226,7 @@ environment_names_observed
 network_attempts
 ```
 
-Each class reports its own support/completeness/quality. Providers do not expose a single `complete=true` when some dependency channels are unsupported.
-
-Network payload contents and environment values are never captured under this contract.
+Each class reports support/completeness/quality independently. Providers never expose one `complete=true` if any dependency channel required by the advertised completeness contract is unsupported or attached late. File contents, environment values, and network payloads are never captured under E27.
 
 ## 14. Trace authority
 
@@ -254,12 +280,15 @@ Core evidence remains conservative exactly as specified by the Agent Execution L
 
 ## 17. Provider capability matrix
 
-Capability discovery exposes tracing support per platform/provider, for example:
+Capability discovery exposes tracing semantics per platform/provider, including whether coverage can be established pre-exec and whether instrumentation is behavior-affecting:
 
 ```json
 {
   "input_tracing": {
     "provider_id": "linux-provider-v1",
+    "maturity": "experimental",
+    "pre_exec_coverage": true,
+    "instrumentation_effect": "environment_affecting",
     "filesystem_reads": "complete_for_owned_tree",
     "file_metadata": "partial",
     "directory_enumeration": "supported",
@@ -272,32 +301,38 @@ Capability discovery exposes tracing support per platform/provider, for example:
 }
 ```
 
-A macOS provider may expose a materially different matrix. Core does not normalize differences away or claim feature parity it cannot prove.
+`complete_for_owned_tree` is legal only when the provider establishes coverage before child execution and inherits/attaches across the complete owned child tree without an unreported gap. A late attach automatically downgrades affected classes to partial/unknown.
 
-## 18. Trace record identity and provenance
+A macOS provider may expose materially different semantics. Core does not normalize differences away. Ordinary agent responses summarize useful facts/coverage; the detailed matrix is deep-inspection metadata, not mandatory workflow choreography.
+
+## 18. Trace record identity, instrumentation, and provenance
 
 A trace record binds:
 
 ```text
-provider_id
-provider_version
-provider capability schema version
+derivation_key
+provider_id/provider_version/capability_schema
+trace_mode
+instrumentation_fingerprint
+instrumentation_effect
 operation_id
 receipt_digest?
 owned process/supervisor generation
-repository_id
-workspace_id
+repository_id?
+workspace_id?
 source_content_digest?
 toolchain/environment fingerprint refs?
-capture_start
-capture_end
+capture_start / capture_end
+pre_exec_coverage_established
 coverage matrix
 observed normalized path/resource sets
 write observations
 truncation/budget state
 ```
 
-Trace records use the common derived-record provenance envelope with `authority=advisory` unless a future separate hermetic contract explicitly promotes them.
+Trace records use the common deterministic derived-record primitive with `authority=advisory` unless a future separately reviewed hermetic contract promotes them.
+
+If instrumentation can affect execution semantics, its fingerprint/effect is also included in execution/environment provenance so traced and untraced evidence are not silently treated as comparable. Provider restart/reattach under a different instrumentation identity creates an explicit coverage gap, never a stitched complete record.
 
 ## 19. Path classification and privacy
 
@@ -335,13 +370,15 @@ completeness = partial
 
 A truncated trace can still be useful advisory data but is never called complete.
 
-## 21. Ownership loss and restart
+## 21. Ownership loss, late attach, and restart
 
-A trace is valid only for the execution/process generation the provider can actually observe.
+A trace is valid only for the process generation and time interval the provider can actually observe.
 
-If process ownership/supervisor continuity is lost, provider attachment restarts, or the provider cannot cover a child process, affected observation classes downgrade to partial/unknown. Core never stitches gaps into an apparently complete trace without proof.
+For any class advertised `complete_for_owned_tree`, the provider must prove pre-exec coverage and complete inheritance/attachment across all owned descendants. A missed first-exec interval, uncovered child, provider restart, supervisor continuity loss, or attachment failure downgrades the affected class to partial/unknown automatically.
 
-Tracing does not expand signal/control authority.
+Core never stitches gaps into apparent completeness. Required tracing that cannot establish the initial coverage boundary fails before child spawn; a failure after spawn becomes a trace/provider observation failure and does not fabricate command failure unless instrumentation itself independently caused an authoritative execution failure.
+
+Tracing never expands which PIDs/PGIDs ShellBeam is permitted to signal/control.
 
 ## 22. Promotion path to evidence authority
 
@@ -389,7 +426,7 @@ privacy/status presentation
 Providers own:
 
 ```text
-checkpoint private content store/CAS
+checkpoint private content store
 snapshot mechanics
 restore mechanics
 OS tracing mechanisms
@@ -420,12 +457,15 @@ A restore that changes files produces an ordinary workspace-generation change un
 E26 reserves:
 
 - `checkpoint_provider_unavailable`;
+- `checkpoint_create_conflict`;
 - `checkpoint_scope_invalid`;
 - `checkpoint_scope_too_large`;
 - `checkpoint_path_unsupported`;
+- `checkpoint_submodule_boundary_unsupported`;
 - `checkpoint_budget_exceeded`;
 - `checkpoint_not_found`;
 - `checkpoint_expired`;
+- `checkpoint_restore_request_conflict`;
 - `checkpoint_restore_conflict`;
 - `checkpoint_restore_partial`;
 - `checkpoint_restore_failed`.
@@ -433,97 +473,108 @@ E26 reserves:
 E27 reserves:
 
 - `input_trace_provider_unavailable`;
+- `input_trace_required_unavailable`;
+- `input_trace_startup_budget_exceeded`;
 - `input_trace_unsupported`;
 - `input_trace_partial`;
 - `input_trace_budget_exceeded`;
+- `input_trace_late_attach`;
 - `input_trace_ownership_lost`;
 - `input_trace_not_found`.
 
-These failures describe provider actions/observations and do not rewrite unrelated child outcomes.
+These failures describe provider actions/observations. Required pre-exec trace setup can prevent spawn by contract; later provider observation failures do not rewrite an unrelated already-observed child outcome.
 
-## 26. Security requirements
+## 26. Security and ergonomics requirements
 
 ### 26.1 Checkpoint provider
 
 - private store permissions are user-only;
 - no automatic export/upload path exists in core;
-- raw checkpoint bytes never appear in ordinary inspect, event, receipt, evidence, telemetry, or repro records;
+- raw checkpoint bytes and deterministic provider-private content hashes never appear in ordinary inspect, event, receipt, evidence, telemetry, or repro records;
+- public entry identity is opaque/non-dictionary-comparable;
 - `.git` internals/runtime/private policy paths are excluded by default;
-- symlink traversal cannot escape the workspace;
+- initial scope rejects submodule-boundary crossing;
+- path traversal uses provider-declared no-follow/pinned-directory mechanics and does not overclaim generic filesystem atomicity;
 - provider cleanup follows sensitive-content deletion rules and reports failures.
 
 ### 26.2 Trace provider
 
-- no file contents;
-- no environment values;
-- no network payloads;
+- no file contents, environment values, or network payloads;
 - bounded path exposure/redaction;
-- provider attach never grants broader process control;
-- unsupported observation channels are explicit.
+- provider attach never grants broader process-control authority;
+- unsupported/late observation channels are explicit;
+- behavior-affecting instrumentation is represented in execution/environment provenance.
+
+### 26.3 Agent ergonomics
+
+The normal agent never supplies checkpoint hashes/preimage identities, reasons about native atomicity primitives, or manually interprets a complete trace matrix. Checkpoint create/restore and trace opt-in are one model-oriented request each; the provider establishes internal preconditions and returns bounded restored/conflicted or observed/coverage summaries. Deep provider mechanics are available only through explicit inspection/debugging.
 
 ## 27. E26 validation strategy
 
-Experimental checkpoint provider tests must cover:
+Experimental checkpoint tests must cover:
 
-- explicit file snapshot/restore round trip;
-- executable bit/mode preservation;
-- symlink link-text behavior and escape rejection;
-- absent-path capture and safe removal semantics;
-- special-file rejection;
-- total/path-size budget enforcement;
-- concurrent external edit causing restore conflict;
-- mixed multi-path restore with per-path success/conflict results;
-- no force overwrite path;
-- no Git index/HEAD/stash/config/identity changes;
-- provider crash during create/restore preserving core receipt/idempotency state;
-- retention expiration and refusal to restore incomplete content;
-- proof raw captured content never appears in public records/repro.
+- `checkpoint_create_id` lost-response retry returning the same durable checkpoint/result without recapture;
+- conflicting create fingerprint under the same ID never capturing again;
+- `restore_id` replay returning identical durable per-path outcomes after partial success/crash;
+- conflicting restore request under the same ID never applying more mutations;
+- file/mode/symlink/absent-path semantics under each advertised path-class guarantee;
+- `best_effort` provider tests prove it does **not** claim universal concurrent-edit conflict detection;
+- any `atomic_conditional_replace` claim has native race stress evidence for the exact advertised path class;
+- symlink-parent/race/no-follow behavior under native macOS/Linux tests;
+- initial submodule-boundary rejection;
+- special-file and size/scope budget failure;
+- no Git HEAD/index/stash/config/identity mutation;
+- provider crash preserving core receipt/idempotency authority;
+- retention expiration refusing incomplete restore;
+- low-entropy secret fixture proving raw value, ordinary deterministic content hash, and provider-private content-store identity never surface through public records/repro.
 
 ## 28. E27 validation strategy
 
-Experimental tracing provider tests must cover:
+Experimental tracing tests must cover:
 
-- binding to the exact owned process/supervisor generation;
-- every advertised observation class and completeness quality;
-- child-process coverage claims;
-- observed undeclared dependency detection;
-- budget truncation downgrading completeness;
-- provider restart/ownership gap downgrading completeness;
+- `trace_mode=off` starts no tracer/provider work;
+- `required` is part of request fingerprint and provider-unavailable/startup-timeout prevents child spawn;
+- every completeness claim begins coverage before child exec/first instruction;
+- child-process inheritance/coverage claims under native stress tests;
+- deliberate late attach/restart/ownership gap downgrades affected classes;
+- behavior-affecting instrumentation changes execution/environment provenance and cannot silently compare with untraced evidence;
+- non-invasive best-effort attachment failure does not block spawn;
+- observed undeclared dependency broadens selector suspicion but never narrows evidence;
+- budget truncation downgrades completeness;
 - no file/env/network payload capture;
 - external path redaction/classification;
-- cross-platform capability differences;
-- explicit proof that an advisory trace cannot narrow evidence validity.
-
-Native platform evidence is mandatory for platform-specific tracing claims. Cross-build is compile-only evidence.
+- cross-platform capability differences remain explicit;
+- ordinary agent response does not require detailed provider coverage-matrix choreography.
 
 ## 29. Experimental readiness criteria
 
 ### 29.1 E26 experimental-ready
 
-An implementation may be called experimental-ready on a provider/platform only when:
+A provider/platform may be called experimental-ready only when:
 
-1. Explicit bounded scope round-trips supported file/symlink/mode states.
-2. Concurrent edits conflict instead of being overwritten.
-3. Partial multi-path restore reports per-path truth.
-4. Symlink escapes, special files, and oversized scopes fail closed.
-5. No Git repository-control state is mutated.
-6. Captured contents remain local/private and cannot surface through normal inspect/repro APIs.
-7. Restore-induced file changes advance ordinary workspace generation and invalidate evidence normally.
-8. Provider crash cannot corrupt authoritative execution/idempotency state.
+1. Exactly-once create/restore request replay is durable under lost responses/crash.
+2. Explicit bounded scope round-trips supported path states.
+3. Public metadata exposes no deterministic content identity for arbitrary captured bytes.
+4. The provider reports conditional-restore guarantees by path class; `best_effort` is never described as universal concurrency safety.
+5. Any advertised `atomic_conditional_replace` class passes native race/stress proof.
+6. Partial multi-path restore reports durable per-path truth.
+7. Symlink/special/submodule/oversized unsupported cases fail closed under the documented contract.
+8. No Git repository-control state is mutated.
+9. Captured contents remain local/private and cannot surface through normal inspect/repro APIs.
+10. Restore-induced source changes advance ordinary workspace generation/evidence validity normally.
 
 ### 29.2 E27 experimental-ready
 
-An implementation may be called experimental-ready on a provider/platform only when:
+A provider/platform may be called experimental-ready only when:
 
-1. Trace binds only to an execution tree/generation the provider can actually observe.
-2. Supported/unsupported channels are explicit.
-3. Budget truncation and restart gaps downgrade completeness.
-4. Newly observed undeclared dependencies can be surfaced as advisory facts.
-5. Trace alone can never keep narrow evidence current across source changes.
-6. No file contents, environment values, or network payloads are captured.
-7. Platform differences are exposed honestly.
-
-Experimental-ready is not a core/production-complete claim.
+1. Required tracing establishes instrumentation before child execution or fails before spawn.
+2. `complete_for_owned_tree` is proven across the full owned process tree from the first execution interval.
+3. Provider/instrumentation identity and behavior effects are captured in provenance.
+4. Supported/unsupported/late channels are explicit and budget/restart gaps downgrade completeness.
+5. Trace can identify observed undeclared dependencies but cannot narrow evidence validity.
+6. No file/env/network payload contents are captured.
+7. Cross-platform capability differences are surfaced rather than normalized away.
+8. Provider failure cannot corrupt authoritative operation/idempotency state.
 
 ## 30. Explicit non-goals
 
@@ -552,9 +603,10 @@ checkpoint create -> chk_...
 agent performs explicit refactor experiment
 workspace generation changes
 agent inspects checkpoint diff/current state
-restore selected path with expected-current identity
-  unchanged since expected observation -> restored
-  concurrently edited -> conflict, untouched
+restore selected path under provider-established expected-current observation
+  mismatch proven -> conflict, untouched
+  match + best_effort provider -> restore with explicitly limited race guarantee
+  match + atomic_conditional_replace provider -> restore under advertised native guarantee
 workspace observer records resulting generation
 ```
 

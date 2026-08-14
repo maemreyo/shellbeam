@@ -34,32 +34,36 @@ S1 does not add:
 
 ## 4. Event journal architecture
 
-The journal is a bounded append-only projection produced after accepted state changes:
+The journal is a bounded materialized view over a durable state-root change sequence. A canonical mutation covered by E21 cannot become externally visible without atomically establishing its observation obligation:
 
 ```text
-canonical transition
-       ↓
-durable canonical record
-       ↓
-bounded journal publication
-       ↓
+canonical mutation
+      ↓
+commit visibility boundary
+  authoritative state transition
+  + state_root_epoch/change_seq
+  + durable observation obligation
+      ↓
+asynchronous/idempotent journal materialization
+      ↓
 inspect(after_event_cursor=...)
 ```
 
-A canonical transition must never be rolled back because journal publication failed. If canonical state is durable and journal publication is unavailable, current state remains authoritative and clients can obtain a fresh snapshot.
+`change_seq` is the durable observation-order authority. The journal is not event sourcing and is not needed to reconstruct canonical state. The implementation may use an outbox, WAL, or equivalent local transactional publication mechanism, but a crash between canonical persistence and event materialization must leave enough durable information to prove/materialize the missing sequence.
 
-The journal may be segmented/compacted internally. Public clients observe an opaque cursor contract only.
+A journal event is never allowed to impose an additional synchronous fsync barrier merely for model convenience. Materialization is bounded projection work after the authoritative visibility boundary.
 
 ## 5. Event record contract
 
 A version-1 event contains only bounded identification, ordering, and summary data. Conceptually:
 
 ```text
-event_schema_version
 event_id
-sequence                     internal ordering fact; not cursor format
-recorded_at
+state_root_epoch
+change_seq
 kind
+recorded_at
+correlation_scope
 repository_id?
 workspace_id?
 activity_id?
@@ -70,29 +74,30 @@ subject_ref
 summary
 ```
 
-Large source records are referenced rather than copied. Events must not embed terminal receipts, raw output, source contents, complete diagnostics collections, environment values, or checkpoint payloads.
+The public API may omit internal sequence/epoch representation behind an opaque `event_cursor`; the durable store retains enough information to prove continuity. `repository_id`/`workspace_id` are optional because absolute-cwd operations outside registered repositories are valid execution subjects.
 
-`summary` is a kind-specific closed object with strict byte/string/count limits.
+Events reference canonical/derived records instead of copying receipts, output, diagnostics, artifacts, or provider payloads. Event summaries are bounded presentation aids and never stronger authority than the referenced subject.
 
 ## 6. Initial event kinds
 
-The initial closed set is:
+The initial closed/versioned set is deliberately small:
 
-- `workspace_generation_changed`;
-- `operation_admitted`;
-- `process_started`;
-- `output_available`;
-- `process_terminal`;
-- `structured_result_recorded`;
-- `evidence_recorded`;
-- `evidence_invalidated`;
-- `artifact_observed`;
-- `manifest_status_changed`;
-- `session_health_changed`.
+```text
+workspace_generation_changed
+operation_admitted
+process_started
+output_available
+process_terminal
+evidence_recorded
+evidence_validity_changed
+artifact_observed
+manifest_status_changed
+session_health_changed
+structured_results_changed
+code_diagnostics_changed
+```
 
-Later companion capabilities may add versioned kinds such as `repro_recorded`, `checkpoint_created`, or `input_trace_recorded` after negotiated support.
-
-Events never use semantic/planning kinds such as `agent_should_run_tests`, `likely_root_cause`, `fix_recommended`, or `workspace_safe_to_modify`.
+`code_diagnostics_changed` is reserved for E29 integration and carries only a bounded summary/reference. Unsupported capability event kinds are not emitted. No event contains reasoning such as `agent_should_run_tests`, `probably_broken`, or a proposed fix.
 
 ## 7. Event-kind semantics
 
@@ -120,67 +125,76 @@ Emitted after durable terminal publication and points to the immutable terminal 
 
 ### 7.6 Evidence/artifact/manifest/session events
 
-These record accepted transitions in their respective canonical/derived stores and point to the record or current status. `evidence_invalidated` includes stable reason dimensions rather than narrative explanation.
+These record accepted transitions in their respective canonical/derived stores and point to the record or current status. `evidence_validity_changed` includes stable reason dimensions rather than narrative explanation.
 
 ## 8. Cursor contract
 
-The public event cursor is opaque, typed, and namespaced, for example `evtcur_v1_...`. Clients may compare only equality or pass it back to ShellBeam; they do not decode or perform arithmetic on it.
+The public event cursor is opaque, typed, and namespaced, for example `evtcur_v1_...`. It logically binds the state-root epoch, durable observation position, target/filter identity, and cursor schema. Clients pass it back; they do not decode or perform arithmetic on it.
 
 An observation request may conceptually specify:
 
 ```text
-target = activity | workspace | repository
+target = operation | session | activity | workspace | repository
 after_event_cursor = evtcur_...
 max_events = N
 ```
 
-The response contains:
+A state-root stream exists as an internal ordering authority; ordinary agents do not need to query or understand it. Public targets are filtered views over that sequence. A target filter must never renumber events into a second continuity domain.
+
+Normal response:
 
 ```text
 events[]
 next_event_cursor
-snapshot_generation
-compacted_before?
-continuity: complete | snapshot_required
+continuity: complete
 truncated
 ```
 
-Output cursors, event cursors, result pagination tokens, and other continuation handles are not interchangeable.
+When the supplied cursor cannot support a complete delta, the server performs bounded recovery in the same inspect response where possible:
+
+```text
+continuity: snapshot_required
+snapshot: {... current bounded facts at cut N ...}
+next_event_cursor: <resume cursor at the same cut N>
+compacted_before?
+```
+
+The snapshot and resume cursor are produced from the same consistency cut. A transition assigned N+1 after that cut is therefore guaranteed to be observable after resume. Output cursors, event cursors, result pagination tokens, and other continuation handles are not interchangeable.
 
 ## 9. Ordering and continuity
 
-The journal guarantees publication order within the local daemon/state root. It does not claim a stronger total causal order than the facts being observed.
+The state-root `change_seq` provides one durable local observation order. It does not claim a stronger causal order than the authoritative transitions themselves.
 
-An event is never published before the canonical transition it represents has succeeded. However, canonical success followed by journal publication failure is legal.
+An event is never published before the transition it represents is authoritative. Projection lag/failure is legal, but it is mechanically detectable:
 
-When continuity cannot be guaranteed, inspection reports it explicitly. Implementations may use reconciliation markers or rebuild a bounded journal segment from canonical metadata when mechanically safe, but they must never invent missing historical ordering.
+```text
+last_materialized_seq = 184
+canonical_high_watermark = 187
+=> continuity cannot be reported complete through 187
+```
+
+Recovery may rematerialize missing journal entries from durable observation obligations or return a snapshot/resume cut. It never invents historical ordering or reports a complete delta over an unproven gap.
+
+Filtered activity/workspace/operation views preserve the underlying sequence position even when unrelated events are omitted from the response.
 
 ## 10. Retention and cursor expiry
 
-Journal retention is bounded by configured record count, bytes, and age. Active activities/workspaces may receive a larger bounded budget, but no target has unbounded history.
+Journal materialization is bounded by configured record count, bytes, and age. Active targets may receive a larger bounded budget, but no target has unbounded history. Retention applies to materialized events, not to the minimum durable high-watermark metadata required to detect projection gaps honestly.
 
-If a client presents a cursor older than retained continuity, ShellBeam reports:
+If a client presents a cursor older than retained materialization or from a retired state-root epoch, ShellBeam does not make the agent perform a recovery dance. Where bounded snapshot inspection is supported it returns `snapshot_required` plus the current snapshot and a resume cursor from the same consistency cut. If a snapshot cannot be formed within budget, it returns a typed observation status and no false continuity claim.
 
-```text
-event_cursor_expired
-snapshot_required = true
-current_event_cursor = ...
-```
-
-This is an observation continuity condition, not corruption and not an execution failure. Where the inspect action permits it, ShellBeam still returns the current bounded snapshot so the client can continue from a new cursor.
-
-Journal compaction never deletes authoritative terminal receipts/evidence merely to preserve a cursor.
+Journal compaction never deletes authoritative terminal receipts/evidence merely to preserve a cursor. The durable observation sequence metadata may itself be compacted only when no retained cursor/snapshot contract can depend on the removed range.
 
 ## 11. Restart behavior
 
-Daemon restart must preserve enough journal metadata to either:
+Daemon restart preserves state-root epoch/high-watermark and pending materialization obligations sufficiently to do one of two things:
 
-- continue from a previously published durable cursor with honest continuity; or
-- report that a snapshot is required.
+- continue from the caller's durable cursor with provably complete filtered deltas; or
+- return server-driven snapshot/resume recovery.
 
-It must not accept an old cursor and silently omit a restart gap while claiming a complete delta.
+It must not accept an old cursor and silently omit a restart gap. A new state-root epoch invalidates incompatible cursors explicitly rather than aliasing them to a different ordering domain.
 
-A stateless MCP bridge can reconnect and route explicit cursor/target handles to the same local daemon state without hidden transport-session state.
+A stateless MCP bridge carries explicit target/cursor handles only; hidden transport-session state is never required for continuity.
 
 ## 12. Structured-results family
 
@@ -197,12 +211,28 @@ Raw captured bytes and authoritative child/receipt state remain canonical. Struc
 
 ## 13. Common structured-result fields
 
-Every structured result uses the common derived-record envelope and adds kind-specific facts. A diagnostic is conceptually:
+Every structured-result set has a deterministic derivation identity and lifecycle before its kind-specific records:
+
+```text
+derivation_key
+source_authority_refs[]
+producer_id/version
+derivation_schema_version
+derivation_config_digest
+lifecycle: pending | processing | terminal
+parse_outcome?  # only when lifecycle=terminal
+completeness
+```
+
+`derivation_key` is stable for one authoritative source input plus exact producer/schema/config semantics. Recovery upserts this logical result set. It cannot create a second independent result set merely because parsing completed before an index/event acknowledgement was persisted.
+
+A diagnostic record is conceptually:
 
 ```json
 {
   "record_kind": "diagnostic",
   "authority": "mechanical",
+  "derivation_method": "native_field_mapping",
   "producer": {
     "adapter_id": "go-test-json",
     "adapter_version": 1,
@@ -224,9 +254,7 @@ Every structured result uses the common derived-record envelope and adds kind-sp
 }
 ```
 
-The concrete schema uses bounded strings, closed enums where stable, repository-relative normalized paths when possible, and explicit absence/unavailable states when the producer cannot provide a field.
-
-Structured records do not contain a proposed code change, fix confidence, root cause, remediation command, or agent narrative.
+Concrete schemas use bounded strings, closed enums where stable, normalized paths when possible, and explicit unavailable states. Records never contain proposed changes, root-cause narratives, fix confidence, or remediation commands.
 
 ## 14. Result kinds
 
@@ -246,23 +274,21 @@ Represents a suite/package/file-level test aggregation from the structured produ
 
 Represents a machine-readable producer result tied to an expected artifact, for example generation metadata or a structured build artifact fact. It does not replace the independent artifact observation/digest contract.
 
-## 15. Adapter authority tiers
+## 15. Adapter authority and derivation methods
 
-Adapters declare one of these producer tiers:
+Authority is a property of the derived record/set, not merely the adapter executable. A provider may support multiple derivation methods, for example:
 
-### 15.1 `native_structured`
+```text
+native_field_mapping
+deterministic_normalization
+heuristic_extraction
+```
 
-The command/tool produces a documented machine-readable format directly, such as SARIF, JUnit, ESLint JSON, or `go test -json`. Normalization may map fields to the common schema without semantic interpretation.
+A record may be `authority=mechanical` only when **every semantic assertion carried by that record** is derived mechanically from the immutable authorized input under the versioned adapter contract. Direct mapping from a documented machine-readable producer field and deterministic normalization qualify.
 
-### 15.2 `normalized_deterministic`
+If any semantically meaningful field such as location, code, severity, relationship, or test identity is extracted heuristically from opaque human prose, the whole record is downgraded to `authority=advisory`. MVP deliberately avoids per-field authority because it would make the consumer contract disproportionately complex.
 
-A versioned ShellBeam adapter converts a stable/specifiable producer format mechanically. The adapter contract and parser version are part of provenance.
-
-### 15.3 `heuristic`
-
-A provider infers structure from human-oriented text using patterns/heuristics. Heuristic records are `authority=advisory`; core verification/evidence logic cannot treat them as mechanical proof.
-
-S1 core acceptance requires only the first two tiers. Heuristic parsers are not a shortcut for missing structured formats.
+Core E22 accepts native/deterministic mechanical adapters. Heuristic parsing may exist only as an explicitly advisory provider and can never establish verification/evidence truth.
 
 ## 16. Adapter selection
 
@@ -278,30 +304,40 @@ A complex shell pipeline such as `go test -json ./... | tee ...` is not automati
 
 Unsupported or ambiguous adapter selection returns an explicit status rather than silently falling back to heuristic interpretation.
 
-## 17. Parse status and malformed input
+## 17. Lifecycle and terminal parse outcome
 
-Every structured-result set reports a parse status:
+Structured derivation lifecycle is separate from parse outcome:
 
 ```text
-complete
-partial
-unavailable
-malformed
+lifecycle:
+  pending
+  processing
+  terminal
+
+parse_outcome when terminal:
+  complete
+  partial
+  malformed
+  unavailable
+  budget_exceeded
 ```
 
-Parser failure never changes the child's observed exit status and never discards raw captured output.
+An inspect immediately after child terminalization can therefore distinguish “parser has not run yet” from “this derivation is terminally unavailable”. Optional parser work may continue after terminal receipt publication under its bounded worker contract.
 
-If structured results are optional, terminal publication proceeds independently and the structured-result set reports its actual status.
-
-If a validated verification policy explicitly requires a structured result condition, `partial`, `malformed`, or unavailable required data makes the associated evidence `incomplete`; it still does not rewrite the child outcome.
+Parser failure never changes child exit status and never discards canonical raw output. If a validated evidence policy explicitly requires a structured result condition, a terminal non-complete outcome makes associated evidence `incomplete`; it still does not rewrite the child outcome.
 
 ## 18. Streaming and terminal parsing
 
-Adapters may parse incrementally when the producer format is safely streamable and the overhead is bounded. Otherwise parsing runs in a terminal-finalization worker after enough canonical data is available.
+Adapters may parse incrementally when the producer format is safely streamable and bounded. Otherwise parsing runs in a terminal-finalization worker after an immutable adapter input has been established.
 
-Optional parsing does not hold the spawn path or terminal receipt indefinitely. Required evidence parsing is bounded by explicit work/time/record/byte limits; budget exhaustion is represented honestly.
+An adapter input must be one of:
 
-Parser crashes or panics are isolated from authoritative execution state and result in an unavailable/partial derived record plus diagnostic crash evidence at the process/request boundary as appropriate.
+- a canonical retained raw-output reference plus exact byte range/identity; or
+- an immutable observed result artifact/blob descriptor whose content identity, bytes/size, observation time/cut, and source operation association were pinned before parsing.
+
+A mutable pathname such as `junit.xml` is not sufficient provenance. If ShellBeam cannot prove the parser consumed the operation's immutable observed artifact rather than a concurrently replaced file, authority/completeness is downgraded or the derivation is unavailable.
+
+Optional parsing never blocks spawn and cannot hold terminal receipt publication indefinitely. Required evidence parsing uses explicit time/record/byte budgets.
 
 ## 19. Deduplication and bounded aggregation
 
@@ -354,11 +390,11 @@ The API returns facts, not a prose debugging handoff. The external reasoning age
 
 ## 22. Persistence and compaction
 
-Structured records are versioned derived state. They may be compacted earlier than immutable terminal receipts/evidence when retention requires, provided summaries/provenance remain honest.
+Structured records are versioned derived state keyed by deterministic derivation identity. Publication/index/event acknowledgement may be retried after crash, but all retries address the same logical derivation. A terminal complete result cannot be double-counted or silently regenerated under a different adapter version.
 
-A compacted structured record reference returns `compacted` or `not_available`; it is not regenerated from raw human output using a different adapter version and presented as the original record.
+Detailed records may compact earlier than immutable terminal receipts/evidence when retention requires, provided a bounded tombstone/summary preserves the original derivation identity, producer/schema, source references, authority, terminal lifecycle/outcome, and compaction state needed by retained repro/evidence references.
 
-Deterministic rebuild is allowed only when the exact source record and exact adapter version/normalization semantics remain available, and the rebuilt record is identified as a rebuild of the same derivation contract.
+Deterministic rebuild is allowed only when the exact immutable source input and exact adapter/config semantics remain available. A rebuild is identified as the same logical derivation, not a fresh historical fact.
 
 ## 23. Stable failure/status additions
 
@@ -404,49 +440,45 @@ Diagnostic messages originate from the producer and may themselves contain sensi
 
 ### 26.1 Journal tests
 
-- monotonic publication under concurrent canonical transitions;
-- no event before canonical commit;
-- fault injection after canonical commit/before journal append;
-- expired cursor and snapshot-required recovery;
-- daemon restart continuity versus explicit gap;
-- output-event coalescing without losing output discoverability;
-- retention count/byte/age limits;
-- target scoping by repository/workspace/activity;
-- cursor fuzzing/invalid opaque handles.
+- authoritative transition + observation obligation survive every crash injection point;
+- materialization crash after canonical commit is detected from high-watermark/obligation and cannot yield false `continuity=complete`;
+- duplicate materialization retry is idempotent;
+- operation/session targets work for absolute-cwd executions with no workspace/repository/activity identity;
+- cursor target/epoch mismatch is rejected explicitly;
+- expired/compacted cursor recovery returns snapshot and resume cursor from one consistency cut;
+- transition N+1 after snapshot cut is visible after resume;
+- filtered views preserve underlying cursor progress;
+- `evidence_validity_changed` can represent stale->current as well as current->stale transitions.
 
 ### 26.2 Structured-result tests
 
-- native structured happy paths;
-- deterministic normalization goldens;
-- malformed/truncated/oversized inputs;
-- duplicate diagnostic aggregation;
-- path normalization/escape classification;
-- binary/raw-output coexistence;
-- parser work-budget exhaustion;
-- adapter selection precedence;
-- no heuristic fallback for unsupported shell pipelines;
-- required versus optional evidence behavior;
-- raw provenance before/after output compaction.
+- native structured and deterministic normalized adapters preserve exact immutable input provenance;
+- mutable result artifact replacement cannot be attributed to the old operation;
+- any heuristic semantic extraction downgrades the full record to advisory;
+- lifecycle distinguishes pending/processing/terminal from terminal parse outcome;
+- malformed/truncated/oversized producer input obeys budgets and preserves raw output;
+- repeated diagnostics aggregate presentation without changing source truth;
+- path escapes/external paths are classified/redacted;
+- parser crash after durable record publication retries the same `derivation_key` rather than duplicating results.
 
 ### 26.3 Crash/isolation tests
 
-Prove that parser/journal failure cannot alter a durable terminal receipt, exactly-once operation state, or process ownership state.
+Fault injection covers canonical commit, durable observation obligation, derived record publication, index update, event materialization, and acknowledgement boundaries. The proof target is that authoritative receipts remain correct, continuity is never overclaimed, and an automatically derived logical fact is not duplicated by recovery.
 
 ## 27. Acceptance criteria
 
-S1 is complete only when:
+E21/E22 are complete only when:
 
-1. An agent can obtain a bounded delta after a valid event cursor without receiving an entire activity/workspace snapshot again.
-2. An expired cursor requires an explicit snapshot and never silently loses continuity.
-3. Journal publication failure cannot roll back or falsify canonical state.
-4. A supported failing machine-readable command produces exact mechanical structured facts including failing files/locations where the producer supplies them.
-5. Structured records link back to the producing operation and raw/result provenance.
-6. Malformed or partial structured output remains distinct from child failure.
-7. Unsupported/ambiguous adapter selection never falls back to heuristic truth.
-8. Raw output remains canonical and cursor semantics are unchanged.
-9. Bounded deduplication reduces repeated diagnostics without merging materially different findings.
-10. Restart, retention, malformed input, and budget exhaustion all report exact quality/continuity states.
-11. Existing V1/E01-E20 idempotency, terminal receipt, output, evidence, and privacy tests remain green.
+1. Canonical transitions covered by E21 always receive a durable observation sequence obligation at the same visibility boundary.
+2. A journal projection gap is mechanically detectable after crash/restart and can never be silently reported complete.
+3. Cursor expiry/restart recovery is server-driven and returns a snapshot/resume cursor from one consistency cut when within budget.
+4. Event filtering supports operation/session observations even without workspace/repository/activity identity.
+5. A supported failing structured command yields bounded mechanical diagnostics with immutable raw/artifact provenance.
+6. Mechanical authority is impossible if any semantic field required heuristic extraction.
+7. Structured lifecycle exposes pending/processing separately from terminal parse outcome.
+8. Crash recovery cannot create duplicate logical result sets for one derivation.
+9. Optional parsing/journal materialization does not add provider/subprocess work to ordinary spawn admission or an extra synchronous durability barrier solely for model presentation.
+10. Raw output/terminal receipt remain authoritative and survive derived-feature failures unchanged.
 
 ## 28. Reference agent flow
 

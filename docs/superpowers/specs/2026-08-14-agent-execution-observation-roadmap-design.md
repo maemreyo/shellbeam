@@ -2,7 +2,7 @@
 
 ## Status
 
-Approved design extending the existing ShellBeam Agent Execution Layer, Workspace/Worktree/Git Identity, and Project Capability Manifest designs. This document is the umbrella contract for enhancements E21-E28. It does not replace V1, V1 hardening, or E01-E20; it constrains how the new capabilities compose with them.
+Approved design extending the existing ShellBeam Agent Execution Layer, Workspace/Worktree/Git Identity, and Project Capability Manifest designs. This document is the umbrella contract for enhancements E21-E29. It does not replace V1, V1 hardening, or E01-E20; it constrains how the new capabilities compose with them.
 
 Companion designs:
 
@@ -10,6 +10,7 @@ Companion designs:
 - [Execution Telemetry and Reproduction](./2026-08-14-execution-telemetry-reproduction-design.md)
 - [Project Readiness and Typed Commands](./2026-08-14-project-readiness-typed-commands-design.md)
 - [Experimental Safety and Input Observation Providers](./2026-08-14-experimental-provider-design.md)
+- [Structured Code Intelligence](./2026-08-14-structured-code-intelligence-design.md)
 
 ## 1. Decision
 
@@ -17,7 +18,7 @@ ShellBeam continues to be a durable local execution substrate for a reasoning ag
 
 The design deliberately separates canonical execution truth from mechanically derived facts and advisory provider observations. New capabilities may reduce command count and context-window waste, but they must not move reasoning or policy decisions into the daemon.
 
-E26 safety checkpoints and E27 dynamic input tracing are fully specified as experimental/provider contracts. They do not gate completion of the core E21-E25/E28 roadmap.
+E26 safety checkpoints and E27 dynamic input tracing are fully specified as experimental/provider contracts. They do not gate completion of the core E21-E25/E28/E29 roadmap.
 
 ## 2. Baseline contracts retained
 
@@ -53,6 +54,7 @@ Derived execution facts
 ├─ performance/resource observations
 ├─ reproduction capsules
 ├─ project readiness
+├─ structured code-intelligence observations
 └─ experimental provider observations
           │
           ▼
@@ -82,93 +84,150 @@ No code path may implicitly promote `advisory -> mechanical` or `mechanical -> a
 
 ## 5. Cross-cutting invariants
 
-The following statements are normative:
-
-1. **Journal is not truth.** Canonical records remain correct if journal publication fails or history is compacted.
-2. **Diagnostics report facts; they never recommend fixes.** Root-cause reasoning remains with the model/user.
-3. **Telemetry informs; it never chooses, schedules, or retries commands.** Historical duration is evidence, not policy.
+1. **Journal is not truth.** Canonical state plus its durable observation-order assignment remains authoritative; journal records are rebuildable/compactable projections.
+2. **Diagnostics report facts; they never recommend fixes.** Structured and semantic providers normalize observations without becoming a reasoning agent.
+3. **Telemetry informs; it never chooses or schedules commands.** Historical cost is empirical input to the reasoning agent.
 4. **Readiness observes; it never installs, repairs, starts services, or mutates the project.**
 5. **Observed inputs cannot narrow evidence validity without a proven hermetic boundary.** Best-effort tracing may broaden suspicion, never prove irrelevance.
-6. **Derived failure never rewrites execution truth.** A parser, telemetry writer, journal writer, or repro materializer failure cannot invalidate an already durable terminal receipt.
-7. **No hidden workflow language.** Typed project commands bind data into a single command invocation; they do not introduce conditionals, loops, matrices, dependency execution, or shell templating.
-8. **Privacy is monotonic.** A new derived view cannot expose data that the underlying authoritative contract forbids, including secret values or checkpoint file contents.
+6. **Derived failure never rewrites execution truth.** A parser, telemetry writer, journal materializer, code-intelligence provider, or repro materializer failure cannot invalidate an already durable terminal receipt.
+7. **No hidden workflow language.** Typed project commands bind data into one command invocation; they do not introduce conditionals, loops, matrices, dependency execution, or shell templating.
+8. **Privacy is monotonic.** A new projection cannot expose data forbidden by the underlying authority contract, including secret values or checkpoint contents/deterministic hashes of arbitrary sensitive bytes.
+9. **Internal correctness machinery is not mandatory model-facing workflow.** State-root epochs, change-sequence internals, derivation keys, provider protocol versions, checkpoint preimage identities, LSP document synchronization, AST node IDs, and detailed trace coverage matrices are hidden on the ordinary path and exposed only through explicit deep inspection when useful.
+10. **Recovery is server-driven.** A cursor expiry, projection lag, or provider refresh should normally be resolved in one bounded inspect response with a current snapshot/resume handle rather than requiring multi-call protocol choreography by the agent.
+11. **One capability should normally cost at most one intentional additional agent action.** Passive structured results/telemetry cost zero; explicit repro/checkpoint/trace/code-intelligence queries use one model-oriented request unless the agent deliberately drills into detail.
+12. **Language intelligence is observation, not verification.** LSP/type-checker/index facts can accelerate the edit loop but cannot replace authoritative build/test/evidence semantics.
 
-## 6. Common derived-record provenance envelope
+## 6. Common correlation and publication primitives
 
-E22-E27 share a small versioned provenance envelope. Concrete schemas add type-specific fields but preserve these concepts:
+The roadmap uses two different correctness primitives. They share correlation/provenance conventions but are not collapsed into one abstraction because ordered change publication and idempotent derivation have different semantics.
+
+### 6.1 Correlation envelope
+
+Concrete records declare only identities meaningful to that record kind:
 
 ```text
 record_id
 record_kind
 schema_version
-repository_id
-workspace_id
+correlation_scope: state_root | repository | workspace | activity | operation | session | provider
+repository_id?
+workspace_id?
 activity_id?
 operation_id?
+session_id?
 receipt_digest?
 producer:
-  adapter_id
-  adapter_version
+  producer_id
+  producer_version
   capability_version
 captured_at
-completeness: complete | partial | unavailable
-authority: authoritative | mechanical | advisory
 source_refs[]
 ```
 
-`source_refs` point to canonical or previously derived records such as raw output byte ranges, receipts, evidence IDs, manifest digests, source digests, artifact digests, or provider records. Derived records do not duplicate large blobs merely for convenience.
+`repository_id` and `workspace_id` are not globally mandatory. A valid absolute-cwd operation such as `/tmp` may have neither. Workspace-only capabilities such as E26 still require an explicit workspace.
 
-The envelope never contains raw environment values, tokens, private keys, Git credentials, arbitrary source contents, or raw checkpoint payloads. Hashing unknown secret values is also forbidden.
+### 6.2 Durable change-publication primitive
+
+Every canonical mutation that participates in E21 observation is assigned a durable state-root observation position as part of the same visibility boundary:
+
+```text
+state_root_epoch
+change_seq
+source_transition_ref
+materialization_state
+```
+
+`change_seq` is the durable observation-order authority. Journal entries are derived materializations at a sequence; they are not themselves authority. The implementation may use a WAL, transactional outbox, or equivalent local durability mechanism, but it must make the authoritative transition and its observation obligation indivisible from the perspective of recovery.
+
+### 6.3 Deterministic derived-record primitive
+
+Automatically derived records such as structured results, telemetry, and semantic observations use a stable logical identity:
+
+```text
+derivation_key
+source_authority_refs[]
+producer_id
+producer_version
+derivation_schema_version
+derivation_config_digest
+lifecycle: pending | processing | terminal
+completeness
+```
+
+The key is deterministic for one logical derivation. Crash recovery upserts the same logical record instead of creating another sample/fact. Lifecycle/completeness may advance monotonically when the exact derivation contract permits it; a completed telemetry sample cannot become a second sample merely because finalization was retried.
+
+`source_refs` point to canonical or immutable observed inputs such as raw-output ranges, receipts, evidence IDs, manifest/source digests, or pinned artifact observations. Derived records do not duplicate large blobs merely for convenience.
+
+The primitives never contain raw environment values, tokens, private keys, Git credentials, arbitrary source contents, raw checkpoint payloads, or public deterministic hashes of unknown checkpoint contents.
 
 ## 7. New enhancement IDs
 
 The existing E01-E20 table is extended, not replaced:
 
-| ID | Capability | Decision |
+| ID | Enhancement | Maturity / role |
 | --- | --- | --- |
-| E21 | Event Journal / cursor-based observation | Core; bounded change feed, never source of truth. |
-| E22 | Structured Execution Results | Core; mechanical normalized facts with raw provenance. |
-| E23 | Execution Performance & Resource Telemetry | Core observation; enforcement is experimental/separate. |
-| E24 | Reproduction Capsule | Core; immutable provenance projection, never a reproducibility guarantee. |
-| E25 | Project Readiness | Core; deterministic manifest-derived observation, no repair. |
-| E26 | Explicit Local Safety Checkpoint | Experimental/provider; explicit bounded content snapshot and CAS restore. |
-| E27 | Dynamic Input Tracing | Experimental/provider; advisory observed inputs unless hermetic enforcement exists. |
-| E28 | Typed Parameterized Project Commands | Core; restricted argv binding, no workflow language. |
+| E21 | Event Journal / cursor-based observation | Core; bounded projection over durable `change_seq`. |
+| E22 | Structured Execution Results | Core; mechanical/advisory derived execution facts. |
+| E23 | Execution Performance & Resource Telemetry | Core observation; resource enforcement remains experimental. |
+| E24 | Reproduction Capsule | Core immutable capture-cut projection. |
+| E25 | Project Readiness | Core deterministic project/environment observation. |
+| E26 | Explicit Local Safety Checkpoint | Experimental provider; explicit bounded sensitive-content snapshot/conditional restore. |
+| E27 | Dynamic Input Tracing | Experimental provider; advisory unless a future hermetic boundary is proven. |
+| E28 | Typed Parameterized Project Commands | Core manifest/argv binding; no workflow language. |
+| E29 | Structured Code Intelligence | Core provider contract; semantic diagnostics/navigation plus optional structural/index providers, never execution evidence. |
 
-Nothing in E21-E28 requires a second MCP tool or daemon-side reasoning.
+E29 is intentionally a fact/query surface rather than a code-editing subsystem. AST mutation/refactoring and generic query DSLs remain out of scope.
 
 ## 8. One-tool capability discovery
 
-`local_shell` remains a closed versioned union. Capability discovery adds explicit version and maturity information. Conceptually:
+`local_shell` remains one closed versioned tool. Capability discovery advertises feature versions, maturity, providers, and limits before an agent relies on them. New capability families include conceptually:
 
 ```text
 event_journal:
   version: 1
   maturity: stable
+
 structured_results:
   version: 1
   adapters: [...]
+
 execution_telemetry:
   version: 1
-  resource_metrics: [...]
+  resource_metrics: {...}
+
 reproduction_capsules:
   version: 1
+
 project_readiness:
   version: 1
+
 typed_project_commands:
   version: 1
   parameter_kinds: [...]
+
+code_intelligence:
+  version: 1
+  providers:
+    semantic: [...]
+    structural: [...]
+    index: [...]
+  queries: [diagnostics, symbols, definition, references, imports, type_info, ...]
+
 safety_checkpoints:
   version: 1
   maturity: experimental
-  provider: ...
+  providers: [...]
+
 input_tracing:
   version: 1
   maturity: experimental
+  providers: [...]
   authority: advisory
 ```
 
-Clients do not infer maturity from a version number. Unsupported optional fields are absent with an explicit capability/status marker; the bridge does not fabricate them.
+Maturity is explicit and never inferred from a version number. Missing providers/capabilities return honest unavailable status; they do not make basic command execution unavailable. Provider installation is never automatic.
+
+The agent-facing vocabulary is model-oriented. Capability discovery does not require the agent to learn LSP method names, JSON-RPC framing, document versions/URIs, Tree-sitter node kinds, SCIP protobuf internals, or provider-specific process lifecycle.
 
 ## 9. Identity additions
 
@@ -205,24 +264,25 @@ Terminal receipts and idempotency tombstones are authoritative historical state 
 
 ## 11. Storage and package boundaries
 
-No catch-all `observability`, `common`, `utils`, or `helpers` subsystem should own these capabilities. Domain storage is conceptually separated:
+New records remain domain-owned instead of accumulating in one generic observability manager. Conceptual ownership is:
 
 ```text
-events/                 bounded journal segments
+events/                       bounded materialized journal segments
 derived/
-  structured/
-  telemetry/
-  repro/
+  structured/                 E22 results
+  telemetry/                  E23 records/summaries
+  repro/                      E24 immutable descriptors/tombstones
+  code/                       E29 semantic/structural/index result metadata
 projects/
-  readiness cache
+  readiness/                  E25 cache
 providers/
-  checkpoint metadata
-  trace metadata
+  checkpoints/                E26 metadata only
+  traces/                     E27 metadata only
 ```
 
-Checkpoint content CAS is sensitive provider-owned content and is not placed in the generic derived-record store.
+Provider-private checkpoint content-store state remains outside generic derived storage because it contains sensitive local bytes.
 
-Implementation plans should prefer focused domain packages, for example:
+Implementation package responsibilities should remain small and capability-oriented, for example:
 
 ```text
 core/event
@@ -231,80 +291,117 @@ core/telemetry
 core/repro
 core/readiness
 core/projectcommand
+core/codeintel
 app/observation
-app/readiness
 app/reproduction
+app/readiness
+app/codeintel
 adapter/result/<format>
 adapter/telemetry/<platform>
+adapter/codeintel/lsp
+adapter/codeintel/astgrep
+adapter/codeintel/scip
 provider/checkpoint/<implementation>
 provider/trace/<implementation>
 ```
 
-These are architectural responsibilities, not mandatory filenames; plans must reconcile them with the codebase at implementation time and avoid unrelated refactoring.
+These are architectural responsibilities, not mandatory filenames. Plans must reconcile them with the codebase at implementation time and avoid unrelated refactoring, catch-all `utils/common/helpers`, or a single manager that owns execution, observation, and provider lifecycle.
 
 ## 12. Durability and crash semantics
 
-An authoritative transition is never rolled back because a derived projection fails.
+An authoritative transition is never rolled back because a derived projection fails. The stronger rule is that any transition promised through E21 cannot become externally visible without its durable `change_seq`/observation obligation being committed under the same recovery boundary.
 
 Examples:
 
-- receipt durable + structured parser crash => command terminal truth remains valid; structured result becomes unavailable/partial;
-- canonical state durable + journal append failure => truth remains valid; journal reports a gap/reconciliation requirement or the client snapshots current state;
-- terminal receipt durable + telemetry persistence failure => receipt remains valid; telemetry is unavailable;
-- execution complete + repro materialization failure => execution remains valid; repro is unavailable.
+- receipt canonical transition + durable change obligation committed; journal materialization crashes => command truth remains valid, high-watermark proves the journal is behind, and recovery rematerializes or requests a snapshot without claiming continuity;
+- receipt durable + structured parser crash => command terminal truth remains valid; one deterministic derivation remains partial/unavailable instead of being duplicated;
+- terminal receipt durable + telemetry persistence/index acknowledgement crash => retry upserts the same sample derivation; history never counts the execution twice;
+- execution complete + repro materialization failure => execution remains valid; the repro-create mutation receipt reports its actual result;
+- code-intelligence provider failure => source/execution truth remains valid; semantic observation is stale/unavailable and never fabricated.
 
 Only data explicitly declared as a required evidence condition may make the associated evidence record `incomplete`; it still does not rewrite child exit or transport truth.
 
-All new durable writers use the existing crash-safe atomic publication rules appropriate to their authority class. Experimental provider crashes cannot corrupt receipt/idempotency state.
+All new durable writers use crash-safe atomic publication appropriate to their authority class. Experimental provider crashes cannot corrupt receipt/idempotency state. Mutation-like actions such as checkpoint create/restore and explicit repro materialization use durable request identity/receipts so a lost response cannot cause a second externally visible mutation under retry.
 
 ## 13. Delivery roadmap
 
-New work is staged after the existing Agent Execution Layer A0/A1/A2 foundation:
+New work is staged after the existing Agent Execution Layer foundation without forcing unrelated capabilities to wait for one another.
 
-### A3: observation substrate
+### A3a: shared observation correctness foundation
 
-- E21 Event Journal;
-- E22 Structured Execution Results;
-- common derived-record provenance envelope.
+- capability/version/maturity negotiation extensions;
+- optional correlation envelope for non-workspace operations;
+- durable state-root `change_seq` and observation obligation;
+- deterministic derived-record identity/lifecycle;
+- bounded storage/retention primitives;
+- Agent Ergonomics / No Protocol Choreography contract.
 
-A3 is the principal prerequisite for later slices because subsequent capabilities may publish small journal events and reuse the same provenance contract.
+A3a is the hard prerequisite for later automatically derived capabilities.
+
+### A3b: execution observation
+
+- E21 Event Journal materialization and server-driven snapshot recovery;
+- E22 Structured Execution Results and immutable structured-input provenance.
+
+### A3c: structured code intelligence
+
+- E29A semantic diagnostics, initially Go/gopls over LSP;
+- E29B definition/references/symbols/imports/type facts;
+- optional read-only structural provider backed by ast-grep;
+- optional precomputed SCIP consumption deferred until there is demonstrated need.
+
+A3c depends on A3a, not on E22 completion. E29 diagnostics may reuse the E22 diagnostic presentation schema when E22 is available.
 
 ### A4: empirical execution knowledge
 
 - E23 performance/resource observation;
 - E24 Reproduction Capsule.
 
-A4 may proceed independently of A5 after A3.
+A4 depends on A3a. E21/E22/E29 references are optional integrations, not prerequisites for telemetry to exist.
 
 ### A5: declarative project readiness
 
 - E25 Project Readiness;
-- E28 Typed Parameterized Project Commands.
+- E28 Typed Parameterized Project Commands;
+- optional readiness observations for declared code-intelligence providers.
 
-A5 may proceed independently of A4 after A3 and the existing project-manifest foundation.
+A5 depends on A3a plus the existing project-manifest foundation, not on Event Journal or diagnostics completion.
 
 ### X1: experimental providers
 
 - E26 Safety Checkpoint;
 - E27 Dynamic Input Tracing;
-- optional resource enforcement provider/capability from the E23 design.
+- optional resource enforcement provider/capability from E23.
 
 X1 never blocks release or completion claims for A3-A5.
 
-Existing B1 persistent-runtime and B2 provider-integration work remains valid; implementation planning must order tasks by actual dependencies rather than rewriting historical milestone numbering.
+Existing persistent-runtime/provider-integration work remains valid; implementation planning orders tasks by actual dependency rather than rewriting historical milestone numbering.
 
 ## 14. Performance requirements
 
-Ordinary command admission must remain fast. When a caller does not request the new capabilities, warm `start` performs no journal scan, percentile aggregation, repro materialization, readiness refresh, tracing, checkpoint work, or arbitrary tool probe.
+Feature support must not accumulate into an invisible tax on every shell command. Performance gates are global before capability-specific.
 
-- Journal publication is bounded local work or bounded queued publication.
-- Structured parsing runs streaming only when cheap or in terminal-finalization workers.
-- Telemetry aggregation is asynchronous/bounded and not recomputed on every poll.
-- Repro materialization never runs before spawn.
-- Readiness/toolchain probes reuse bounded caches and are outside warm admission.
-- `inspect` enforces record, byte, and work budgets and returns explicit partial/truncation markers.
+### 14.1 Ordinary compatible start
 
-A budget overrun never silently drops data while claiming completeness.
+With E21-E29 supported but no optional observation/provider feature requested, warm ordinary `start` must perform:
+
+- zero code-intelligence/tracing/checkpoint provider startup;
+- zero readiness refresh, telemetry aggregation, repro materialization, or structured-result scan;
+- zero network/SSH/`gh` access;
+- zero additional subprocesses beyond the predecessor warm-admission contract;
+- no extra synchronous durability barrier solely to materialize a journal event. The durable observation obligation is committed with the canonical transition mechanism; event projection is decoupled.
+
+The release benchmark compares the same build on the same reference corpus with the roadmap capabilities disabled versus enabled-but-unused. Initial regression gates are **p95 incremental warm-admission <= 5 ms and p99 <= 10 ms**, while the complete operation must also remain inside the predecessor global workspace-assistance ceiling. These numbers are global deltas, not per-capability budgets that may be added together. A design change that cannot meet them must explicitly revise the benchmark contract before release rather than silently weakening the gate.
+
+### 14.2 Explicit capability work
+
+- Cached typed-project-command binding targets p95 <= 10 ms and performs no subprocess/network access.
+- Journal delta inspection, structured-result reads, telemetry/history inspection, and code-intelligence result rendering enforce explicit record/byte/work ceilings.
+- Semantic provider cold start/indexing is explicit code-intelligence work and never part of ordinary `start`; capability-specific startup/query budgets and `initializing`/partial states are reported honestly.
+- Required tracing has an explicit startup/instrumentation budget because it intentionally changes execution admission semantics.
+- Checkpoint capture/restore has explicit path/byte/work budgets and is never implicit.
+
+A budget overrun returns partial/unavailable/initializing status according to the capability contract; it never silently drops data while claiming completeness.
 
 ## 15. Security and privacy requirements
 
@@ -329,25 +426,28 @@ The umbrella verification matrix requires all applicable companion tests plus th
 4. **Structured-result adversarial tests:** malformed/oversized native formats, path escape, binary output, duplicates, parser budgets.
 5. **Telemetry/repro tests:** incompatible aggregation keys, failed/timeout samples, metric quality, compacted references, privacy matrix.
 6. **Readiness/binding tests:** manifest v1/v2 compatibility, missing/incompatible prerequisites, secret-safe environment presence, param validation before spawn, retry after manifest change.
-7. **Experimental provider safety tests:** CAS restore conflicts, symlink/special-file behavior, tracing truncation/ownership gaps, and proof advisory traces cannot narrow evidence.
+7. **Experimental provider safety tests:** conditional-restore conflict semantics, symlink/special-file behavior, tracing truncation/ownership gaps, and proof advisory traces cannot narrow evidence.
 8. **Native platform gates:** real macOS and Linux evidence for platform-specific resource/provider semantics. Cross-builds are compile evidence only.
 
 Fuzz/property tests are expected for cursor decoding, parameter binding, path normalization, structured-result parsers, manifest v2 parsing, and checkpoint restore preconditions.
 
 ## 17. Core definition of done
 
-E21-E25 and E28 are core-complete only when all of the following are true:
+E21-E25, E28, and the promoted E29 core surface are core-complete only when all of the following are true:
 
-1. A reconnecting agent can obtain bounded activity/workspace deltas without reconstructing whole state each time.
-2. A failing command with a supported structured producer yields exact mechanical diagnostic/result facts with raw provenance.
-3. Historical execution cost/resource facts are inspectable without ShellBeam making scheduling decisions.
-4. One execution can produce an inspectable reproduction provenance record whose unknown dimensions remain explicit.
-5. Project readiness reports manifest-declared prerequisites mechanically without installing or repairing anything.
-6. Typed project commands bind safely without shell templating, implicit graph execution, or workflow semantics.
-7. Existing receipt/idempotency/ownership/evidence invariants remain green under new schema versions and crash injection.
-8. Native macOS and Linux checkpoint CI is green for the applicable core capabilities.
-9. Ordinary compatible execution has no material warm-admission latency regression.
-10. E26/E27 absence or experimental failure does not make core completion incomplete.
+1. A reconnecting agent can obtain bounded deltas without reconstructing whole state and without manually orchestrating epoch/gap recovery.
+2. A canonical transition cannot create an undetectable Event Journal gap; snapshot/resume uses one consistency cut.
+3. A failing command with a supported structured producer yields mechanical diagnostic/result facts from immutable input provenance.
+4. Crash retry cannot duplicate automatically derived diagnostics or telemetry samples.
+5. Historical execution cost/resource facts are inspectable without ShellBeam making scheduling decisions and without unbounded aggregation-key growth.
+6. One execution can produce an immutable reproduction provenance record with an explicit capture cut, stable creation descriptor, and honest post-compaction resolution state.
+7. Project readiness reports manifest-declared prerequisites mechanically without installing or repairing anything.
+8. Typed project commands replay existing `operation_id` bindings before reading current workspace/manifest/provider state and bind safely without shell templating or workflow semantics.
+9. E29 returns bounded semantic diagnostics/navigation through model-oriented queries without exposing LSP choreography and without claiming build/test evidence.
+10. Provider absence/indexing/staleness never blocks ordinary shell execution.
+11. Existing receipt/idempotency/ownership/evidence invariants remain green under new schema versions and crash injection.
+12. Enabled-but-unused roadmap capabilities pass the global incremental admission benchmark and storage/work ceilings.
+13. E26/E27 absence or experimental failure does not make core completion incomplete.
 
 ## 18. Experimental readiness
 

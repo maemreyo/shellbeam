@@ -39,17 +39,20 @@ S2 does not add:
 
 ## 4. Per-execution performance record
 
-Each terminal operation may produce a version-1 `performance_record` using the common derived-record provenance envelope. Core fields are conceptually:
+Each terminal operation may produce exactly one logical version-1 `performance_record` per telemetry derivation contract. It uses the common optional correlation envelope; repository/workspace identities are absent when the operation was legitimately executed outside a registered workspace.
+
+Conceptually:
 
 ```text
-record_id
+derivation_key
 operation_id
 receipt_digest
-repository_id
-workspace_id
+repository_id?
+workspace_id?
 activity_id?
 project_command_id?
-command_fingerprint
+command_semantics_fingerprint
+parameter_binding_fingerprint?
 source_content_digest?
 source_scope_digest?
 environment_fingerprint?
@@ -61,12 +64,12 @@ input_delivered_bytes
 terminal_outcome
 timed_out
 captured_at
-completeness
+lifecycle/completeness
 ```
 
-Wall duration and byte counters derive from existing authoritative execution records where possible and can therefore be captured without OS resource probing.
+`derivation_key` includes the authoritative receipt identity plus telemetry producer/schema/config semantics. A crash after record publication but before index/event acknowledgement upserts the same logical sample. One execution can never appear twice in a histogram because finalization was retried.
 
-Performance records do not alter terminal receipts and may be compacted independently according to derived-data retention rules.
+Wall duration and byte counters derive from existing authoritative execution records where possible and therefore require no OS resource probe. Performance records never alter terminal receipts.
 
 ## 5. Resource observation record
 
@@ -108,20 +111,25 @@ Resource observation never expands the set of processes ShellBeam may signal or 
 
 ## 7. Telemetry aggregation identity
 
-Historical samples are not grouped solely by human command text. A compatible aggregation key includes at least:
+Historical samples are never grouped solely by project command ID or human command text. Every compatible bucket includes an execution-semantics identity:
 
 ```text
-repository_id
-project_command_id OR canonical command fingerprint
+repository_id? / explicit non-repository scope
+command_semantics_fingerprint
+command_definition_digest?       # when manifest-backed
+parameter_binding_scope_fingerprint?
 toolchain compatibility key
 environment compatibility key
 declared/effective scope class
+platform/architecture when metric semantics require it
 telemetry schema version
 ```
 
-Where a project command is parameterized, the aggregation contract additionally distinguishes parameter values or a versioned parameter-scope identity when different values materially change work. The initial implementation should prefer exact parameter identity over clever normalization.
+`project_command_id` is a display/correlation label only. If `test_full` changes resolved argv between manifest revisions, the changed command-definition/execution fingerprint creates a different history bucket even though the label is unchanged.
 
-Exact source content digest is retained per sample but is not part of the primary grouping key, because requiring identical source content would make empirical history nearly useless. The summary exposes sample heterogeneity rather than pretending all sources were identical.
+Parameterized commands use a bounded secret-safe parameter binding fingerprint or a versioned scope identity. Raw parameter values are not copied into telemetry indexes merely to establish a grouping key. Free-form values such as paths/test names cannot create an unbounded public index without quota enforcement.
+
+Exact source content digest is retained per sample but is not normally part of the primary grouping key; summaries expose source heterogeneity instead of pretending every source revision was identical.
 
 ## 8. Compatibility keys
 
@@ -164,17 +172,20 @@ Percentiles are computed deterministically under a versioned method. The summary
 
 ShellBeam may expose latest-sample ratios/percentile positions mechanically, for example `latest_wall_ms / historical_p50`. It must not label the result `performance_regression=true` unless a future project policy explicitly defines that deterministic threshold.
 
-## 10. Sample retention and compaction
+## 10. Sample/key retention and compaction
 
-Telemetry history is bounded by recent-sample count, age, and bytes. Older samples may be compacted into stable histogram/summary buckets when the implementation can preserve the declared aggregate semantics.
+Telemetry storage is bounded simultaneously by:
 
-Retention must not introduce survivorship bias:
+- total retained sample count and bytes;
+- total distinct aggregation keys;
+- per-repository distinct key count;
+- recent samples per key;
+- retained aggregate/histogram bytes;
+- age.
 
-- successful samples are not preferentially retained over failures;
-- failures/timeouts are counted until the same retention policy removes/aggregates their cohort;
-- outliers are not discarded merely for being outliers.
+The concrete limits are advertised in capability discovery/config and tested as hard ceilings. Eviction/aggregation is cohort-neutral: successful samples are not preferentially retained, failures/timeouts remain represented under the same retention policy, and outliers are not discarded merely for being outliers.
 
-Deleting or compacting telemetry does not affect terminal receipts, operation idempotency, evidence validity, or repro records except that a repro reference may report the linked detailed telemetry record as compacted.
+Older samples may compact into stable aggregate buckets only when declared semantics can be preserved. Deleting telemetry does not affect terminal receipts, operation idempotency, or evidence validity. A retained reproduction capsule may resolve a detailed telemetry reference as compacted while preserving its creation-time descriptor/tombstone.
 
 ## 11. Collection timing and performance budget
 
@@ -224,25 +235,29 @@ Resource enforcement is experimental and is not required for E23 core completion
 
 ## 13. Reproduction capsule model
 
-A `repro_id` identifies an immutable projection of captured conditions for one admitted execution. It is not a tarball or content snapshot.
+A `repro_id` identifies an immutable projection of captured conditions for one admitted execution **at one explicit capture consistency cut**. It is not a tarball, source snapshot, or guarantee that rerunning will reproduce the outcome.
+
+Explicit materialization also carries a caller-stable `repro_create_id`. The create request is an exactly-once local mutation: retry of the same ID replays the durable creation receipt and exact original capsule even if additional derived observations become available later. A conflicting request fingerprint never creates another capsule under that ID.
 
 Conceptually:
 
 ```text
+repro_create_id
 repro_id
 schema_version
 created_at
+capture_cut_digest
 execution:
   operation_id
   receipt_digest
-  command_fingerprint
+  command_semantics_fingerprint
   project_command_id?
-  parameter_binding?
+  parameter_binding_fingerprint?
   resolved_argv OR shell fingerprint
   execution_mode
 source:
-  repository_id
-  workspace_id
+  repository_id?
+  workspace_id?
   source_content_digest?
   vcs_state_digest?
   workspace_generation?
@@ -254,17 +269,12 @@ environment:
   environment_fingerprint?
   toolchain_fingerprint?
 results:
-  output_ref?
-  structured_result_refs[]
-  evidence_refs[]
-  artifact_observation_refs[]
-  performance_record_ref?
-  resource_record_ref?
+  creation_descriptors[]
 capture:
   completeness_by_dimension
 ```
 
-A capsule references existing records/digests instead of duplicating large content.
+`capture_cut_digest` identifies the exact eligible source/ref states observed for this materialization, including whether dependent derivations were pending, terminal, unavailable, or absent. A later independent create request may produce a different `repro_id`/cut if richer terminal derivations are now available; it never mutates the earlier capsule.
 
 ## 14. Capture-completeness matrix
 
@@ -329,33 +339,39 @@ Capsules also exclude:
 - raw network payloads;
 - E26 checkpoint payloads.
 
-## 18. Result references and compaction
+## 18. Immutable descriptors, resolution state, and compaction
 
-Capsules keep stable references/summaries when detailed result data later compacts.
-
-If raw output has been compacted, inspection may report:
+A capsule freezes a bounded creation-time descriptor for every captured reference:
 
 ```text
-output_ref:
-  state = compacted
-  digest = ...
-  bytes = ...
+ref_id
+record_kind
+producer/schema identity
+digest or opaque immutable identity where privacy permits
+bounded creation-time summary
+original_availability
 ```
 
-If structured-result details have compacted, the capsule retains the recorded reference/state and available bounded summary. It does not regenerate a different parser version's result and present it as the original execution record.
+This descriptor is immutable. Inspection separately reports the current dynamic resolution state:
 
-Immutable receipt/evidence digests remain authoritative according to their own retention contract.
+```text
+resolution_state: available | compacted | purged | unavailable
+```
+
+Compaction never rewrites the creation-time descriptor to make history look different. Any detail eligible for compaction while a capsule remains retained must leave a tombstone sufficient to report original identity/producer/schema/summary and current resolution honestly.
+
+Checkpoint private-content identities are never copied into repro descriptors. If raw output/structured/telemetry detail compacts, the capsule remains inspectable through the descriptor plus tombstone, but it never regenerates a different producer version's output and presents it as the original.
 
 ## 19. Capsule creation policy
 
 MVP supports:
 
-1. **Explicit creation:** user/agent requests a capsule for a known operation/receipt.
-2. **Evidence-triggered creation:** a validated project verification/evidence policy requests the reproduction projection for a meaningful verification execution.
+1. **Explicit exactly-once creation:** caller supplies `repro_create_id`, target operation/receipt, and a bounded capture policy. The first accepted request freezes one consistency cut and durable result. Lost-response retry replays it.
+2. **Evidence-triggered creation:** a validated verification/evidence policy may derive a deterministic create-request identity from the authoritative evidence/receipt and policy version, then uses the same exactly-once materialization path.
 
-ShellBeam may maintain an internal lightweight `repro-capable` index for terminal operations with sufficient provenance, but it should not materialize a full capsule record for every trivial command such as `pwd`.
+Before freezing the cut, the service observes the current eligible derivation lifecycles. A capture policy may either accept pending dimensions as pending/partial or require selected derivations to reach a terminal bounded state. Waiting is always bounded; timeout becomes an explicit capture gap rather than an unbounded terminalization dependency.
 
-Automatic materialization for every operation is deferred unless real usage proves it worthwhile.
+A lightweight internal `repro-capable` index may identify operations that could be materialized later. It is not itself an immutable capsule and does not create records for every trivial command.
 
 ## 20. Capsule inspection
 
@@ -454,13 +470,13 @@ macOS and Linux may legitimately advertise different quality levels. Unsupported
 
 Cross-build only proves compilation.
 
-## 25. Persistence and migration
+## 25. Persistence, retention, and migration
 
-Telemetry/repro schemas are versioned derived state. Exact source/toolchain/environment fingerprint schema versions are included so incompatible normalization is detectable.
+Telemetry/repro schemas are versioned derived state. Exact source/toolchain/environment fingerprint schema versions remain explicit so incompatible normalization cannot be merged silently.
 
-Telemetry summaries may rebuild from retained samples. Repro capsules are immutable historical projections: migrations may wrap/read old schema versions but do not reinterpret unknown old fields as newer stronger capture semantics.
+Telemetry summaries may rebuild from retained uniquely keyed samples. Repro capsules are immutable historical projections and have independent hard count/age/metadata-byte quotas. Purge is explicit/retention-driven and never affects operation idempotency authority.
 
-A cleanup operation may compact/remove telemetry detail according to retention, but it must not make an old operation runnable again or erase receipt/idempotency authority.
+A capsule's creation descriptors/tombstones live at least as long as the capsule itself. Detail stores may compact sooner, but inspection must still distinguish original availability from current `resolution_state`. Migration may wrap/read old capsule schemas but never reinterpret unknown old fields as a stronger capture claim.
 
 ## 26. Security/privacy validation
 
@@ -471,7 +487,7 @@ Fixture-based tests must prove persisted/public telemetry/repro records do not c
 - private-key/token material;
 - stdin fixture contents;
 - source file contents not already permitted by existing output behavior;
-- E26 checkpoint CAS contents.
+- E26 checkpoint private content-store contents.
 
 External absolute paths are redacted/classified according to the existing workspace/privacy contract.
 
@@ -479,49 +495,49 @@ External absolute paths are redacted/classified according to the existing worksp
 
 ### 27.1 Telemetry tests
 
-- successful, failed, killed, and timeout samples all contribute correctly;
-- compatible aggregation keys merge and incompatible keys remain separate;
-- exact parameter bindings are distinguished when applicable;
-- deterministic percentile/histogram goldens;
-- retention does not preferentially remove failures/outliers;
-- unsupported metrics are unavailable rather than zero;
-- sampled metrics never report exact quality;
-- daemon/supervisor observation gaps downgrade completeness;
-- telemetry failure cannot alter terminal receipt.
+- one terminal receipt produces one logical sample under one derivation key even across crash/recovery at record/index/event acknowledgement boundaries;
+- changed command definition under the same project-command label creates a separate bucket;
+- parameter binding fingerprints are stable/secret-safe and key cardinality remains within hard global/per-repo limits;
+- incompatible toolchain/environment/platform/schema histories never blend silently;
+- failure/timeout/outlier cohorts survive retention fairly;
+- resource observation quality and restart gaps are never overclaimed.
 
 ### 27.2 Reproduction tests
 
-- exact-source capsule binds the exact terminal operation and receipt;
-- partial source/environment dimensions remain partial/unknown;
-- output and structured-result compaction preserves honest references;
-- manifest/typed-command retry changes do not mutate old capsule bindings;
-- capsule creation contains no raw secrets/input/source payloads;
-- explicit creation for a missing/ambiguous source record reports exact gaps;
-- repro inspection never triggers execution.
+- explicit `repro_create_id` lost-response retry replays the exact original `repro_id` and capture cut after later derivations complete;
+- conflicting create fingerprint under the same ID cannot rematerialize;
+- creation cut records pending/terminal/absent dependent derivations exactly;
+- later independent creation may produce a richer different cut without mutating the old capsule;
+- immutable creation descriptors remain unchanged while dynamic resolution moves available->compacted/purged;
+- every compactable referenced family leaves a sufficient tombstone for retained capsules;
+- capsule count/age/byte quotas are hard-bounded;
+- partial environment/input/external-service capture never becomes a reproducibility guarantee;
+- private checkpoint identities/raw secret values never surface.
 
 ### 27.3 Platform tests
 
-Native Linux and macOS runs validate every advertised resource metric/quality claim. Cross-compilation is labeled compile-only.
+Native macOS/Linux tests establish each advertised resource metric quality. Cross-build is compile-only evidence.
 
 ### 27.4 Experimental resource-enforcement tests
 
-Where a provider is implemented, prove supported limits are actually enforced under the documented semantics; unsupported limits fail before spawn or at declared validation boundary and are never silently ignored.
+Where implemented, supported limits are proven under documented native semantics; unsupported limits are rejected explicitly and never silently ignored.
 
 ## 28. Core acceptance criteria
 
 E23/E24 core are complete only when:
 
-1. Two compatible executions of a canonical project command produce inspectable historical distributions.
-2. Toolchain/environment/schema incompatibility is never blended silently.
-3. Failure/timeout samples remain represented in history.
-4. Resource metrics expose exact/platform-reported/sampled/unavailable quality honestly.
-5. Resource-observation gaps cannot be presented as complete.
-6. A terminal operation can produce a reproduction capsule referencing its receipt/source/manifest/environment/result records.
-7. Capsule capture gaps are explicit and no boolean reproducibility guarantee exists.
-8. Capsule inspection remains useful after eligible raw/derived detail compaction and reports what was lost.
-9. Telemetry/repro write failure cannot damage authoritative execution/idempotency/evidence state.
-10. Ordinary command admission does not materially regress when telemetry/repro inspection is unused.
-11. Experimental resource enforcement is not required for a core-complete claim.
+1. Exactly one logical telemetry sample is counted per compatible terminal execution/derivation despite crash recovery.
+2. Aggregation always includes execution-semantic identity; project command labels cannot merge changed commands.
+3. Total key/sample/aggregate storage is hard bounded and retention does not preferentially erase failures/timeouts.
+4. Toolchain/environment/schema/platform incompatibility is never blended silently.
+5. Resource metrics expose exact/platform-reported/sampled/unavailable quality honestly and gaps cannot be called complete.
+6. Explicit repro creation is exactly-once under `repro_create_id` and freezes one consistency cut.
+7. A later richer capture never mutates an existing capsule.
+8. Capsule creation-time descriptors are immutable and current resolution state is separate.
+9. Capsule inspection remains useful after eligible detail compaction through required tombstones and honest loss reporting.
+10. Telemetry/repro failures cannot damage authoritative execution/idempotency/evidence state.
+11. Ordinary command admission performs no telemetry aggregation/repro work when these capabilities are unused.
+12. Experimental resource enforcement is not required for a core-complete claim.
 
 ## 29. Reference agent flow
 
