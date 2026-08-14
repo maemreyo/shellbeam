@@ -146,9 +146,10 @@ func (r *Repository) ListCompatiblePerformance(ctx context.Context, compatibilit
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if !validTelemetryKey(compatibilityKey) || limit < 1 || limit > r.limits.MaxTelemetrySamples {
+	if !validTelemetryKey(compatibilityKey) || limit < 1 {
 		return nil, fmt.Errorf("invalid telemetry history bounds")
 	}
+	limit = min(limit, r.limits.MaxTelemetrySamples)
 	r.telemetryMu.Lock()
 	defer r.telemetryMu.Unlock()
 	entries, err := r.telemetryEntriesLocked()
@@ -162,6 +163,28 @@ func (r *Repository) ListCompatiblePerformance(ctx context.Context, compatibilit
 		}
 	}
 	return out, nil
+}
+
+func (r *Repository) CountCompatiblePerformance(ctx context.Context, compatibilityKey string) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if !validTelemetryKey(compatibilityKey) {
+		return 0, fmt.Errorf("invalid telemetry compatibility key")
+	}
+	r.telemetryMu.Lock()
+	defer r.telemetryMu.Unlock()
+	entries, err := r.telemetryEntriesLocked()
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, entry := range entries {
+		if entry.compatibilityKey == compatibilityKey {
+			count++
+		}
+	}
+	return count, nil
 }
 
 func (r *Repository) prepareTelemetryObservation(ctx context.Context, record core.PerformanceRecord) (observation.ChangeSeq, app.StoreResult) {

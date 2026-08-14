@@ -16,3 +16,9 @@ type Repository interface {
 	LoadReceipt(context.Context, operation.SessionID) (receipt.Receipt, error)
 	PutPerformanceRecord(context.Context, core.PerformanceRecord) error
 }
+
+type HistoryRepository interface {
+	FindPerformanceByOperation(context.Context, string) (core.PerformanceRecord, bool, error)
+	ListCompatiblePerformance(context.Context, string, int) ([]core.PerformanceRecord, error)
+	CountCompatiblePerformance(context.Context, string) (int, error)
+}

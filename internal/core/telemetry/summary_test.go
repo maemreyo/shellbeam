@@ -1,6 +1,7 @@
 package telemetry
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -35,6 +36,22 @@ func TestSummaryIsDeterministicAndRetainsFailureTimeoutCohorts(t *testing.T) {
 	}
 	if again.WallMS != got.WallMS || again.OutputBytes != got.OutputBytes || again.OutcomeCounts != got.OutcomeCounts || again.TimeoutRate != got.TimeoutRate {
 		t.Fatalf("order changed summary first=%#v second=%#v", got, again)
+	}
+}
+
+func TestSummaryReportsSourceHeterogeneityWithoutChangingCompatibility(t *testing.T) {
+	first := summarySample(100, 10, session.Success)
+	first.SourceContentDigest = strings.Repeat("a", 64)
+	second := summarySample(200, 20, session.Success)
+	second.SourceContentDigest = strings.Repeat("b", 64)
+	third := summarySample(300, 30, session.Success)
+	third.SourceContentDigest = ""
+	got, err := Summarize([]PerformanceRecord{first, second, third})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceHeterogeneity.KnownDistinctDigests != 2 || got.SourceHeterogeneity.UnknownSamples != 1 {
+		t.Fatalf("source heterogeneity=%#v", got.SourceHeterogeneity)
 	}
 }
 

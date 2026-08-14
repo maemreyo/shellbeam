@@ -76,6 +76,10 @@ func TestTelemetryStoreFindsLatestOperationAndOnlyCompatibleHistory(t *testing.T
 	if err != nil || len(history) != 2 {
 		t.Fatalf("history=%#v err=%v", history, err)
 	}
+	available, err := r.CountCompatiblePerformance(context.Background(), key)
+	if err != nil || available != 2 {
+		t.Fatalf("available=%d err=%v", available, err)
+	}
 	if history[0].DerivationKey != second.DerivationKey || history[1].DerivationKey != first.DerivationKey {
 		t.Fatalf("history not newest-first: %#v", history)
 	}
