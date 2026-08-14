@@ -333,3 +333,37 @@ func TestMCPV2ArgvIntentAreForwarded(t *testing.T) {
 		t.Fatalf("result=%#v request=%#v", res, fake.last)
 	}
 }
+
+func TestEventJournalCapabilityDiscoveryAdvertisesLimitsOnlyWhenComposed(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{}).WithEventJournal(256, 2048, 64, true)
+	fake := &discoveryClient{catalog: catalog}
+	server := New(bridge.New(fake), catalog)
+	st, ct := mcpgo.NewInMemoryTransports()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go server.Run(ctx, st)
+	client := mcpgo.NewClient(&mcpgo.Implementation{Name: "event-discovery", Version: "1"}, &mcpgo.ClientOptions{Capabilities: &mcpgo.ClientCapabilities{}})
+	session, err := client.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	init := session.InitializeResult()
+	extension, ok := init.Capabilities.Extensions[ExtensionName].(map[string]any)
+	if !ok {
+		t.Fatalf("extension=%#v", init.Capabilities.Extensions[ExtensionName])
+	}
+	encoded, err := json.Marshal(extension["catalog"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got capability.Catalog
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Features[capability.FeatureEventJournal] != capability.Available || got.Features[capability.FeatureEventSnapshotRecovery] != capability.Available ||
+		got.Limits.EventJournalMaxEvents != 256 || got.Limits.EventCursorBytes != 2048 || got.Limits.EventSnapshotFacts != 64 ||
+		len(got.EventCursorSchemaVersions) != 1 || got.EventCursorSchemaVersions[0] != 1 {
+		t.Fatalf("catalog=%#v", got)
+	}
+}

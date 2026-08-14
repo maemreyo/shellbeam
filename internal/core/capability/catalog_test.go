@@ -47,3 +47,20 @@ func TestCatalogBaselineDoesNotAliasFeatureMaps(t *testing.T) {
 		t.Fatal("baseline catalogs share mutable feature map")
 	}
 }
+
+func TestEventJournalCapabilityIsOnlyAdvertisedWhenComposed(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureEventJournal] != Unavailable || base.Features[FeatureEventSnapshotRecovery] != Unavailable || len(base.EventCursorSchemaVersions) != 0 {
+		t.Fatalf("baseline event capability=%#v", base)
+	}
+	got := base.WithEventJournal(256, 2048, 64, true)
+	if got.Features[FeatureEventJournal] != Available || got.Features[FeatureEventSnapshotRecovery] != Available {
+		t.Fatalf("features=%#v", got.Features)
+	}
+	if !reflect.DeepEqual(got.EventCursorSchemaVersions, []int{1}) || got.Limits.EventJournalMaxEvents != 256 || got.Limits.EventCursorBytes != 2048 || got.Limits.EventSnapshotFacts != 64 {
+		t.Fatalf("catalog=%#v", got)
+	}
+	if base.Features[FeatureEventJournal] != Unavailable || len(base.EventCursorSchemaVersions) != 0 {
+		t.Fatal("WithEventJournal mutated baseline catalog")
+	}
+}

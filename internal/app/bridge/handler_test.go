@@ -2,6 +2,8 @@ package bridge
 
 import (
 	"context"
+	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"testing"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
@@ -64,4 +66,18 @@ type recordingClient struct {
 func (c *recordingClient) Forward(_ context.Context, request Request) (Response, error) {
 	c.request = request
 	return c.response, nil
+}
+
+func TestEventInspectBridgePreservesTypedRequestAndResponse(t *testing.T) {
+	result := observationapp.InspectResult{Continuity: observationcore.ContinuityComplete, NextEventCursor: "evtcur_v1_abc.def"}
+	client := &recordingClient{response: Response{Events: &result}}
+	h := New(client)
+	request := Request{ProtocolVersion: 2, Action: "inspect.events", EventInspect: observationapp.InspectRequest{Target: observationcore.Target{Kind: observationcore.TargetOperation, OperationID: "op-1"}, MaxEvents: 64}}
+	got, err := h.Handle(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.request.Action != "inspect.events" || client.request.EventInspect.Target.OperationID != "op-1" || client.request.EventInspect.MaxEvents != 64 || got.Events != &result {
+		t.Fatalf("request=%#v response=%#v", client.request, got)
+	}
 }

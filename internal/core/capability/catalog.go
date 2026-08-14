@@ -22,23 +22,29 @@ const (
 	FeatureEnvironmentFingerprint Feature = "environment_fingerprint"
 	FeatureMutationScopes         Feature = "mutation_scopes"
 	FeatureProjectManifest        Feature = "project_manifest"
+	FeatureEventJournal           Feature = "event_journal"
+	FeatureEventSnapshotRecovery  Feature = "event_snapshot_recovery"
 )
 
 type Limits struct {
-	CommandBytes       int   `json:"command_bytes"`
-	ResponseBytes      int   `json:"response_bytes"`
-	SessionOutputBytes int64 `json:"session_output_bytes"`
-	RuntimeMS          int64 `json:"runtime_ms"`
-	LiveSessions       int   `json:"live_sessions"`
-	ActivityHistory    int   `json:"activity_history"`
+	CommandBytes          int   `json:"command_bytes"`
+	ResponseBytes         int   `json:"response_bytes"`
+	SessionOutputBytes    int64 `json:"session_output_bytes"`
+	RuntimeMS             int64 `json:"runtime_ms"`
+	LiveSessions          int   `json:"live_sessions"`
+	ActivityHistory       int   `json:"activity_history"`
+	EventJournalMaxEvents int   `json:"event_journal_max_events,omitempty"`
+	EventCursorBytes      int   `json:"event_cursor_bytes,omitempty"`
+	EventSnapshotFacts    int   `json:"event_snapshot_facts,omitempty"`
 }
 
 type Catalog struct {
-	ProtocolVersion       int                      `json:"shellbeam_protocol_version"`
-	ReceiptSchemaVersions []int                    `json:"receipt_schema_versions"`
-	ManifestVersions      []int                    `json:"project_manifest_schema_versions"`
-	Features              map[Feature]Availability `json:"features"`
-	Limits                Limits                   `json:"limits"`
+	ProtocolVersion           int                      `json:"shellbeam_protocol_version"`
+	ReceiptSchemaVersions     []int                    `json:"receipt_schema_versions"`
+	ManifestVersions          []int                    `json:"project_manifest_schema_versions"`
+	EventCursorSchemaVersions []int                    `json:"event_cursor_schema_versions,omitempty"`
+	Features                  map[Feature]Availability `json:"features"`
+	Limits                    Limits                   `json:"limits"`
 }
 
 var targetFeatures = []Feature{
@@ -54,6 +60,8 @@ var targetFeatures = []Feature{
 	FeatureEnvironmentFingerprint,
 	FeatureMutationScopes,
 	FeatureProjectManifest,
+	FeatureEventJournal,
+	FeatureEventSnapshotRecovery,
 }
 
 func TargetFeatures() []Feature {
@@ -83,9 +91,26 @@ func (c Catalog) Clone() Catalog {
 	out := c
 	out.ReceiptSchemaVersions = append([]int(nil), c.ReceiptSchemaVersions...)
 	out.ManifestVersions = append([]int(nil), c.ManifestVersions...)
+	out.EventCursorSchemaVersions = append([]int(nil), c.EventCursorSchemaVersions...)
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
 		out.Features[feature] = availability
+	}
+	return out
+}
+
+func (c Catalog) WithEventJournal(maxEvents, cursorBytes, snapshotFacts int, snapshotRecovery bool) Catalog {
+	out := c.Clone()
+	if maxEvents <= 0 || cursorBytes <= 0 || snapshotFacts <= 0 {
+		return out
+	}
+	out.Features[FeatureEventJournal] = Available
+	out.EventCursorSchemaVersions = []int{1}
+	out.Limits.EventJournalMaxEvents = maxEvents
+	out.Limits.EventCursorBytes = cursorBytes
+	out.Limits.EventSnapshotFacts = snapshotFacts
+	if snapshotRecovery {
+		out.Features[FeatureEventSnapshotRecovery] = Available
 	}
 	return out
 }

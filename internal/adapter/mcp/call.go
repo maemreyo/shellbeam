@@ -7,6 +7,7 @@ import (
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -69,6 +70,8 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
 		request.ActivityID = in.ActivityID
+	case "inspect.events":
+		request.EventInspect = observationapp.InspectRequest{Target: *in.Target, AfterEventCursor: in.AfterEventCursor, MaxEvents: in.MaxEvents}
 	case "kill":
 		signal := in.Signal
 		if signal == "" {
@@ -132,6 +135,12 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 		}
 		body["project"] = out.Project
 		summary = "inspect.project: " + string(out.Project.Status)
+	case "inspect.events":
+		if out.Events == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "event inspection missing", false)
+		}
+		body["events"] = out.Events
+		summary = fmt.Sprintf("inspect.events: %d event(s)", len(out.Events.Events))
 	case "inspect.server":
 		if out.Server == nil {
 			return toolErrorV2(action, "invalid_daemon_response", "server catalog missing", false)

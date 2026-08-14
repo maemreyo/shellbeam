@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/maemreyo/shellbeam/internal/app/daemon"
+	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
@@ -24,6 +25,7 @@ type Request struct {
 	Poll            daemon.PollRequest
 	Write           daemon.WriteRequest
 	Kill            daemon.KillRequest
+	EventInspect    observationapp.InspectRequest
 }
 type Response struct {
 	View      daemon.View
@@ -32,6 +34,7 @@ type Response struct {
 	Project   *project.Inspection
 	Workspace *workspace.Workspace
 	Activity  *activity.Activity
+	Events    *observationapp.InspectResult
 	Code      string
 	Message   string
 	Retryable bool

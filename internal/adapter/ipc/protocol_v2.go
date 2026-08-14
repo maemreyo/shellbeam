@@ -5,11 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -19,44 +22,48 @@ import (
 const ipcV2 = 2
 
 type RequestV2 struct {
-	IPVersion      int                       `json:"ipc_version"`
-	Kind           string                    `json:"kind"`
-	RequestID      string                    `json:"request_id"`
-	Action         string                    `json:"action"`
-	OperationID    string                    `json:"operation_id,omitempty"`
-	WorkspaceID    string                    `json:"workspace_id,omitempty"`
-	ActivityID     string                    `json:"activity_id,omitempty"`
-	WorkspaceHint  *workspace.Hint           `json:"workspace_hint,omitempty"`
-	Command        string                    `json:"command,omitempty"`
-	Argv           []string                  `json:"argv,omitempty"`
-	Intent         *operation.DeclaredIntent `json:"intent,omitempty"`
-	CWD            string                    `json:"cwd,omitempty"`
-	TTY            bool                      `json:"tty,omitempty"`
-	TimeoutMS      int64                     `json:"timeout_ms,omitempty"`
-	YieldMS        int64                     `json:"yield_time_ms,omitempty"`
-	MaxOutputBytes int                       `json:"max_output_bytes,omitempty"`
-	SessionID      string                    `json:"session_id,omitempty"`
-	Cursor         int64                     `json:"cursor,omitempty"`
-	InputOffset    int64                     `json:"input_offset,omitempty"`
-	Chars          string                    `json:"chars,omitempty"`
-	EOF            bool                      `json:"eof,omitempty"`
-	KillID         string                    `json:"kill_id,omitempty"`
-	Signal         string                    `json:"signal,omitempty"`
+	IPVersion        int                       `json:"ipc_version"`
+	Kind             string                    `json:"kind"`
+	RequestID        string                    `json:"request_id"`
+	Action           string                    `json:"action"`
+	OperationID      string                    `json:"operation_id,omitempty"`
+	WorkspaceID      string                    `json:"workspace_id,omitempty"`
+	ActivityID       string                    `json:"activity_id,omitempty"`
+	WorkspaceHint    *workspace.Hint           `json:"workspace_hint,omitempty"`
+	Command          string                    `json:"command,omitempty"`
+	Argv             []string                  `json:"argv,omitempty"`
+	Intent           *operation.DeclaredIntent `json:"intent,omitempty"`
+	CWD              string                    `json:"cwd,omitempty"`
+	TTY              bool                      `json:"tty,omitempty"`
+	TimeoutMS        int64                     `json:"timeout_ms,omitempty"`
+	YieldMS          int64                     `json:"yield_time_ms,omitempty"`
+	MaxOutputBytes   int                       `json:"max_output_bytes,omitempty"`
+	SessionID        string                    `json:"session_id,omitempty"`
+	Cursor           int64                     `json:"cursor,omitempty"`
+	InputOffset      int64                     `json:"input_offset,omitempty"`
+	Chars            string                    `json:"chars,omitempty"`
+	EOF              bool                      `json:"eof,omitempty"`
+	KillID           string                    `json:"kill_id,omitempty"`
+	Signal           string                    `json:"signal,omitempty"`
+	Target           *observationcore.Target   `json:"target,omitempty"`
+	AfterEventCursor string                    `json:"after_event_cursor,omitempty"`
+	MaxEvents        int                       `json:"max_events,omitempty"`
 }
 
 type ResponseV2 struct {
-	IPVersion int                  `json:"ipc_version"`
-	Kind      string               `json:"kind"`
-	RequestID string               `json:"request_id"`
-	Action    string               `json:"action"`
-	OK        bool                 `json:"ok"`
-	View      *app.View            `json:"view,omitempty"`
-	Result    *receipt.Result      `json:"result,omitempty"`
-	Server    *capability.Catalog  `json:"server,omitempty"`
-	Project   *project.Inspection  `json:"project,omitempty"`
-	Workspace *workspace.Workspace `json:"workspace,omitempty"`
-	Activity  *activity.Activity   `json:"activity,omitempty"`
-	Error     *Error               `json:"error,omitempty"`
+	IPVersion int                           `json:"ipc_version"`
+	Kind      string                        `json:"kind"`
+	RequestID string                        `json:"request_id"`
+	Action    string                        `json:"action"`
+	OK        bool                          `json:"ok"`
+	View      *app.View                     `json:"view,omitempty"`
+	Result    *receipt.Result               `json:"result,omitempty"`
+	Server    *capability.Catalog           `json:"server,omitempty"`
+	Project   *project.Inspection           `json:"project,omitempty"`
+	Workspace *workspace.Workspace          `json:"workspace,omitempty"`
+	Activity  *activity.Activity            `json:"activity,omitempty"`
+	Events    *observationapp.InspectResult `json:"events,omitempty"`
+	Error     *Error                        `json:"error,omitempty"`
 }
 
 type v2Header struct {
@@ -132,6 +139,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"workspace_id"}
 	case "inspect.activity":
 		return []string{"activity_id"}
+	case "inspect.events":
+		return []string{"target", "after_event_cursor", "max_events"}
 	default:
 		return nil
 	}
@@ -193,6 +202,19 @@ func validateRequestV2(v RequestV2) error {
 		if _, err := activity.ParseID(v.ActivityID); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
 		}
+	case "inspect.events":
+		if v.Target == nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "target"}, fmt.Errorf("event target missing"))
+		}
+		if err := v.Target.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "target"}, err)
+		}
+		if v.MaxEvents < 1 || v.MaxEvents > observationapp.MaxInspectEvents {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "max_events"}, fmt.Errorf("invalid max events"))
+		}
+		if v.AfterEventCursor != "" && (!strings.HasPrefix(v.AfterEventCursor, observationapp.EventCursorPrefix) || len(v.AfterEventCursor) > observationapp.MaxEventCursorBytes) {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "after_event_cursor"}, fmt.Errorf("invalid event cursor"))
+		}
 	case "kill":
 		if v.SessionID == "" || v.KillID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
@@ -203,7 +225,7 @@ func validateRequestV2(v RequestV2) error {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project":
+	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events":
 		return true
 	default:
 		return false
