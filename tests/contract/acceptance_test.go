@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestAcceptanceMatrixOwnsCriticalInvariants(t *testing.T) {
+func TestAgentExecutionA1AcceptanceMatrixOwnsCriticalInvariants(t *testing.T) {
 	b, err := os.ReadFile("../../docs/testing/acceptance-matrix.md")
 	if err != nil {
 		t.Fatal(err)

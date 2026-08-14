@@ -15,17 +15,21 @@ import (
 )
 
 type Evidence struct {
-	SchemaVersion     int       `json:"schema_version"`
-	Command           string    `json:"command"`
-	Base              string    `json:"base"`
-	SourceFingerprint string    `json:"source_fingerprint"`
-	ChangedFiles      []string  `json:"changed_files"`
-	SelectedPackages  []string  `json:"selected_packages"`
-	Status            string    `json:"status"`
-	ExitCode          int       `json:"exit_code"`
-	Error             string    `json:"error,omitempty"`
-	StartedAt         time.Time `json:"started_at"`
-	FinishedAt        time.Time `json:"finished_at"`
+	SchemaVersion     int               `json:"schema_version"`
+	Command           string            `json:"command"`
+	Base              string            `json:"base"`
+	SourceFingerprint string            `json:"source_fingerprint"`
+	ChangedFiles      []string          `json:"changed_files"`
+	Selection         string            `json:"selection,omitempty"`
+	SelectedSuites    []string          `json:"selected_suites,omitempty"`
+	SelectedPackages  []string          `json:"selected_packages,omitempty"`
+	SelectionReasons  []SelectionReason `json:"selection_reasons,omitempty"`
+	Build             *BuildEvidence    `json:"build,omitempty"`
+	Status            string            `json:"status"`
+	ExitCode          int               `json:"exit_code"`
+	Error             string            `json:"error,omitempty"`
+	StartedAt         time.Time         `json:"started_at"`
+	FinishedAt        time.Time         `json:"finished_at"`
 }
 
 func sourceFingerprint(root string) (string, error) {

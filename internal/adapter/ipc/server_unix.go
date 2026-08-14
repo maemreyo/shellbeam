@@ -8,6 +8,10 @@ import (
 	"errors"
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	activity "github.com/maemreyo/shellbeam/internal/core/activity"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"net"
 	"net/http"
 	"os"
@@ -21,6 +25,19 @@ type Actions interface {
 	Poll(context.Context, app.PollRequest) (app.View, error)
 	Write(context.Context, app.WriteRequest) (app.View, error)
 	Kill(context.Context, app.KillRequest) (app.View, error)
+	InspectServer(context.Context) (app.ServerInfo, error)
+}
+
+type ProjectActions interface {
+	InspectProject(context.Context, string) (project.Inspection, error)
+}
+
+type WorkspaceActions interface {
+	InspectWorkspace(context.Context, string) (workspace.Workspace, error)
+}
+
+type ActivityActions interface {
+	InspectActivity(context.Context, string) (activity.Activity, error)
 }
 
 type socketDialer func(string, time.Duration) (net.Conn, error)
@@ -55,6 +72,7 @@ func listen(runtime string, actions Actions, dial socketDialer) (*Server, error)
 	s := &Server{socket: socket, socketInfo: socketInfo, listener: auth, actions: actions}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
+	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	return s, nil
 }
@@ -195,8 +213,105 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	resp := Response{IPVersion: 1, RequestID: req.RequestID, OK: err == nil, View: view}
 	if err != nil {
-		resp.Error = &Error{Code: err.Error(), Message: "request failed"}
+		resp.Error = errorEnvelope(err)
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
+	req, err := decodeRequestV2(r.Body)
+	if err != nil {
+		action := req.Action
+		if action == "" {
+			action = "unknown"
+		}
+		writeResponseV2(w, ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: action, OK: false, Error: errorEnvelope(err)})
+		return
+	}
+	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
+	switch req.Action {
+	case "start":
+		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		err = callErr
+		if err == nil {
+			result, resultErr := view.StructuredResult()
+			err = resultErr
+			if resultErr == nil {
+				resp.Result = &result
+			}
+		}
+	case "poll":
+		view, callErr := s.actions.Poll(r.Context(), app.PollRequest{SessionID: req.SessionID, Cursor: req.Cursor, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		err = callErr
+		if err == nil {
+			result, resultErr := view.StructuredResult()
+			err = resultErr
+			if resultErr == nil {
+				resp.Result = &result
+			}
+		}
+	case "write":
+		view, callErr := s.actions.Write(r.Context(), app.WriteRequest{SessionID: req.SessionID, InputOffset: req.InputOffset, Chars: req.Chars, EOF: req.EOF})
+		err = callErr
+		resp.View = &view
+	case "kill":
+		view, callErr := s.actions.Kill(r.Context(), app.KillRequest{SessionID: req.SessionID, KillID: req.KillID, Signal: req.Signal})
+		err = callErr
+		resp.View = &view
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project":
+		err = s.inspectV2(r.Context(), req, &resp)
+	}
+	resp.OK = err == nil
+	if err != nil {
+		resp.View = nil
+		resp.Result = nil
+		resp.Server = nil
+		resp.Project = nil
+		resp.Workspace = nil
+		resp.Activity = nil
+		resp.Error = errorEnvelope(err)
+	}
+	writeResponseV2(w, resp)
+}
+
+func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
+	switch req.Action {
+	case "inspect.server":
+		info, err := s.actions.InspectServer(ctx)
+		catalog := info.Capabilities
+		resp.Server = &catalog
+		return err
+	case "inspect.workspace":
+		actions, ok := s.actions.(WorkspaceActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		record, err := actions.InspectWorkspace(ctx, req.WorkspaceID)
+		resp.Workspace = &record
+		return err
+	case "inspect.activity":
+		actions, ok := s.actions.(ActivityActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		record, err := actions.InspectActivity(ctx, req.ActivityID)
+		resp.Activity = &record
+		return err
+	case "inspect.project":
+		actions, ok := s.actions.(ProjectActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		inspection, err := actions.InspectProject(ctx, req.WorkspaceID)
+		resp.Project = &inspection
+		return err
+	default:
+		return failure.New(failure.InvalidInput, map[string]string{"field": "action"}, nil)
+	}
+}
+
+func writeResponseV2(w http.ResponseWriter, response ResponseV2) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
 }

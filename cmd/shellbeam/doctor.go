@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	control "github.com/maemreyo/shellbeam/internal/app/control"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 func runDoctor(args []string, out io.Writer) error {
@@ -47,11 +50,7 @@ func doctorReport(args []string) (control.Report, error) {
 			report.Checks = append(report.Checks, control.Check{ID: item.id, Status: control.Pass, Message: "directory permissions safe"})
 		}
 	}
-	if info, e := os.Lstat(paths.Socket); e == nil && info.Mode()&os.ModeSocket != 0 {
-		report.Checks = append(report.Checks, control.Check{ID: "socket", Status: control.Pass, Message: "daemon socket present"})
-	} else {
-		report.Checks = append(report.Checks, control.Check{ID: "socket", Status: control.Warn, Message: "daemon socket unavailable"})
-	}
+	report.Checks = append(report.Checks, doctorSocketCheck(paths.Socket))
 	if path, e := exec.LookPath("tunnel-client"); e == nil {
 		report.Checks = append(report.Checks, control.Check{ID: "tunnel_client", Status: control.Pass, Message: "tunnel-client executable found: " + filepath.Base(path)})
 	} else {
@@ -59,4 +58,20 @@ func doctorReport(args []string) (control.Report, error) {
 	}
 	_ = cfg
 	return report, nil
+}
+
+func doctorSocketCheck(socket string) control.Check {
+	info, err := os.Lstat(socket)
+	if err != nil || info.Mode()&os.ModeSocket == 0 {
+		return control.Check{ID: "socket", Status: control.Warn, Message: "daemon socket unavailable"}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	response, err := ipcadapter.NewClient(socket).CallV2(ctx, ipcadapter.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: "doctor", Action: "inspect.server",
+	})
+	if err != nil || !response.OK || response.Server == nil {
+		return control.Check{ID: "socket", Status: control.Warn, Message: "daemon IPC unavailable", Hint: "start or restart the ShellBeam daemon"}
+	}
+	return control.Check{ID: "socket", Status: control.Pass, Message: "daemon IPC responsive"}
 }

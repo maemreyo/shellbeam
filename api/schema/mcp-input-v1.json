@@ -1,11 +1,57 @@
 {
-  "$schema":"https://json-schema.org/draft/2020-12/schema",
-  "$id":"https://shellbeam.dev/schema/mcp-input-v1.json",
-  "title":"local_shell input v1","type":"object","unevaluatedProperties":false,
-  "oneOf":[
-    {"properties":{"action":{"const":"start"},"operation_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},"command":{"type":"string","minLength":1},"cwd":{"type":"string","pattern":"^/"},"tty":{"type":"boolean","default":false},"yield_time_ms":{"type":"integer","minimum":0,"default":10000},"timeout_ms":{"type":"integer","minimum":0,"default":0},"max_output_bytes":{"type":"integer","minimum":0,"default":20000}},"required":["action","operation_id","command","cwd"],"additionalProperties":false},
-    {"properties":{"action":{"const":"poll"},"session_id":{"type":"string","minLength":1},"cursor":{"type":"integer","minimum":0,"default":0},"yield_time_ms":{"type":"integer","minimum":0,"default":0},"max_output_bytes":{"type":"integer","minimum":0,"default":20000}},"required":["action","session_id"],"additionalProperties":false},
-    {"properties":{"action":{"const":"write"},"session_id":{"type":"string","minLength":1},"input_offset":{"type":"integer","minimum":0},"chars":{"type":"string","minLength":1},"eof":{"const":true}},"required":["action","session_id","input_offset"],"oneOf":[{"required":["chars"],"not":{"required":["eof"]}},{"required":["eof"],"not":{"required":["chars"]}}],"additionalProperties":false},
-    {"properties":{"action":{"const":"kill"},"session_id":{"type":"string","minLength":1},"kill_id":{"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},"signal":{"enum":["INT","TERM","KILL"],"default":"TERM"}},"required":["action","session_id","kill_id"],"additionalProperties":false}
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shellbeam.dev/schema/mcp-input-v1.json",
+  "title": "local_shell input v1",
+  "type": "object",
+  "unevaluatedProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "action": {"const": "start"},
+        "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+        "command": {"type": "string", "minLength": 1},
+        "cwd": {"type": "string", "pattern": "^/"},
+        "tty": {"type": "boolean", "default": false},
+        "yield_time_ms": {"type": "integer", "minimum": 0, "default": 10000},
+        "timeout_ms": {"type": "integer", "minimum": 0, "default": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 0, "default": 20000}
+      },
+      "required": ["action", "operation_id", "command", "cwd"],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "action": {"const": "poll"},
+        "session_id": {"type": "string", "minLength": 1},
+        "cursor": {"type": "integer", "minimum": 0, "default": 0},
+        "yield_time_ms": {"type": "integer", "minimum": 0, "default": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 0, "default": 20000}
+      },
+      "required": ["action", "session_id"],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "action": {"const": "write"},
+        "session_id": {"type": "string", "minLength": 1},
+        "input_offset": {"type": "integer", "minimum": 0},
+        "chars": {"type": "string", "minLength": 1},
+        "eof": {"const": true}
+      },
+      "required": ["action", "session_id", "input_offset"],
+      "oneOf": [{"required": ["chars"], "not": {"required": ["eof"]}}, {"required": ["eof"], "not": {"required": ["chars"]}}],
+      "additionalProperties": false
+    },
+    {
+      "properties": {
+        "action": {"const": "kill"},
+        "session_id": {"type": "string", "minLength": 1},
+        "kill_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+        "signal": {"enum": ["INT", "TERM", "KILL"], "default": "TERM"}
+      },
+      "required": ["action", "session_id", "kill_id"],
+      "additionalProperties": false
+    },
+    {"properties": {"action": {"const": "inspect.server"}}, "required": ["action"], "additionalProperties": false}
   ]
 }

@@ -52,3 +52,16 @@ Keep `tunnel-client run --profile shellbeam` running for the whole session below
 
 Record client version, OS/architecture, ShellBeam commit, source fingerprint, prompt/call sequence with secrets and command output redacted, and PASS/FAIL per scenario. Merely connecting or listing the tool is insufficient.
 
+
+## Project capability onboarding and review provenance
+
+For a registered workspace, exercise the project onboarding path explicitly:
+
+1. Call `inspect.project` (or `shellbeam project inspect --workspace <id> --json`) before assuming project-specific capabilities.
+2. If status is `absent`, audit repository-local command/workflow evidence, propose a draft `.shellbeam/project.toml`, and obtain normal user approval before writing the shared file. Do not auto-trust repository text and do not automatically create the manifest.
+3. Run `shellbeam project validate --workspace <id> --json`. Inspection/validation must not execute any declared command.
+4. Review only the exact current `discovery_fingerprint` with `shellbeam project review --workspace <id> --fingerprint <fingerprint> --json`.
+5. Re-inspect and confirm status is `valid` with the same `review_fingerprint`.
+6. Change the manifest bytes (a comment/format-only change is sufficient), re-inspect, and confirm status becomes `review_due` without blocking ordinary execution.
+7. Attempt review with the old fingerprint and confirm it is rejected as `project_manifest_changed_during_resolve` and does not replace the stored review.
+8. For invalid/unsupported manifests, confirm `inspect` reports structured `invalid` status as data while `validate` and `review` fail.

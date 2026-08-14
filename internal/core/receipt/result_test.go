@@ -1,0 +1,89 @@
+package receipt
+
+import (
+	"testing"
+
+	"github.com/maemreyo/shellbeam/internal/core/session"
+)
+
+func TestStructuredResultSeparatesOperationChildAndOutput(t *testing.T) {
+	exitOne := 1
+	rec := Receipt{
+		SchemaVersion:        2,
+		OperationID:          "op",
+		SessionID:            "session",
+		RequestFingerprint:   "request",
+		ExecutionFingerprint: "execution",
+		DaemonIncarnation:    "daemon",
+		State:                session.Failed,
+		Outcome:              session.Failure,
+		OutputBytes:          9,
+		OutputComplete:       true,
+		Spawn:                SpawnEvidence{Attempted: true, Succeeded: true},
+		Exit:                 ExitEvidence{Reaped: true, Code: &exitOne},
+	}
+
+	got, err := NewResult(ResultInput{
+		OperationID: "op",
+		SessionID:   "session",
+		State:       session.Failed,
+		Outcome:     session.Failure,
+		Preview:     "failure",
+		RawBytes:    9,
+		Cursor:      0,
+		NextCursor:  7,
+		Truncated:   true,
+		Receipt:     &rec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Operation.State != OperationTerminal || got.Child == nil || got.Child.State != ChildExited || got.Child.Outcome != session.Failure {
+		t.Fatalf("result state mapping=%#v", got)
+	}
+	if got.Child.ExitCode == nil || *got.Child.ExitCode != 1 || got.Child.TimedOut {
+		t.Fatalf("child evidence=%#v", got.Child)
+	}
+	if got.Output.RawBytes != 9 || got.Output.ReturnedBytes != 7 || got.Output.NextCursor != 7 || !got.Output.Truncated || !got.Output.OutputComplete {
+		t.Fatalf("output=%#v", got.Output)
+	}
+}
+
+func TestStructuredResultMapsTerminalFailureKindsWithoutInventingExitEvidence(t *testing.T) {
+	tests := []struct {
+		name      string
+		state     session.State
+		outcome   session.Outcome
+		spawn     SpawnEvidence
+		exit      ExitEvidence
+		wantState ChildState
+		wantTimed bool
+	}{
+		{name: "spawn failure", state: session.Failed, outcome: session.Failure, spawn: SpawnEvidence{Attempted: true}, wantState: ChildSpawnFailed},
+		{name: "timeout", state: session.TimedOut, outcome: session.Timeout, spawn: SpawnEvidence{Attempted: true, Succeeded: true}, exit: ExitEvidence{Reaped: true}, wantState: ChildExited, wantTimed: true},
+		{name: "kill", state: session.Killed, outcome: session.KilledOutcome, spawn: SpawnEvidence{Attempted: true, Succeeded: true}, exit: ExitEvidence{Reaped: true}, wantState: ChildExited},
+		{name: "abandoned", state: session.Abandoned, outcome: session.Ambiguous, wantState: ChildUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := Receipt{SchemaVersion: 2, OperationID: "op", SessionID: "s", RequestFingerprint: "request", ExecutionFingerprint: "execution", DaemonIncarnation: "d", State: tt.state, Outcome: tt.outcome, Spawn: tt.spawn, Exit: tt.exit}
+			got, err := NewResult(ResultInput{OperationID: "op", SessionID: "s", State: tt.state, Outcome: tt.outcome, Receipt: &rec})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Child == nil || got.Child.State != tt.wantState || got.Child.Outcome != tt.outcome || got.Child.TimedOut != tt.wantTimed {
+				t.Fatalf("child=%#v", got.Child)
+			}
+			if tt.wantState != ChildExited && got.Child.ExitCode != nil {
+				t.Fatalf("invented exit code=%#v", got.Child.ExitCode)
+			}
+		})
+	}
+}
+
+func TestStructuredResultRejectsCursorBeyondRawOutput(t *testing.T) {
+	_, err := NewResult(ResultInput{OperationID: "op", SessionID: "s", State: session.Running, RawBytes: 3, Cursor: 0, NextCursor: 4})
+	if err == nil {
+		t.Fatal("accepted next_cursor beyond raw output")
+	}
+}

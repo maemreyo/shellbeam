@@ -30,12 +30,9 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 		l.mu.Unlock()
 	}
-	timer := time.NewTimer(s.options.TerminationGrace)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-timer.C:
+	finished, err := waitForSessions(ctx, live, s.options.TerminationGrace)
+	if err != nil || finished {
+		return err
 	}
 	for _, l := range live {
 		l.mu.Lock()
@@ -52,4 +49,32 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func waitForSessions(ctx context.Context, live []*liveSession, grace time.Duration) (bool, error) {
+	deadline := time.Now().Add(grace)
+	for _, l := range live {
+		l.mu.Lock()
+		done := l.done
+		l.mu.Unlock()
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false, nil
+		}
+		timer := time.NewTimer(remaining)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return false, ctx.Err()
+		case <-done:
+			if !timer.Stop() {
+				<-timer.C
+			}
+		case <-timer.C:
+			return false, nil
+		}
+	}
+	return true, nil
 }

@@ -1,0 +1,1 @@
+{"ipc_version":1,"request_id":"v1-start","payload":{"action":"start","operation_id":"op-1","command":"echo hi","cwd":"/tmp","yield_time_ms":10,"max_output_bytes":100}}

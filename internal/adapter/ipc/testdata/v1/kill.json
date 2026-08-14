@@ -1,0 +1,1 @@
+{"ipc_version":1,"request_id":"v1-kill","payload":{"action":"kill","session_id":"s-1","kill_id":"k-1","signal":"TERM"}}

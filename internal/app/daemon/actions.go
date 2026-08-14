@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -36,37 +37,51 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 	}
 	b, next, err := s.store.ReadOutput(ctx, operation.SessionID(sid), cursor, max+4)
 	if err != nil {
-		return View{}, err
+		return View{}, failure.Normalize(err)
 	}
 	text, consumed, truncated := receipt.VisibleOutput(b, max)
 	next = cursor + int64(consumed)
-	v := View{OperationID: string(res.OperationID), SessionID: sid, Output: text, Cursor: cursor, NextCursor: next, Truncated: truncated}
+	v := View{OperationID: string(res.OperationID), ActivityID: res.ActivityID, WorkspaceID: res.WorkspaceID, SessionID: sid, Output: text, Cursor: cursor, NextCursor: next, Truncated: truncated}
 	if l := s.get(sid); l != nil {
 		l.mu.Lock()
+		v.OperationID = l.operationID
+		v.ActivityID = l.activityID
+		v.WorkspaceID = l.reservation.WorkspaceID
 		v.State = l.state
 		v.Outcome = l.outcome
 		v.NextInputOffset = l.input.NextOffset()
+		v.RawOutputBytes = l.outputBytes
 		l.mu.Unlock()
 	} else if snap, e := s.store.LoadSession(ctx, operation.SessionID(sid)); e == nil {
+		v.OperationID = snap.OperationID
+		if reservation, loadErr := s.store.LoadOperation(ctx, operation.ID(snap.OperationID)); loadErr == nil {
+			v.ActivityID = reservation.ActivityID
+			v.WorkspaceID = reservation.WorkspaceID
+		}
 		v.State = snap.State
 		v.Outcome = snap.Outcome
+		v.RawOutputBytes = snap.OutputBytes
 	}
 	if v.State.Terminal() {
 		if rec, e := s.store.LoadReceipt(ctx, operation.SessionID(sid)); e == nil {
 			v.Receipt = &rec
+			v.RawOutputBytes = rec.OutputBytes
 		}
+	}
+	if v.RawOutputBytes < next {
+		v.RawOutputBytes = next
 	}
 	return v, nil
 }
 func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 	l := s.get(req.SessionID)
 	if l == nil {
-		return View{}, fmt.Errorf("session_not_live")
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.state != session.Running {
-		return View{}, fmt.Errorf("session_not_writable")
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_writable"}, fmt.Errorf("session_not_writable"))
 	}
 	var result session.InputResult
 	var err error
@@ -76,7 +91,7 @@ func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 		result, err = l.input.AcceptChars(req.InputOffset, []byte(req.Chars))
 	}
 	if err != nil {
-		return View{}, err
+		return View{}, failure.Normalize(err)
 	}
 	if !result.Duplicate {
 		job := inputJob{data: []byte(req.Chars), eof: req.EOF}
@@ -89,13 +104,13 @@ func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 func (s *Service) Kill(_ context.Context, req KillRequest) (View, error) {
 	l := s.get(req.SessionID)
 	if l == nil {
-		return View{}, fmt.Errorf("session_not_live")
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	attempt, send, err := l.kills.Admit(req.KillID, req.Signal, l.state.Terminal())
 	if err != nil {
-		return View{}, err
+		return View{}, failure.Normalize(err)
 	}
 	if send {
 		l.terminalTarget = session.Killed

@@ -7,25 +7,38 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"github.com/oklog/ulid/v2"
 )
 
 type Service struct {
-	store   Store
-	owner   ProcessOwner
-	options Options
-	mu      sync.RWMutex
-	live    map[string]*liveSession
+	store            Store
+	owner            ProcessOwner
+	options          Options
+	observer         WorkspaceObserver
+	resolver         WorkspaceResolver
+	activityTracker  ActivityTracker
+	contextMu        sync.Mutex
+	contextLast      map[workspace.WorkspaceID]workspace.FastSnapshot
+	contextLastOrder []workspace.WorkspaceID
+	contextSeen      map[string]struct{}
+	contextSeenOrder []string
+	mu               sync.RWMutex
+	live             map[string]*liveSession
 }
 type liveSession struct {
 	mu             sync.Mutex
 	operationID    string
+	activityID     string
 	sessionID      string
-	fingerprint    string
+	reservation    operation.Reservation
 	spec           operation.ExecutionSpec
+	workspace      workspaceObservation
 	state          session.State
 	outcome        session.Outcome
 	handle         ProcessHandle
@@ -58,34 +71,86 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	if options.TerminationGrace <= 0 {
 		options.TerminationGrace = 5 * time.Second
 	}
-	return &Service{store: store, owner: owner, options: options, live: map[string]*liveSession{}}
+	if options.Capabilities.ProtocolVersion == 0 {
+		options.Capabilities = capability.Baseline(capability.Limits{})
+	} else {
+		options.Capabilities = options.Capabilities.Clone()
+	}
+	return &Service{store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{}}
+}
+
+func NewServiceWithExecutionContext(store Store, owner ProcessOwner, resolver WorkspaceResolver, observer WorkspaceObserver, tracker ActivityTracker, options Options) *Service {
+	service := NewService(store, owner, options)
+	service.resolver = resolver
+	service.observer = observer
+	service.activityTracker = tracker
+	return service
+}
+
+func (s *Service) CapabilityCatalog() capability.Catalog {
+	return s.options.Capabilities.Clone()
+}
+func (s *Service) InspectServer(context.Context) (ServerInfo, error) {
+	return ServerInfo{Capabilities: s.CapabilityCatalog()}, nil
 }
 func newSessionID() string                    { return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String() }
 func (s *Service) get(id string) *liveSession { s.mu.RLock(); defer s.mu.RUnlock(); return s.live[id] }
-func (s *Service) put(v *liveSession)         { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
-func (l *liveSession) notify()                { close(l.changed); l.changed = make(chan struct{}) }
+
+func invalidIntentFailure(err error) error {
+	field := "command"
+	switch err.Error() {
+	case "cwd must be absolute":
+		field = "cwd"
+	case "timeout must be non-negative":
+		field = "timeout_ms"
+	}
+	return failure.New(failure.InvalidInput, map[string]string{"field": field}, err)
+}
+
+func (s *Service) put(v *liveSession) { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
+func (l *liveSession) notify()        { close(l.changed); l.changed = make(chan struct{}) }
 
 func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
-	id, err := operation.ParseID(req.OperationID)
-	if err != nil {
+	if err := s.validateActivityRequest(req); err != nil {
 		return View{}, err
 	}
-	intent := operation.Intent{Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
-	fp, err := intent.Fingerprint()
+	id, err := operation.ParseID(req.OperationID)
+	if err != nil {
+		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
+	}
+	if err := validateStartMetadata(req); err != nil {
+		return View{}, err
+	}
+	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
+	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
+		return view, lookupErr
+	}
+	reservation, spec, err := s.prepareStartReservation(ctx, req, id)
 	if err != nil {
 		return View{}, err
 	}
 	sid := newSessionID()
-	reservation := operation.Reservation{SchemaVersion: 1, OperationID: id, SessionID: operation.SessionID(sid), Fingerprint: fp, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Shell: s.options.Shell, DaemonIncarnation: s.options.Incarnation, CreatedAt: time.Now().UTC()}
+	reservation.SessionID = operation.SessionID(sid)
+	reservation.CreatedAt = time.Now().UTC()
 	stored, created, result := s.store.ReserveOperation(ctx, reservation)
 	if result.Err != nil {
-		return View{}, result.Err
+		return View{}, failure.Normalize(result.Err)
 	}
 	sid = string(stored.SessionID)
 	if !created {
-		return s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+		view, err := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+		if err == nil {
+			s.enrichReplayWorkspaceContext(ctx, &view, stored.CWD, req.WorkspaceHint)
+		}
+		return view, err
 	}
-	live := &liveSession{operationID: req.OperationID, sessionID: sid, fingerprint: fp, spec: operation.ExecutionSpec{Shell: s.options.Shell, Command: req.Command, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	executionCWD := stored.CWD
+	workspaceObservation := s.captureWorkspace(ctx, executionCWD)
+	activityReq := req
+	activityReq.CWD = executionCWD
+	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation)
+	spec.CWD = executionCWD
+	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	s.put(live)
 	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
 	live.mu.Lock()
@@ -98,7 +163,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	live.mu.Unlock()
 	if spawnErr != nil {
 		s.finishSpawnFailure(live)
-		return s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
+		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
+		if viewErr == nil {
+			s.enrichWorkspaceContext(&view, workspaceObservation.pre, req.WorkspaceHint)
+		}
+		return view, viewErr
 	}
 	snap := session.Snapshot{SchemaVersion: 1, OperationID: req.OperationID, SessionID: sid, DaemonIncarnation: s.options.Incarnation, State: session.Running, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
 	if got := s.store.AdvanceSession(context.Background(), snap); got.Err != nil {
@@ -109,7 +178,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if req.TimeoutMS > 0 {
 		go s.timeoutLoop(live, time.Duration(req.TimeoutMS)*time.Millisecond)
 	}
-	return s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
+	if viewErr == nil {
+		s.enrichWorkspaceContext(&view, workspaceObservation.pre, req.WorkspaceHint)
+	}
+	return view, viewErr
 }
 
 type sessionSink struct {
@@ -148,7 +221,10 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	l.state = session.Finalizing
 	l.outcome = session.Failure
 	l.mu.Unlock()
-	rec := receipt.Receipt{SchemaVersion: 1, OperationID: l.operationID, SessionID: l.sessionID, Fingerprint: l.fingerprint, DaemonIncarnation: s.options.Incarnation, State: session.Failed, Outcome: session.Failure, FailureReason: "spawn_failed", Spawn: l.spawn}
+	rec := s.receiptFor(l, session.Failed, session.Failure)
+	rec.FailureReason = "spawn_failed"
+	rec.Spawn = l.spawn
+	s.attachWorkspaceProvenance(&rec, l.workspace, l.spec.CWD)
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = session.Failed
@@ -177,7 +253,7 @@ func (s *Service) waitLoop(l *liveSession) {
 		state, outcome = session.Killed, session.KilledOutcome
 	} else if captureErr != nil {
 		state, outcome = session.Killed, session.KilledOutcome
-		reason = captureErr.Error()
+		reason = "output_capture_failed"
 	} else if exit.Code != nil && *exit.Code == 0 && accepted == delivered {
 		state = session.Completed
 		outcome = session.Success
@@ -185,7 +261,27 @@ func (s *Service) waitLoop(l *liveSession) {
 		reason = "input_delivery_failed"
 	}
 	l.mu.Unlock()
-	rec := receipt.Receipt{SchemaVersion: 1, OperationID: l.operationID, SessionID: l.sessionID, Fingerprint: l.fingerprint, DaemonIncarnation: s.options.Incarnation, State: state, Outcome: outcome, Shell: l.spec.Shell, CWD: l.spec.CWD, TTY: l.spec.TTY, TimeoutMS: l.spec.TimeoutMS, OutputBytes: outputBytes, OutputComplete: captureErr == nil, InputAcceptedBytes: accepted, InputDeliveredBytes: delivered, StdinClosed: eof, FailureReason: reason, Spawn: l.spawn, Exit: exit, Signal: signalEvidence}
+	rec := s.receiptFor(l, state, outcome)
+	rec.ExecutionMode = string(l.spec.Mode)
+	rec.Executable = l.spec.Executable
+	if l.spec.Mode == operation.ExecutionModeShell {
+		rec.Shell = l.spec.Shell
+	} else {
+		rec.Shell = ""
+	}
+	rec.CWD = l.spec.CWD
+	rec.TTY = l.spec.TTY
+	rec.TimeoutMS = l.spec.TimeoutMS
+	rec.OutputBytes = outputBytes
+	rec.OutputComplete = captureErr == nil
+	rec.InputAcceptedBytes = accepted
+	rec.InputDeliveredBytes = delivered
+	rec.StdinClosed = eof
+	rec.FailureReason = reason
+	rec.Spawn = l.spawn
+	rec.Exit = exit
+	rec.Signal = signalEvidence
+	s.attachWorkspaceProvenance(&rec, l.workspace, l.spec.CWD)
 	s.publishUntilDurable(rec)
 	l.mu.Lock()
 	l.state = state

@@ -5,7 +5,11 @@ package ipc
 import (
 	"context"
 	"errors"
+	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 	"net"
 	"os"
 	"path/filepath"
@@ -30,6 +34,34 @@ func (fakeActions) Write(context.Context, app.WriteRequest) (app.View, error) {
 }
 func (fakeActions) Kill(context.Context, app.KillRequest) (app.View, error) {
 	return app.View{SessionID: "s"}, nil
+}
+func (fakeActions) InspectServer(context.Context) (app.ServerInfo, error) {
+	return app.ServerInfo{Capabilities: capability.Baseline(capability.Limits{CommandBytes: 32768, LiveSessions: 4})}, nil
+}
+
+func TestIPCV2ServerClientInspectServer(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-v2-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	srv, err := Listen(runtime, fakeActions{})
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	client := NewClient(srv.SocketPath())
+	got, err := client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "inspect", Action: "inspect.server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.Server == nil || got.Server.ProtocolVersion != 2 || got.Server.Limits.CommandBytes != 32768 {
+		t.Fatalf("v2 inspect response=%#v", got)
+	}
 }
 
 func TestServerClientUnixSocket(t *testing.T) {
@@ -332,5 +364,79 @@ func TestServerCloseWaitsForStartupLock(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Server.Close did not resume after startup unlock")
+	}
+}
+
+type v2ExecutionActions struct{}
+
+func (v2ExecutionActions) Start(_ context.Context, req app.StartRequest) (app.View, error) {
+	if req.ProtocolVersion != 2 {
+		return app.View{}, errors.New("v2 start lost protocol version")
+	}
+	return app.View{OperationID: req.OperationID, SessionID: "s-v2", State: session.Running}, nil
+}
+func (v2ExecutionActions) Poll(context.Context, app.PollRequest) (app.View, error) {
+	return app.View{OperationID: "op-v2", SessionID: "s-v2", State: session.Running}, nil
+}
+func (v2ExecutionActions) Write(context.Context, app.WriteRequest) (app.View, error) {
+	return app.View{SessionID: "s-v2", State: session.Running}, nil
+}
+func (v2ExecutionActions) Kill(context.Context, app.KillRequest) (app.View, error) {
+	return app.View{SessionID: "s-v2", State: session.Running}, nil
+}
+func (v2ExecutionActions) InspectServer(context.Context) (app.ServerInfo, error) {
+	return app.ServerInfo{Capabilities: capability.Baseline(capability.Limits{})}, nil
+}
+
+func TestIPCV2StartReturnsStructuredResult(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-v2-result-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	srv, err := Listen(runtime, v2ExecutionActions{})
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	client := NewClient(srv.SocketPath())
+	got, err := client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "start", Action: "start", OperationID: "op-v2", Command: "true", CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.OK || got.Result == nil || got.View != nil {
+		t.Fatalf("v2 start response=%#v", got)
+	}
+	if got.Result.SchemaVersion != 2 || got.Result.Operation.OperationID != "op-v2" || got.Result.Operation.SessionID != "s-v2" || got.Result.Operation.State != receipt.OperationRunning {
+		t.Fatalf("structured result=%#v", got.Result)
+	}
+}
+
+func TestBridgeForwardV2InspectServerUsesV2(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-ipc-v2-forward-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	srv, err := Listen(runtime, fakeActions{})
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "operation not permitted") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	client := NewClient(srv.SocketPath())
+	got, err := client.Forward(context.Background(), bridge.Request{ProtocolVersion: 2, Action: "inspect.server"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Server == nil || got.Server.ProtocolVersion != 2 || got.Server.Limits.CommandBytes != 32768 {
+		t.Fatalf("bridge v2 inspect=%#v", got)
 	}
 }

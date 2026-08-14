@@ -54,7 +54,10 @@ func Open(root string, limits Limits) (*Repository, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	for _, p := range []string{root, filepath.Join(root, "operations"), filepath.Join(root, "sessions")} {
+	for _, p := range []string{
+		root, filepath.Join(root, "operations"), filepath.Join(root, "sessions"),
+		filepath.Join(root, "repositories"), filepath.Join(root, "workspaces"), filepath.Join(root, "activities"),
+	} {
 		if err := os.MkdirAll(p, 0700); err != nil {
 			return nil, err
 		}
@@ -80,6 +83,17 @@ func (r *Repository) lock(id operation.ID) func() {
 func (r *Repository) LoadOperation(_ context.Context, id operation.ID) (operation.Reservation, error) {
 	var v operation.Reservation
 	return v, readStrict(filepath.Join(r.root, "operations", string(id)+".json"), &v)
+}
+
+func (r *Repository) FindOperation(ctx context.Context, id operation.ID) (operation.Reservation, bool, error) {
+	v, err := r.LoadOperation(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return operation.Reservation{}, false, nil
+	}
+	if err != nil {
+		return operation.Reservation{}, false, err
+	}
+	return v, true, nil
 }
 func (r *Repository) LoadSession(_ context.Context, id operation.SessionID) (session.Snapshot, error) {
 	var v session.Snapshot
