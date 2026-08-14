@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	core "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	"github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -35,6 +36,69 @@ type SourceBinder interface {
 type SourceRetention interface {
 	Retain(core.SourceRef, []byte) (BoundSource, error)
 	Resolve(core.SourceRefID) (BoundSource, SourceRefState)
+}
+
+type WorkspaceLookup interface {
+	Inspect(context.Context, string) (workspace.Workspace, error)
+}
+
+type WorkspaceSampler interface {
+	Sample(context.Context, workspace.WorkspaceID, workspace.DeltaLimits) workspace.DeltaSample
+}
+
+type ActivitySelector interface {
+	CompareWorkspace(context.Context, string, workspace.DeltaSample) (activitycore.Comparison, error)
+}
+
+type CoherenceSource interface {
+	CaptureBarrier() workspace.CoherenceBarrier
+}
+
+type ProviderPool interface {
+	Query(context.Context, ProviderRequest) (ProviderResponse, error)
+}
+
+type ProviderRequest struct {
+	Workspace       workspace.Workspace
+	Sample          workspace.DeltaSample
+	SelectedSources []BoundSource
+	Query           core.Query
+}
+
+type ProviderResponse struct {
+	Status      core.ResultStatus
+	Metadata    core.ProviderMetadata
+	Diagnostics []ProviderDiagnostic
+	Symbols     []ProviderSymbol
+	Locations   []ProviderLocation
+	TypeSummary string
+}
+
+type ProviderDiagnostic struct {
+	Severity         core.Severity
+	Code             string
+	Message          string
+	Location         core.SourceLocation
+	ProviderSource   string
+	RelatedLocations []core.SourceLocation
+	Authority        core.Authority
+	Completeness     core.RecordCompleteness
+}
+
+type ProviderSymbol struct {
+	Name         string
+	Kind         string
+	Location     core.SourceLocation
+	Authority    core.Authority
+	Completeness core.RecordCompleteness
+}
+
+type ProviderLocation struct {
+	Name         string
+	Relationship string
+	Location     core.SourceLocation
+	Authority    core.Authority
+	Completeness core.RecordCompleteness
 }
 
 type Error struct {
