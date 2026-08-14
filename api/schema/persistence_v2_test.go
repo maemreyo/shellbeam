@@ -18,7 +18,7 @@ func TestV2PersistedSchemasAreClosedAndSeparateFingerprints(t *testing.T) {
 			valid: []map[string]any{{
 				"schema_version": 2.0, "operation_id": "op", "session_id": "s",
 				"request_fingerprint": "req", "execution_fingerprint": "exec",
-				"observation_binding_fingerprint": "obs", "workspace_id": "ws_01K00000000000000000000000", "logical_cwd": "src", "command": "true", "cwd": "/tmp/src",
+				"observation_binding_fingerprint": "obs", "structured_adapter": "go-test-json", "workspace_id": "ws_01K00000000000000000000000", "logical_cwd": "src", "command": "true", "cwd": "/tmp/src",
 				"tty": false, "timeout_ms": 0.0, "shell": "/bin/sh", "daemon_incarnation": "d",
 				"control_reservation_bytes": 0.0, "created_at": "2026-08-13T00:00:00Z",
 			}, {
@@ -31,6 +31,7 @@ func TestV2PersistedSchemasAreClosedAndSeparateFingerprints(t *testing.T) {
 			invalid: []map[string]any{
 				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "execution_fingerprint": "exec", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},
 				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "request_fingerprint": "req", "execution_fingerprint": "exec", "fingerprint": "legacy", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},
+				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "request_fingerprint": "req", "execution_fingerprint": "exec", "structured_adapter": "../bad", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},
 			},
 		},
 		{

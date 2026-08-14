@@ -92,6 +92,9 @@ func validateReservation(v operation.Reservation) error {
 		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
 			return fmt.Errorf("invalid reservation")
 		}
+		if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
+			return fmt.Errorf("invalid reservation")
+		}
 		switch v.ExecutionMode {
 		case "":
 			// Legacy v2 reservation written before explicit execution-mode binding.

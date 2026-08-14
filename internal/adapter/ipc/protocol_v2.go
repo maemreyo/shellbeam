@@ -22,32 +22,33 @@ import (
 const ipcV2 = 2
 
 type RequestV2 struct {
-	IPVersion        int                       `json:"ipc_version"`
-	Kind             string                    `json:"kind"`
-	RequestID        string                    `json:"request_id"`
-	Action           string                    `json:"action"`
-	OperationID      string                    `json:"operation_id,omitempty"`
-	WorkspaceID      string                    `json:"workspace_id,omitempty"`
-	ActivityID       string                    `json:"activity_id,omitempty"`
-	WorkspaceHint    *workspace.Hint           `json:"workspace_hint,omitempty"`
-	Command          string                    `json:"command,omitempty"`
-	Argv             []string                  `json:"argv,omitempty"`
-	Intent           *operation.DeclaredIntent `json:"intent,omitempty"`
-	CWD              string                    `json:"cwd,omitempty"`
-	TTY              bool                      `json:"tty,omitempty"`
-	TimeoutMS        int64                     `json:"timeout_ms,omitempty"`
-	YieldMS          int64                     `json:"yield_time_ms,omitempty"`
-	MaxOutputBytes   int                       `json:"max_output_bytes,omitempty"`
-	SessionID        string                    `json:"session_id,omitempty"`
-	Cursor           int64                     `json:"cursor,omitempty"`
-	InputOffset      int64                     `json:"input_offset,omitempty"`
-	Chars            string                    `json:"chars,omitempty"`
-	EOF              bool                      `json:"eof,omitempty"`
-	KillID           string                    `json:"kill_id,omitempty"`
-	Signal           string                    `json:"signal,omitempty"`
-	Target           *observationcore.Target   `json:"target,omitempty"`
-	AfterEventCursor string                    `json:"after_event_cursor,omitempty"`
-	MaxEvents        int                       `json:"max_events,omitempty"`
+	IPVersion         int                       `json:"ipc_version"`
+	Kind              string                    `json:"kind"`
+	RequestID         string                    `json:"request_id"`
+	Action            string                    `json:"action"`
+	OperationID       string                    `json:"operation_id,omitempty"`
+	WorkspaceID       string                    `json:"workspace_id,omitempty"`
+	ActivityID        string                    `json:"activity_id,omitempty"`
+	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
+	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
+	Command           string                    `json:"command,omitempty"`
+	Argv              []string                  `json:"argv,omitempty"`
+	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
+	CWD               string                    `json:"cwd,omitempty"`
+	TTY               bool                      `json:"tty,omitempty"`
+	TimeoutMS         int64                     `json:"timeout_ms,omitempty"`
+	YieldMS           int64                     `json:"yield_time_ms,omitempty"`
+	MaxOutputBytes    int                       `json:"max_output_bytes,omitempty"`
+	SessionID         string                    `json:"session_id,omitempty"`
+	Cursor            int64                     `json:"cursor,omitempty"`
+	InputOffset       int64                     `json:"input_offset,omitempty"`
+	Chars             string                    `json:"chars,omitempty"`
+	EOF               bool                      `json:"eof,omitempty"`
+	KillID            string                    `json:"kill_id,omitempty"`
+	Signal            string                    `json:"signal,omitempty"`
+	Target            *observationcore.Target   `json:"target,omitempty"`
+	AfterEventCursor  string                    `json:"after_event_cursor,omitempty"`
+	MaxEvents         int                       `json:"max_events,omitempty"`
 }
 
 type ResponseV2 struct {
@@ -128,7 +129,7 @@ func validateV2FieldSet(data []byte, action string) error {
 func actionFieldsV2(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "command", "argv", "intent", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "command", "argv", "intent", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":
@@ -185,6 +186,9 @@ func validateRequestV2(v RequestV2) error {
 			if _, err := activity.ParseID(v.ActivityID); err != nil {
 				return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
 			}
+		}
+		if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
 		}
 	case "poll":
 		if v.SessionID == "" {

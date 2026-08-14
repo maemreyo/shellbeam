@@ -1,5 +1,7 @@
 package structuredresult
 
+import "github.com/maemreyo/shellbeam/internal/core/operation"
+
 type SelectionStatus string
 
 const (
@@ -17,6 +19,9 @@ type AdapterSelection struct {
 
 func SelectAdapter(explicit string, argv []string) AdapterSelection {
 	if explicit != "" {
+		if !operation.ValidStructuredAdapterID(explicit) {
+			return AdapterSelection{Status: SelectionUnsupported, AdapterID: explicit, Source: "explicit", ObservationCode: "structured_adapter_unsupported"}
+		}
 		if supportedAdapter(explicit) {
 			return AdapterSelection{Status: SelectionSelected, AdapterID: explicit, Source: "explicit"}
 		}

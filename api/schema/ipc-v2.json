@@ -35,6 +35,7 @@
         "operation_id": {"type": "string"},
         "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
         "activity_id": {"type": "string", "minLength": 1, "maxLength": 128, "allOf": [{"not": {"pattern": "/"}}, {"not": {"pattern": "\\\\"}}]},
+        "structured_adapter": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
         "workspace_hint": {
           "type": "object",
           "additionalProperties": false,

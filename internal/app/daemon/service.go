@@ -140,11 +140,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	}
 	sid = string(stored.SessionID)
 	if !created {
-		view, err := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
-		if err == nil {
-			s.enrichReplayWorkspaceContext(ctx, &view, stored.CWD, req.WorkspaceHint)
-		}
-		return view, err
+		return s.waitReservedStart(ctx, req, stored, sid)
 	}
 	executionCWD := stored.CWD
 	workspaceObservation := s.captureWorkspace(ctx, executionCWD)
@@ -173,6 +169,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
 		if viewErr == nil {
 			s.enrichWorkspaceContext(&view, workspaceObservation.context, req.WorkspaceHint)
+			s.enrichStructuredAdapterAvailability(&view, stored)
 		}
 		return view, viewErr
 	}
@@ -187,9 +184,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 		go s.timeoutLoop(live, time.Duration(req.TimeoutMS)*time.Millisecond)
 	}
 	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
-	if viewErr == nil {
-		s.enrichWorkspaceContext(&view, workspaceObservation.context, req.WorkspaceHint)
-	}
+	s.decorateNewStartView(&view, viewErr, stored, workspaceObservation, req.WorkspaceHint)
 	return view, viewErr
 }
 
@@ -265,6 +260,7 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	s.endManagedShell(l)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
+	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
 	l.mu.Lock()
 	l.state = session.Failed
 	l.notify()
@@ -323,6 +319,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	s.endManagedShell(l)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
+	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
 	l.mu.Lock()
 	l.state = state
 	l.outcome = outcome

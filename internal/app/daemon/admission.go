@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -27,7 +28,11 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if stored.EffectiveRequestFingerprint() != requestFingerprint {
 		return View{}, true, failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent}).Fingerprint()
+	structuredAdapter, err := normalizedStructuredAdapter(req)
+	if err != nil {
+		return View{}, true, err
+	}
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -37,6 +42,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	view, err := s.waitView(ctx, stored, string(stored.SessionID), 0, req.YieldMS, req.MaxOutputBytes)
 	if err == nil {
 		s.enrichReplayWorkspaceContext(ctx, &view, stored.CWD, req.WorkspaceHint)
+		s.enrichStructuredAdapterAvailability(&view, stored)
 	}
 	return view, true, err
 }
@@ -99,4 +105,27 @@ func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest,
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
 	return reservation, spec, nil
+}
+
+func normalizedStructuredAdapter(req StartRequest) (string, error) {
+	if req.StructuredAdapter != "" {
+		if !operation.ValidStructuredAdapterID(req.StructuredAdapter) {
+			return "", failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
+		}
+		return req.StructuredAdapter, nil
+	}
+	selection := structuredapp.SelectAdapter("", req.Argv)
+	if selection.Status == structuredapp.SelectionSelected {
+		return selection.AdapterID, nil
+	}
+	return "", nil
+}
+
+func (s *Service) waitReservedStart(ctx context.Context, req StartRequest, stored operation.Reservation, sessionID string) (View, error) {
+	view, err := s.waitView(ctx, stored, sessionID, 0, req.YieldMS, req.MaxOutputBytes)
+	if err == nil {
+		s.enrichReplayWorkspaceContext(ctx, &view, stored.CWD, req.WorkspaceHint)
+		s.enrichStructuredAdapterAvailability(&view, stored)
+	}
+	return view, err
 }

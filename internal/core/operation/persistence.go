@@ -13,6 +13,7 @@ type Reservation struct {
 	RequestFingerprint            string        `json:"request_fingerprint,omitempty"`
 	ExecutionFingerprint          string        `json:"execution_fingerprint,omitempty"`
 	ObservationBindingFingerprint string        `json:"observation_binding_fingerprint,omitempty"`
+	StructuredAdapter             string        `json:"structured_adapter,omitempty"`
 	ExecutionMode                 ExecutionMode `json:"execution_mode,omitempty"`
 	Executable                    string        `json:"executable,omitempty"`
 	Command                       string        `json:"command,omitempty"`

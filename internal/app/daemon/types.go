@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -15,21 +16,28 @@ type Options struct {
 	MaxQueuedInputBytes int
 	TerminationGrace    time.Duration
 	Capabilities        capability.Catalog
+	StructuredWorker    StructuredWorker
 }
 type StartRequest struct {
-	ProtocolVersion int                       `json:"-"`
-	OperationID     string                    `json:"operation_id"`
-	ActivityID      string                    `json:"activity_id,omitempty"`
-	WorkspaceID     string                    `json:"workspace_id,omitempty"`
-	WorkspaceHint   *workspace.Hint           `json:"workspace_hint,omitempty"`
-	Command         string                    `json:"command,omitempty"`
-	Argv            []string                  `json:"argv,omitempty"`
-	Intent          *operation.DeclaredIntent `json:"intent,omitempty"`
-	CWD             string                    `json:"cwd"`
-	TTY             bool                      `json:"tty"`
-	TimeoutMS       int64                     `json:"timeout_ms"`
-	YieldMS         int64                     `json:"yield_time_ms"`
-	MaxOutputBytes  int                       `json:"max_output_bytes"`
+	ProtocolVersion   int                       `json:"-"`
+	OperationID       string                    `json:"operation_id"`
+	ActivityID        string                    `json:"activity_id,omitempty"`
+	WorkspaceID       string                    `json:"workspace_id,omitempty"`
+	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
+	Command           string                    `json:"command,omitempty"`
+	Argv              []string                  `json:"argv,omitempty"`
+	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
+	CWD               string                    `json:"cwd"`
+	TTY               bool                      `json:"tty"`
+	TimeoutMS         int64                     `json:"timeout_ms"`
+	YieldMS           int64                     `json:"yield_time_ms"`
+	MaxOutputBytes    int                       `json:"max_output_bytes"`
+	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
+}
+
+type StructuredWorker interface {
+	// ScheduleTerminal must be bounded and non-blocking with respect to parser execution.
+	ScheduleTerminal(context.Context, receipt.Receipt, string) error
 }
 type PollRequest struct {
 	SessionID      string `json:"session_id"`

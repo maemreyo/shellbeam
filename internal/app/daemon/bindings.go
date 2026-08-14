@@ -21,8 +21,12 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 	if spec.Mode == operation.ExecutionModeShell {
 		shell = spec.Shell
 	}
+	structuredAdapter, err := normalizedStructuredAdapter(req)
+	if err != nil {
+		return operation.Reservation{}, err
+	}
 	base := operation.Reservation{
-		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD,
+		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter,
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
 		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Shell: shell, DaemonIncarnation: s.options.Incarnation,
 	}
@@ -44,7 +48,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		if err != nil {
 			return operation.Reservation{}, err
 		}
-		observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent}).Fingerprint()
+		observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
 		if err != nil {
 			return operation.Reservation{}, err
 		}

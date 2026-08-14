@@ -15,29 +15,30 @@ import (
 )
 
 type input struct {
-	Action           string                    `json:"action"`
-	OperationID      string                    `json:"operation_id,omitempty"`
-	WorkspaceID      string                    `json:"workspace_id,omitempty"`
-	ActivityID       string                    `json:"activity_id,omitempty"`
-	WorkspaceHint    *workspace.Hint           `json:"workspace_hint,omitempty"`
-	Command          string                    `json:"command,omitempty"`
-	Argv             []string                  `json:"argv,omitempty"`
-	Intent           *operation.DeclaredIntent `json:"intent,omitempty"`
-	CWD              string                    `json:"cwd,omitempty"`
-	TTY              bool                      `json:"tty,omitempty"`
-	YieldMS          int64                     `json:"yield_time_ms,omitempty"`
-	TimeoutMS        int64                     `json:"timeout_ms,omitempty"`
-	MaxOutputBytes   int                       `json:"max_output_bytes,omitempty"`
-	SessionID        string                    `json:"session_id,omitempty"`
-	Cursor           int64                     `json:"cursor,omitempty"`
-	InputOffset      int64                     `json:"input_offset,omitempty"`
-	Chars            string                    `json:"chars,omitempty"`
-	EOF              bool                      `json:"eof,omitempty"`
-	KillID           string                    `json:"kill_id,omitempty"`
-	Signal           string                    `json:"signal,omitempty"`
-	Target           *observationcore.Target   `json:"target,omitempty"`
-	AfterEventCursor string                    `json:"after_event_cursor,omitempty"`
-	MaxEvents        int                       `json:"max_events,omitempty"`
+	Action            string                    `json:"action"`
+	OperationID       string                    `json:"operation_id,omitempty"`
+	WorkspaceID       string                    `json:"workspace_id,omitempty"`
+	ActivityID        string                    `json:"activity_id,omitempty"`
+	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
+	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
+	Command           string                    `json:"command,omitempty"`
+	Argv              []string                  `json:"argv,omitempty"`
+	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
+	CWD               string                    `json:"cwd,omitempty"`
+	TTY               bool                      `json:"tty,omitempty"`
+	YieldMS           int64                     `json:"yield_time_ms,omitempty"`
+	TimeoutMS         int64                     `json:"timeout_ms,omitempty"`
+	MaxOutputBytes    int                       `json:"max_output_bytes,omitempty"`
+	SessionID         string                    `json:"session_id,omitempty"`
+	Cursor            int64                     `json:"cursor,omitempty"`
+	InputOffset       int64                     `json:"input_offset,omitempty"`
+	Chars             string                    `json:"chars,omitempty"`
+	EOF               bool                      `json:"eof,omitempty"`
+	KillID            string                    `json:"kill_id,omitempty"`
+	Signal            string                    `json:"signal,omitempty"`
+	Target            *observationcore.Target   `json:"target,omitempty"`
+	AfterEventCursor  string                    `json:"after_event_cursor,omitempty"`
+	MaxEvents         int                       `json:"max_events,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -127,6 +128,9 @@ func validateV2(v input) error {
 			return err
 		}
 	}
+	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
+		return fmt.Errorf("invalid structured adapter")
+	}
 	return validateNonNegative(v)
 }
 
@@ -210,7 +214,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":

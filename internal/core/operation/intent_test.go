@@ -216,3 +216,42 @@ func TestDeclaredIntentIsObservationMetadataOnly(t *testing.T) {
 		t.Fatal("declared intent changed request semantics")
 	}
 }
+
+func TestStructuredAdapterOnlyChangesObservationBindingFingerprint(t *testing.T) {
+	intent := Intent{Argv: []string{"go", "test", "-json", "./..."}, CWD: "/tmp"}
+	requestA, err := intent.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	execA, err := intent.ExecutionFingerprint("/usr/local/go/bin/go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestB, _ := intent.RequestFingerprint()
+	execB, _ := intent.ExecutionFingerprint("/usr/local/go/bin/go")
+	if requestA != requestB || execA != execB {
+		t.Fatal("adapter metadata leaked into request/execution fingerprint")
+	}
+	base, err := (ObservationBinding{}).Fingerprint()
+	if err != nil || base != "" {
+		t.Fatalf("base=%q err=%v", base, err)
+	}
+	testFP, err := (ObservationBinding{StructuredAdapter: "go-test-json"}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vetFP, err := (ObservationBinding{StructuredAdapter: "go-vet-json"}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if testFP == "" || testFP == vetFP {
+		t.Fatalf("adapter observation fingerprints test=%q vet=%q", testFP, vetFP)
+	}
+	unknownFP, err := (ObservationBinding{StructuredAdapter: "junit"}).Fingerprint()
+	if err != nil || unknownFP == "" || unknownFP == testFP {
+		t.Fatalf("safe unsupported adapter was not bound: fp=%q err=%v", unknownFP, err)
+	}
+	if _, err := (ObservationBinding{StructuredAdapter: "../unknown"}).Fingerprint(); err == nil {
+		t.Fatal("unsafe adapter id accepted")
+	}
+}
