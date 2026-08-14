@@ -12,113 +12,135 @@ func (s *Service) normalizeRecords(query core.Query, response ProviderResponse, 
 	for _, source := range selected {
 		selectedIDs[source.Ref.ID] = struct{}{}
 	}
-	records := make([]core.Record, 0, min(s.limits.Result.MaxRecords, providerRecordCount(query, response)))
-	bounded := false
-	changedRecord := false
-	appendRecord := func(record core.Record) error {
-		if err := record.Validate(s.limits.Result); err != nil {
-			return err
-		}
-		if len(records) >= s.limits.Result.MaxRecords {
-			bounded = true
-			return nil
-		}
-		records = append(records, record)
-		return nil
+	state := recordNormalizationState{
+		limits:      s.limits.Result,
+		selectedIDs: selectedIDs,
+		changed:     changed,
+		records:     make([]core.Record, 0, min(s.limits.Result.MaxRecords, providerRecordCount(query, response))),
 	}
-
+	var err error
 	switch query.Kind {
 	case core.QueryDiagnostics:
-		for _, diagnostic := range response.Diagnostics {
-			if err := validateProviderLocation(diagnostic.Location); err != nil {
-				return nil, false, false, err
-			}
-			if !recordVisibleForSelection(query, diagnostic.Location, selectedIDs) {
-				continue
-			}
-			for _, related := range diagnostic.RelatedLocations {
-				if err := validateProviderLocation(related); err != nil {
-					return nil, false, false, err
-				}
-			}
-			correlation := correlationForLocation(diagnostic.Location, selectedIDs, changed)
-			changedRecord = changedRecord || correlation == core.CorrelationSourceChangedDuringQuery
-			record := core.Record{
-				Kind:              core.RecordDiagnostic,
-				Authority:         defaultAuthority(diagnostic.Authority),
-				SourceCorrelation: correlation,
-				Completeness:      defaultCompleteness(diagnostic.Completeness),
-				Diagnostic: &core.Diagnostic{
-					Severity:         diagnostic.Severity,
-					Code:             diagnostic.Code,
-					Message:          diagnostic.Message,
-					Location:         diagnostic.Location,
-					ProviderSource:   diagnostic.ProviderSource,
-					RelatedLocations: append([]core.SourceLocation(nil), diagnostic.RelatedLocations...),
-				},
-			}
-			if err := appendRecord(record); err != nil {
-				return nil, false, false, err
-			}
-		}
+		err = state.appendDiagnostics(query, response.Diagnostics)
 	case core.QuerySymbols:
-		for _, symbol := range response.Symbols {
-			if err := validateProviderLocation(symbol.Location); err != nil {
-				return nil, false, false, err
-			}
-			if !recordVisibleForSelection(query, symbol.Location, selectedIDs) {
-				continue
-			}
-			correlation := correlationForLocation(symbol.Location, selectedIDs, changed)
-			changedRecord = changedRecord || correlation == core.CorrelationSourceChangedDuringQuery
-			record := core.Record{
-				Kind:              core.RecordSymbol,
-				Authority:         defaultAuthority(symbol.Authority),
-				SourceCorrelation: correlation,
-				Completeness:      defaultCompleteness(symbol.Completeness),
-				Symbol:            &core.Symbol{Name: symbol.Name, Kind: symbol.Kind, Location: symbol.Location},
-			}
-			if err := appendRecord(record); err != nil {
-				return nil, false, false, err
-			}
-		}
+		err = state.appendSymbols(query, response.Symbols)
 	case core.QueryDefinition, core.QueryReferences, core.QueryTypeDefinition, core.QueryCallers, core.QueryCallees:
-		for _, location := range response.Locations {
-			if err := validateProviderLocation(location.Location); err != nil {
-				return nil, false, false, err
-			}
-			correlation := correlationForLocation(location.Location, selectedIDs, changed)
-			changedRecord = changedRecord || correlation == core.CorrelationSourceChangedDuringQuery
-			record := core.Record{
-				Kind:              core.RecordLocationTarget,
-				Authority:         defaultAuthority(location.Authority),
-				SourceCorrelation: correlation,
-				Completeness:      defaultCompleteness(location.Completeness),
-				LocationTarget: &core.LocationTarget{
-					Name:         location.Name,
-					Relationship: defaultRelationship(query.Kind, location.Relationship),
-					Location:     location.Location,
-				},
-			}
-			if err := appendRecord(record); err != nil {
-				return nil, false, false, err
+		err = state.appendLocations(query, response.Locations)
+	case core.QueryTypeSummary:
+		err = state.appendTypeSummary(response.TypeSummary)
+	}
+	return state.records, state.bounded, state.changedRecord, err
+}
+
+type recordNormalizationState struct {
+	limits        core.ResultLimits
+	selectedIDs   map[core.SourceRefID]struct{}
+	changed       map[core.SourceRefID]bool
+	records       []core.Record
+	bounded       bool
+	changedRecord bool
+}
+
+func (s *recordNormalizationState) append(record core.Record) error {
+	if err := record.Validate(s.limits); err != nil {
+		return err
+	}
+	if len(s.records) >= s.limits.MaxRecords {
+		s.bounded = true
+		return nil
+	}
+	s.records = append(s.records, record)
+	return nil
+}
+
+func (s *recordNormalizationState) appendDiagnostics(query core.Query, diagnostics []ProviderDiagnostic) error {
+	for _, diagnostic := range diagnostics {
+		if err := validateProviderLocation(diagnostic.Location); err != nil {
+			return err
+		}
+		if !recordVisibleForSelection(query, diagnostic.Location, s.selectedIDs) {
+			continue
+		}
+		for _, related := range diagnostic.RelatedLocations {
+			if err := validateProviderLocation(related); err != nil {
+				return err
 			}
 		}
-	case core.QueryTypeSummary:
-		if response.TypeSummary != "" {
-			record := core.Record{
-				Kind:              core.RecordTypeSummary,
-				Authority:         core.AuthorityMechanical,
-				SourceCorrelation: core.CorrelationCurrent,
-				Completeness:      core.CompletenessProviderReported,
-				TypeSummary:       &core.TypeSummary{Text: response.TypeSummary},
-			}
-			if err := appendRecord(record); err != nil {
-				return nil, false, false, err
-			}
+		correlation := s.correlation(diagnostic.Location)
+		record := core.Record{
+			Kind:              core.RecordDiagnostic,
+			Authority:         defaultAuthority(diagnostic.Authority),
+			SourceCorrelation: correlation,
+			Completeness:      defaultCompleteness(diagnostic.Completeness),
+			Diagnostic: &core.Diagnostic{
+				Severity: diagnostic.Severity, Code: diagnostic.Code, Message: diagnostic.Message,
+				Location: diagnostic.Location, ProviderSource: diagnostic.ProviderSource,
+				RelatedLocations: append([]core.SourceLocation(nil), diagnostic.RelatedLocations...),
+			},
+		}
+		if err := s.append(record); err != nil {
+			return err
 		}
 	}
-	return records, bounded, changedRecord, nil
+	return nil
+}
+
+func (s *recordNormalizationState) appendSymbols(query core.Query, symbols []ProviderSymbol) error {
+	for _, symbol := range symbols {
+		if err := validateProviderLocation(symbol.Location); err != nil {
+			return err
+		}
+		if !recordVisibleForSelection(query, symbol.Location, s.selectedIDs) {
+			continue
+		}
+		record := core.Record{
+			Kind: core.RecordSymbol, Authority: defaultAuthority(symbol.Authority),
+			SourceCorrelation: s.correlation(symbol.Location), Completeness: defaultCompleteness(symbol.Completeness),
+			Symbol: &core.Symbol{Name: symbol.Name, Kind: symbol.Kind, Location: symbol.Location},
+		}
+		if err := s.append(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *recordNormalizationState) appendLocations(query core.Query, locations []ProviderLocation) error {
+	for _, location := range locations {
+		if err := validateProviderLocation(location.Location); err != nil {
+			return err
+		}
+		record := core.Record{
+			Kind: core.RecordLocationTarget, Authority: defaultAuthority(location.Authority),
+			SourceCorrelation: s.correlation(location.Location), Completeness: defaultCompleteness(location.Completeness),
+			LocationTarget: &core.LocationTarget{
+				Name: location.Name, Relationship: defaultRelationship(query.Kind, location.Relationship), Location: location.Location,
+			},
+		}
+		if err := s.append(record); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *recordNormalizationState) appendTypeSummary(summary string) error {
+	if summary == "" {
+		return nil
+	}
+	return s.append(core.Record{
+		Kind: core.RecordTypeSummary, Authority: core.AuthorityMechanical,
+		SourceCorrelation: core.CorrelationCurrent, Completeness: core.CompletenessProviderReported,
+		TypeSummary: &core.TypeSummary{Text: summary},
+	})
+}
+
+func (s *recordNormalizationState) correlation(location core.SourceLocation) core.SourceCorrelation {
+	correlation := correlationForLocation(location, s.selectedIDs, s.changed)
+	if correlation == core.CorrelationSourceChangedDuringQuery {
+		s.changedRecord = true
+	}
+	return correlation
 }
 
 func (s *Service) fitResult(result core.Result) (core.Result, error) {
