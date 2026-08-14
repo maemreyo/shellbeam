@@ -25,6 +25,10 @@ import (
 )
 
 func runDaemon(ctx context.Context, args []string) error {
+	return runDaemonWithCodeProvider(ctx, args, nil, nil)
+}
+
+func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFactory codeProviderFactory, providerResolver codeProviderResolver) error {
 	cfg, paths, err := loadCommon("daemon", args)
 	if err != nil {
 		return err
@@ -35,21 +39,27 @@ func runDaemon(ctx context.Context, args []string) error {
 		return err
 	}
 	incarnation := ulid.Make().String()
-	catalog := capability.Baseline(capability.Limits{
-		CommandBytes:       cfg.MaxCommandBytes,
-		ResponseBytes:      cfg.MaxResponseOutputBytes,
-		SessionOutputBytes: cfg.MaxSessionOutputBytes,
-		RuntimeMS:          cfg.MaxTimeoutMS,
-		LiveSessions:       cfg.MaxConcurrentSessions,
-		ActivityHistory:    activitycore.MaxOperationHistory,
-	}).WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
-		WithStructuredResults([]string{"go-test-json", "go-vet-json"}, []string{"diagnostic", "test_case", "test_suite", "artifact_result"}, structuredapp.MaxListRecords, true)
+	catalog := daemonCatalog(capability.Limits{
+		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
+		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
+		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
+	})
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
 	coherence := workspaceapp.NewCoherenceTracker(incarnation)
 	deltaSampler := workspaceapp.NewDeltaSampler(store, gitRepo, coherence)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
+	var codeRuntime *codeIntelligenceRuntime
+	if providerFactory == nil && providerResolver == nil {
+		codeRuntime, err = newCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence)
+	} else {
+		codeRuntime, err = newCodeIntelligenceRuntimeWithProvider(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
+	}
+	if err != nil {
+		return err
+	}
+	defer codeRuntime.Close()
 	structuredScheduler := &structuredWorkerProxy{}
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
@@ -59,7 +69,7 @@ func runDaemon(ctx context.Context, args []string) error {
 		StructuredWorker:    structuredScheduler,
 	})
 	projectSvc := projectapp.New(store, projectadapter.NewLoader(), store)
-	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc}
+	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
 	server, err := ipcadapter.Listen(paths.RuntimeDir, actions)
 	if err != nil {
 		return err
@@ -110,6 +120,7 @@ type daemonActions struct {
 	project    *projectapp.Service
 	events     *observationapp.Service
 	structured *structuredapp.Inspector
+	code       daemonCodeInspector
 }
 
 func (a daemonActions) InspectWorkspace(ctx context.Context, workspaceID string) (workspacecore.Workspace, error) {
@@ -136,4 +147,14 @@ func (a *daemonActions) InspectStructured(ctx context.Context, request structure
 		return structuredapp.InspectResult{}, fmt.Errorf("structured observation unavailable")
 	}
 	return a.structured.Inspect(ctx, request)
+}
+
+func daemonCatalog(limits capability.Limits) capability.Catalog {
+	return capability.Baseline(limits).
+		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
+		WithStructuredResults(
+			[]string{"go-test-json", "go-vet-json"},
+			[]string{"diagnostic", "test_case", "test_suite", "artifact_result"},
+			structuredapp.MaxListRecords, true,
+		).WithCodeIntelligence()
 }
