@@ -270,3 +270,85 @@ func (h *lifecycleHandle) finish(code int) {
 		close(h.done)
 	})
 }
+
+func TestManagedShellLeaseStressReturnsToZero(t *testing.T) {
+	for round := 0; round < 40; round++ {
+		coherence := &trackingCoherence{}
+		services := make([]*app.Service, 0, 5)
+		owners := make([]*lifecycleOwner, 0, 5)
+		for _, mode := range []lifecycleMode{lifecycleExitZero, lifecycleSpawnFailure, lifecycleBlocking, lifecycleBlocking, lifecycleBlocking} {
+			owner := newLifecycleOwner(mode)
+			owners = append(owners, owner)
+			services = append(services, app.NewServiceWithExecutionContextAndCoherence(
+				lazyStore(t), owner, nil, nil, nil, coherence, lazyOptions(),
+			))
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(5)
+		go func() { defer wg.Done(); runImmediateLeaseCase(t, services[0], "stress-success") }()
+		go func() { defer wg.Done(); runImmediateLeaseCase(t, services[1], "stress-spawn-failure") }()
+		go func() { defer wg.Done(); runTimeoutLeaseCase(t, services[2], "stress-timeout") }()
+		go func() { defer wg.Done(); runKillLeaseCase(t, services[3], owners[3], "stress-kill") }()
+		go func() { defer wg.Done(); runShutdownLeaseCase(t, services[4], owners[4], "stress-shutdown") }()
+		wg.Wait()
+
+		begins, ends := coherence.counts()
+		barrier := coherence.CaptureBarrier()
+		if begins != 5 || ends != 5 || barrier.ActiveManagedShellOperations != 0 {
+			t.Fatalf("round %d lease counts=%d/%d barrier=%#v", round, begins, ends, barrier)
+		}
+	}
+}
+
+func runImmediateLeaseCase(t *testing.T, svc *app.Service, operationID string) {
+	t.Helper()
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "true", CWD: "/"})
+	if err != nil {
+		t.Errorf("%s start: %v", operationID, err)
+		return
+	}
+	if !started.State.Terminal() {
+		_ = waitForTerminal(t, svc, started.SessionID)
+	}
+}
+
+func runTimeoutLeaseCase(t *testing.T, svc *app.Service, operationID string) {
+	t.Helper()
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "sleep", CWD: "/", TimeoutMS: 5})
+	if err != nil {
+		t.Errorf("%s start: %v", operationID, err)
+		return
+	}
+	_ = waitForTerminal(t, svc, started.SessionID)
+}
+
+func runKillLeaseCase(t *testing.T, svc *app.Service, owner *lifecycleOwner, operationID string) {
+	t.Helper()
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "sleep", CWD: "/"})
+	if err != nil {
+		t.Errorf("%s start: %v", operationID, err)
+		return
+	}
+	<-owner.started
+	if _, err := svc.Kill(context.Background(), app.KillRequest{SessionID: started.SessionID, KillID: operationID + "-kill", Signal: "TERM"}); err != nil {
+		t.Errorf("%s kill: %v", operationID, err)
+		return
+	}
+	_ = waitForTerminal(t, svc, started.SessionID)
+}
+
+func runShutdownLeaseCase(t *testing.T, svc *app.Service, owner *lifecycleOwner, operationID string) {
+	t.Helper()
+	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "sleep", CWD: "/"})
+	if err != nil {
+		t.Errorf("%s start: %v", operationID, err)
+		return
+	}
+	<-owner.started
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := svc.Shutdown(ctx); err != nil {
+		t.Errorf("%s shutdown: %v", operationID, err)
+	}
+}

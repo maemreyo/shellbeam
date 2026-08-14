@@ -2,11 +2,17 @@ package git
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
+	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	core "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -177,3 +183,80 @@ func TestSnapshotCachedNeverSpawnsGitForEmptyOrStaleCache(t *testing.T) {
 		t.Fatalf("stale=%#v calls=%d wantCalls=%d", stale, runner.CallCount(), calls)
 	}
 }
+
+func TestOrdinaryDaemonStartPaysZeroGitWorkspaceFreshnessTax(t *testing.T) {
+	runner := &snapshotRunner{output: cleanStatusOutput()}
+	adapter := newRepository(runner, SnapshotOptions{TTL: time.Second, Budget: time.Second, Now: time.Now})
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{
+		MaxSessions: 4, MaxSessionOutput: 1024, MaxTotalState: 1 << 20, ControlReserve: 128,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	root := t.TempDir()
+	workspace := core.Workspace{
+		SchemaVersion: core.SchemaVersion,
+		ID:            core.WorkspaceID("ws_01K00000000000000000000000"),
+		RepositoryID:  core.RepositoryID("repo_01K00000000000000000000000"),
+		Label:         "no-tax",
+		Root:          root,
+		GitDir:        filepath.Join(root, ".git"),
+		CreatedAt:     now,
+		LastSeenAt:    now,
+	}
+	if err := store.SaveWorkspace(context.Background(), workspace); err != nil {
+		t.Fatal(err)
+	}
+	observer := workspaceapp.NewObserver(store, adapter)
+	svc := daemonapp.NewServiceWithWorkspaceObserver(store, noTaxOwner{}, observer, daemonapp.Options{
+		Incarnation: "no-tax-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 128,
+	})
+	started, err := svc.Start(context.Background(), daemonapp.StartRequest{
+		ProtocolVersion: 2, OperationID: "no-tax-start", Command: "true", CWD: root,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := waitNoTaxTerminal(t, svc, started.SessionID)
+	if runner.CallCount() != 0 {
+		t.Fatalf("ordinary start spawned workspace Git commands: %#v", runner.Args())
+	}
+	got := terminal.Receipt.WorkspaceProvenance
+	if got == nil || got.Pre.Kind != receipt.WorkspaceUnreconciled || got.Post.Kind != receipt.WorkspaceUnreconciled || !got.Post.ObservationInvalidated {
+		t.Fatalf("workspace provenance=%#v", got)
+	}
+}
+
+func waitNoTaxTerminal(t *testing.T, svc *daemonapp.Service, sessionID string) daemonapp.View {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		view, err := svc.Poll(context.Background(), daemonapp.PollRequest{SessionID: sessionID, YieldMS: 10, MaxOutputBytes: 1024})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if view.State.Terminal() {
+			return view
+		}
+	}
+	t.Fatal("no-tax command did not become terminal")
+	return daemonapp.View{}
+}
+
+type noTaxOwner struct{}
+
+func (noTaxOwner) Start(context.Context, operation.ExecutionSpec, daemonapp.OutputSink) (daemonapp.ProcessHandle, receipt.SpawnEvidence, error) {
+	return noTaxHandle{}, receipt.SpawnEvidence{Attempted: true, Succeeded: true}, nil
+}
+
+type noTaxHandle struct{}
+
+func (noTaxHandle) Write([]byte) error                   { return nil }
+func (noTaxHandle) CloseStdin() error                    { return nil }
+func (noTaxHandle) Signal(string) receipt.SignalEvidence { return receipt.SignalEvidence{} }
+func (noTaxHandle) Wait(context.Context) receipt.ExitEvidence {
+	code := 0
+	return receipt.ExitEvidence{Reaped: true, Code: &code}
+}
+func (noTaxHandle) Close() error { return nil }
