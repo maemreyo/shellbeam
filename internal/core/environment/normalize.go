@@ -76,7 +76,7 @@ func EnvironmentFingerprint(input FingerprintInput) (string, error) {
 }
 
 func ToolchainFingerprint(observations []ToolchainObservation) (string, error) {
-	if len(observations) > MaxToolchainProbes {
+	if len(observations) > MaxToolchainObservations {
 		return "", fmt.Errorf("too many toolchain observations")
 	}
 	records := make([]toolchainCanonicalRecord, 0, len(observations))

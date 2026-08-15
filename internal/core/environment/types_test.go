@@ -2,6 +2,7 @@ package environment
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -203,5 +204,27 @@ func TestSnapshotValidateRejectsMalformedAndOversizedFacts(t *testing.T) {
 	bad.Quality = "excellent"
 	if err := bad.Validate(); err == nil {
 		t.Fatal("unknown quality accepted")
+	}
+}
+
+func TestToolchainFingerprintAcceptsBoundedUnsupportedUnavailableObservation(t *testing.T) {
+	observations := []ToolchainObservation{
+		{Kind: "go", RequestedIdentity: "host", ObservedIdentity: "/usr/bin/go", Version: "go1.26.5", Quality: ProbeComplete},
+		{Kind: "ruby", RequestedIdentity: "version=3.4", Quality: ProbeUnavailable, DiagnosticCode: "toolchain_probe_unsupported"},
+	}
+	if _, err := ToolchainFingerprint(observations); err != nil {
+		t.Fatalf("unsupported unavailable observation rejected: %v", err)
+	}
+	bad := append([]ToolchainObservation(nil), observations...)
+	bad[1] = ToolchainObservation{Kind: "ruby", RequestedIdentity: "version=3.4", ObservedIdentity: "/usr/bin/ruby", Version: "3.4", Quality: ProbeComplete}
+	if _, err := ToolchainFingerprint(bad); err == nil {
+		t.Fatal("unsupported complete observation accepted")
+	}
+	oversized := make([]ToolchainObservation, MaxToolchainObservations+1)
+	for i := range oversized {
+		oversized[i] = ToolchainObservation{Kind: fmt.Sprintf("unsupported_%02d", i), RequestedIdentity: "declared", Quality: ProbeUnavailable, DiagnosticCode: "toolchain_probe_unsupported"}
+	}
+	if _, err := ToolchainFingerprint(oversized); err == nil {
+		t.Fatal("oversized toolchain observation set accepted")
 	}
 }

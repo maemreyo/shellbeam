@@ -13,6 +13,7 @@ const (
 	ToolchainFingerprintVersion = 1
 	MaxRelevantVariables        = project.MaxRelevantEnvironment
 	MaxToolchainProbes          = 5
+	MaxToolchainObservations    = 16
 )
 
 type Quality string

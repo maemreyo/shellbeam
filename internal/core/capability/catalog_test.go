@@ -239,7 +239,7 @@ func TestA25EnvironmentCapabilityIsExplicitVersionedAndBounded(t *testing.T) {
 	if base.Features[FeatureEnvironmentFingerprint] != Unavailable || len(base.EnvironmentSnapshotSchemaVersions) != 0 || len(base.EnvironmentFingerprintVersions) != 0 || len(base.ToolchainFingerprintVersions) != 0 || len(base.EnvironmentToolchainProbeIDs) != 0 {
 		t.Fatalf("baseline leaked environment observation support: %#v", base)
 	}
-	catalog := base.WithEnvironmentObservation(64, 5, 2000, 512, 128, []string{"go", "node", "python", "java", "rust"})
+	catalog := base.WithEnvironmentObservation(64, 5, 16, 2000, 512, 128, []string{"go", "node", "python", "java", "rust"})
 	if catalog.Features[FeatureEnvironmentFingerprint] != Available {
 		t.Fatalf("environment feature=%q", catalog.Features[FeatureEnvironmentFingerprint])
 	}
@@ -250,7 +250,7 @@ func TestA25EnvironmentCapabilityIsExplicitVersionedAndBounded(t *testing.T) {
 		t.Fatalf("toolchain probes=%v", catalog.EnvironmentToolchainProbeIDs)
 	}
 	limits := catalog.Limits
-	if limits.EnvironmentRelevantVariables != 64 || limits.EnvironmentToolchainProbes != 5 || limits.EnvironmentProbeTimeoutMS != 2000 || limits.EnvironmentProbeOutputBytes != 512 || limits.EnvironmentCacheEntries != 128 {
+	if limits.EnvironmentRelevantVariables != 64 || limits.EnvironmentToolchainProbes != 5 || limits.EnvironmentToolchainObservations != 16 || limits.EnvironmentProbeTimeoutMS != 2000 || limits.EnvironmentProbeOutputBytes != 512 || limits.EnvironmentCacheEntries != 128 {
 		t.Fatalf("environment limits=%#v", limits)
 	}
 	clone := catalog.Clone()
@@ -259,7 +259,7 @@ func TestA25EnvironmentCapabilityIsExplicitVersionedAndBounded(t *testing.T) {
 	if catalog.EnvironmentSnapshotSchemaVersions[0] != 1 || catalog.EnvironmentToolchainProbeIDs[0] != "go" {
 		t.Fatal("environment capability clone aliases slices")
 	}
-	if invalid := base.WithEnvironmentObservation(64, 5, 2000, 512, 128, nil); invalid.Features[FeatureEnvironmentFingerprint] != Unavailable {
+	if invalid := base.WithEnvironmentObservation(64, 5, 16, 2000, 512, 128, nil); invalid.Features[FeatureEnvironmentFingerprint] != Unavailable {
 		t.Fatal("probe-less environment observation advertised")
 	}
 }

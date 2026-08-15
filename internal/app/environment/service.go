@@ -22,7 +22,7 @@ type ManifestProvider interface {
 }
 
 type ToolchainProber interface {
-	Probe(context.Context, ToolchainRequest) core.ToolchainObservation
+	Probe(context.Context, string, string, project.Toolchain) core.ToolchainObservation
 }
 
 type ManifestView struct {
@@ -109,7 +109,10 @@ func (s *Service) Inspect(ctx context.Context, request InspectRequest) (core.Sna
 	if err != nil {
 		return core.Snapshot{}, failure.New(failure.EnvironmentObservationUnavailable, map[string]string{"reason": "selection_invalid"}, err)
 	}
-	toolchainRequests := selectedToolchains(view.Manifest.Toolchains)
+	toolchainRequests, err := selectedToolchains(view.Manifest.Toolchains)
+	if err != nil {
+		return core.Snapshot{}, failure.New(failure.EnvironmentObservationUnavailable, map[string]string{"reason": "selection_invalid"}, err)
+	}
 	key, err := snapshotCacheKey(request.WorkspaceID, view.ManifestDigest, execution, names, toolchainRequests)
 	if err != nil {
 		return core.Snapshot{}, err
@@ -237,7 +240,7 @@ func (s *Service) observeToolchains(ctx context.Context, requests []ToolchainReq
 		if ctx.Err() != nil {
 			break
 		}
-		observed := s.prober.Probe(ctx, request)
+		observed := s.prober.Probe(ctx, request.Kind, request.RequestedIdentity, request.Declaration)
 		observed.Kind = request.Kind
 		observed.RequestedIdentity = request.RequestedIdentity
 		out = append(out, observed)

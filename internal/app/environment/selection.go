@@ -36,14 +36,30 @@ func selectedPresenceNames(extra []string) ([]string, error) {
 	return out, nil
 }
 
-func selectedToolchains(declared map[string]project.Toolchain) []ToolchainRequest {
+func selectedToolchains(declared map[string]project.Toolchain) ([]ToolchainRequest, error) {
 	ids := core.SupportedToolchains()
-	out := make([]ToolchainRequest, 0, len(ids))
+	supported := make(map[string]struct{}, len(ids))
+	out := make([]ToolchainRequest, 0, len(ids)+len(declared))
 	for _, id := range ids {
+		supported[id] = struct{}{}
 		declaration := declared[id]
 		out = append(out, ToolchainRequest{Kind: id, RequestedIdentity: requestedIdentity(declaration), Declaration: declaration})
 	}
-	return out
+	extra := make([]string, 0, len(declared))
+	for id := range declared {
+		if _, ok := supported[id]; !ok {
+			extra = append(extra, id)
+		}
+	}
+	sort.Strings(extra)
+	if len(out)+len(extra) > core.MaxToolchainObservations {
+		return nil, fmt.Errorf("too many toolchain observations")
+	}
+	for _, id := range extra {
+		declaration := declared[id]
+		out = append(out, ToolchainRequest{Kind: id, RequestedIdentity: requestedIdentity(declaration), Declaration: declaration})
+	}
+	return out, nil
 }
 
 func requestedIdentity(declaration project.Toolchain) string {

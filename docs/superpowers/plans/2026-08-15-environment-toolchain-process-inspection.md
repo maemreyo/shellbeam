@@ -415,7 +415,7 @@ git commit -m "feat: capture secret-safe environment snapshots"
 
 ### Step 3.1 — Parser RED tests
 
-- [ ] Step 3.1: Parser RED tests
+- [x] Step 3.1: Parser RED tests
 
 Table-test exact supported parsers:
 
@@ -435,7 +435,7 @@ go test ./internal/adapter/environment
 
 ### Step 3.2 — Probe-runner RED tests
 
-- [ ] Step 3.2: Probe-runner RED tests
+- [x] Step 3.2: Probe-runner RED tests
 
 Inject a fake command runner and prove:
 
@@ -450,7 +450,7 @@ Inject a fake command runner and prove:
 
 ### Step 3.3 — Implement fixed registry
 
-- [ ] Step 3.3: Implement fixed registry
+- [x] Step 3.3: Implement fixed registry
 
 Create a static registry with exactly the five supported adapters.
 
@@ -460,7 +460,7 @@ No manifest shell fragments. No package installation. No network.
 
 ### Step 3.4 — App cache/refresh integration RED → GREEN
 
-- [ ] Step 3.4: App cache/refresh integration RED → GREEN
+- [x] Step 3.4: App cache/refresh integration RED → GREEN
 
 Prove:
 
@@ -480,7 +480,7 @@ go test -race ./internal/app/environment ./internal/adapter/environment
 
 ### Step 3.5 — Commit
 
-- [ ] Step 3.5: Commit
+- [x] Step 3.5: Commit
 
 ```bash
 go run ./tools/devctl check

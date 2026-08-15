@@ -44,14 +44,24 @@ func (f *fakeManifestProvider) Manifest(_ context.Context, workspaceID string) (
 }
 
 type fakeToolchainProber struct {
-	calls []ToolchainRequest
+	calls       []ToolchainRequest
+	version     string
+	unsupported map[string]bool
 }
 
-func (f *fakeToolchainProber) Probe(_ context.Context, request ToolchainRequest) core.ToolchainObservation {
+func (f *fakeToolchainProber) Probe(_ context.Context, kind, requestedIdentity string, declaration project.Toolchain) core.ToolchainObservation {
+	request := ToolchainRequest{Kind: kind, RequestedIdentity: requestedIdentity, Declaration: declaration}
 	f.calls = append(f.calls, request)
+	if f.unsupported[kind] {
+		return core.ToolchainObservation{Kind: kind, RequestedIdentity: requestedIdentity, Quality: core.ProbeUnavailable, DiagnosticCode: "toolchain_probe_unsupported"}
+	}
+	version := f.version
+	if version == "" {
+		version = "1.0"
+	}
 	return core.ToolchainObservation{
 		Kind: request.Kind, RequestedIdentity: request.RequestedIdentity,
-		ObservedIdentity: "/usr/bin/" + request.Kind, Version: "1.0", Quality: core.ProbeComplete,
+		ObservedIdentity: "/usr/bin/" + request.Kind, Version: version, Quality: core.ProbeComplete,
 	}
 }
 
@@ -153,5 +163,57 @@ func TestCacheKeyChangesAndCachedBindingNeverObserves(t *testing.T) {
 	}
 	if _, ok := svc.CachedBinding(BindingRequest{WorkspaceID: "ws_2", ManifestDigest: strings.Repeat("b", 64), Execution: execution}); ok {
 		t.Fatal("oldest cache entry survived bounded eviction")
+	}
+}
+
+func TestInspectRepresentsUnsupportedDeclaredToolchain(t *testing.T) {
+	host := &fakeHostObserver{}
+	manifest := &fakeManifestProvider{view: ManifestView{
+		ManifestDigest: strings.Repeat("d", 64),
+		Manifest: project.Manifest{
+			SchemaVersion: project.ManifestSchemaV2,
+			Toolchains: map[string]project.Toolchain{
+				"ruby": {Version: "3.4"},
+			},
+		},
+	}}
+	prober := &fakeToolchainProber{unsupported: map[string]bool{"ruby": true}}
+	svc := NewService(host, manifest, prober, Options{MaxEntries: 4, Now: func() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) }, DefaultExecution: core.ExecutionContext{Mode: "shell", Identity: "/bin/sh"}})
+	got, err := svc.Inspect(context.Background(), InspectRequest{WorkspaceID: "ws_unsupported"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ruby *core.ToolchainObservation
+	for i := range got.Toolchains {
+		if got.Toolchains[i].Kind == "ruby" {
+			ruby = &got.Toolchains[i]
+			break
+		}
+	}
+	if ruby == nil || ruby.Quality != core.ProbeUnavailable || ruby.DiagnosticCode != "toolchain_probe_unsupported" || ruby.ObservedIdentity != "" || ruby.Version != "" {
+		t.Fatalf("unsupported declaration not represented safely: %#v", ruby)
+	}
+	if got.Quality != core.QualityPartial {
+		t.Fatalf("snapshot quality=%q", got.Quality)
+	}
+}
+
+func TestRefreshChangesToolchainFingerprintWhenNormalizedVersionChanges(t *testing.T) {
+	host := &fakeHostObserver{}
+	manifest := &fakeManifestProvider{view: ManifestView{ManifestDigest: strings.Repeat("e", 64), Manifest: project.Manifest{SchemaVersion: project.ManifestSchemaV2}}}
+	prober := &fakeToolchainProber{version: "1.0"}
+	now := time.Date(2026, 8, 15, 12, 30, 0, 0, time.UTC)
+	svc := NewService(host, manifest, prober, Options{MaxEntries: 4, Now: func() time.Time { now = now.Add(time.Nanosecond); return now }, DefaultExecution: core.ExecutionContext{Mode: "shell", Identity: "/bin/sh"}})
+	first, err := svc.Inspect(context.Background(), InspectRequest{WorkspaceID: "ws_versions"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prober.version = "2.0"
+	second, err := svc.Inspect(context.Background(), InspectRequest{WorkspaceID: "ws_versions", Freshness: core.FreshnessRefresh})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ToolchainFingerprint == second.ToolchainFingerprint {
+		t.Fatal("normalized toolchain version change did not change fingerprint")
 	}
 }

@@ -1,8 +1,8 @@
 package capability
 
-func (c Catalog) WithEnvironmentObservation(maxVariables, maxProbes int, probeTimeoutMS int64, probeOutputBytes, cacheEntries int, probeIDs []string) Catalog {
+func (c Catalog) WithEnvironmentObservation(maxVariables, maxProbes, maxObservations int, probeTimeoutMS int64, probeOutputBytes, cacheEntries int, probeIDs []string) Catalog {
 	out := c.Clone()
-	if maxVariables < 1 || maxProbes < 1 || probeTimeoutMS < 1 || probeOutputBytes < 1 || cacheEntries < 1 || len(probeIDs) == 0 || len(probeIDs) > maxProbes {
+	if maxVariables < 1 || maxProbes < 1 || maxObservations < maxProbes || probeTimeoutMS < 1 || probeOutputBytes < 1 || cacheEntries < 1 || len(probeIDs) == 0 || len(probeIDs) > maxProbes {
 		return out
 	}
 	seen := make(map[string]struct{}, len(probeIDs))
@@ -22,6 +22,7 @@ func (c Catalog) WithEnvironmentObservation(maxVariables, maxProbes int, probeTi
 	out.EnvironmentToolchainProbeIDs = append([]string(nil), probeIDs...)
 	out.Limits.EnvironmentRelevantVariables = maxVariables
 	out.Limits.EnvironmentToolchainProbes = maxProbes
+	out.Limits.EnvironmentToolchainObservations = maxObservations
 	out.Limits.EnvironmentProbeTimeoutMS = probeTimeoutMS
 	out.Limits.EnvironmentProbeOutputBytes = probeOutputBytes
 	out.Limits.EnvironmentCacheEntries = cacheEntries

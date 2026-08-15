@@ -40,7 +40,7 @@ func (s Snapshot) Validate() error {
 	if s.ToolchainManager != nil && (s.ToolchainManager.Kind == "" || s.ToolchainManager.Identity == "") {
 		return fmt.Errorf("invalid toolchain manager")
 	}
-	if len(s.Toolchains) > MaxToolchainProbes {
+	if len(s.Toolchains) > MaxToolchainObservations {
 		return fmt.Errorf("too many toolchain observations")
 	}
 	seenToolchains := make(map[string]struct{}, len(s.Toolchains))
@@ -145,8 +145,14 @@ func validatePath(path PathObservation) error {
 }
 
 func validateToolchainObservation(observation ToolchainObservation) error {
-	if !supportedToolchain(observation.Kind) || observation.RequestedIdentity == "" {
+	if observation.Kind == "" || observation.RequestedIdentity == "" {
 		return fmt.Errorf("invalid toolchain observation")
+	}
+	if !supportedToolchain(observation.Kind) {
+		if observation.Quality != ProbeUnavailable || observation.DiagnosticCode != "toolchain_probe_unsupported" || observation.ObservedIdentity != "" || observation.Version != "" {
+			return fmt.Errorf("unsupported toolchain claims executable facts")
+		}
+		return nil
 	}
 	switch observation.Quality {
 	case ProbeComplete:
