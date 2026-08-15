@@ -96,6 +96,7 @@ func TestStartFreezesCachedEnvironmentBindingOnlyOnFirstAdmission(t *testing.T) 
 		t.Fatalf("replay reread mutable environment cache: calls=%d", provider.calls)
 	}
 	close(wait)
+	_ = waitForTerminal(t, svc, first.SessionID)
 }
 
 func TestStartDoesNotRecheckEnvironmentWhenFirstAdmissionHasNoCachedBinding(t *testing.T) {
@@ -108,7 +109,8 @@ func TestStartDoesNotRecheckEnvironmentWhenFirstAdmissionHasNoCachedBinding(t *t
 	provider := &fakeCachedEnvironmentBindings{ok: false}
 	svc.SetEnvironmentBindingProvider(provider)
 	request := app.StartRequest{ProtocolVersion: 2, OperationID: "env-binding-miss", Command: "sleep", CWD: "/"}
-	if _, err := svc.Start(context.Background(), request); err != nil {
+	first, err := svc.Start(context.Background(), request)
+	if err != nil {
 		t.Fatal(err)
 	}
 	provider.binding = validEnvironmentBinding(t)
@@ -120,6 +122,7 @@ func TestStartDoesNotRecheckEnvironmentWhenFirstAdmissionHasNoCachedBinding(t *t
 		t.Fatalf("cache miss replay was re-observed: calls=%d", provider.calls)
 	}
 	close(wait)
+	_ = waitForTerminal(t, svc, first.SessionID)
 }
 
 func TestTypedProjectCommandFreezesEnvironmentBindingOnce(t *testing.T) {
