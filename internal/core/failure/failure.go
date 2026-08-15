@@ -34,6 +34,9 @@ const (
 	ParameterKindUnsupported        Code = "parameter_kind_unsupported"
 	ParameterValidationUnavailable  Code = "parameter_validation_unavailable"
 	ProjectCommandBindingConflict   Code = "project_command_binding_conflict"
+	OutputCompacted                 Code = "output_compacted"
+	OutputUnavailable               Code = "output_unavailable"
+	OutputOutOfRange                Code = "output_out_of_range"
 	IdentityObservationFailed       Code = "identity_observation_failed"
 	EventCursorInvalid              Code = "event_cursor_invalid"
 	EventCursorExpired              Code = "event_cursor_expired"
@@ -98,6 +101,9 @@ var publicSpecs = map[Code]publicSpec{
 	ParameterKindUnsupported:        {message: "project command parameter kind unsupported", details: keys("command", "parameter", "kind")},
 	ParameterValidationUnavailable:  {message: "project command parameter validation unavailable", retryable: true, details: keys("command", "parameter", "kind", "provider", "reason")},
 	ProjectCommandBindingConflict:   {message: "project command binding conflicts with admitted operation", details: keys("operation_id", "command")},
+	OutputCompacted:                 {message: "retained output has been compacted", details: keys("session_id")},
+	OutputUnavailable:               {message: "retained output unavailable", retryable: true, details: keys("session_id", "reason")},
+	OutputOutOfRange:                {message: "output selector is out of range", details: keys("session_id", "reason")},
 	IdentityObservationFailed:       {message: "identity observation failed", retryable: true, details: keys("provider", "reason")},
 	EventCursorInvalid:              {message: "event cursor is invalid", details: keys("reason")},
 	EventCursorExpired:              {message: "event cursor has expired", details: keys("reason")},
