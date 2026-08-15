@@ -13,6 +13,7 @@ import (
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -200,6 +201,37 @@ func (r *Repository) AppendOutput(ctx context.Context, id operation.SessionID, b
 	r.finishOutputObservation(seq, path, start, start+int64(len(b)), result)
 	result.ObservationSeq = uint64(seq)
 	return n, result
+}
+
+func (r *Repository) OutputExtent(ctx context.Context, id operation.SessionID) (outputview.Extent, error) {
+	extent := outputview.Extent{SessionID: string(id), State: outputview.RetentionUnavailable}
+	snap, err := r.LoadSession(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return extent, nil
+	}
+	if err != nil {
+		return outputview.Extent{}, err
+	}
+	extent.Bytes = snap.OutputBytes
+	extent.Terminal = snap.State.Terminal()
+	if !snap.OutputAvailable {
+		extent.State = outputview.RetentionCompacted
+		return extent, nil
+	}
+	path := filepath.Join(r.root, "sessions", string(id), "output.log")
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		if snap.OutputBytes == 0 {
+			extent.State = outputview.RetentionRetained
+		}
+		return extent, nil
+	}
+	if err != nil {
+		return outputview.Extent{}, err
+	}
+	extent.State = outputview.RetentionRetained
+	extent.Bytes = info.Size()
+	return extent, nil
 }
 
 func (r *Repository) ReadOutput(_ context.Context, id operation.SessionID, cursor int64, max int) ([]byte, int64, error) {
