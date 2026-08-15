@@ -287,7 +287,7 @@ git commit -m "feat: define environment and process observation contracts"
 
 ### Step 2.1 — RED tests for base host observation
 
-- [ ] Step 2.1: RED tests for base host observation
+- [x] Step 2.1: RED tests for base host observation
 
 Create a fake environment source so tests never depend on the developer's real secrets.
 
@@ -311,7 +311,7 @@ Expected RED.
 
 ### Step 2.2 — Implement base adapter
 
-- [ ] Step 2.2: Implement base adapter
+- [x] Step 2.2: Implement base adapter
 
 `internal/adapter/environment/host.go` owns mechanical host facts:
 
@@ -328,7 +328,7 @@ Do not add tool version execution yet.
 
 ### Step 2.3 — RED tests for app service/cache
 
-- [ ] Step 2.3: RED tests for app service/cache
+- [x] Step 2.3: RED tests for app service/cache
 
 Define `environment.InspectRequest`:
 
@@ -355,7 +355,7 @@ Cover:
 
 ### Step 2.4 — Implement service/cache
 
-- [ ] Step 2.4: Implement service/cache
+- [x] Step 2.4: Implement service/cache
 
 Use a bounded mutex-protected in-memory cache. No goroutine/watcher.
 
@@ -380,7 +380,7 @@ go test -race ./internal/app/environment ./internal/adapter/environment
 
 ### Step 2.5 — Regression against Project Readiness
 
-- [ ] Step 2.5: Regression against Project Readiness
+- [x] Step 2.5: Regression against Project Readiness
 
 If a mechanical helper was extracted, prove existing readiness semantics remain unchanged:
 
@@ -393,7 +393,7 @@ Do not rename readiness-domain fingerprints into A2.5 fingerprints.
 
 ### Step 2.6 — Commit
 
-- [ ] Step 2.6: Commit
+- [x] Step 2.6: Commit
 
 Run `devctl check`, staged diff check, commit-gate, then:
 
