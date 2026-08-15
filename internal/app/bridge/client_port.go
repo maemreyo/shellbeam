@@ -42,6 +42,7 @@ type Response struct {
 	Result     *receipt.Result
 	Server     *capability.Catalog
 	Project    *project.Inspection
+	Readiness  *project.Readiness
 	Workspace  *workspace.Workspace
 	Activity   *activity.Activity
 	Events     *observationapp.InspectResult

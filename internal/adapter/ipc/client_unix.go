@@ -66,7 +66,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -105,7 +105,7 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.InputOffset = in.Write.InputOffset
 		req.Chars = in.Write.Chars
 		req.EOF = in.Write.EOF
-	case "inspect.project", "inspect.workspace":
+	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		req.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
 		req.ActivityID = in.ActivityID

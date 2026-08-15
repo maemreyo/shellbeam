@@ -78,6 +78,7 @@ type ResponseV2 struct {
 	Result     *receipt.Result               `json:"result,omitempty"`
 	Server     *capability.Catalog           `json:"server,omitempty"`
 	Project    *project.Inspection           `json:"project,omitempty"`
+	Readiness  *project.Readiness            `json:"readiness,omitempty"`
 	Workspace  *workspace.Workspace          `json:"workspace,omitempty"`
 	Activity   *activity.Activity            `json:"activity,omitempty"`
 	Events     *observationapp.InspectResult `json:"events,omitempty"`
@@ -158,7 +159,7 @@ func actionFieldsV2(action string) []string {
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":
 		return []string{"session_id", "kill_id", "signal"}
-	case "inspect.project", "inspect.workspace":
+	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		return []string{"workspace_id"}
 	case "inspect.activity":
 		return []string{"activity_id"}
@@ -230,7 +231,7 @@ func validateRequestV2(v RequestV2) error {
 		if v.SessionID == "" || (v.Chars == "" && !v.EOF) || (v.Chars != "" && v.EOF) {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "invalid_write"}, fmt.Errorf("invalid write request"))
 		}
-	case "inspect.project", "inspect.workspace":
+	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, err)
 		}
@@ -333,7 +334,7 @@ func validReproIDV2(value string) bool {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured", "inspect.telemetry", "repro.create", "inspect.repro", "inspect.code":
+	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "repro.create", "inspect.repro", "inspect.code":
 		return true
 	default:
 		return false

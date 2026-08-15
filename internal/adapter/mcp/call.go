@@ -70,7 +70,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
 	case "write":
 		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
-	case "inspect.project", "inspect.workspace":
+	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		request.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
 		request.ActivityID = in.ActivityID
@@ -136,6 +136,8 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.StructuredLifecycle = false
 	out.TelemetrySchemaVersions = nil
 	out.ReproSchemaVersions = nil
+	out.ReadinessSchemaVersions = nil
+	out.ReadinessRequirementKinds = nil
 	out.ResourceObservation = nil
 	out.Limits.TelemetryMaxSamples = 0
 	out.Limits.TelemetryMetadataBytes = 0
@@ -147,6 +149,8 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.Limits.ReproMaxCapsules = 0
 	out.Limits.ReproMaxReferences = 0
 	out.Limits.ReproMetadataBytes = 0
+	out.Limits.ReadinessCacheTTLMS = 0
+	out.Limits.ReadinessCacheEntries = 0
 	out.Limits.EventJournalMaxEvents = 0
 	out.Limits.EventCursorBytes = 0
 	out.Limits.EventSnapshotFacts = 0
@@ -158,6 +162,7 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureCodeIntelligence)
 	delete(out.Features, capability.FeatureExecutionTelemetry)
 	delete(out.Features, capability.FeatureReproductionCapsules)
+	delete(out.Features, capability.FeatureProjectReadiness)
 	return out
 }
 
@@ -186,12 +191,12 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 		}
 		body["activity"] = out.Activity
 		summary = "inspect.activity: " + string(out.Activity.ID)
-	case "inspect.project":
-		if out.Project == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "project inspection missing", false)
+	case "inspect.project", "inspect.readiness":
+		var failed *mcpgo.CallToolResult
+		summary, failed = projectSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
 		}
-		body["project"] = out.Project
-		summary = "inspect.project: " + string(out.Project.Status)
 	case "inspect.code":
 		if out.CodeResult == nil {
 			return toolErrorV2(action, "invalid_daemon_response", "code inspection missing", false)
@@ -236,6 +241,25 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 		summary = "inspect.server: capabilities"
 	}
 	return toolSuccess(summary, body)
+}
+
+func projectSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	switch action {
+	case "inspect.project":
+		if out.Project == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "project inspection missing", false)
+		}
+		body["project"] = out.Project
+		return "inspect.project: " + string(out.Project.Status), nil
+	case "inspect.readiness":
+		if out.Readiness == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "project readiness missing", false)
+		}
+		body["readiness"] = out.Readiness
+		return "inspect.readiness: " + string(out.Readiness.State), nil
+	default:
+		return "", toolErrorV2(action, "invalid_daemon_response", "project response action invalid", false)
+	}
 }
 
 func controlView(view app.View) map[string]any {

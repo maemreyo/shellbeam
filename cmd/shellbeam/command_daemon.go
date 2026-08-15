@@ -86,7 +86,12 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		StructuredWorker:    structuredScheduler,
 		TelemetryWorker:     telemetryScheduler,
 	})
-	projectSvc := projectapp.New(store, projectadapter.NewLoader(), store)
+	hostReadiness := projectadapter.NewHostReadiness()
+	projectSvc := projectapp.NewWithReadiness(
+		store, projectadapter.NewLoader(), store,
+		projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
+		projectapp.ReadinessOptions{},
+	)
 	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, structuredScheduler, telemetryScheduler)
 }
@@ -201,6 +206,10 @@ func (a daemonActions) InspectProject(ctx context.Context, workspaceID string) (
 	return a.project.Inspect(ctx, workspaceID)
 }
 
+func (a daemonActions) InspectProjectReadiness(ctx context.Context, workspaceID string) (projectcore.Readiness, error) {
+	return a.project.Readiness(ctx, workspaceID)
+}
+
 func (a *daemonActions) InspectEvents(ctx context.Context, request observationapp.InspectRequest) (observationapp.InspectResult, error) {
 	if a.events == nil {
 		return observationapp.InspectResult{}, fmt.Errorf("event observation unavailable")
@@ -238,6 +247,7 @@ func (a *daemonActions) InspectRepro(ctx context.Context, reproID string) (repro
 
 func daemonCatalog(limits capability.Limits) capability.Catalog {
 	return capability.Baseline(limits).
+		WithProjectReadiness(projectapp.DefaultReadinessTTL.Milliseconds(), projectapp.DefaultReadinessMaxEntries).
 		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
 		WithStructuredResults(
 			[]string{"go-test-json", "go-vet-json"},

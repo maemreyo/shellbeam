@@ -22,6 +22,7 @@ const (
 	FeatureEnvironmentFingerprint Feature = "environment_fingerprint"
 	FeatureMutationScopes         Feature = "mutation_scopes"
 	FeatureProjectManifest        Feature = "project_manifest"
+	FeatureProjectReadiness       Feature = "project_readiness"
 	FeatureStructuredResults      Feature = "structured_results"
 	FeatureStructuredLifecycle    Feature = "structured_lifecycle"
 	FeatureEventJournal           Feature = "event_journal"
@@ -52,6 +53,8 @@ type Limits struct {
 	ReproMaxCapsules              int   `json:"repro_max_capsules,omitempty"`
 	ReproMaxReferences            int   `json:"repro_max_references,omitempty"`
 	ReproMetadataBytes            int   `json:"repro_metadata_bytes,omitempty"`
+	ReadinessCacheTTLMS           int64 `json:"readiness_cache_ttl_ms,omitempty"`
+	ReadinessCacheEntries         int   `json:"readiness_cache_entries,omitempty"`
 }
 
 type ResourceQuality string
@@ -81,6 +84,8 @@ type Catalog struct {
 	StructuredLifecycle        bool                        `json:"structured_lifecycle,omitempty"`
 	TelemetrySchemaVersions    []int                       `json:"telemetry_schema_versions,omitempty"`
 	ReproSchemaVersions        []int                       `json:"repro_schema_versions,omitempty"`
+	ReadinessSchemaVersions    []int                       `json:"project_readiness_schema_versions,omitempty"`
+	ReadinessRequirementKinds  []string                    `json:"project_readiness_requirement_kinds,omitempty"`
 	ResourceObservation        *ResourceObservationSupport `json:"resource_observation,omitempty"`
 	Features                   map[Feature]Availability    `json:"features"`
 	Limits                     Limits                      `json:"limits"`
@@ -99,6 +104,7 @@ var targetFeatures = []Feature{
 	FeatureEnvironmentFingerprint,
 	FeatureMutationScopes,
 	FeatureProjectManifest,
+	FeatureProjectReadiness,
 	FeatureStructuredResults,
 	FeatureStructuredLifecycle,
 	FeatureEventJournal,
@@ -141,6 +147,8 @@ func (c Catalog) Clone() Catalog {
 	out.StructuredResultKinds = append([]string(nil), c.StructuredResultKinds...)
 	out.TelemetrySchemaVersions = append([]int(nil), c.TelemetrySchemaVersions...)
 	out.ReproSchemaVersions = append([]int(nil), c.ReproSchemaVersions...)
+	out.ReadinessSchemaVersions = append([]int(nil), c.ReadinessSchemaVersions...)
+	out.ReadinessRequirementKinds = append([]string(nil), c.ReadinessRequirementKinds...)
 	if c.ResourceObservation != nil {
 		resource := *c.ResourceObservation
 		out.ResourceObservation = &resource
@@ -208,6 +216,19 @@ func (c Catalog) WithExecutionTelemetry(maxSamples int, metadataBytes int64, max
 	out.ResourceObservation = &ResourceObservationSupport{
 		CPUTime: ResourceUnavailable, MaxRSS: ResourceUnavailable, IOBytes: ResourceUnavailable, ProcessCountPeak: ResourceUnavailable,
 	}
+	return out
+}
+
+func (c Catalog) WithProjectReadiness(ttlMS int64, maxEntries int) Catalog {
+	out := c.Clone()
+	if ttlMS < 1 || maxEntries < 1 {
+		return out
+	}
+	out.Features[FeatureProjectReadiness] = Available
+	out.ReadinessSchemaVersions = []int{1}
+	out.ReadinessRequirementKinds = []string{"toolchain", "executable", "environment_presence"}
+	out.Limits.ReadinessCacheTTLMS = ttlMS
+	out.Limits.ReadinessCacheEntries = maxEntries
 	return out
 }
 

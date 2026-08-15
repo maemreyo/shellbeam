@@ -59,6 +59,10 @@ type ProjectActions interface {
 	InspectProject(context.Context, string) (project.Inspection, error)
 }
 
+type ProjectReadinessActions interface {
+	InspectProjectReadiness(context.Context, string) (project.Readiness, error)
+}
+
 type WorkspaceActions interface {
 	InspectWorkspace(context.Context, string) (workspace.Workspace, error)
 }
@@ -273,26 +277,21 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			resp.Capsule = &capsule
 		}
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.repro", "inspect.code":
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.repro", "inspect.code":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
 	if err != nil {
-		resp.View = nil
-		resp.Result = nil
-		resp.Server = nil
-		resp.Project = nil
-		resp.Workspace = nil
-		resp.Activity = nil
-		resp.Events = nil
-		resp.Structured = nil
-		resp.Telemetry = nil
-		resp.Capsule = nil
-		resp.Repro = nil
-		resp.Code = nil
+		clearResponseV2Payload(&resp)
 		resp.Error = errorEnvelope(err)
 	}
 	writeResponseV2(w, resp)
+}
+
+func clearResponseV2Payload(resp *ResponseV2) {
+	resp.View, resp.Result, resp.Server, resp.Project, resp.Readiness = nil, nil, nil, nil, nil
+	resp.Workspace, resp.Activity, resp.Events, resp.Structured = nil, nil, nil, nil
+	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code = nil, nil, nil, nil
 }
 
 func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
@@ -318,14 +317,8 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		record, err := actions.InspectActivity(ctx, req.ActivityID)
 		resp.Activity = &record
 		return err
-	case "inspect.project":
-		actions, ok := s.actions.(ProjectActions)
-		if !ok {
-			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
-		}
-		inspection, err := actions.InspectProject(ctx, req.WorkspaceID)
-		resp.Project = &inspection
-		return err
+	case "inspect.project", "inspect.readiness":
+		return s.inspectProjectV2(ctx, req, resp)
 	case "inspect.structured":
 		actions, ok := s.actions.(StructuredActions)
 		if !ok {
@@ -366,6 +359,29 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		}
 		result, err := actions.InspectEvents(ctx, observationapp.InspectRequest{Target: *req.Target, AfterEventCursor: req.AfterEventCursor, MaxEvents: req.MaxEvents})
 		resp.Events = &result
+		return err
+	default:
+		return failure.New(failure.InvalidInput, map[string]string{"field": "action"}, nil)
+	}
+}
+
+func (s *Server) inspectProjectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
+	switch req.Action {
+	case "inspect.project":
+		actions, ok := s.actions.(ProjectActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		inspection, err := actions.InspectProject(ctx, req.WorkspaceID)
+		resp.Project = &inspection
+		return err
+	case "inspect.readiness":
+		actions, ok := s.actions.(ProjectReadinessActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		readiness, err := actions.InspectProjectReadiness(ctx, req.WorkspaceID)
+		resp.Readiness = &readiness
 		return err
 	default:
 		return failure.New(failure.InvalidInput, map[string]string{"field": "action"}, nil)

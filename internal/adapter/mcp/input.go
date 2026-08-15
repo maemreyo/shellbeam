@@ -92,7 +92,7 @@ func validateForVersion(version int, v input, raw []byte) error {
 
 func validateV2(v input) error {
 	switch v.Action {
-	case "inspect.project", "inspect.workspace":
+	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		_, err := workspace.ParseWorkspaceID(v.WorkspaceID)
 		return err
 	case "inspect.activity":
@@ -279,7 +279,7 @@ func v2ActionFields(action string) []string {
 		return []string{"session_id", "kill_id", "signal"}
 	case "inspect.server":
 		return nil
-	case "inspect.project", "inspect.workspace":
+	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		return []string{"workspace_id"}
 	case "inspect.activity":
 		return []string{"activity_id"}

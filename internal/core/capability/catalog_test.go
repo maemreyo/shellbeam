@@ -127,3 +127,29 @@ func TestA4CapabilityRejectsNonPositiveBounds(t *testing.T) {
 		t.Fatalf("invalid repro bounds advertised: %#v", got)
 	}
 }
+
+func TestProjectReadinessCapabilityIsExplicitAndCloned(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureProjectReadiness] != Unavailable {
+		t.Fatalf("baseline readiness=%q", base.Features[FeatureProjectReadiness])
+	}
+	catalog := base.WithProjectReadiness(30000, 256)
+	if catalog.Features[FeatureProjectReadiness] != Available {
+		t.Fatalf("readiness=%q", catalog.Features[FeatureProjectReadiness])
+	}
+	if !reflect.DeepEqual(catalog.ReadinessSchemaVersions, []int{1}) {
+		t.Fatalf("schema versions=%v", catalog.ReadinessSchemaVersions)
+	}
+	if !reflect.DeepEqual(catalog.ReadinessRequirementKinds, []string{"toolchain", "executable", "environment_presence"}) {
+		t.Fatalf("requirement kinds=%v", catalog.ReadinessRequirementKinds)
+	}
+	if catalog.Limits.ReadinessCacheTTLMS != 30000 || catalog.Limits.ReadinessCacheEntries != 256 {
+		t.Fatalf("limits=%#v", catalog.Limits)
+	}
+	clone := catalog.Clone()
+	clone.ReadinessSchemaVersions[0] = 99
+	clone.ReadinessRequirementKinds[0] = "mutated"
+	if catalog.ReadinessSchemaVersions[0] != 1 || catalog.ReadinessRequirementKinds[0] != "toolchain" {
+		t.Fatalf("clone aliased readiness slices: %#v", catalog)
+	}
+}

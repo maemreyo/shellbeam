@@ -290,3 +290,16 @@ func TestDaemonCodeProviderUnavailableDoesNotBreakOrdinaryPaths(t *testing.T) {
 		t.Fatal("ordinary capability path became unhealthy after provider failure")
 	}
 }
+
+func TestDaemonCatalogAdvertisesBoundedProjectReadiness(t *testing.T) {
+	catalog := daemonCatalog(capability.Limits{})
+	if catalog.Features[capability.FeatureProjectReadiness] != capability.Available {
+		t.Fatalf("readiness feature=%q", catalog.Features[capability.FeatureProjectReadiness])
+	}
+	if len(catalog.ReadinessSchemaVersions) != 1 || catalog.ReadinessSchemaVersions[0] != 1 {
+		t.Fatalf("readiness schema versions=%v", catalog.ReadinessSchemaVersions)
+	}
+	if catalog.Limits.ReadinessCacheTTLMS != 30000 || catalog.Limits.ReadinessCacheEntries != 256 {
+		t.Fatalf("readiness limits=%#v", catalog.Limits)
+	}
+}
