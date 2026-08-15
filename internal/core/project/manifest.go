@@ -15,7 +15,11 @@ import (
 )
 
 const (
-	SchemaVersion                 = 1
+	ManifestSchemaV1             = 1
+	ManifestSchemaV2             = 2
+	CurrentManifestSchemaVersion = ManifestSchemaV2
+	// SchemaVersion remains the v1 compatibility alias for persisted fixtures and callers.
+	SchemaVersion                 = ManifestSchemaV1
 	MaxManifestBytes              = 64 << 10
 	MaxCommands                   = 64
 	MaxVerificationProfiles       = 16
@@ -60,6 +64,7 @@ type Manifest struct {
 	SchemaVersion        int                            `json:"schema_version"`
 	Project              Project                        `json:"project,omitempty"`
 	Toolchains           map[string]Toolchain           `json:"toolchains,omitempty"`
+	Requirements         Requirements                   `json:"requirements,omitempty,omitzero"`
 	Commands             map[string]Command             `json:"commands,omitempty"`
 	VerificationProfiles map[string]VerificationProfile `json:"verification_profiles,omitempty"`
 	RelevantEnvironment  []string                       `json:"relevant_environment,omitempty"`
@@ -77,17 +82,18 @@ type Toolchain struct {
 }
 
 type Command struct {
-	Argv            []string `json:"argv,omitempty"`
-	Shell           string   `json:"shell,omitempty"`
-	CWD             string   `json:"cwd"`
-	Kind            string   `json:"kind,omitempty"`
-	Cost            string   `json:"cost,omitempty"`
-	SourceScope     string   `json:"source_scope,omitempty"`
-	MutatesSource   *bool    `json:"mutates_source,omitempty"`
-	ExternalEffect  *bool    `json:"external_effect,omitempty"`
-	TimeoutMS       int64    `json:"timeout_ms,omitempty"`
-	ExpectedOutputs []Output `json:"expected_outputs,omitempty"`
-	DependsOn       []string `json:"depends_on,omitempty"`
+	Argv            []string                       `json:"argv,omitempty"`
+	Shell           string                         `json:"shell,omitempty"`
+	CWD             string                         `json:"cwd"`
+	Kind            string                         `json:"kind,omitempty"`
+	Cost            string                         `json:"cost,omitempty"`
+	SourceScope     string                         `json:"source_scope,omitempty"`
+	MutatesSource   *bool                          `json:"mutates_source,omitempty"`
+	ExternalEffect  *bool                          `json:"external_effect,omitempty"`
+	TimeoutMS       int64                          `json:"timeout_ms,omitempty"`
+	ExpectedOutputs []Output                       `json:"expected_outputs,omitempty"`
+	DependsOn       []string                       `json:"depends_on,omitempty"`
+	Params          map[string]ParameterDefinition `json:"params,omitempty"`
 }
 
 type VerificationProfile struct {
@@ -175,16 +181,28 @@ func Parse(data []byte) (Parsed, error) {
 	if header.SchemaVersion == nil {
 		return Parsed{}, projectError(CodeSchemaError, "manifest schema_version is required")
 	}
-	if *header.SchemaVersion != SchemaVersion {
+	var manifest Manifest
+	var err error
+	switch *header.SchemaVersion {
+	case ManifestSchemaV1:
+		var raw rawManifest
+		decoder := toml.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if decodeErr := decoder.Decode(&raw); decodeErr != nil {
+			return Parsed{}, &Error{Code: CodeSchemaError, Err: decodeErr}
+		}
+		manifest, err = validateRaw(raw)
+	case ManifestSchemaV2:
+		var raw rawManifestV2
+		decoder := toml.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if decodeErr := decoder.Decode(&raw); decodeErr != nil {
+			return Parsed{}, &Error{Code: CodeSchemaError, Err: decodeErr}
+		}
+		manifest, err = validateRawV2(raw)
+	default:
 		return Parsed{}, projectError(CodeUnsupported, "unsupported manifest schema version")
 	}
-	var raw rawManifest
-	decoder := toml.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&raw); err != nil {
-		return Parsed{}, &Error{Code: CodeSchemaError, Err: err}
-	}
-	manifest, err := validateRaw(raw)
 	if err != nil {
 		return Parsed{}, err
 	}

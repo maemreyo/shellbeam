@@ -31,7 +31,7 @@ func (r Review) Validate() error {
 	if !validFingerprint(r.ManifestFingerprint) || !validFingerprint(r.DiscoveryFingerprint) {
 		return fmt.Errorf("invalid review fingerprint")
 	}
-	if r.ManifestSchemaVersion != SchemaVersion {
+	if !SupportedManifestSchemaVersion(r.ManifestSchemaVersion) {
 		return fmt.Errorf("unsupported reviewed manifest schema")
 	}
 	if r.ReviewedAt.IsZero() {

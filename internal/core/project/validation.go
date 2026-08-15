@@ -39,7 +39,7 @@ func validateRaw(raw rawManifest) (Manifest, error) {
 		return Manifest{}, err
 	}
 	return Manifest{
-		SchemaVersion: SchemaVersion, Project: Project{Name: raw.Project.Name}, Toolchains: toolchains,
+		SchemaVersion: ManifestSchemaV1, Project: Project{Name: raw.Project.Name}, Toolchains: toolchains,
 		Commands: commands, VerificationProfiles: profiles, RelevantEnvironment: environment, Outputs: outputs,
 	}, nil
 }

@@ -115,7 +115,7 @@ func TestManifestRejectsUnknownFieldsAndUnsupportedVersion(t *testing.T) {
 	}{
 		{"unknown top", "schema_version=1\nmystery=true\n", CodeSchemaError},
 		{"unknown command field", "schema_version=1\n[commands.test]\nargv=[\"go\",\"test\"]\nwat=true\n", CodeSchemaError},
-		{"unsupported", "schema_version=2\n", CodeUnsupported},
+		{"unsupported", "schema_version=3\n", CodeUnsupported},
 		{"missing schema version", "[project]\nname=\"demo\"\n", CodeSchemaError},
 		{"duplicate profile", "schema_version=1\n[verification.profiles.coding]\nsteps=[]\n[verification.profiles.coding]\nsteps=[]\n", CodeParseError},
 		{"duplicate command", "schema_version=1\n[commands.test]\nargv=[\"go\",\"test\"]\n[commands.test]\nargv=[\"go\",\"test\",\"./...\"]\n", CodeParseError},

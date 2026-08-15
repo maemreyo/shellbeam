@@ -49,3 +49,28 @@ func TestReviewRecordRequiresBoundedNonSecretMetadataAndExactFingerprints(t *tes
 		}
 	}
 }
+
+func TestReviewAcceptsAllSupportedManifestSchemas(t *testing.T) {
+	now := time.Date(2026, 8, 15, 0, 0, 0, 0, time.UTC)
+	base := Review{
+		RepositoryID:         workspace.RepositoryID("repo_01K00000000000000000000000"),
+		ManifestFingerprint:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		DiscoveryFingerprint: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		ReviewedAt:           now,
+		ToolVersion:          "v0.1.0-dev",
+		ReviewerClass:        "user",
+		SourceClass:          "cli",
+	}
+	for _, version := range []int{ManifestSchemaV1, ManifestSchemaV2} {
+		got := base
+		got.ManifestSchemaVersion = version
+		if err := got.Validate(); err != nil {
+			t.Fatalf("version %d: %v", version, err)
+		}
+	}
+	bad := base
+	bad.ManifestSchemaVersion = ManifestSchemaV2 + 1
+	if err := bad.Validate(); err == nil {
+		t.Fatal("unsupported schema review accepted")
+	}
+}

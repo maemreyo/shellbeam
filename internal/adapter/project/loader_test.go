@@ -115,3 +115,27 @@ func TestLoaderDiscoveryFingerprintTracksExactManifestBytes(t *testing.T) {
 		t.Fatalf("discovery/digest drift: a=%#v b=%#v", a, b)
 	}
 }
+
+func TestManifestLoaderAcceptsSupportedV2AndRejectsNewerSchema(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".shellbeam"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, ".shellbeam", "project.toml")
+	v2 := []byte("schema_version=2\n[commands.test]\nargv=[\"true\"]\n")
+	if err := os.WriteFile(path, v2, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := NewLoader().Load(context.Background(), root)
+	if got.State != core.LoadValid || got.Parsed == nil || got.Parsed.Manifest.SchemaVersion != core.ManifestSchemaV2 {
+		t.Fatalf("v2=%#v", got)
+	}
+	v3 := []byte("schema_version=3\n")
+	if err := os.WriteFile(path, v3, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got = NewLoader().Load(context.Background(), root)
+	if got.State != core.LoadInvalid || got.Code != core.CodeUnsupported || got.ManifestDigest != core.RawDigest(v3) {
+		t.Fatalf("v3=%#v", got)
+	}
+}
