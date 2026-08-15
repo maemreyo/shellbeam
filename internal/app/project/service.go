@@ -14,6 +14,7 @@ type Service struct {
 	workspaces WorkspaceLookup
 	loader     Loader
 	reviews    ReviewStore
+	readiness  *readinessRuntime
 }
 
 type ReviewRequest struct {

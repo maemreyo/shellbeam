@@ -15,6 +15,18 @@ type Loader interface {
 	Load(context.Context, string) core.LoadResult
 }
 
+type ExecutableObserver interface {
+	ObserveExecutable(context.Context, string) core.ReadinessCheck
+}
+
+type EnvironmentObserver interface {
+	ObserveEnvironmentPresence(context.Context, string, bool) core.ReadinessCheck
+}
+
+type ToolchainObserver interface {
+	ObserveToolchain(context.Context, string, string, core.Toolchain) core.ReadinessCheck
+}
+
 type ReviewStore interface {
 	LoadProjectReview(context.Context, workspace.RepositoryID) (core.Review, bool, error)
 	SaveProjectReview(context.Context, core.Review) error
