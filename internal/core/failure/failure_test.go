@@ -201,3 +201,15 @@ func TestA5TypedProjectCommandFailureCodesAreStable(t *testing.T) {
 		}
 	}
 }
+
+func TestEvidenceCursorFailureCodesAreStable(t *testing.T) {
+	for _, code := range []Code{EvidenceCursorInvalid, EvidenceCursorExpired} {
+		public := Public(New(code, map[string]string{"reason": "binding", "path": "/Users/alice/private"}, errors.New("private")))
+		if public.Code != code || public.Message == "" || public.Details["reason"] != "binding" {
+			t.Fatalf("public=%#v", public)
+		}
+		if _, ok := public.Details["path"]; ok {
+			t.Fatalf("unsafe detail leaked: %#v", public)
+		}
+	}
+}

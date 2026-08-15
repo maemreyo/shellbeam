@@ -42,6 +42,8 @@ const (
 	IdentityObservationFailed       Code = "identity_observation_failed"
 	EventCursorInvalid              Code = "event_cursor_invalid"
 	EventCursorExpired              Code = "event_cursor_expired"
+	EvidenceCursorInvalid           Code = "evidence_cursor_invalid"
+	EvidenceCursorExpired           Code = "evidence_cursor_expired"
 	EventContinuityUnavailable      Code = "event_continuity_unavailable"
 	StructuredAdapterUnavailable    Code = "structured_adapter_unavailable"
 	StructuredAdapterUnsupported    Code = "structured_adapter_unsupported"
@@ -111,6 +113,8 @@ var publicSpecs = map[Code]publicSpec{
 	IdentityObservationFailed:       {message: "identity observation failed", retryable: true, details: keys("provider", "reason")},
 	EventCursorInvalid:              {message: "event cursor is invalid", details: keys("reason")},
 	EventCursorExpired:              {message: "event cursor has expired", details: keys("reason")},
+	EvidenceCursorInvalid:           {message: "evidence cursor is invalid", details: keys("reason")},
+	EvidenceCursorExpired:           {message: "evidence cursor has expired", details: keys("reason")},
 	EventContinuityUnavailable:      {message: "event continuity unavailable", retryable: true, details: keys("reason")},
 	StructuredAdapterUnavailable:    {message: "structured adapter unavailable", retryable: true, details: keys("adapter", "reason")},
 	StructuredAdapterUnsupported:    {message: "structured adapter unsupported", details: keys("adapter")},

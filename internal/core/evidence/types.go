@@ -13,12 +13,15 @@ import (
 const (
 	SchemaVersion            = 1
 	ArtifactSchemaVersion    = 1
+	ValiditySchemaVersion    = 1
 	MaxInspectRecords        = 128
 	MaxExpectedOutputs       = project.MaxExpectedOutputs
 	MaxArtifactMetadataBytes = 32 << 10
 	MaxArtifactDigestBytes   = int64(64 << 20)
 	MaxTreeEntries           = 4096
 	MaxCursorBytes           = 2048
+	MaxInspectScanRecords    = 512
+	MaxRevalidateRecords     = 4
 )
 
 type VerificationKind string
@@ -134,6 +137,15 @@ type Validity struct {
 	Freshness     Freshness     `json:"freshness"`
 	ArtifactMatch ArtifactMatch `json:"artifact_match"`
 	PolicyMatch   PolicyMatch   `json:"policy_match"`
+}
+
+type ValidityObservation struct {
+	SchemaVersion int                   `json:"schema_version"`
+	EvidenceID    string                `json:"evidence_id"`
+	Validity      Validity              `json:"validity"`
+	CurrentSource CurrentSource         `json:"current_source"`
+	Artifacts     []ArtifactObservation `json:"artifacts,omitempty"`
+	ObservedAt    time.Time             `json:"observed_at"`
 }
 
 type CommandAuthority struct {

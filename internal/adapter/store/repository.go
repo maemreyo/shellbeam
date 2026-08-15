@@ -48,6 +48,7 @@ type Repository struct {
 	telemetryMu              sync.Mutex
 	reproMu                  sync.Mutex
 	evidenceMu               sync.Mutex
+	evidenceValidityMu       sync.Mutex
 	observationHighWatermark uint64
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex

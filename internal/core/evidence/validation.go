@@ -119,3 +119,67 @@ func validPrefixedDigest(value, prefix string) bool {
 }
 
 func validGeneration(value string) bool { return validPrefixedDigest(value, "gen_") }
+
+func (v ValidityObservation) Validate() error {
+	if v.SchemaVersion != ValiditySchemaVersion || !validPrefixedDigest(v.EvidenceID, "ev_") || v.ObservedAt.IsZero() {
+		return fmt.Errorf("invalid evidence validity observation")
+	}
+	if !validSourceMatch(v.Validity.SourceMatch) || !validFreshness(v.Validity.Freshness) || !validArtifactMatch(v.Validity.ArtifactMatch) || !validPolicyMatch(v.Validity.PolicyMatch) {
+		return fmt.Errorf("invalid evidence validity dimensions")
+	}
+	if err := validateCurrentSource(v.CurrentSource); err != nil {
+		return err
+	}
+	if len(v.Artifacts) > MaxExpectedOutputs {
+		return fmt.Errorf("too many validity artifacts")
+	}
+	for _, artifact := range v.Artifacts {
+		if artifact.Path == "" || artifact.ObservedAt.IsZero() {
+			return fmt.Errorf("invalid validity artifact")
+		}
+		switch artifact.Status {
+		case ArtifactCurrent, ArtifactMissing, ArtifactKindMismatch, ArtifactDigestMismatch, ArtifactUnavailable:
+		default:
+			return fmt.Errorf("invalid validity artifact status")
+		}
+		switch artifact.Quality {
+		case ObservationComplete, ObservationUnavailable:
+		default:
+			return fmt.Errorf("invalid validity artifact quality")
+		}
+	}
+	return nil
+}
+
+func validateCurrentSource(source CurrentSource) error {
+	switch source.Quality {
+	case SourceQualityUnknown:
+		if source.SourceContentDigest != "" || source.VCSStateDigest != "" {
+			return fmt.Errorf("unknown current source claims exact digest")
+		}
+	case SourceQualityFast:
+		if source.WorkspaceID == "" || !validGeneration(source.Generation) || source.SourceContentDigest != "" || source.VCSStateDigest != "" {
+			return fmt.Errorf("invalid fast current source")
+		}
+	case SourceQualityExact:
+		if source.WorkspaceID == "" || !validDigest(source.SourceContentDigest) || !validDigest(source.VCSStateDigest) {
+			return fmt.Errorf("invalid exact current source")
+		}
+	default:
+		return fmt.Errorf("invalid current source quality")
+	}
+	return nil
+}
+
+func validSourceMatch(value SourceMatch) bool {
+	return value == SourceMatchExact || value == SourceMatchFast || value == SourceMatchMismatch || value == SourceMatchUnknown
+}
+func validFreshness(value Freshness) bool {
+	return value == FreshnessCurrent || value == FreshnessStale || value == FreshnessUnknown
+}
+func validArtifactMatch(value ArtifactMatch) bool {
+	return value == ArtifactMatchCurrent || value == ArtifactMatchChanged || value == ArtifactMatchMissing || value == ArtifactMatchNotRequired || value == ArtifactMatchUnknown
+}
+func validPolicyMatch(value PolicyMatch) bool {
+	return value == PolicyMatchCurrent || value == PolicyMatchChanged || value == PolicyMatchUnknown
+}

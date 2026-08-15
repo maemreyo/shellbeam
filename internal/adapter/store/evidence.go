@@ -40,6 +40,7 @@ func (r *Repository) initEvidenceStore() error {
 		filepath.Join(r.root, "evidence", "by-operation"),
 		filepath.Join(r.root, "evidence", "by-workspace"),
 		filepath.Join(r.root, "evidence", "candidates"),
+		filepath.Join(r.root, "evidence", "validity"),
 	} {
 		if err := ensurePrivateDir(path); err != nil {
 			return fmt.Errorf("evidence store: %w", err)
@@ -205,6 +206,14 @@ func (r *Repository) PutEvidenceRecord(ctx context.Context, record core.Record) 
 		r.commitObservationBestEffort(seq)
 	}
 	return true, nil
+}
+
+func (r *Repository) FindEvidenceByID(ctx context.Context, id string) (core.Record, bool, error) {
+	record, err := r.LoadEvidenceRecord(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return core.Record{}, false, nil
+	}
+	return record, err == nil, err
 }
 
 func (r *Repository) LoadEvidenceRecord(_ context.Context, id string) (core.Record, error) {

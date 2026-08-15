@@ -221,7 +221,7 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 
 func reconcilableObservationKind(kind observation.EventKind) bool {
 	switch kind {
-	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved:
+	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved, observation.EventEvidenceValidityChanged:
 		return true
 	default:
 		return false
@@ -248,6 +248,8 @@ func (r *Repository) observationSubjectPresent(ctx context.Context, obligation o
 		return r.evidenceSubjectPresent(ctx, obligation.SubjectRef)
 	case observation.EventArtifactObserved:
 		return r.evidenceArtifactSubjectPresent(ctx, obligation.SubjectRef)
+	case observation.EventEvidenceValidityChanged:
+		return r.evidenceValiditySubjectPresent(ctx, obligation.SubjectRef)
 	default:
 		return false, nil
 	}
@@ -371,4 +373,17 @@ func (r *Repository) evidenceArtifactSubjectPresent(ctx context.Context, subject
 		return false, err
 	}
 	return index < len(record.Artifacts), nil
+}
+
+func (r *Repository) evidenceValiditySubjectPresent(ctx context.Context, subject string) (bool, error) {
+	const suffix = ":validity"
+	if !strings.HasPrefix(subject, "evidence:") || !strings.HasSuffix(subject, suffix) {
+		return false, fmt.Errorf("invalid evidence validity observation subject")
+	}
+	id := strings.TrimSuffix(strings.TrimPrefix(subject, "evidence:"), suffix)
+	if !evidenceIDPattern.MatchString(id) {
+		return false, fmt.Errorf("invalid evidence validity observation subject")
+	}
+	_, found, err := r.LoadEvidenceValidity(ctx, id)
+	return found, err
 }

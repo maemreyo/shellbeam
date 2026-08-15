@@ -152,3 +152,34 @@ func TestEvidenceCandidateWriteFailureCannotCommitOperation(t *testing.T) {
 		t.Fatalf("operation committed despite candidate failure: found=%v err=%v", found, err)
 	}
 }
+
+func TestEvidenceIndexObligationsReadDirectBoundedSequenceRange(t *testing.T) {
+	r := openEvidenceRepository(t, t.TempDir()+"/state")
+	first := testEvidenceRecord()
+	if created, err := r.PutEvidenceRecord(context.Background(), first); err != nil || !created {
+		t.Fatalf("first created=%v err=%v", created, err)
+	}
+	second := testEvidenceRecord()
+	second.EvidenceID = "ev_" + strings.Repeat("d", 64)
+	second.OperationID = "evidence-op-two"
+	second.SessionID = "evidence-session-two"
+	second.ReceiptDigest = strings.Repeat("e", 64)
+	if created, err := r.PutEvidenceRecord(context.Background(), second); err != nil || !created {
+		t.Fatalf("second created=%v err=%v", created, err)
+	}
+	high, err := r.ObservationHighWatermark(context.Background())
+	if err != nil || high != 2 {
+		t.Fatalf("high=%d err=%v", high, err)
+	}
+	firstPage, err := r.ListEvidenceIndexObligations(context.Background(), 0, high, 1)
+	if err != nil || len(firstPage) != 1 || firstPage[0].ChangeSeq != 1 || firstPage[0].Kind != observation.EventEvidenceRecorded {
+		t.Fatalf("first page=%#v err=%v", firstPage, err)
+	}
+	secondPage, err := r.ListEvidenceIndexObligations(context.Background(), 1, high, 1)
+	if err != nil || len(secondPage) != 1 || secondPage[0].ChangeSeq != 2 || secondPage[0].Kind != observation.EventEvidenceRecorded {
+		t.Fatalf("second page=%#v err=%v", secondPage, err)
+	}
+	if _, err := r.ListEvidenceIndexObligations(context.Background(), 0, high, core.MaxInspectScanRecords+1); err == nil {
+		t.Fatal("oversized evidence index scan accepted")
+	}
+}
