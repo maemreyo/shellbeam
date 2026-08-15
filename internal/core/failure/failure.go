@@ -72,6 +72,11 @@ const (
 	ProcessObservationIncomplete      Code = "process_observation_incomplete"
 	ProcessLimitExceeded              Code = "process_limit_exceeded"
 	PortObservationUnavailable        Code = "port_observation_unavailable"
+	MutationScopeInvalid              Code = "mutation_scope_invalid"
+	MutationScopeBindingConflict      Code = "mutation_scope_binding_conflict"
+	MutationMetadataConflict          Code = "mutation_metadata_conflict"
+	MutationScopeCapacityExceeded     Code = "mutation_scope_capacity_exceeded"
+	PersistenceAmbiguous              Code = "persistence_ambiguous"
 	CapacityExceeded                  Code = "capacity_exceeded"
 	PersistenceUnavailable            Code = "persistence_unavailable"
 	StorageReserveExhausted           Code = "storage_reserve_exhausted"
@@ -153,6 +158,11 @@ var publicSpecs = map[Code]publicSpec{
 	ProcessObservationIncomplete:      {message: "process observation incomplete", retryable: true, details: keys("pid", "reason")},
 	ProcessLimitExceeded:              {message: "process observation limit exceeded", details: keys("reason")},
 	PortObservationUnavailable:        {message: "port observation unavailable", retryable: true, details: keys("pid", "reason")},
+	MutationScopeInvalid:              {message: "mutation scope is invalid", details: keys("scope_id", "field", "reason")},
+	MutationScopeBindingConflict:      {message: "mutation scope binding conflicts with existing binding", details: keys("scope_id")},
+	MutationMetadataConflict:          {message: "mutation metadata conflicts with existing mutation", details: keys("mutation_id", "scope_id", "field")},
+	MutationScopeCapacityExceeded:     {message: "mutation scope capacity exceeded", retryable: true, details: keys("scope_id", "workspace_id", "activity_id", "reason")},
+	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
 	CapacityExceeded:                  {message: "capacity exceeded", retryable: true},
 	PersistenceUnavailable:            {message: "persistence unavailable", retryable: true},
 	StorageReserveExhausted:           {message: "storage reserve exhausted", retryable: true},

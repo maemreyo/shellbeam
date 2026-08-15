@@ -79,6 +79,14 @@ type Limits struct {
 	ProcessObservationBytes          int   `json:"process_observation_bytes,omitempty"`
 	ProcessObservationMS             int64 `json:"process_observation_ms,omitempty"`
 	ProcessPortRecords               int   `json:"process_port_records,omitempty"`
+	MutationScopeActivePerActivity   int   `json:"mutation_scope_active_per_activity,omitempty"`
+	MutationScopeActivePerWorkspace  int   `json:"mutation_scope_active_per_workspace,omitempty"`
+	MutationScopePathsPerScope       int   `json:"mutation_scope_paths_per_scope,omitempty"`
+	MutationScopeSelectorBytes       int   `json:"mutation_scope_selector_bytes,omitempty"`
+	MutationScopeAdvisories          int   `json:"mutation_scope_advisories,omitempty"`
+	MutationScopeMinTTLMS            int64 `json:"mutation_scope_min_ttl_ms,omitempty"`
+	MutationScopeDefaultTTLMS        int64 `json:"mutation_scope_default_ttl_ms,omitempty"`
+	MutationScopeMaxTTLMS            int64 `json:"mutation_scope_max_ttl_ms,omitempty"`
 }
 
 type Catalog struct {
@@ -101,6 +109,7 @@ type Catalog struct {
 	ToolchainFingerprintVersions      []int                       `json:"toolchain_fingerprint_versions,omitempty"`
 	EnvironmentToolchainProbeIDs      []string                    `json:"environment_toolchain_probe_ids,omitempty"`
 	ProcessObservationSchemaVersions  []int                       `json:"process_observation_schema_versions,omitempty"`
+	MutationScopeSchemaVersions       []int                       `json:"mutation_scope_schema_versions,omitempty"`
 	PortObservationSupported          bool                        `json:"port_observation_supported,omitempty"`
 	ReadinessRequirementKinds         []string                    `json:"project_readiness_requirement_kinds,omitempty"`
 	TypedCommandVersions              []int                       `json:"typed_project_command_versions,omitempty"`
@@ -178,6 +187,7 @@ func (c Catalog) Clone() Catalog {
 	out.ToolchainFingerprintVersions = append([]int(nil), c.ToolchainFingerprintVersions...)
 	out.EnvironmentToolchainProbeIDs = append([]string(nil), c.EnvironmentToolchainProbeIDs...)
 	out.ProcessObservationSchemaVersions = append([]int(nil), c.ProcessObservationSchemaVersions...)
+	out.MutationScopeSchemaVersions = append([]int(nil), c.MutationScopeSchemaVersions...)
 	out.ReadinessRequirementKinds = append([]string(nil), c.ReadinessRequirementKinds...)
 	out.TypedCommandVersions = append([]int(nil), c.TypedCommandVersions...)
 	out.TypedCommandParameterKinds = append([]string(nil), c.TypedCommandParameterKinds...)
