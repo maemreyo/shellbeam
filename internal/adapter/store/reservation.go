@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
@@ -76,6 +77,16 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 	if existing.ObservationBindingFingerprint != want.ObservationBindingFingerprint {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
+	if existing.SchemaVersion == 3 || want.SchemaVersion == 3 {
+		if existing.SchemaVersion != 3 || want.SchemaVersion != 3 || existing.ProjectCommand == nil || want.ProjectCommand == nil {
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "project_command"}, nil)}
+		}
+		existingDigest, existingErr := existing.ProjectCommand.Digest()
+		wantDigest, wantErr := want.ProjectCommand.Digest()
+		if existingErr != nil || wantErr != nil || existingDigest != wantDigest {
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "project_command"}, nil)}
+		}
+	}
 	return existing, false, r.ensureSessionMetadata(existing)
 }
 
@@ -85,11 +96,11 @@ func validateReservation(v operation.Reservation) error {
 	}
 	switch v.SchemaVersion {
 	case 1:
-		if v.Fingerprint == "" {
+		if v.Fingerprint == "" || v.ProjectCommand != nil {
 			return fmt.Errorf("invalid reservation")
 		}
 	case 2:
-		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
+		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" || v.ProjectCommand != nil {
 			return fmt.Errorf("invalid reservation")
 		}
 		if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
@@ -107,6 +118,22 @@ func validateReservation(v operation.Reservation) error {
 				return fmt.Errorf("invalid reservation")
 			}
 		default:
+			return fmt.Errorf("invalid reservation")
+		}
+	case 3:
+		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" || v.ProjectCommand == nil {
+			return fmt.Errorf("invalid reservation")
+		}
+		if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
+			return fmt.Errorf("invalid reservation")
+		}
+		if err := v.ProjectCommand.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation: %w", err)
+		}
+		if v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || len(v.Argv) == 0 || v.Argv[0] == "" {
+			return fmt.Errorf("invalid reservation")
+		}
+		if !slices.Equal(v.Argv, v.ProjectCommand.ResolvedArgv) || v.CWD != v.ProjectCommand.ResolvedCWD || v.LogicalCWD != v.ProjectCommand.LogicalCWD || v.WorkspaceID == "" {
 			return fmt.Errorf("invalid reservation")
 		}
 	default:

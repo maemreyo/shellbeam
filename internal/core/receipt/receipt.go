@@ -3,6 +3,8 @@ package receipt
 
 import (
 	"fmt"
+
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
@@ -23,40 +25,54 @@ type SignalEvidence struct {
 }
 
 type Receipt struct {
-	SchemaVersion                 int                  `json:"schema_version"`
-	OperationID                   string               `json:"operation_id"`
-	SessionID                     string               `json:"session_id"`
-	Fingerprint                   string               `json:"fingerprint,omitempty"`
-	RequestFingerprint            string               `json:"request_fingerprint,omitempty"`
-	ExecutionFingerprint          string               `json:"execution_fingerprint,omitempty"`
-	ObservationBindingFingerprint string               `json:"observation_binding_fingerprint,omitempty"`
-	DaemonIncarnation             string               `json:"daemon_incarnation"`
-	ExecutionMode                 string               `json:"execution_mode,omitempty"`
-	Executable                    string               `json:"executable,omitempty"`
-	State                         session.State        `json:"state"`
-	Outcome                       session.Outcome      `json:"outcome"`
-	Shell                         string               `json:"shell,omitempty"`
-	CWD                           string               `json:"cwd,omitempty"`
-	TTY                           bool                 `json:"tty"`
-	TimeoutMS                     int64                `json:"timeout_ms"`
-	OutputBytes                   int64                `json:"output_bytes"`
-	OutputComplete                bool                 `json:"output_complete"`
-	InputAcceptedBytes            int64                `json:"input_accepted_bytes"`
-	InputDeliveredBytes           int64                `json:"input_delivered_bytes"`
-	StdinClosed                   bool                 `json:"stdin_closed"`
-	FailureReason                 string               `json:"failure_reason,omitempty"`
-	WorkspaceProvenance           *WorkspaceProvenance `json:"workspace_provenance,omitempty"`
-	Spawn                         SpawnEvidence        `json:"spawn_evidence"`
-	Exit                          ExitEvidence         `json:"exit_evidence"`
-	Signal                        SignalEvidence       `json:"signal_evidence"`
+	SchemaVersion                 int                     `json:"schema_version"`
+	OperationID                   string                  `json:"operation_id"`
+	SessionID                     string                  `json:"session_id"`
+	Fingerprint                   string                  `json:"fingerprint,omitempty"`
+	RequestFingerprint            string                  `json:"request_fingerprint,omitempty"`
+	ExecutionFingerprint          string                  `json:"execution_fingerprint,omitempty"`
+	ObservationBindingFingerprint string                  `json:"observation_binding_fingerprint,omitempty"`
+	DaemonIncarnation             string                  `json:"daemon_incarnation"`
+	ExecutionMode                 string                  `json:"execution_mode,omitempty"`
+	Executable                    string                  `json:"executable,omitempty"`
+	State                         session.State           `json:"state"`
+	Outcome                       session.Outcome         `json:"outcome"`
+	Shell                         string                  `json:"shell,omitempty"`
+	CWD                           string                  `json:"cwd,omitempty"`
+	TTY                           bool                    `json:"tty"`
+	TimeoutMS                     int64                   `json:"timeout_ms"`
+	OutputBytes                   int64                   `json:"output_bytes"`
+	OutputComplete                bool                    `json:"output_complete"`
+	InputAcceptedBytes            int64                   `json:"input_accepted_bytes"`
+	InputDeliveredBytes           int64                   `json:"input_delivered_bytes"`
+	StdinClosed                   bool                    `json:"stdin_closed"`
+	FailureReason                 string                  `json:"failure_reason,omitempty"`
+	WorkspaceProvenance           *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
+	ProjectCommand                *project.CommandBinding `json:"project_command,omitempty"`
+	Spawn                         SpawnEvidence           `json:"spawn_evidence"`
+	Exit                          ExitEvidence            `json:"exit_evidence"`
+	Signal                        SignalEvidence          `json:"signal_evidence"`
 }
 
 func (r Receipt) Validate() error {
 	switch r.SchemaVersion {
 	case 1:
+		if r.ProjectCommand != nil {
+			return fmt.Errorf("project command provenance requires v3 receipt")
+		}
 	case 2:
 		if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" {
 			return fmt.Errorf("v2 receipt fingerprints missing")
+		}
+		if r.ProjectCommand != nil {
+			return fmt.Errorf("project command provenance requires v3 receipt")
+		}
+	case 3:
+		if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" || r.ProjectCommand == nil {
+			return fmt.Errorf("v3 receipt project command provenance missing")
+		}
+		if err := r.ProjectCommand.Validate(); err != nil {
+			return fmt.Errorf("invalid v3 project command provenance: %w", err)
 		}
 	default:
 		return fmt.Errorf("unsupported receipt schema")

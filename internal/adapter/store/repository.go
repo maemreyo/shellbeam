@@ -120,7 +120,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	for _, p := range []string{
-		root, filepath.Join(root, "operations"), filepath.Join(root, "sessions"),
+		root, filepath.Join(root, "operations"), filepath.Join(root, "typed-intents"), filepath.Join(root, "sessions"),
 		filepath.Join(root, "repositories"), filepath.Join(root, "workspaces"), filepath.Join(root, "activities"),
 	} {
 		if err := os.MkdirAll(p, 0700); err != nil {
