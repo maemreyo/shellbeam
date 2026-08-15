@@ -33,8 +33,21 @@ func (Owner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.Out
 	if spec.TTY {
 		return startPTY(spec, sink)
 	}
+	return startNonTTY(spec, sink, commandFor)
+}
+
+type FrozenOwner struct{}
+
+func (FrozenOwner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	if spec.TTY {
+		return nil, receipt.SpawnEvidence{Attempted: true, ErrorCode: "tty_unsupported"}, errors.New("tty_unsupported")
+	}
+	return startNonTTY(spec, sink, commandForFrozen)
+}
+
+func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(operation.ExecutionSpec) (*exec.Cmd, string, error)) (app.ProcessHandle, receipt.SpawnEvidence, error) {
 	spawn := receipt.SpawnEvidence{Attempted: true}
-	cmd, code, err := commandFor(spec)
+	cmd, code, err := build(spec)
 	if err != nil {
 		spawn.ErrorCode = code
 		return nil, spawn, err

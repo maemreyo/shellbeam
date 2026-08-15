@@ -27,6 +27,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	switch args[0] {
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
+	case "__supervisor":
+		err = runSupervisor(ctx, args[1:])
 	case "daemon":
 		err = runDaemon(ctx, args[1:])
 	case "mcp":

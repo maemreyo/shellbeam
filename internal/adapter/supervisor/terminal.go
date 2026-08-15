@@ -39,6 +39,7 @@ type TerminalRecord struct {
 	InputAcceptedBytes  int64                  `json:"input_accepted_bytes"`
 	InputDeliveredBytes int64                  `json:"input_delivered_bytes"`
 	StdinClosed         bool                   `json:"stdin_closed"`
+	FailureReason       string                 `json:"failure_reason,omitempty"`
 	Integrity           string                 `json:"integrity"`
 }
 

@@ -35,6 +35,34 @@ type Metadata struct {
 	GenerationID    string `json:"generation_id"`
 }
 
+func layoutFor(runtimeRoot, sessionID string) Layout {
+	supervisors := filepath.Join(runtimeRoot, "supervisors")
+	sessionDir := filepath.Join(supervisors, sessionID)
+	return Layout{
+		RuntimeRoot: runtimeRoot, SupervisorsDir: supervisors, SessionDir: sessionDir,
+		CapabilityPath: filepath.Join(sessionDir, "capability.bin"), MetadataPath: filepath.Join(sessionDir, "metadata.json"),
+		SocketPath: filepath.Join(sessionDir, "control.sock"), TerminalPath: filepath.Join(sessionDir, "terminal.json"),
+	}
+}
+
+func OpenPrivateState(runtimeRoot, sessionID, generationID string) (Layout, error) {
+	if !filepath.IsAbs(runtimeRoot) {
+		return Layout{}, privateStateFailure("runtime_root")
+	}
+	if _, err := operation.ParseSessionID(sessionID); err != nil || !validOpaque(generationID) {
+		return Layout{}, privateStateFailure("identity")
+	}
+	layout := layoutFor(runtimeRoot, sessionID)
+	if err := validateLayout(layout); err != nil {
+		return Layout{}, err
+	}
+	metadata, err := LoadMetadata(layout)
+	if err != nil || metadata.SessionID != sessionID || metadata.GenerationID != generationID {
+		return Layout{}, privateStateFailure("identity")
+	}
+	return layout, nil
+}
+
 func PreparePrivateState(runtimeRoot, sessionID, generationID string, capability Capability) (Layout, error) {
 	if !filepath.IsAbs(runtimeRoot) {
 		return Layout{}, privateStateFailure("runtime_root")
@@ -53,11 +81,7 @@ func PreparePrivateState(runtimeRoot, sessionID, generationID string, capability
 	if err := ensurePrivateDirectory(sessionDir); err != nil {
 		return Layout{}, privateStateFailure("session_dir")
 	}
-	layout := Layout{
-		RuntimeRoot: runtimeRoot, SupervisorsDir: supervisors, SessionDir: sessionDir,
-		CapabilityPath: filepath.Join(sessionDir, "capability.bin"), MetadataPath: filepath.Join(sessionDir, "metadata.json"),
-		SocketPath: filepath.Join(sessionDir, "control.sock"), TerminalPath: filepath.Join(sessionDir, "terminal.json"),
-	}
+	layout := layoutFor(runtimeRoot, sessionID)
 	if err := createOrMatchPrivateFile(layout.CapabilityPath, capability.bytes()); err != nil {
 		return Layout{}, privateStateFailure("capability_file")
 	}

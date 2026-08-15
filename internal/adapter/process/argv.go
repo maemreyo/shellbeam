@@ -93,3 +93,25 @@ func commandFor(spec operation.ExecutionSpec) (*exec.Cmd, string, error) {
 		return nil, "invalid_execution_spec", fmt.Errorf("invalid execution mode")
 	}
 }
+
+func commandForFrozen(spec operation.ExecutionSpec) (*exec.Cmd, string, error) {
+	if spec.BindingErrorCode != "" || !filepath.IsAbs(spec.Executable) {
+		return nil, "invalid_execution_spec", fmt.Errorf("invalid frozen execution spec")
+	}
+	switch spec.Mode {
+	case operation.ExecutionModeShell:
+		if spec.Shell == "" || spec.Command == "" || spec.Executable != spec.Shell || len(spec.Argv) != 0 {
+			return nil, "invalid_execution_spec", fmt.Errorf("invalid frozen shell execution spec")
+		}
+		return exec.Command(spec.Executable, "-lc", spec.Command), "", nil
+	case operation.ExecutionModeArgv:
+		if len(spec.Argv) == 0 || spec.Argv[0] == "" || spec.Command != "" || spec.Shell != "" {
+			return nil, "invalid_execution_spec", fmt.Errorf("invalid frozen argv execution spec")
+		}
+		cmd := exec.Command(spec.Executable, spec.Argv[1:]...)
+		cmd.Args = append([]string(nil), spec.Argv...)
+		return cmd, "", nil
+	default:
+		return nil, "invalid_execution_spec", fmt.Errorf("invalid frozen execution mode")
+	}
+}

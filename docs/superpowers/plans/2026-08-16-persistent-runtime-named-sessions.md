@@ -82,18 +82,18 @@ Files: create internal/adapter/supervisor/{protocol.go,protocol_test.go,auth.go,
 
 ### Task 4 - Supervisor-owned child runtime, spool, input/kill ledgers, timeout, terminal freeze
 
-Files: create internal/adapter/supervisor/{runtime.go,runtime_test.go,spool.go,spool_test.go,ledger.go,ledger_test.go,server.go,server_test.go}; create cmd/shellbeam/{command_supervisor.go,command_supervisor_test.go}; modify cmd/shellbeam/command.go; narrow reuse from internal/adapter/process only if required.
+Files: create internal/adapter/supervisor/{bootstrap.go,bootstrap_test.go,runtime.go,runtime_control.go,runtime_test.go,spool.go,spool_test.go,ledger.go,ledger_test.go,timeout.go,wire.go,server.go,server_test.go,runner_unix.go}; create cmd/shellbeam/{command_supervisor.go,command_supervisor_test.go}; modify cmd/shellbeam/command.go, internal/adapter/supervisor/{private_state.go,terminal.go}; add narrow exact-executable FrozenOwner support in internal/adapter/process/{owner_unix.go,argv.go,frozen_owner_unix_test.go}.
 
-- [ ] RED tests: one child spawn, append-only byte offsets, input duplicate/conflict/gap after reopen, kill-ID replay/conflict, timeout without daemon, spool/output-limit failure, terminal freeze ordering.
-- [ ] Supervisor exclusively owns persistent child process group, stdin, signal, timeout, wait/reap.
-- [ ] Spool bounded by canonical output limit; corruption/gap never fabricated.
-- [ ] Input ledger stores bounded identity metadata (kind,offset,length,sha256) + accepted/delivered/EOF state; no canonical raw stdin copy.
-- [ ] Kill ledger retains max 256 identities and replays same ID/signal without resignal.
-- [ ] Timeout freezes absolute deadline and TERM->grace->KILL state; daemon reconnect does not reset it.
-- [ ] Before normal exit after child terminal: drain/freeze output, input accounting, spawn/exit/signal/timeout evidence, integrity-protected terminal record.
-- [ ] Add private __supervisor dispatch to same binary, absent from public usage/help.
-- [ ] Focused/race tests.
-- [ ] Commit: feat: own persistent child runtime
+- [x] RED tests: one child spawn, append-only byte offsets, input duplicate/conflict/gap after reopen, kill-ID replay/conflict, timeout without daemon, spool/output-limit failure, terminal freeze ordering.
+- [x] Supervisor exclusively owns persistent child process group, stdin, signal, timeout, wait/reap.
+- [x] Spool bounded by canonical output limit; corruption/gap never fabricated.
+- [x] Input ledger stores bounded identity metadata (kind,offset,length,sha256) + accepted/delivered/EOF state; no canonical raw stdin copy.
+- [x] Kill ledger retains max 256 identities and replays same ID/signal without resignal.
+- [x] Timeout freezes absolute deadline and TERM->grace->KILL state; daemon reconnect does not reset it.
+- [x] Before normal exit after child terminal: drain/freeze output, input accounting, spawn/exit/signal/timeout evidence, integrity-protected terminal record.
+- [x] Add private __supervisor dispatch to same binary, absent from public usage/help.
+- [x] Focused/race tests.
+- [x] Commit: feat: own persistent child runtime
 
 ### Task 5 - Daemon-side persistent launch orchestration, exactly-once start, no-tax direct path
 
