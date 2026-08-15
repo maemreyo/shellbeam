@@ -47,6 +47,7 @@ type Repository struct {
 	structuredMu             sync.Mutex
 	telemetryMu              sync.Mutex
 	reproMu                  sync.Mutex
+	evidenceMu               sync.Mutex
 	observationHighWatermark uint64
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
@@ -145,6 +146,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initReproStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initEvidenceStore(); err != nil {
 		return nil, err
 	}
 	return repository, nil

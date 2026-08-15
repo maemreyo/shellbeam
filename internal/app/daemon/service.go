@@ -211,6 +211,7 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
+	s.scheduleEvidenceTerminal(rec, l.reservation)
 	l.mu.Lock()
 	l.state = session.Failed
 	l.notify()
@@ -271,6 +272,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
+	s.scheduleEvidenceTerminal(rec, l.reservation)
 	l.mu.Lock()
 	l.state = state
 	l.outcome = outcome

@@ -34,7 +34,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		frozenEvidence = &normalized
 	}
 	base := operation.Reservation{
-		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence,
+		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, Intent: cloneDeclaredIntent(req.Intent),
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
 		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Shell: shell, DaemonIncarnation: s.options.Incarnation,
 	}
@@ -91,4 +91,20 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		rec.Fingerprint = l.reservation.Fingerprint
 	}
 	return rec
+}
+
+func cloneDeclaredIntent(value *operation.DeclaredIntent) *operation.DeclaredIntent {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	if value.MutatesSource != nil {
+		v := *value.MutatesSource
+		copy.MutatesSource = &v
+	}
+	if value.ExternalEffect != nil {
+		v := *value.ExternalEffect
+		copy.ExternalEffect = &v
+	}
+	return &copy
 }

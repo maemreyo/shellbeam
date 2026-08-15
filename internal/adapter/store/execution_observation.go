@@ -221,7 +221,7 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 
 func reconcilableObservationKind(kind observation.EventKind) bool {
 	switch kind {
-	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded:
+	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved:
 		return true
 	default:
 		return false
@@ -244,6 +244,10 @@ func (r *Repository) observationSubjectPresent(ctx context.Context, obligation o
 		return r.telemetrySubjectPresent(ctx, obligation.SubjectRef)
 	case observation.EventReproRecorded:
 		return r.reproSubjectPresent(ctx, obligation.SubjectRef)
+	case observation.EventEvidenceRecorded:
+		return r.evidenceSubjectPresent(ctx, obligation.SubjectRef)
+	case observation.EventArtifactObserved:
+		return r.evidenceArtifactSubjectPresent(ctx, obligation.SubjectRef)
 	default:
 		return false, nil
 	}
@@ -336,4 +340,35 @@ func (r *Repository) receiptSubjectPresent(ctx context.Context, subject string) 
 		return false, nil
 	}
 	return err == nil, err
+}
+
+func (r *Repository) evidenceSubjectPresent(ctx context.Context, subject string) (bool, error) {
+	const prefix = "evidence:"
+	if !strings.HasPrefix(subject, prefix) {
+		return false, fmt.Errorf("invalid evidence observation subject")
+	}
+	id := strings.TrimPrefix(subject, prefix)
+	if !evidenceIDPattern.MatchString(id) {
+		return false, fmt.Errorf("invalid evidence observation subject")
+	}
+	_, err := r.LoadEvidenceRecord(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+func (r *Repository) evidenceArtifactSubjectPresent(ctx context.Context, subject string) (bool, error) {
+	id, index, err := parseEvidenceArtifactSubject(subject)
+	if err != nil {
+		return false, err
+	}
+	record, err := r.LoadEvidenceRecord(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return index < len(record.Artifacts), nil
 }

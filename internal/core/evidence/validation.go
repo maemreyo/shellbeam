@@ -3,10 +3,14 @@ package evidence
 import (
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/maemreyo/shellbeam/internal/core/project"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
+
+var evidenceAuthorityIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
 func (c Contract) Validate() error {
 	_, err := c.Normalize()
@@ -36,8 +40,16 @@ func (c Contract) Normalize() (Contract, error) {
 }
 
 func (r Record) Validate() error {
-	if r.SchemaVersion != SchemaVersion || !validPrefixedDigest(r.EvidenceID, "ev_") || r.OperationID == "" || r.SessionID == "" || !validVerificationKind(r.VerificationKind) || !validDigest(r.ContractDigest) || !validDigest(r.ReceiptDigest) || r.CompletedAt.IsZero() {
+	if r.SchemaVersion != SchemaVersion || !validPrefixedDigest(r.EvidenceID, "ev_") || !validVerificationKind(r.VerificationKind) || !validDigest(r.ContractDigest) || !validDigest(r.ReceiptDigest) || r.CompletedAt.IsZero() {
 		return fmt.Errorf("invalid evidence record")
+	}
+	if !evidenceAuthorityIDPattern.MatchString(r.OperationID) || !evidenceAuthorityIDPattern.MatchString(r.SessionID) {
+		return fmt.Errorf("invalid evidence operation/session id")
+	}
+	if r.WorkspaceID != "" {
+		if _, err := workspace.ParseWorkspaceID(r.WorkspaceID); err != nil {
+			return fmt.Errorf("invalid evidence workspace id: %w", err)
+		}
 	}
 	switch r.Result {
 	case ResultPass, ResultFail, ResultIncomplete, ResultAmbiguous:

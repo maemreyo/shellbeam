@@ -30,6 +30,7 @@ type Reservation struct {
 	DaemonIncarnation             string                  `json:"daemon_incarnation"`
 	ControlReservationBytes       int64                   `json:"control_reservation_bytes"`
 	ProjectCommand                *project.CommandBinding `json:"project_command,omitempty"`
+	Intent                        *DeclaredIntent         `json:"intent,omitempty"`
 	Evidence                      *evidence.Contract      `json:"evidence,omitempty"`
 	CreatedAt                     time.Time               `json:"created_at"`
 }

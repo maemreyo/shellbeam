@@ -19,6 +19,7 @@ type Options struct {
 	Capabilities         capability.Catalog
 	StructuredWorker     StructuredWorker
 	TelemetryWorker      TelemetryWorker
+	EvidenceWorker       EvidenceWorker
 	ProjectCommandBinder ProjectCommandBinder
 }
 type StartRequest struct {
@@ -47,6 +48,10 @@ type StructuredWorker interface {
 }
 type TelemetryWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to telemetry derivation.
+	ScheduleTerminal(context.Context, receipt.Receipt) error
+}
+type EvidenceWorker interface {
+	// ScheduleTerminal must be bounded and non-blocking with respect to evidence derivation.
 	ScheduleTerminal(context.Context, receipt.Receipt) error
 }
 type PollRequest struct {

@@ -127,3 +127,52 @@ func TestRecordValidateRejectsUnprovenExactAndMalformedArtifacts(t *testing.T) {
 		t.Fatalf("valid record rejected: %v", err)
 	}
 }
+
+func TestEvidenceIDDeterministicFromReceiptAndContractAuthority(t *testing.T) {
+	receiptDigest := strings.Repeat("a", 64)
+	contractDigest := strings.Repeat("b", 64)
+	first, err := EvidenceID(receiptDigest, contractDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := EvidenceID(receiptDigest, contractDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || !strings.HasPrefix(first, "ev_") || len(first) != 67 {
+		t.Fatalf("ids=%q %q", first, second)
+	}
+	changed, err := EvidenceID(strings.Repeat("c", 64), contractDigest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == first {
+		t.Fatal("receipt authority did not affect evidence id")
+	}
+	if _, err := EvidenceID("bad", contractDigest); err == nil {
+		t.Fatal("invalid receipt digest accepted")
+	}
+}
+
+func TestRecordValidateRejectsUnsafeAuthorityIDs(t *testing.T) {
+	now := time.Now().UTC()
+	base := Record{
+		SchemaVersion: SchemaVersion, EvidenceID: "ev_" + strings.Repeat("a", 64),
+		OperationID: "op-safe", SessionID: "session-safe", VerificationKind: VerificationTest,
+		ContractDigest: strings.Repeat("b", 64), ReceiptDigest: strings.Repeat("c", 64),
+		Terminal: TerminalResult{Authoritative: true, Outcome: session.Success}, Result: ResultPass, CompletedAt: now,
+	}
+	for name, mutate := range map[string]func(*Record){
+		"operation": func(r *Record) { r.OperationID = "../escape" },
+		"session":   func(r *Record) { r.SessionID = "../escape" },
+		"workspace": func(r *Record) { r.WorkspaceID = "../escape" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := base
+			mutate(&got)
+			if err := got.Validate(); err == nil {
+				t.Fatalf("unsafe record accepted: %#v", got)
+			}
+		})
+	}
+}

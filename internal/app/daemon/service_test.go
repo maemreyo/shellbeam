@@ -399,3 +399,26 @@ func TestTypedProjectCommandRejectsCompetingRawEvidenceBeforeBind(t *testing.T) 
 		t.Fatalf("starts=%d", owner.starts.Load())
 	}
 }
+
+func TestV2DeclaredIntentPersistsForTerminalEvidenceAuthority(t *testing.T) {
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &fakeOwner{}
+	svc := app.NewService(store, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	no := false
+	request := app.StartRequest{ProtocolVersion: 2, OperationID: "intent-evidence-authority", Command: "true", CWD: "/", Intent: &operation.DeclaredIntent{Kind: operation.IntentKindTest, MutatesSource: &no}}
+	started, err := svc.Start(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForTerminal(t, svc, started.SessionID)
+	stored, err := store.LoadOperation(context.Background(), "intent-evidence-authority")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Intent == nil || stored.Intent.Kind != operation.IntentKindTest || stored.Intent.MutatesSource == nil || *stored.Intent.MutatesSource {
+		t.Fatalf("stored intent=%#v", stored.Intent)
+	}
+}

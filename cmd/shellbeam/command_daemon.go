@@ -79,6 +79,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	defer codeRuntime.Close()
 	structuredScheduler := &structuredWorkerProxy{}
 	telemetryScheduler := &telemetryWorkerProxy{}
+	evidenceScheduler := &evidenceWorkerProxy{}
 	projectLoader := projectadapter.NewLoader()
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
@@ -88,6 +89,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		Capabilities:         catalog,
 		StructuredWorker:     structuredScheduler,
 		TelemetryWorker:      telemetryScheduler,
+		EvidenceWorker:       evidenceScheduler,
 		ProjectCommandBinder: projectBinder,
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
@@ -97,7 +99,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		projectapp.ReadinessOptions{},
 	)
 	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
-	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, structuredScheduler, telemetryScheduler)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
 func serveDaemonRuntime(
@@ -110,6 +112,7 @@ func serveDaemonRuntime(
 	actions *daemonActions,
 	structuredScheduler *structuredWorkerProxy,
 	telemetryScheduler *telemetryWorkerProxy,
+	evidenceScheduler *evidenceWorkerProxy,
 ) error {
 	server, err := ipcadapter.ListenPending(runtimeDir, actions)
 	if err != nil {
@@ -144,21 +147,30 @@ func serveDaemonRuntime(
 	if err != nil {
 		return err
 	}
+	evidenceRuntime, err := newExecutionEvidenceRuntime(store)
+	if err != nil {
+		shutdownTelemetry(telemetryRuntime, terminationGrace)
+		return err
+	}
 	observationRuntime, err := newExecutionObservationRuntime(startupCtx, store)
 	if err != nil {
+		shutdownEvidence(evidenceRuntime, terminationGrace)
 		shutdownTelemetry(telemetryRuntime, terminationGrace)
 		return err
 	}
 	structuredScheduler.bind(observationRuntime.worker)
 	telemetryScheduler.bind(telemetryRuntime.worker)
+	evidenceScheduler.bind(evidenceRuntime.worker)
 	actions.events = observationRuntime.events
 	actions.structured = observationRuntime.structured
 	actions.telemetry = telemetryRuntime.service
 	actions.repro = reproapp.New(store)
 	observationRuntime.startMaterialization(ctx)
+	evidenceRuntime.startRecovery(ctx)
 	server.MarkReady()
 	defer shutdownObservation(observationRuntime, terminationGrace)
 	defer shutdownTelemetry(telemetryRuntime, terminationGrace)
+	defer shutdownEvidence(evidenceRuntime, terminationGrace)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
 }
@@ -170,6 +182,12 @@ func shutdownObservation(runtime *executionObservationRuntime, grace time.Durati
 }
 
 func shutdownTelemetry(runtime *executionTelemetryRuntime, grace time.Duration) {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*grace)
+	defer cancel()
+	_ = runtime.shutdown(shutdownCtx)
+}
+
+func shutdownEvidence(runtime *executionEvidenceRuntime, grace time.Duration) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*grace)
 	defer cancel()
 	_ = runtime.shutdown(shutdownCtx)

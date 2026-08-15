@@ -23,7 +23,13 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	path := filepath.Join(r.root, "operations", string(want.OperationID)+".json")
 	var existing operation.Reservation
 	if err := readStrict(path, &existing); err == nil {
-		return r.replayReservation(want, existing)
+		stored, created, result := r.replayReservation(want, existing)
+		if result.Err == nil {
+			if candidateErr := r.EnsureEvidenceCandidate(ctx, stored); candidateErr != nil {
+				result.Err = candidateErr
+			}
+		}
+		return stored, created, result
 	} else if !errors.Is(err, ErrNotFound) {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
@@ -43,6 +49,9 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	if want.CreatedAt.IsZero() {
 		want.CreatedAt = time.Now().UTC()
 	}
+	if err := r.EnsureEvidenceCandidate(ctx, want); err != nil {
+		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
 	seq, prepared := r.prepareAdmissionObservation(ctx, want)
 	if prepared.Err != nil {
 		return existing, false, prepared
@@ -55,6 +64,11 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 				return existing, false, withObservationSeq(app.StoreResult{Durability: app.AmbiguousChange, Err: err}, seq)
 			}
 			stored, created, replay := r.replayReservation(want, existing)
+			if replay.Err == nil {
+				if candidateErr := r.EnsureEvidenceCandidate(ctx, stored); candidateErr != nil {
+					replay.Err = candidateErr
+				}
+			}
 			return stored, created, withObservationSeq(replay, seq)
 		}
 		if result.Durability == app.NoDurableChange || !r.reservationFileMatches(path, want) {
@@ -96,7 +110,7 @@ func validateReservation(v operation.Reservation) error {
 	}
 	switch v.SchemaVersion {
 	case 1:
-		if v.Fingerprint == "" || v.ProjectCommand != nil {
+		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil {
 			return fmt.Errorf("invalid reservation")
 		}
 	case 2:
@@ -105,6 +119,11 @@ func validateReservation(v operation.Reservation) error {
 		}
 		if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
 			return fmt.Errorf("invalid reservation")
+		}
+		if v.Intent != nil {
+			if err := v.Intent.Validate(); err != nil {
+				return fmt.Errorf("invalid reservation: %w", err)
+			}
 		}
 		switch v.ExecutionMode {
 		case "":
@@ -121,7 +140,7 @@ func validateReservation(v operation.Reservation) error {
 			return fmt.Errorf("invalid reservation")
 		}
 	case 3:
-		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" || v.ProjectCommand == nil {
+		if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" || v.ProjectCommand == nil || v.Intent != nil {
 			return fmt.Errorf("invalid reservation")
 		}
 		if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
