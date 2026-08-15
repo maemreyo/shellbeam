@@ -31,3 +31,18 @@ type ReviewStore interface {
 	LoadProjectReview(context.Context, workspace.RepositoryID) (core.Review, bool, error)
 	SaveProjectReview(context.Context, core.Review) error
 }
+
+type ParameterValidation struct {
+	Value              string
+	ProviderID         string
+	ProviderVersion    int
+	ObservationQuality string
+}
+
+type RepoPathValidator interface {
+	ValidatePath(context.Context, workspace.Workspace, core.ParameterDefinition, string) (ParameterValidation, error)
+}
+
+type RepoPackageValidator interface {
+	ValidatePackage(context.Context, workspace.Workspace, string, string) (ParameterValidation, error)
+}
