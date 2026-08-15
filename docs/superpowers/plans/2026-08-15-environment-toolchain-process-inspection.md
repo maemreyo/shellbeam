@@ -629,7 +629,7 @@ git commit -m "feat: inspect bounded host process trees"
 
 ### Step 5.1 — RED port-isolation tests
 
-- [ ] Step 5.1: RED port-isolation tests
+- [x] Step 5.1: RED port-isolation tests
 
 Cover:
 
@@ -643,7 +643,7 @@ Cover:
 
 ### Step 5.2 — Implement fixed local adapter
 
-- [ ] Step 5.2: Implement fixed local adapter
+- [x] Step 5.2: Implement fixed local adapter
 
 Use a fixed local mechanism only:
 
@@ -654,7 +654,7 @@ Never invoke a shell fragment. Never treat ports as execution/evidence authority
 
 ### Step 5.3 — GREEN/race
 
-- [ ] Step 5.3: GREEN/race
+- [x] Step 5.3: GREEN/race
 
 ```bash
 go test ./internal/app/process ./internal/adapter/process
@@ -663,7 +663,7 @@ go test -race ./internal/app/process ./internal/adapter/process
 
 ### Step 5.4 — Commit
 
-- [ ] Step 5.4: Commit
+- [x] Step 5.4: Commit
 
 ```bash
 git commit -m "feat: observe process listening ports best effort"

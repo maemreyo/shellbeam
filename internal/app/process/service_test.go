@@ -163,3 +163,60 @@ func TestInspectEnforcesDescendantAndByteBounds(t *testing.T) {
 		}
 	})
 }
+
+type fakePorts struct {
+	calls int
+	pids  []int
+	ports []core.PortObservation
+	err   error
+}
+
+func (f *fakePorts) Observe(_ context.Context, pids []int) ([]core.PortObservation, error) {
+	f.calls++
+	f.pids = append([]int(nil), pids...)
+	return append([]core.PortObservation(nil), f.ports...), f.err
+}
+
+func TestInspectPortsAreOptInAndFailureIsIsolated(t *testing.T) {
+	host := &fakeHost{facts: map[int]core.ProcessFact{10: testFact(t, 10, 1, "/bin/root")}, children: map[int][]int{}}
+	ports := &fakePorts{err: failure.New(failure.PortObservationUnavailable, map[string]string{"pid": "10", "reason": "lsof_unavailable"}, nil)}
+	svc := NewService(host, nil, Options{Ports: ports})
+	base, err := svc.Inspect(context.Background(), Request{Target: core.Target{Kind: core.TargetPID, PID: 10}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ports.calls != 0 || len(base.Ports) != 0 || base.Quality != core.QualityComplete {
+		t.Fatalf("base=%#v port_calls=%d", base, ports.calls)
+	}
+	withPorts, err := svc.Inspect(context.Background(), Request{Target: core.Target{Kind: core.TargetPID, PID: 10}, IncludePorts: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ports.calls != 1 || withPorts.Quality != core.QualityPartial || len(withPorts.Ports) != 0 || !containsDiagnostic(withPorts.DiagnosticCodes, core.DiagnosticPortUnavailable) {
+		t.Fatalf("with ports=%#v calls=%d", withPorts, ports.calls)
+	}
+}
+
+func TestInspectBoundsBestEffortPortRecords(t *testing.T) {
+	host := &fakeHost{facts: map[int]core.ProcessFact{10: testFact(t, 10, 1, "/bin/root")}, children: map[int][]int{}}
+	ports := &fakePorts{}
+	for i := 0; i < core.MaxPortRecords+5; i++ {
+		ports.ports = append(ports.ports, core.PortObservation{PID: 10, Protocol: "tcp", LocalEndpointClass: "loopback", Port: 1000 + i, Quality: core.PortComplete})
+	}
+	got, err := NewService(host, nil, Options{Ports: ports}).Inspect(context.Background(), Request{Target: core.Target{Kind: core.TargetPID, PID: 10}, IncludePorts: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Ports) != core.MaxPortRecords || !got.Truncated || got.Quality != core.QualityPartial || !containsDiagnostic(got.DiagnosticCodes, core.DiagnosticLimitExceeded) {
+		t.Fatalf("ports=%d truncated=%v quality=%q diagnostics=%v", len(got.Ports), got.Truncated, got.Quality, got.DiagnosticCodes)
+	}
+}
+
+func containsDiagnostic(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}

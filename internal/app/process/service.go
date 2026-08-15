@@ -18,18 +18,25 @@ type SessionResolver interface {
 	ResolveProcessSession(context.Context, string) (core.SessionResolution, error)
 }
 
+type PortObserver interface {
+	Observe(context.Context, []int) ([]core.PortObservation, error)
+}
+
 type Request struct {
-	Target core.Target
+	Target       core.Target
+	IncludePorts bool
 }
 
 type Options struct {
-	Now func() time.Time
+	Now   func() time.Time
+	Ports PortObserver
 }
 
 type Service struct {
 	host     HostObserver
 	resolver SessionResolver
 	now      func() time.Time
+	ports    PortObserver
 }
 
 func NewService(host HostObserver, resolver SessionResolver, options Options) *Service {
@@ -37,7 +44,7 @@ func NewService(host HostObserver, resolver SessionResolver, options Options) *S
 	if now == nil {
 		now = time.Now
 	}
-	return &Service{host: host, resolver: resolver, now: now}
+	return &Service{host: host, resolver: resolver, now: now, ports: options.Ports}
 }
 
 func (s *Service) Inspect(ctx context.Context, request Request) (core.Observation, error) {
@@ -72,6 +79,9 @@ func (s *Service) Inspect(ctx context.Context, request Request) (core.Observatio
 		} else {
 			markPartial(&observation, core.DiagnosticObservationIncomplete, false)
 		}
+	}
+	if request.IncludePorts {
+		s.appendPorts(boundedCtx, &observation)
 	}
 	if err := observation.Validate(); err != nil {
 		return core.Observation{}, failure.New(failure.ProcessObservationIncomplete, map[string]string{"pid": itoa(pid), "reason": "invalid_observation"}, err)
