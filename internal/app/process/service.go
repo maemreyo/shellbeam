@@ -23,9 +23,11 @@ type PortObserver interface {
 }
 
 type Request struct {
-	Target       core.Target
-	IncludePorts bool
+	Target       core.Target `json:"target"`
+	IncludePorts bool        `json:"include_ports,omitempty"`
 }
+
+type InspectRequest = Request
 
 type Options struct {
 	Now   func() time.Time

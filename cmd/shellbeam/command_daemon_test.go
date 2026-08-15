@@ -9,13 +9,17 @@ import (
 	"testing"
 	"time"
 
+	environmentadapter "github.com/maemreyo/shellbeam/internal/adapter/environment"
 	gitadapter "github.com/maemreyo/shellbeam/internal/adapter/git"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	appcodeintel "github.com/maemreyo/shellbeam/internal/app/codeintel"
+	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	core "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
+	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -301,5 +305,66 @@ func TestDaemonCatalogAdvertisesBoundedProjectReadiness(t *testing.T) {
 	}
 	if catalog.Limits.ReadinessCacheTTLMS != 30000 || catalog.Limits.ReadinessCacheEntries != 256 {
 		t.Fatalf("readiness limits=%#v", catalog.Limits)
+	}
+}
+
+func TestDaemonCatalogAdvertisesA25ObservationWithExactBounds(t *testing.T) {
+	catalog := daemonCatalog(capability.Limits{})
+	if catalog.Features[capability.FeatureEnvironmentFingerprint] != capability.Available || catalog.Features[capability.FeatureProcessInspection] != capability.Available {
+		t.Fatalf("A2.5 features env=%q process=%q", catalog.Features[capability.FeatureEnvironmentFingerprint], catalog.Features[capability.FeatureProcessInspection])
+	}
+	if len(catalog.EnvironmentSnapshotSchemaVersions) != 1 || catalog.EnvironmentSnapshotSchemaVersions[0] != environmentcore.SnapshotSchemaVersion ||
+		len(catalog.EnvironmentFingerprintVersions) != 1 || catalog.EnvironmentFingerprintVersions[0] != environmentcore.FingerprintVersion ||
+		len(catalog.ToolchainFingerprintVersions) != 1 || catalog.ToolchainFingerprintVersions[0] != environmentcore.ToolchainFingerprintVersion {
+		t.Fatalf("environment versions=%#v", catalog)
+	}
+	wantProbes := []string{"go", "node", "python", "java", "rust"}
+	if len(catalog.EnvironmentToolchainProbeIDs) != len(wantProbes) {
+		t.Fatalf("toolchain probes=%v", catalog.EnvironmentToolchainProbeIDs)
+	}
+	for i := range wantProbes {
+		if catalog.EnvironmentToolchainProbeIDs[i] != wantProbes[i] {
+			t.Fatalf("toolchain probes=%v", catalog.EnvironmentToolchainProbeIDs)
+		}
+	}
+	limits := catalog.Limits
+	if limits.EnvironmentRelevantVariables != environmentcore.MaxRelevantVariables || limits.EnvironmentToolchainProbes != 5 || limits.EnvironmentToolchainObservations != environmentcore.MaxToolchainObservations ||
+		limits.EnvironmentProbeTimeoutMS != environmentadapter.ProbeTimeout.Milliseconds() || limits.EnvironmentProbeOutputBytes != environmentadapter.MaxProbeOutputBytes || limits.EnvironmentCacheEntries != environmentapp.DefaultMaxCacheEntries {
+		t.Fatalf("environment limits=%#v", limits)
+	}
+	if len(catalog.ProcessObservationSchemaVersions) != 1 || catalog.ProcessObservationSchemaVersions[0] != processcore.SchemaVersion || !catalog.PortObservationSupported {
+		t.Fatalf("process capability=%#v", catalog)
+	}
+	if limits.ProcessDescendants != processcore.MaxDescendants || limits.ProcessTraversalDepth != processcore.MaxTraversalDepth || limits.ProcessObservationBytes != processcore.MaxObservationBytes ||
+		limits.ProcessObservationMS != processcore.MaxObservationDuration.Milliseconds() || limits.ProcessPortRecords != processcore.MaxPortRecords {
+		t.Fatalf("process limits=%#v", limits)
+	}
+}
+
+func TestDaemonA25ObservationActionsAreWired(t *testing.T) {
+	stateDir, runtimeDir := a1RuntimeDirs(t)
+	client := runA1Daemon(t, stateDir, runtimeDir)
+
+	envResponse, err := client.CallV2(context.Background(), ipcadapter.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: "a25-env", Action: "inspect.environment",
+		Freshness: environmentcore.FreshnessRefresh,
+	})
+	if err != nil || !envResponse.OK || envResponse.Environment == nil {
+		t.Fatalf("inspect.environment response=%#v err=%v", envResponse, err)
+	}
+	if envResponse.Environment.SchemaVersion != environmentcore.SnapshotSchemaVersion || envResponse.Environment.Quality == environmentcore.QualityUnavailable || envResponse.Environment.EnvironmentFingerprint == "" {
+		t.Fatalf("environment snapshot=%#v", envResponse.Environment)
+	}
+
+	pid := os.Getpid()
+	procResponse, err := client.CallV2(context.Background(), ipcadapter.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: "a25-proc", Action: "inspect.process",
+		ProcessTarget: &processcore.Target{Kind: processcore.TargetPID, PID: pid},
+	})
+	if err != nil || !procResponse.OK || procResponse.Process == nil {
+		t.Fatalf("inspect.process response=%#v err=%v", procResponse, err)
+	}
+	if procResponse.Process.SchemaVersion != processcore.SchemaVersion || procResponse.Process.Root == nil || procResponse.Process.Root.PID != pid {
+		t.Fatalf("process observation=%#v", procResponse.Process)
 	}
 }

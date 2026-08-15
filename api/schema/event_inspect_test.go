@@ -71,3 +71,24 @@ func TestEventJournalCatalogExtensionsValidateOnlyWhenPresent(t *testing.T) {
 		t.Fatalf("event catalog rejected: %v", err)
 	}
 }
+
+func TestA25CatalogExtensionsValidateWhenComposed(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{}).
+		WithEnvironmentObservation(64, 5, 16, 2000, 512, 128, []string{"go", "node", "python", "java", "rust"}).
+		WithProcessInspection(128, 8, 64<<10, 2000, 64, true)
+	encoded, err := json.Marshal(map[string]any{"schema_version": 2, "ok": true, "action": "inspect.server", "server": catalog})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateEventSchemaJSON(t, MCPOutputV2, string(encoded)); err != nil {
+		t.Fatalf("MCP A2.5 catalog rejected: %v", err)
+	}
+
+	encoded, err = json.Marshal(map[string]any{"ipc_version": 2, "kind": "response", "request_id": "a25", "action": "inspect.server", "ok": true, "server": catalog})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateEventSchemaJSON(t, IPCV2, string(encoded)); err != nil {
+		t.Fatalf("IPC A2.5 catalog rejected: %v", err)
+	}
+}

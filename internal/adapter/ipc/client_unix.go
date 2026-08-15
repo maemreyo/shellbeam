@@ -66,7 +66,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -82,22 +82,7 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 	req := RequestV2{IPVersion: 2, Kind: "request", RequestID: "bridge", Action: in.Action}
 	switch in.Action {
 	case "start":
-		req.OperationID = in.Start.OperationID
-		req.ActivityID = in.Start.ActivityID
-		req.WorkspaceID = in.Start.WorkspaceID
-		req.WorkspaceHint = in.Start.WorkspaceHint
-		req.StructuredAdapter = in.Start.StructuredAdapter
-		req.ProjectCommandID = in.Start.ProjectCommandID
-		req.Params = cloneStringMapV2(in.Start.Params)
-		req.Command = in.Start.Command
-		req.Argv = append([]string(nil), in.Start.Argv...)
-		req.Intent = in.Start.Intent
-		req.Evidence = in.Start.Evidence
-		req.CWD = in.Start.CWD
-		req.TTY = in.Start.TTY
-		req.TimeoutMS = in.Start.TimeoutMS
-		req.YieldMS = in.Start.YieldMS
-		req.MaxOutputBytes = in.Start.MaxOutputBytes
+		applyStartV2(&req, in)
 	case "poll":
 		req.SessionID = in.Poll.SessionID
 		req.Cursor = in.Poll.Cursor
@@ -139,6 +124,8 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.MaxRecords = in.StructuredInspect.MaxRecords
 	case "inspect.evidence":
 		applyEvidenceInspectV2(&req, in)
+	case "inspect.environment", "inspect.process":
+		applyObservationInspectV2(&req, in)
 	case "inspect.telemetry":
 		req.OperationID = in.TelemetryInspect.OperationID
 		req.MaxSamples = in.TelemetryInspect.MaxSamples
@@ -155,6 +142,40 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.Signal = in.Kill.Signal
 	}
 	return req
+}
+
+func applyStartV2(req *RequestV2, in bridge.Request) {
+	req.OperationID = in.Start.OperationID
+	req.ActivityID = in.Start.ActivityID
+	req.WorkspaceID = in.Start.WorkspaceID
+	req.WorkspaceHint = in.Start.WorkspaceHint
+	req.StructuredAdapter = in.Start.StructuredAdapter
+	req.ProjectCommandID = in.Start.ProjectCommandID
+	req.Params = cloneStringMapV2(in.Start.Params)
+	req.Command = in.Start.Command
+	req.Argv = append([]string(nil), in.Start.Argv...)
+	req.Intent = in.Start.Intent
+	req.Evidence = in.Start.Evidence
+	req.CWD = in.Start.CWD
+	req.TTY = in.Start.TTY
+	req.TimeoutMS = in.Start.TimeoutMS
+	req.YieldMS = in.Start.YieldMS
+	req.MaxOutputBytes = in.Start.MaxOutputBytes
+}
+
+func applyObservationInspectV2(req *RequestV2, in bridge.Request) {
+	if in.Action == "inspect.environment" {
+		req.WorkspaceID = in.EnvironmentInspect.WorkspaceID
+		req.Freshness = in.EnvironmentInspect.Freshness
+		if in.EnvironmentInspect.Execution != nil {
+			execution := *in.EnvironmentInspect.Execution
+			req.Execution = &execution
+		}
+		return
+	}
+	target := in.ProcessInspect.Target
+	req.ProcessTarget = &target
+	req.IncludePorts = in.ProcessInspect.IncludePorts
 }
 
 func applyEvidenceInspectV2(req *RequestV2, in bridge.Request) {

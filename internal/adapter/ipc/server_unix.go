@@ -298,7 +298,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			resp.Capsule = &capsule
 		}
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.repro", "inspect.code":
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
@@ -312,6 +312,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 func clearResponseV2Payload(resp *ResponseV2) {
 	resp.View, resp.Result, resp.Server, resp.Project, resp.Readiness = nil, nil, nil, nil, nil
 	resp.Workspace, resp.Activity, resp.Events, resp.Structured, resp.Evidence = nil, nil, nil, nil, nil
+	resp.Environment, resp.Process = nil, nil
 	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView = nil, nil, nil, nil, nil
 }
 
@@ -319,8 +320,7 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 	switch req.Action {
 	case "inspect.server":
 		info, err := s.actions.InspectServer(ctx)
-		catalog := info.Capabilities
-		resp.Server = &catalog
+		resp.Server = &info.Capabilities
 		return err
 	case "inspect.workspace":
 		actions, ok := s.actions.(WorkspaceActions)
@@ -349,6 +349,8 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		result, err := actions.InspectStructured(ctx, request)
 		resp.Structured = &result
 		return err
+	case "inspect.environment", "inspect.process":
+		return s.inspectEnvironmentProcessV2(ctx, req, resp)
 	case "inspect.evidence":
 		actions, ok := s.actions.(EvidenceActions)
 		if !ok {
@@ -393,6 +395,31 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 	default:
 		return failure.New(failure.InvalidInput, map[string]string{"field": "action"}, nil)
 	}
+}
+
+func (s *Server) inspectEnvironmentProcessV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
+	if req.Action == "inspect.environment" {
+		actions, ok := s.actions.(EnvironmentActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		request := EnvironmentRequest{WorkspaceID: req.WorkspaceID, Freshness: req.Freshness}
+		if req.Execution != nil {
+			execution := *req.Execution
+			request.Execution = &execution
+		}
+		result, err := actions.InspectEnvironment(ctx, request)
+		resp.Environment = &result
+		return err
+	}
+	actions, ok := s.actions.(ProcessInspectionActions)
+	if !ok {
+		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+	}
+	request := ProcessRequest{Target: *req.ProcessTarget, IncludePorts: req.IncludePorts}
+	result, err := actions.InspectProcess(ctx, request)
+	resp.Process = &result
+	return err
 }
 
 func (s *Server) inspectProjectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {

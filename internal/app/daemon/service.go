@@ -17,21 +17,23 @@ import (
 )
 
 type Service struct {
-	store               Store
-	owner               ProcessOwner
-	options             Options
-	observer            WorkspaceObserver
-	resolver            WorkspaceResolver
-	activityTracker     ActivityTracker
-	coherence           WorkspaceCoherence
-	contextMu           sync.Mutex
-	contextLast         map[workspace.WorkspaceID]workspace.FastSnapshot
-	contextLastOrder    []workspace.WorkspaceID
-	contextSeen         map[string]struct{}
-	contextSeenOrder    []string
-	mu                  sync.RWMutex
-	live                map[string]*liveSession
-	environmentBindings CachedEnvironmentBindingProvider
+	store                Store
+	owner                ProcessOwner
+	options              Options
+	observer             WorkspaceObserver
+	resolver             WorkspaceResolver
+	activityTracker      ActivityTracker
+	coherence            WorkspaceCoherence
+	contextMu            sync.Mutex
+	contextLast          map[workspace.WorkspaceID]workspace.FastSnapshot
+	contextLastOrder     []workspace.WorkspaceID
+	contextSeen          map[string]struct{}
+	contextSeenOrder     []string
+	mu                   sync.RWMutex
+	live                 map[string]*liveSession
+	environmentBindings  CachedEnvironmentBindingProvider
+	environmentInspector EnvironmentInspector
+	processInspector     ProcessInspector
 }
 type liveSession struct {
 	mu             sync.Mutex

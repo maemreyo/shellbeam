@@ -38,9 +38,9 @@ type ToolchainRequest struct {
 }
 
 type InspectRequest struct {
-	WorkspaceID string
-	Freshness   core.Freshness
-	Execution   *core.ExecutionContext
+	WorkspaceID string                 `json:"workspace_id,omitempty"`
+	Freshness   core.Freshness         `json:"freshness,omitempty"`
+	Execution   *core.ExecutionContext `json:"execution,omitempty"`
 }
 
 type BindingRequest struct {

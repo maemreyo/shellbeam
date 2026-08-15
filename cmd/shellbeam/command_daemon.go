@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	environmentadapter "github.com/maemreyo/shellbeam/internal/adapter/environment"
 	gitadapter "github.com/maemreyo/shellbeam/internal/adapter/git"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
@@ -12,9 +13,11 @@ import (
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
+	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
+	processapp "github.com/maemreyo/shellbeam/internal/app/process"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
@@ -22,8 +25,10 @@ import (
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
+	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	projectcore "github.com/maemreyo/shellbeam/internal/core/project"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -100,7 +105,16 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
 		projectapp.ReadinessOptions{},
 	)
-	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
+	environmentSvc := environmentapp.NewService(
+		environmentadapter.NewHost(), projectEnvironmentManifestProvider{project: projectSvc}, environmentadapter.NewHostProber(),
+		environmentapp.Options{DefaultExecution: environmentcore.ExecutionContext{Mode: "shell", Identity: cfg.Shell}},
+	)
+	processSvc := processapp.NewService(
+		processadapter.NewHostInspector(), svc, processapp.Options{Ports: processadapter.NewHostPortInspector()},
+	)
+	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
+	svc.SetObservationInspectors(environmentSvc, processSvc)
+	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
@@ -219,16 +233,31 @@ func (a daemonCoherenceAdapter) CaptureBarrier() workspacecore.CoherenceBarrier 
 
 type daemonActions struct {
 	ipcadapter.Actions
-	workspace  *workspaceapp.Service
-	activity   *activityapp.Service
-	project    *projectapp.Service
-	events     *observationapp.Service
-	structured *structuredapp.Inspector
-	telemetry  *telemetryapp.Service
-	evidence   *evidenceapp.Inspector
-	repro      *reproapp.Service
-	output     *outputview.Service
-	code       daemonCodeInspector
+	observation *daemonapp.Service
+	workspace   *workspaceapp.Service
+	activity    *activityapp.Service
+	project     *projectapp.Service
+	events      *observationapp.Service
+	structured  *structuredapp.Inspector
+	telemetry   *telemetryapp.Service
+	evidence    *evidenceapp.Inspector
+	repro       *reproapp.Service
+	output      *outputview.Service
+	code        daemonCodeInspector
+}
+
+func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {
+	if a.observation == nil {
+		return environmentcore.Snapshot{}, fmt.Errorf("environment observation unavailable")
+	}
+	return a.observation.InspectEnvironment(ctx, request)
+}
+
+func (a daemonActions) InspectProcess(ctx context.Context, request ipcadapter.ProcessRequest) (ipcadapter.ProcessResponse, error) {
+	if a.observation == nil {
+		return processcore.Observation{}, fmt.Errorf("process observation unavailable")
+	}
+	return a.observation.InspectProcess(ctx, request)
 }
 
 func (a daemonActions) InspectWorkspace(ctx context.Context, workspaceID string) (workspacecore.Workspace, error) {
@@ -314,6 +343,15 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 			telemetryMaxSamplesPerKey, telemetryRetentionAge.Milliseconds(), telemetryapp.MaxInspectSamples,
 		).
 		WithReproductionCapsules(reproMaxCapsules, reprocore.MaxReferenceDescriptors, reproMetadataBytes).
+		WithEnvironmentObservation(
+			environmentcore.MaxRelevantVariables, 5, environmentcore.MaxToolchainObservations,
+			environmentadapter.ProbeTimeout.Milliseconds(), environmentadapter.MaxProbeOutputBytes, environmentapp.DefaultMaxCacheEntries,
+			[]string{"go", "node", "python", "java", "rust"},
+		).
+		WithProcessInspection(
+			processcore.MaxDescendants, processcore.MaxTraversalDepth, processcore.MaxObservationBytes,
+			processcore.MaxObservationDuration.Milliseconds(), processcore.MaxPortRecords, true,
+		).
 		WithCodeIntelligence().
 		WithTypedProjectCommands([]string{"go"}).
 		WithOutputViews(

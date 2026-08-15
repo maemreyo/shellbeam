@@ -7,8 +7,10 @@ import (
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	processapp "github.com/maemreyo/shellbeam/internal/app/process"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
@@ -92,6 +94,14 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.StructuredInspect = structuredapp.InspectRequest{OperationID: in.OperationID, Filter: structuredapp.RecordFilter{RecordKind: in.RecordKind, Severity: in.Severity, Path: in.Path, TestStatus: in.TestStatus}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
 	case "inspect.evidence":
 		request.EvidenceInspect = evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{EvidenceID: in.EvidenceID, OperationID: in.OperationID, WorkspaceID: in.WorkspaceID, ProjectCommandID: in.ProjectCommandID, ActivityID: in.ActivityID, VerificationKind: in.VerificationKind, Result: in.EvidenceResult, RevalidateArtifacts: in.RevalidateArtifacts}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
+	case "inspect.environment":
+		request.EnvironmentInspect = environmentapp.InspectRequest{WorkspaceID: in.WorkspaceID, Freshness: in.Freshness}
+		if in.Execution != nil {
+			execution := *in.Execution
+			request.EnvironmentInspect.Execution = &execution
+		}
+	case "inspect.process":
+		request.ProcessInspect = processapp.InspectRequest{Target: *in.ProcessTarget, IncludePorts: in.IncludePorts}
 	case "inspect.telemetry":
 		request.TelemetryInspect = telemetryapp.InspectRequest{OperationID: in.OperationID, MaxSamples: in.MaxSamples}
 	case "repro.create":
@@ -212,7 +222,7 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
-	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "repro.create", "inspect.repro", "inspect.events", "inspect.server":
+	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)
 		if failed != nil {
@@ -266,6 +276,18 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 		}
 		body["structured"] = out.Structured
 		return "inspect.structured: " + string(out.Structured.Status), nil
+	case "inspect.environment":
+		if out.Environment == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "environment inspection missing", false)
+		}
+		body["environment"] = out.Environment
+		return "inspect.environment: " + string(out.Environment.Quality), nil
+	case "inspect.process":
+		if out.Process == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "process inspection missing", false)
+		}
+		body["process"] = out.Process
+		return "inspect.process: " + string(out.Process.Quality), nil
 	case "inspect.evidence":
 		if out.Evidence == nil {
 			return "", toolErrorV2(action, "invalid_daemon_response", "evidence inspection missing", false)

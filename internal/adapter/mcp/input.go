@@ -14,58 +14,64 @@ import (
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type input struct {
-	Action              string                        `json:"action"`
-	OperationID         string                        `json:"operation_id,omitempty"`
-	WorkspaceID         string                        `json:"workspace_id,omitempty"`
-	ActivityID          string                        `json:"activity_id,omitempty"`
-	CodeQuery           *codeintel.Query              `json:"code_query,omitempty"`
-	WorkspaceHint       *workspace.Hint               `json:"workspace_hint,omitempty"`
-	StructuredAdapter   string                        `json:"structured_adapter,omitempty"`
-	ProjectCommandID    string                        `json:"project_command_id,omitempty"`
-	Params              map[string]string             `json:"params,omitempty"`
-	Command             string                        `json:"command,omitempty"`
-	Argv                []string                      `json:"argv,omitempty"`
-	Intent              *operation.DeclaredIntent     `json:"intent,omitempty"`
-	Evidence            *coreevidence.Contract        `json:"evidence,omitempty"`
-	CWD                 string                        `json:"cwd,omitempty"`
-	TTY                 bool                          `json:"tty,omitempty"`
-	YieldMS             int64                         `json:"yield_time_ms,omitempty"`
-	TimeoutMS           int64                         `json:"timeout_ms,omitempty"`
-	MaxOutputBytes      int                           `json:"max_output_bytes,omitempty"`
-	SessionID           string                        `json:"session_id,omitempty"`
-	Selector            *outputview.Selector          `json:"selector,omitempty"`
-	Cursor              int64                         `json:"cursor,omitempty"`
-	InputOffset         int64                         `json:"input_offset,omitempty"`
-	Chars               string                        `json:"chars,omitempty"`
-	EOF                 bool                          `json:"eof,omitempty"`
-	KillID              string                        `json:"kill_id,omitempty"`
-	Signal              string                        `json:"signal,omitempty"`
-	Target              *observationcore.Target       `json:"target,omitempty"`
-	AfterEventCursor    string                        `json:"after_event_cursor,omitempty"`
-	MaxEvents           int                           `json:"max_events,omitempty"`
-	RecordKind          structuredcore.RecordKind     `json:"record_kind,omitempty"`
-	Severity            structuredcore.Severity       `json:"severity,omitempty"`
-	Path                string                        `json:"path,omitempty"`
-	TestStatus          structuredcore.TestStatus     `json:"test_status,omitempty"`
-	Continuation        string                        `json:"continuation,omitempty"`
-	MaxRecords          int                           `json:"max_records,omitempty"`
-	EvidenceID          string                        `json:"evidence_id,omitempty"`
-	VerificationKind    coreevidence.VerificationKind `json:"verification_kind,omitempty"`
-	EvidenceResult      coreevidence.Result           `json:"result,omitempty"`
-	RevalidateArtifacts bool                          `json:"revalidate_artifacts,omitempty"`
-	MaxSamples          int                           `json:"max_samples,omitempty"`
-	ReproCreateID       string                        `json:"repro_create_id,omitempty"`
-	CapturePolicy       *reprocore.CapturePolicy      `json:"capture_policy,omitempty"`
-	ReproID             string                        `json:"repro_id,omitempty"`
+	Action              string                            `json:"action"`
+	OperationID         string                            `json:"operation_id,omitempty"`
+	WorkspaceID         string                            `json:"workspace_id,omitempty"`
+	ActivityID          string                            `json:"activity_id,omitempty"`
+	CodeQuery           *codeintel.Query                  `json:"code_query,omitempty"`
+	WorkspaceHint       *workspace.Hint                   `json:"workspace_hint,omitempty"`
+	StructuredAdapter   string                            `json:"structured_adapter,omitempty"`
+	ProjectCommandID    string                            `json:"project_command_id,omitempty"`
+	Params              map[string]string                 `json:"params,omitempty"`
+	Command             string                            `json:"command,omitempty"`
+	Argv                []string                          `json:"argv,omitempty"`
+	Intent              *operation.DeclaredIntent         `json:"intent,omitempty"`
+	Evidence            *coreevidence.Contract            `json:"evidence,omitempty"`
+	Freshness           environmentcore.Freshness         `json:"freshness,omitempty"`
+	Execution           *environmentcore.ExecutionContext `json:"execution,omitempty"`
+	ProcessTarget       *processcore.Target               `json:"process_target,omitempty"`
+	IncludePorts        bool                              `json:"include_ports,omitempty"`
+	CWD                 string                            `json:"cwd,omitempty"`
+	TTY                 bool                              `json:"tty,omitempty"`
+	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
+	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
+	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
+	SessionID           string                            `json:"session_id,omitempty"`
+	Selector            *outputview.Selector              `json:"selector,omitempty"`
+	Cursor              int64                             `json:"cursor,omitempty"`
+	InputOffset         int64                             `json:"input_offset,omitempty"`
+	Chars               string                            `json:"chars,omitempty"`
+	EOF                 bool                              `json:"eof,omitempty"`
+	KillID              string                            `json:"kill_id,omitempty"`
+	Signal              string                            `json:"signal,omitempty"`
+	Target              *observationcore.Target           `json:"target,omitempty"`
+	AfterEventCursor    string                            `json:"after_event_cursor,omitempty"`
+	MaxEvents           int                               `json:"max_events,omitempty"`
+	RecordKind          structuredcore.RecordKind         `json:"record_kind,omitempty"`
+	Severity            structuredcore.Severity           `json:"severity,omitempty"`
+	Path                string                            `json:"path,omitempty"`
+	TestStatus          structuredcore.TestStatus         `json:"test_status,omitempty"`
+	Continuation        string                            `json:"continuation,omitempty"`
+	MaxRecords          int                               `json:"max_records,omitempty"`
+	EvidenceID          string                            `json:"evidence_id,omitempty"`
+	VerificationKind    coreevidence.VerificationKind     `json:"verification_kind,omitempty"`
+	EvidenceResult      coreevidence.Result               `json:"result,omitempty"`
+	RevalidateArtifacts bool                              `json:"revalidate_artifacts,omitempty"`
+	MaxSamples          int                               `json:"max_samples,omitempty"`
+	ReproCreateID       string                            `json:"repro_create_id,omitempty"`
+	CapturePolicy       *reprocore.CapturePolicy          `json:"capture_policy,omitempty"`
+	ReproID             string                            `json:"repro_id,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -130,6 +136,24 @@ func validateV2(v input) error {
 	case "inspect.evidence":
 		_, err := evidenceapp.NormalizeInspectRequestForTransport(evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{EvidenceID: v.EvidenceID, OperationID: v.OperationID, WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, ActivityID: v.ActivityID, VerificationKind: v.VerificationKind, Result: v.EvidenceResult, RevalidateArtifacts: v.RevalidateArtifacts}, Continuation: v.Continuation, MaxRecords: v.MaxRecords})
 		return err
+	case "inspect.environment":
+		if v.WorkspaceID != "" {
+			if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
+				return err
+			}
+		}
+		if v.Freshness != "" && v.Freshness != environmentcore.FreshnessCached && v.Freshness != environmentcore.FreshnessRefresh {
+			return fmt.Errorf("invalid freshness")
+		}
+		if v.Execution != nil && ((v.Execution.Mode != "shell" && v.Execution.Mode != "argv") || v.Execution.Identity == "") {
+			return fmt.Errorf("invalid execution identity")
+		}
+		return nil
+	case "inspect.process":
+		if v.ProcessTarget == nil {
+			return fmt.Errorf("inspect.process requires process_target")
+		}
+		return v.ProcessTarget.Validate()
 	case "inspect.structured":
 		return (structuredapp.InspectRequest{OperationID: v.OperationID, Filter: structuredapp.RecordFilter{RecordKind: v.RecordKind, Severity: v.Severity, Path: v.Path, TestStatus: v.TestStatus}, Continuation: v.Continuation, MaxRecords: v.MaxRecords}).Validate()
 	case "inspect.telemetry", "repro.create", "inspect.repro":
@@ -340,6 +364,10 @@ func v2ActionFields(action string) []string {
 		return []string{"operation_id", "max_samples"}
 	case "inspect.evidence":
 		return []string{"evidence_id", "operation_id", "workspace_id", "project_command_id", "activity_id", "verification_kind", "result", "revalidate_artifacts", "continuation", "max_records"}
+	case "inspect.environment":
+		return []string{"workspace_id", "freshness", "execution"}
+	case "inspect.process":
+		return []string{"process_target", "include_ports"}
 	case "repro.create":
 		return []string{"repro_create_id", "operation_id", "capture_policy"}
 	case "inspect.repro":
