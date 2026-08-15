@@ -36,6 +36,14 @@ func (r *Repository) CommitMutationScopeSet(ctx context.Context, want core.Scope
 	if err := r.canAdmitMutationScopeSetLocked(want); err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
+	_, active, err := r.loadMutationScopeUnlocked(want.ScopeID)
+	if err != nil {
+		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
+	receipt.SetEffect = core.SetEffectCreated
+	if active {
+		receipt.SetEffect = core.SetEffectReplaced
+	}
 	pending := pendingForSet(want, identity, receipt)
 	if result := r.createMutationScopePendingLocked(pending); result.Err != nil {
 		return result
@@ -47,7 +55,7 @@ func (r *Repository) CommitMutationScopeRelease(ctx context.Context, scopeID str
 	if err := ctx.Err(); err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	if receipt.ScopeID != scopeID || receipt.Result == core.ResultSet || receipt.Validate() != nil {
+	if receipt.ScopeID != scopeID || receipt.Result != core.ResultReleased || receipt.Validate() != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: failure.New(failure.MutationScopeInvalid, map[string]string{"scope_id": scopeID, "reason": "invalid_release"}, nil)}
 	}
 	r.mutationScopeMu.Lock()
@@ -62,8 +70,9 @@ func (r *Repository) CommitMutationScopeRelease(ctx context.Context, scopeID str
 	if err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	if (active && receipt.Result != core.ResultReleased) || (!active && receipt.Result != core.ResultAlreadyAbsent) {
-		return app.StoreResult{Durability: app.NoDurableChange, Err: failure.New(failure.MutationScopeInvalid, map[string]string{"scope_id": scopeID, "reason": "release_state_mismatch"}, nil)}
+	receipt.Result = core.ResultAlreadyAbsent
+	if active {
+		receipt.Result = core.ResultReleased
 	}
 	pending := mutationScopePending{SchemaVersion: mutationScopeStoreSchema, Kind: "release", ScopeID: scopeID, Receipt: receipt}
 	if result := r.createMutationScopePendingLocked(pending); result.Err != nil {

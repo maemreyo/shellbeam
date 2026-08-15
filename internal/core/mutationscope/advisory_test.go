@@ -111,7 +111,7 @@ func TestBuildAdvisoryBoundsOverlapExamples(t *testing.T) {
 }
 
 func TestMutationReceiptValidatesExactlyOnceShape(t *testing.T) {
-	receipt := MutationReceipt{SchemaVersion: SchemaVersion, MutationID: "mutation-1", RequestFingerprint: strings.Repeat("a", 64), Result: ResultSet, ScopeID: "scope-a", CommittedAt: time.Unix(200, 0).UTC(), ExpiresAt: time.Unix(300, 0).UTC()}
+	receipt := MutationReceipt{SchemaVersion: SchemaVersion, MutationID: "mutation-1", RequestFingerprint: strings.Repeat("a", 64), Result: ResultSet, SetEffect: SetEffectCreated, ScopeID: "scope-a", CommittedAt: time.Unix(200, 0).UTC(), ExpiresAt: time.Unix(300, 0).UTC()}
 	if err := receipt.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -127,5 +127,31 @@ func TestScopeValidateRejectsPathLikeIDs(t *testing.T) {
 		if err := scope.Validate(); err == nil {
 			t.Fatalf("path-like scope id accepted: %q", id)
 		}
+	}
+}
+
+func TestMutationReceiptSetEffectIsRequiredAndBounded(t *testing.T) {
+	base := MutationReceipt{SchemaVersion: SchemaVersion, MutationID: "mutation-effect", RequestFingerprint: strings.Repeat("b", 64), Result: ResultSet, ScopeID: "scope-a", CommittedAt: time.Unix(200, 0).UTC(), ExpiresAt: time.Unix(300, 0).UTC()}
+	if err := base.Validate(); err == nil {
+		t.Fatal("durable set receipt without set effect accepted")
+	}
+	for _, effect := range []SetEffect{SetEffectCreated, SetEffectReplaced} {
+		got := base
+		got.SetEffect = effect
+		if err := got.Validate(); err != nil {
+			t.Fatalf("effect %q rejected: %v", effect, err)
+		}
+	}
+	bad := base
+	bad.SetEffect = SetEffect("other")
+	if err := bad.Validate(); err == nil {
+		t.Fatal("unknown set effect accepted")
+	}
+	release := base
+	release.Result = ResultReleased
+	release.ExpiresAt = time.Time{}
+	release.SetEffect = SetEffectCreated
+	if err := release.Validate(); err == nil {
+		t.Fatal("release receipt with set effect accepted")
 	}
 }

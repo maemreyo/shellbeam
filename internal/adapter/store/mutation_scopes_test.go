@@ -65,7 +65,7 @@ func TestMutationScopeStoreRoundTripAndReplay(t *testing.T) {
 		t.Fatalf("identity=%#v found=%v err=%v", bound, found, err)
 	}
 	storedReceipt, found, err := r.LoadMutationReceipt(context.Background(), receipt.MutationID)
-	if err != nil || !found || storedReceipt != receipt {
+	if err != nil || !found || storedReceipt.MutationID != receipt.MutationID || storedReceipt.SetEffect != scope.SetEffectCreated {
 		t.Fatalf("receipt=%#v found=%v err=%v", storedReceipt, found, err)
 	}
 	if got := r.CommitMutationScopeSet(context.Background(), s, identity, receipt); got.Err != nil {
@@ -116,6 +116,10 @@ func TestMutationScopeStoreOldRetryCannotRollbackNewRevision(t *testing.T) {
 	if got := r.CommitMutationScopeSet(context.Background(), second, identity, secondReceipt); got.Err != nil {
 		t.Fatal(got.Err)
 	}
+	storedSecond, found, err := r.LoadMutationReceipt(context.Background(), secondReceipt.MutationID)
+	if err != nil || !found || storedSecond.SetEffect != scope.SetEffectReplaced {
+		t.Fatalf("replacement receipt=%#v found=%v err=%v", storedSecond, found, err)
+	}
 	if got := r.CommitMutationScopeSet(context.Background(), first, identity, firstReceipt); got.Err != nil {
 		t.Fatalf("old retry=%#v", got)
 	}
@@ -143,11 +147,11 @@ func TestMutationScopeStoreReleaseAndAbsentReleaseAreDurable(t *testing.T) {
 	if _, found, err := r.LoadMutationScopeIdentity(context.Background(), "scope-a"); err != nil || !found {
 		t.Fatalf("identity after release found=%v err=%v", found, err)
 	}
-	noOp := scope.MutationReceipt{SchemaVersion: 1, MutationID: "mutation-noop", RequestFingerprint: strings.Repeat("c", 64), Result: scope.ResultAlreadyAbsent, ScopeID: "scope-a", CommittedAt: now.Add(2 * time.Second)}
-	if got := r.CommitMutationScopeRelease(context.Background(), "scope-a", noOp); got.Err != nil {
+	noOpIntent := scope.MutationReceipt{SchemaVersion: 1, MutationID: "mutation-noop", RequestFingerprint: strings.Repeat("c", 64), Result: scope.ResultReleased, ScopeID: "scope-a", CommittedAt: now.Add(2 * time.Second)}
+	if got := r.CommitMutationScopeRelease(context.Background(), "scope-a", noOpIntent); got.Err != nil {
 		t.Fatalf("absent release=%#v", got)
 	}
-	stored, found, err := r.LoadMutationReceipt(context.Background(), noOp.MutationID)
+	stored, found, err := r.LoadMutationReceipt(context.Background(), noOpIntent.MutationID)
 	if err != nil || !found || stored.Result != scope.ResultAlreadyAbsent {
 		t.Fatalf("noop receipt=%#v found=%v err=%v", stored, found, err)
 	}

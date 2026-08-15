@@ -79,12 +79,12 @@ func (r MutationReceipt) Validate() error {
 	}
 	switch r.Result {
 	case ResultSet:
-		if r.ExpiresAt.IsZero() || !r.ExpiresAt.After(r.CommittedAt) || r.ExpiresAt.Sub(r.CommittedAt) > MaxTTL {
+		if (r.SetEffect != SetEffectCreated && r.SetEffect != SetEffectReplaced) || r.ExpiresAt.IsZero() || !r.ExpiresAt.After(r.CommittedAt) || r.ExpiresAt.Sub(r.CommittedAt) > MaxTTL {
 			return fmt.Errorf("invalid set receipt")
 		}
 	case ResultReleased, ResultAlreadyAbsent:
-		if !r.ExpiresAt.IsZero() {
-			return fmt.Errorf("release receipt has expiry")
+		if r.SetEffect != "" || !r.ExpiresAt.IsZero() {
+			return fmt.Errorf("release receipt has set effect or expiry")
 		}
 	default:
 		return fmt.Errorf("invalid mutation result")

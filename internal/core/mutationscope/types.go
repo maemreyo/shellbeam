@@ -28,6 +28,13 @@ const (
 	ModeMutate Mode = "mutate"
 )
 
+type SetEffect string
+
+const (
+	SetEffectCreated  SetEffect = "created"
+	SetEffectReplaced SetEffect = "replaced"
+)
+
 type MutationResult string
 
 const (
@@ -68,6 +75,7 @@ type MutationReceipt struct {
 	MutationID         string         `json:"mutation_id"`
 	RequestFingerprint string         `json:"request_fingerprint"`
 	Result             MutationResult `json:"result"`
+	SetEffect          SetEffect      `json:"set_effect,omitempty"`
 	ScopeID            string         `json:"scope_id"`
 	CommittedAt        time.Time      `json:"committed_at"`
 	ExpiresAt          time.Time      `json:"expires_at,omitempty"`
@@ -95,6 +103,8 @@ type InspectResult struct {
 	Advisories          []Advisory `json:"advisories"`
 	ActiveCount         int        `json:"active_count"`
 	AdvisoryCount       int        `json:"advisory_count"`
+	ActiveScopeLimit    int        `json:"active_scope_limit"`
+	AdvisoryLimit       int        `json:"advisory_limit"`
 	ScopesTruncated     bool       `json:"scopes_truncated,omitempty"`
 	AdvisoriesTruncated bool       `json:"advisories_truncated,omitempty"`
 }

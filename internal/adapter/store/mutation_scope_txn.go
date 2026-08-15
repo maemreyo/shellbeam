@@ -187,10 +187,15 @@ func validateSetMutation(scopeValue core.Scope, identity core.ScopeIdentity, rec
 	if err := identity.Validate(); err != nil {
 		return err
 	}
-	if err := receipt.Validate(); err != nil {
+	if receipt.Result != core.ResultSet || receipt.SetEffect != "" {
+		return failure.New(failure.MutationScopeInvalid, map[string]string{"scope_id": scopeValue.ScopeID, "reason": "invalid_set_intent"}, nil)
+	}
+	validatedReceipt := receipt
+	validatedReceipt.SetEffect = core.SetEffectCreated
+	if err := validatedReceipt.Validate(); err != nil {
 		return err
 	}
-	if receipt.Result != core.ResultSet || receipt.ScopeID != scopeValue.ScopeID || identity.ScopeID != scopeValue.ScopeID || identity.ActivityID != scopeValue.ActivityID || identity.WorkspaceID != scopeValue.WorkspaceID || receipt.MutationID != scopeValue.RevisionID || !receipt.ExpiresAt.Equal(scopeValue.ExpiresAt) {
+	if receipt.ScopeID != scopeValue.ScopeID || identity.ScopeID != scopeValue.ScopeID || identity.ActivityID != scopeValue.ActivityID || identity.WorkspaceID != scopeValue.WorkspaceID || receipt.MutationID != scopeValue.RevisionID || !receipt.ExpiresAt.Equal(scopeValue.ExpiresAt) {
 		return failure.New(failure.MutationScopeInvalid, map[string]string{"scope_id": scopeValue.ScopeID, "reason": "inconsistent_set"}, nil)
 	}
 	return nil
