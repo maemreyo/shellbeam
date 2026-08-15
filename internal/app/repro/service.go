@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sort"
 	"time"
 
@@ -81,7 +82,7 @@ func (s *Service) Create(ctx context.Context, request core.CreateRequest) (core.
 	if err != nil {
 		return core.Capsule{}, err
 	}
-	execution, err := commandDescriptor(reservation, rec.ExecutionFingerprint, rec.ExecutionMode, rec.Executable)
+	execution, err := commandDescriptor(reservation, rec.ExecutionFingerprint, rec.ExecutionMode, rec.Executable, rec.ProjectCommand)
 	if err != nil {
 		return core.Capsule{}, err
 	}
@@ -95,17 +96,8 @@ func (s *Service) Create(ctx context.Context, request core.CreateRequest) (core.
 	if err != nil {
 		return core.Capsule{}, err
 	}
-	if structuredFound {
-		if err := structuredDerivation.Validate(); err != nil {
-			return core.Capsule{}, failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": request.OperationID, "reason": "structured_state_invalid"}, err)
-		}
-	}
-	if telemetryFound {
-		if err := telemetryRecord.Validate(); err != nil || telemetryRecord.OperationID != request.OperationID || telemetryRecord.SessionID != rec.SessionID || telemetryRecord.ReceiptDigest != receiptDigest {
-			return core.Capsule{}, failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": request.OperationID, "reason": "telemetry_state_invalid"}, err)
-		}
-		execution.ProjectCommandID = telemetryRecord.ProjectCommandID
-		execution.ParameterBindingFingerprint = telemetryRecord.ParameterBindingFingerprint
+	if err := validateDerivedExecution(request.OperationID, &execution, rec, receiptDigest, structuredDerivation, structuredFound, telemetryRecord, telemetryFound); err != nil {
+		return core.Capsule{}, err
 	}
 
 	source := sourceDescriptor(rec, telemetryRecord, telemetryFound)
@@ -115,6 +107,9 @@ func (s *Service) Create(ctx context.Context, request core.CreateRequest) (core.
 		Complete: rec.InputAcceptedBytes == rec.InputDeliveredBytes, ContentIdentity: core.CaptureUnavailable,
 	}
 	project := core.ProjectDescriptor{Quality: core.CaptureUnavailable}
+	if rec.ProjectCommand != nil {
+		project = core.ProjectDescriptor{ManifestDigest: rec.ProjectCommand.ManifestDigest, Quality: core.CaptureExact}
+	}
 	results, producers := currentResultDescriptors(request.OperationID, reservation, structuredDerivation, structuredFound, telemetryRecord, telemetryFound)
 	cut := captureCut{SchemaVersion: 1, Execution: execution, Source: source, Project: project, Environment: environment, Input: input, Results: results, Producers: producers}
 	cutDigest, err := digestCaptureCut(cut)
@@ -139,6 +134,29 @@ func (s *Service) Create(ctx context.Context, request core.CreateRequest) (core.
 	return winner, err
 }
 
+func validateDerivedExecution(operationID string, execution *core.ExecutionDescriptor, rec receipt.Receipt, receiptDigest string, structuredDerivation structured.Derivation, structuredFound bool, telemetryRecord telemetry.PerformanceRecord, telemetryFound bool) error {
+	if structuredFound {
+		if err := structuredDerivation.Validate(); err != nil {
+			return failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "structured_state_invalid"}, err)
+		}
+	}
+	if !telemetryFound {
+		return nil
+	}
+	if err := telemetryRecord.Validate(); err != nil || telemetryRecord.OperationID != operationID || telemetryRecord.SessionID != rec.SessionID || telemetryRecord.ReceiptDigest != receiptDigest {
+		return failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "telemetry_state_invalid"}, err)
+	}
+	if execution.ProjectCommandBindingDigest != "" {
+		if telemetryRecord.ProjectCommandBindingDigest != execution.ProjectCommandBindingDigest {
+			return failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "telemetry_binding_mismatch"}, nil)
+		}
+		return nil
+	}
+	execution.ProjectCommandID = telemetryRecord.ProjectCommandID
+	execution.ParameterBindingFingerprint = telemetryRecord.ParameterBindingFingerprint
+	return nil
+}
+
 func (s *Service) authoritativeExecution(ctx context.Context, operationID string) (operation.Reservation, receipt.Receipt, string, error) {
 	id, err := operation.ParseID(operationID)
 	if err != nil {
@@ -160,6 +178,16 @@ func (s *Service) authoritativeExecution(ctx context.Context, operationID string
 	}
 	if reservation.ExecutionFingerprint != "" && reservation.ExecutionFingerprint != rec.ExecutionFingerprint {
 		return operation.Reservation{}, receipt.Receipt{}, "", failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "execution_fingerprint_mismatch"}, nil)
+	}
+	if (reservation.ProjectCommand == nil) != (rec.ProjectCommand == nil) {
+		return operation.Reservation{}, receipt.Receipt{}, "", failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "project_command_binding_mismatch"}, nil)
+	}
+	if rec.ProjectCommand != nil {
+		receiptBindingDigest, receiptErr := rec.ProjectCommand.Digest()
+		reservationBindingDigest, reservationErr := reservation.ProjectCommand.Digest()
+		if receiptErr != nil || reservationErr != nil || receiptBindingDigest != reservationBindingDigest {
+			return operation.Reservation{}, receipt.Receipt{}, "", failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "project_command_binding_mismatch"}, errors.Join(receiptErr, reservationErr))
+		}
 	}
 	digest, err := receipt.Digest(rec)
 	if err != nil {

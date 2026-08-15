@@ -132,3 +132,65 @@ func projectCommandReceiptV3SchemaValue() map[string]any {
 		"spawn_evidence": map[string]any{"attempted": true, "succeeded": true}, "exit_evidence": map[string]any{"reaped": true, "code": 0.0}, "signal_evidence": map[string]any{"attempted": false, "succeeded": false},
 	}
 }
+
+func TestTypedProjectCommandReproSchemaPreservesFrozenBindingFacts(t *testing.T) {
+	capsule := reproSchemaCapsule()
+	execution := capsule["execution"].(map[string]any)
+	execution["project_command_binding_digest"] = strings.Repeat("b", 64)
+	execution["project_manifest_digest"] = strings.Repeat("c", 64)
+	execution["project_command_id"] = "test_package"
+	execution["parameter_binding_fingerprint"] = strings.Repeat("d", 64)
+	execution["parameter_providers"] = []any{map[string]any{"parameter_id": "package", "provider_id": "go-repo-package", "provider_version": 1.0}}
+	capsule["project"] = map[string]any{"manifest_digest": strings.Repeat("c", 64), "quality": "exact"}
+	for _, tc := range []struct {
+		name  Name
+		value map[string]any
+	}{
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "repro.create", "capsule": capsule}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "typed-repro", "action": "repro.create", "ok": true, "capsule": capsule}},
+	} {
+		if err := resolvedSchema(t, tc.name).Validate(tc.value); err != nil {
+			t.Errorf("%s rejected typed repro capsule: %v", tc.name, err)
+		}
+	}
+	bad := reproSchemaCapsule()
+	badExecution := bad["execution"].(map[string]any)
+	badExecution["parameter_providers"] = []any{map[string]any{"parameter_id": "package", "provider_id": "go-repo-package", "provider_version": 1.0, "raw_value": "secret"}}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "repro.create", "capsule": bad}); err == nil {
+		t.Fatal("repro schema accepted open provider descriptor")
+	}
+}
+
+func TestTypedProjectCommandTelemetrySchemaCarriesBindingDigest(t *testing.T) {
+	d := strings.Repeat("a", 64)
+	metric := map[string]any{"quality": "unavailable"}
+	record := map[string]any{
+		"schema_version": 1.0, "derivation_key": d, "derivation_schema_version": 1.0, "derivation_config_digest": d,
+		"producer":     map[string]any{"producer_id": "shellbeam.telemetry", "producer_version": 1.0, "capability_version": 1.0},
+		"operation_id": "typed-op", "session_id": "typed-session", "receipt_digest": d,
+		"project_command_id": "test_package", "parameter_binding_fingerprint": strings.Repeat("b", 64), "project_command_binding_digest": strings.Repeat("c", 64),
+		"command_semantics_fingerprint": strings.Repeat("d", 64), "scope_class": "project_command", "platform": "darwin", "architecture": "arm64",
+		"wall_ms": 1.0, "output_bytes": 0.0, "input_accepted_bytes": 0.0, "input_delivered_bytes": 0.0,
+		"terminal_outcome": "success", "timed_out": false, "captured_at": "2026-08-15T01:00:00Z", "lifecycle": "terminal", "completeness": "complete",
+		"resources": map[string]any{"cpu_user_ms": metric, "cpu_system_ms": metric, "max_rss_bytes": metric, "read_bytes": metric, "write_bytes": metric, "process_count_peak": metric},
+	}
+	inspection := map[string]any{"schema_version": 1.0, "status": "available", "operation_id": "typed-op", "compatibility_key": d, "latest": record, "samples_returned": 1.0, "samples_available": 1.0}
+	for _, tc := range []struct {
+		name  Name
+		value map[string]any
+	}{
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.telemetry", "telemetry": inspection}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "typed-telemetry", "action": "inspect.telemetry", "ok": true, "telemetry": inspection}},
+	} {
+		if err := resolvedSchema(t, tc.name).Validate(tc.value); err != nil {
+			t.Errorf("%s rejected typed telemetry binding digest: %v", tc.name, err)
+		}
+	}
+	badRecord := cloneProjectCommandMap(record)
+	badRecord["project_command_binding_digest"] = "bad"
+	badInspection := cloneProjectCommandMap(inspection)
+	badInspection["latest"] = badRecord
+	if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.telemetry", "telemetry": badInspection}); err == nil {
+		t.Fatal("telemetry schema accepted invalid binding digest")
+	}
+}

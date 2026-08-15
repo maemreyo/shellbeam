@@ -109,3 +109,31 @@ func validCapsule() Capsule {
 		},
 	}
 }
+
+func TestTypedProjectCommandDescriptorIsBoundedAndValidated(t *testing.T) {
+	capsule := validCapsule()
+	capsule.Execution.ProjectCommandBindingDigest = strings.Repeat("1", 64)
+	capsule.Execution.ProjectManifestDigest = strings.Repeat("2", 64)
+	capsule.Execution.ProjectCommandID = "test_package"
+	capsule.Execution.ParameterBindingFingerprint = strings.Repeat("3", 64)
+	capsule.Execution.ParameterProviders = []ParameterProviderDescriptor{{ParameterID: "package", ProviderID: "go-repo-package", ProviderVersion: 1}}
+	capsule.Project = ProjectDescriptor{ManifestDigest: strings.Repeat("2", 64), Quality: CaptureExact}
+	if err := capsule.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	bad := capsule
+	bad.Execution.ProjectCommandBindingDigest = "bad"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("invalid binding digest accepted")
+	}
+	bad = capsule
+	bad.Execution.ParameterProviders = []ParameterProviderDescriptor{{ParameterID: "../bad", ProviderID: "go-repo-package", ProviderVersion: 1}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("invalid provider descriptor accepted")
+	}
+	bad = capsule
+	bad.Execution.ProjectManifestDigest = ""
+	if err := bad.Validate(); err == nil {
+		t.Fatal("typed command descriptor accepted without manifest digest")
+	}
+}

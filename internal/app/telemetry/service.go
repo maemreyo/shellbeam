@@ -51,14 +51,17 @@ func newService(repository Repository, platform, architecture string) (*Service,
 }
 
 type terminalAuthority struct {
-	receipt          receipt.Receipt
-	receiptDigest    string
-	reservation      operation.Reservation
-	snapshot         session.Snapshot
-	commandSemantics string
-	repositoryID     string
-	workspaceID      string
-	scope            core.ScopeClass
+	receipt                     receipt.Receipt
+	receiptDigest               string
+	reservation                 operation.Reservation
+	snapshot                    session.Snapshot
+	commandSemantics            string
+	repositoryID                string
+	workspaceID                 string
+	scope                       core.ScopeClass
+	projectCommandID            string
+	parameterBindingFingerprint string
+	projectCommandBindingDigest string
 }
 
 func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt) (core.PerformanceRecord, error) {
@@ -83,6 +86,7 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 		DerivationConfigDigest: s.configDigest, Producer: s.producer,
 		OperationID: authority.receipt.OperationID, SessionID: authority.receipt.SessionID, ReceiptDigest: authority.receiptDigest,
 		RepositoryID: authority.repositoryID, WorkspaceID: authority.workspaceID, ActivityID: authority.reservation.ActivityID,
+		ProjectCommandID: authority.projectCommandID, ParameterBindingFingerprint: authority.parameterBindingFingerprint, ProjectCommandBindingDigest: authority.projectCommandBindingDigest,
 		CommandSemanticsFingerprint: authority.commandSemantics, ScopeClass: authority.scope,
 		Platform: s.platform, Architecture: s.architecture,
 		WallMS: wallMS, OutputBytes: authority.receipt.OutputBytes, InputAcceptedBytes: authority.receipt.InputAcceptedBytes, InputDeliveredBytes: authority.receipt.InputDeliveredBytes,
@@ -160,14 +164,51 @@ func (s *Service) loadTerminalAuthority(ctx context.Context, scheduled receipt.R
 	if reservation.WorkspaceID != "" && workspaceID != "" && reservation.WorkspaceID != workspaceID {
 		return terminalAuthority{}, fmt.Errorf("telemetry workspace binding mismatch")
 	}
-	scope, err := executionScope(reservation.ExecutionMode, stored.ExecutionMode)
+	scope, projectCommandID, parameterFingerprint, bindingDigest, err := telemetryProjectCommandAuthority(reservation, stored)
 	if err != nil {
 		return terminalAuthority{}, err
+	}
+	if scope == "" {
+		scope, err = executionScope(reservation.ExecutionMode, stored.ExecutionMode)
+		if err != nil {
+			return terminalAuthority{}, err
+		}
 	}
 	return terminalAuthority{
 		receipt: stored, receiptDigest: storedDigest, reservation: reservation, snapshot: snapshot,
 		commandSemantics: commandSemantics, repositoryID: repositoryID, workspaceID: workspaceID, scope: scope,
+		projectCommandID: projectCommandID, parameterBindingFingerprint: parameterFingerprint, projectCommandBindingDigest: bindingDigest,
 	}, nil
+}
+
+func telemetryProjectCommandAuthority(reservation operation.Reservation, rec receipt.Receipt) (core.ScopeClass, string, string, string, error) {
+	if rec.ProjectCommand == nil {
+		if reservation.ProjectCommand != nil {
+			return "", "", "", "", fmt.Errorf("telemetry project command reservation lacks receipt authority")
+		}
+		return "", "", "", "", nil
+	}
+	if reservation.ProjectCommand == nil {
+		return "", "", "", "", fmt.Errorf("telemetry project command receipt lacks reservation authority")
+	}
+	if err := rec.ProjectCommand.Validate(); err != nil {
+		return "", "", "", "", err
+	}
+	if err := reservation.ProjectCommand.Validate(); err != nil {
+		return "", "", "", "", err
+	}
+	receiptDigest, err := rec.ProjectCommand.Digest()
+	if err != nil {
+		return "", "", "", "", err
+	}
+	reservationDigest, err := reservation.ProjectCommand.Digest()
+	if err != nil {
+		return "", "", "", "", err
+	}
+	if receiptDigest != reservationDigest {
+		return "", "", "", "", fmt.Errorf("telemetry project command binding mismatch")
+	}
+	return core.ScopeProjectCommand, rec.ProjectCommand.CommandID, rec.ProjectCommand.ParameterFingerprint, receiptDigest, nil
 }
 
 func receiptWorkspaceBinding(rec receipt.Receipt) (string, string) {

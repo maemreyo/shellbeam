@@ -41,3 +41,42 @@ func TestCreateOmitsUnsafeCommandMaterialButRetainsSafeArgv(t *testing.T) {
 		t.Fatalf("safe argv not retained: %#v", safe.Execution)
 	}
 }
+
+func TestCreateTypedProjectCommandRedactsUnsafeFrozenArgvButKeepsBindingFacts(t *testing.T) {
+	repo := reproFixture(t)
+	binding := reproProjectCommandBinding(t)
+	binding.ResolvedArgv = []string{"go", "test", "--token=super-secret"}
+	if err := binding.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	repo.receipt.SchemaVersion = 3
+	repo.receipt.ProjectCommand = &binding
+	repo.receipt.CWD = binding.ResolvedCWD
+	repo.reservation.SchemaVersion = 3
+	repo.reservation.ProjectCommand = &binding
+	repo.reservation.Argv = append([]string(nil), binding.ResolvedArgv...)
+	repo.reservation.LogicalCWD = binding.LogicalCWD
+	repo.reservation.CWD = binding.ResolvedCWD
+	repo.telemetryFound = false
+
+	capsule, err := New(repo).Create(context.Background(), core.CreateRequest{CreateID: "repro-typed-private-1", OperationID: "op-repro-1", Policy: core.CapturePolicy{DependentDerivations: core.CaptureCurrent}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(capsule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "--token=super-secret") {
+		t.Fatalf("typed capsule leaked frozen argv: %s", encoded)
+	}
+	if len(capsule.Execution.ResolvedArgv) != 0 || capsule.Execution.CommandDetails != core.CapturePartial {
+		t.Fatalf("unsafe typed argv was not redacted: %#v", capsule.Execution)
+	}
+	if capsule.Execution.ProjectCommandBindingDigest == "" || capsule.Execution.ProjectManifestDigest != binding.ManifestDigest || capsule.Execution.ProjectCommandID != binding.CommandID {
+		t.Fatalf("typed binding facts were lost during redaction: %#v", capsule.Execution)
+	}
+	if got := capsule.Execution.ParameterProviders; !reflect.DeepEqual(got, []core.ParameterProviderDescriptor{{ParameterID: "package", ProviderID: "go-repo-package", ProviderVersion: 1}}) {
+		t.Fatalf("provider facts=%#v", got)
+	}
+}

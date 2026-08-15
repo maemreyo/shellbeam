@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	core "github.com/maemreyo/shellbeam/internal/core/repro"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -213,4 +214,71 @@ func telemetryFixtureForRepro(t *testing.T, rec receipt.Receipt) telemetry.Perfo
 		t.Fatal(err)
 	}
 	return record
+}
+
+func TestCreateFreezesTypedProjectCommandFromReceiptWithoutTelemetry(t *testing.T) {
+	repo := reproFixture(t)
+	binding := reproProjectCommandBinding(t)
+	repo.receipt.SchemaVersion = 3
+	repo.receipt.ProjectCommand = &binding
+	repo.receipt.CWD = binding.ResolvedCWD
+	repo.reservation.SchemaVersion = 3
+	repo.reservation.ProjectCommand = &binding
+	repo.reservation.Argv = append([]string(nil), binding.ResolvedArgv...)
+	repo.reservation.LogicalCWD = binding.LogicalCWD
+	repo.reservation.CWD = binding.ResolvedCWD
+	repo.telemetryFound = false
+
+	capsule, err := New(repo).Create(context.Background(), core.CreateRequest{CreateID: "repro-typed-1", OperationID: "op-repro-1", Policy: core.CapturePolicy{DependentDerivations: core.CaptureCurrent}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindingDigest, err := binding.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capsule.Execution.ProjectCommandBindingDigest != bindingDigest || capsule.Execution.ProjectManifestDigest != binding.ManifestDigest || capsule.Execution.ProjectCommandID != binding.CommandID || capsule.Execution.ParameterBindingFingerprint != binding.ParameterFingerprint {
+		t.Fatalf("typed execution provenance=%#v", capsule.Execution)
+	}
+	if !reflect.DeepEqual(capsule.Execution.ResolvedArgv, binding.ResolvedArgv) || capsule.Execution.CommandDetails != core.CaptureExact {
+		t.Fatalf("frozen argv=%#v", capsule.Execution)
+	}
+	wantProviders := []core.ParameterProviderDescriptor{{ParameterID: "package", ProviderID: "go-repo-package", ProviderVersion: 1}}
+	if !reflect.DeepEqual(capsule.Execution.ParameterProviders, wantProviders) {
+		t.Fatalf("providers=%#v want=%#v", capsule.Execution.ParameterProviders, wantProviders)
+	}
+	if capsule.Project.ManifestDigest != binding.ManifestDigest || capsule.Project.Quality != core.CaptureExact {
+		t.Fatalf("project descriptor=%#v", capsule.Project)
+	}
+}
+
+func TestCreateOrdinaryOperationKeepsTypedProjectCommandDescriptorAbsent(t *testing.T) {
+	repo := reproFixture(t)
+	capsule, err := New(repo).Create(context.Background(), core.CreateRequest{CreateID: "repro-ordinary-1", OperationID: "op-repro-1", Policy: core.CapturePolicy{DependentDerivations: core.CaptureCurrent}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capsule.Execution.ProjectCommandBindingDigest != "" || capsule.Execution.ProjectManifestDigest != "" || capsule.Execution.ParameterBindingFingerprint != "" || len(capsule.Execution.ParameterProviders) != 0 {
+		t.Fatalf("ordinary operation gained typed descriptor: %#v", capsule.Execution)
+	}
+}
+
+func reproProjectCommandBinding(t *testing.T) project.CommandBinding {
+	t.Helper()
+	params := []project.ParameterBinding{{ID: "package", Kind: project.ParameterRepoPackage, Value: "./internal/app", Source: project.BindingSourceCaller, ProviderID: "go-repo-package", ProviderVersion: 1}}
+	fingerprint, err := project.ParameterFingerprint(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := project.CommandBinding{
+		SchemaVersion:  project.BindingSchemaVersion,
+		ManifestDigest: strings.Repeat("4", 64), ManifestSchemaVersion: project.ManifestSchemaV2,
+		CommandID: "test_package", ParameterFingerprint: fingerprint, Parameters: params,
+		ResolvedArgv: []string{"go", "test", "./internal/app"}, LogicalCWD: ".", ResolvedCWD: "/tmp",
+		SourceGeneration: "gen_" + strings.Repeat("5", 64), PathObservationQuality: project.PathObservationExactAtBind,
+	}
+	if err := binding.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return binding
 }

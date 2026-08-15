@@ -147,3 +147,29 @@ func validPerformanceRecord() PerformanceRecord {
 		},
 	}
 }
+
+func TestProjectCommandBindingDigestSplitsCompatibilityIdentity(t *testing.T) {
+	base := validPerformanceRecord()
+	base.ProjectCommandID = "test_full"
+	base.ParameterBindingFingerprint = strings.Repeat("8", 64)
+	base.ProjectCommandBindingDigest = strings.Repeat("9", 64)
+	base.ScopeClass = ScopeProjectCommand
+	first, err := CompatibilityKey(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := base
+	changed.ProjectCommandBindingDigest = strings.Repeat("7", 64)
+	second, err := CompatibilityKey(changed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("changed frozen project command binding merged into one compatibility key")
+	}
+	bad := base
+	bad.ProjectCommandBindingDigest = "bad"
+	if err := bad.Validate(); err == nil {
+		t.Fatal("invalid project command binding digest accepted")
+	}
+}

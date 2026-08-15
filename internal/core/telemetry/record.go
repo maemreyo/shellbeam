@@ -79,6 +79,7 @@ type PerformanceRecord struct {
 	CommandSemanticsFingerprint string          `json:"command_semantics_fingerprint"`
 	CommandDefinitionDigest     string          `json:"command_definition_digest,omitempty"`
 	ParameterBindingFingerprint string          `json:"parameter_binding_fingerprint,omitempty"`
+	ProjectCommandBindingDigest string          `json:"project_command_binding_digest,omitempty"`
 	SourceContentDigest         string          `json:"source_content_digest,omitempty"`
 	SourceScopeDigest           string          `json:"source_scope_digest,omitempty"`
 	EnvironmentFingerprint      string          `json:"environment_fingerprint,omitempty"`
@@ -131,6 +132,7 @@ func CompatibilityKey(record PerformanceRecord) (string, error) {
 		CommandSemanticsFingerprint string     `json:"command_semantics_fingerprint"`
 		CommandDefinitionDigest     string     `json:"command_definition_digest,omitempty"`
 		ParameterBindingFingerprint string     `json:"parameter_binding_fingerprint,omitempty"`
+		ProjectCommandBindingDigest string     `json:"project_command_binding_digest,omitempty"`
 		EnvironmentFingerprint      string     `json:"environment_fingerprint,omitempty"`
 		EnvironmentSchemaVersion    int        `json:"environment_schema_version,omitempty"`
 		ToolchainFingerprint        string     `json:"toolchain_fingerprint,omitempty"`
@@ -140,7 +142,7 @@ func CompatibilityKey(record PerformanceRecord) (string, error) {
 		Architecture                string     `json:"architecture"`
 	}{
 		record.SchemaVersion, scope, record.WorkspaceID, record.CommandSemanticsFingerprint,
-		record.CommandDefinitionDigest, record.ParameterBindingFingerprint,
+		record.CommandDefinitionDigest, record.ParameterBindingFingerprint, record.ProjectCommandBindingDigest,
 		record.EnvironmentFingerprint, record.EnvironmentSchemaVersion,
 		record.ToolchainFingerprint, record.ToolchainSchemaVersion,
 		record.ScopeClass, record.Platform, record.Architecture,
@@ -190,7 +192,7 @@ func (record PerformanceRecord) Validate() error {
 	if record.ProjectCommandID != "" && !safeOpaque(record.ProjectCommandID, 128) {
 		return fmt.Errorf("invalid project command id")
 	}
-	for _, digest := range []string{record.CommandDefinitionDigest, record.ParameterBindingFingerprint, record.SourceContentDigest, record.SourceScopeDigest} {
+	for _, digest := range []string{record.CommandDefinitionDigest, record.ParameterBindingFingerprint, record.ProjectCommandBindingDigest, record.SourceContentDigest, record.SourceScopeDigest} {
 		if digest != "" && !validDigest(digest) {
 			return fmt.Errorf("invalid optional telemetry digest")
 		}

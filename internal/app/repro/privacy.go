@@ -5,10 +5,11 @@ import (
 	"unicode"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	core "github.com/maemreyo/shellbeam/internal/core/repro"
 )
 
-func commandDescriptor(reservation operation.Reservation, executionFingerprint, receiptMode, receiptExecutable string) (core.ExecutionDescriptor, error) {
+func commandDescriptor(reservation operation.Reservation, executionFingerprint, receiptMode, receiptExecutable string, binding *project.CommandBinding) (core.ExecutionDescriptor, error) {
 	mode := string(reservation.ExecutionMode)
 	if receiptMode != "" {
 		mode = receiptMode
@@ -27,14 +28,35 @@ func commandDescriptor(reservation operation.Reservation, executionFingerprint, 
 	if safeCommandAtom(executable, 512) {
 		descriptor.Executable = executable
 	}
+	argvSource := reservation.Argv
+	if binding != nil {
+		if err := binding.Validate(); err != nil {
+			return core.ExecutionDescriptor{}, err
+		}
+		bindingDigest, err := binding.Digest()
+		if err != nil {
+			return core.ExecutionDescriptor{}, err
+		}
+		descriptor.ProjectCommandBindingDigest = bindingDigest
+		descriptor.ProjectManifestDigest = binding.ManifestDigest
+		descriptor.ProjectCommandID = binding.CommandID
+		descriptor.ParameterBindingFingerprint = binding.ParameterFingerprint
+		for _, parameter := range binding.Parameters {
+			if parameter.ProviderID == "" {
+				continue
+			}
+			descriptor.ParameterProviders = append(descriptor.ParameterProviders, core.ParameterProviderDescriptor{ParameterID: parameter.ID, ProviderID: parameter.ProviderID, ProviderVersion: parameter.ProviderVersion})
+		}
+		argvSource = binding.ResolvedArgv
+	}
 	if mode != string(operation.ExecutionModeArgv) {
 		return descriptor, nil
 	}
-	if len(reservation.Argv) == 0 || len(reservation.Argv) > core.MaxResolvedArgv {
+	if len(argvSource) == 0 || len(argvSource) > core.MaxResolvedArgv {
 		return descriptor, nil
 	}
-	argv := make([]string, 0, len(reservation.Argv))
-	for _, arg := range reservation.Argv {
+	argv := make([]string, 0, len(argvSource))
+	for _, arg := range argvSource {
 		if !safeCommandAtom(arg, core.MaxArgumentBytes) {
 			return descriptor, nil
 		}

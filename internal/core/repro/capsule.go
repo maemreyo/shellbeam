@@ -51,7 +51,10 @@ const (
 	ResolutionUnavailable ResolutionState = "unavailable"
 )
 
-var reproIDPattern = regexp.MustCompile(`^repro_[0-9A-HJKMNP-TV-Z]{26}$`)
+var (
+	reproIDPattern        = regexp.MustCompile(`^repro_[0-9A-HJKMNP-TV-Z]{26}$`)
+	projectFieldIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+)
 
 type CapturePolicy struct {
 	DependentDerivations DependentDerivationPolicy `json:"dependent_derivations"`
@@ -64,17 +67,33 @@ type CreateRequest struct {
 }
 
 type ExecutionDescriptor struct {
-	OperationID                 string       `json:"operation_id"`
-	SessionID                   string       `json:"session_id"`
-	ReceiptDigest               string       `json:"receipt_digest"`
-	CommandSemanticsFingerprint string       `json:"command_semantics_fingerprint"`
-	ProjectCommandID            string       `json:"project_command_id,omitempty"`
-	ParameterBindingFingerprint string       `json:"parameter_binding_fingerprint,omitempty"`
-	ExecutionMode               string       `json:"execution_mode"`
-	Executable                  string       `json:"executable,omitempty"`
-	ResolvedArgv                []string     `json:"resolved_argv,omitempty"`
-	ShellFingerprint            string       `json:"shell_fingerprint,omitempty"`
-	CommandDetails              CaptureState `json:"command_details"`
+	OperationID                 string                        `json:"operation_id"`
+	SessionID                   string                        `json:"session_id"`
+	ReceiptDigest               string                        `json:"receipt_digest"`
+	CommandSemanticsFingerprint string                        `json:"command_semantics_fingerprint"`
+	ProjectCommandID            string                        `json:"project_command_id,omitempty"`
+	ParameterBindingFingerprint string                        `json:"parameter_binding_fingerprint,omitempty"`
+	ProjectCommandBindingDigest string                        `json:"project_command_binding_digest,omitempty"`
+	ProjectManifestDigest       string                        `json:"project_manifest_digest,omitempty"`
+	ParameterProviders          []ParameterProviderDescriptor `json:"parameter_providers,omitempty"`
+	ExecutionMode               string                        `json:"execution_mode"`
+	Executable                  string                        `json:"executable,omitempty"`
+	ResolvedArgv                []string                      `json:"resolved_argv,omitempty"`
+	ShellFingerprint            string                        `json:"shell_fingerprint,omitempty"`
+	CommandDetails              CaptureState                  `json:"command_details"`
+}
+
+type ParameterProviderDescriptor struct {
+	ParameterID     string `json:"parameter_id"`
+	ProviderID      string `json:"provider_id"`
+	ProviderVersion int    `json:"provider_version"`
+}
+
+func (descriptor ParameterProviderDescriptor) validate() error {
+	if !projectFieldIDPattern.MatchString(descriptor.ParameterID) || !projectFieldIDPattern.MatchString(descriptor.ProviderID) || descriptor.ProviderVersion < 1 {
+		return fmt.Errorf("invalid project command provider descriptor")
+	}
+	return nil
 }
 
 type SourceDescriptor struct {
@@ -191,6 +210,9 @@ func (capsule Capsule) Validate() error {
 	if err := capsule.Project.validate(); err != nil {
 		return err
 	}
+	if capsule.Execution.ProjectManifestDigest != "" && (capsule.Project.ManifestDigest != capsule.Execution.ProjectManifestDigest || capsule.Project.Quality != CaptureExact) {
+		return fmt.Errorf("project command manifest capture mismatch")
+	}
 	if err := capsule.Environment.validate(); err != nil {
 		return err
 	}
@@ -230,13 +252,27 @@ func (descriptor ExecutionDescriptor) validate() error {
 	if !validDigest(descriptor.ReceiptDigest) || !validDigest(descriptor.CommandSemanticsFingerprint) {
 		return fmt.Errorf("invalid repro execution digest")
 	}
-	for _, digest := range []string{descriptor.ParameterBindingFingerprint, descriptor.ShellFingerprint} {
+	for _, digest := range []string{descriptor.ParameterBindingFingerprint, descriptor.ProjectCommandBindingDigest, descriptor.ProjectManifestDigest, descriptor.ShellFingerprint} {
 		if digest != "" && !validDigest(digest) {
 			return fmt.Errorf("invalid repro command digest")
 		}
 	}
-	if descriptor.ProjectCommandID != "" && !safeText(descriptor.ProjectCommandID, 128) {
+	if descriptor.ProjectCommandID != "" && !projectFieldIDPattern.MatchString(descriptor.ProjectCommandID) {
 		return fmt.Errorf("invalid project command id")
+	}
+	typed := descriptor.ProjectCommandBindingDigest != "" || descriptor.ProjectManifestDigest != "" || len(descriptor.ParameterProviders) != 0
+	if typed {
+		if descriptor.ProjectCommandBindingDigest == "" || descriptor.ProjectManifestDigest == "" || descriptor.ProjectCommandID == "" || descriptor.ParameterBindingFingerprint == "" || descriptor.ExecutionMode != "argv" {
+			return fmt.Errorf("incomplete typed project command descriptor")
+		}
+	}
+	if len(descriptor.ParameterProviders) > MaxReferenceDescriptors {
+		return fmt.Errorf("too many parameter provider descriptors")
+	}
+	for _, provider := range descriptor.ParameterProviders {
+		if err := provider.validate(); err != nil {
+			return err
+		}
 	}
 	if descriptor.ExecutionMode != "argv" && descriptor.ExecutionMode != "shell" {
 		return fmt.Errorf("invalid execution mode")

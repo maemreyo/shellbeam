@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	core "github.com/maemreyo/shellbeam/internal/core/telemetry"
@@ -265,4 +266,71 @@ func telemetryFixture(created, terminal time.Time, state session.State, outcome 
 		snapshot: session.Snapshot{SchemaVersion: 1, OperationID: rec.OperationID, SessionID: rec.SessionID, DaemonIncarnation: rec.DaemonIncarnation, State: state, Outcome: outcome, OutputBytes: rec.OutputBytes, OutputAvailable: true, UpdatedAt: terminal},
 		receipt:  rec, records: map[string]core.PerformanceRecord{},
 	}
+}
+
+func TestServiceDerivesTypedProjectCommandProvenanceFromFrozenReceipt(t *testing.T) {
+	created := time.Date(2026, 8, 15, 1, 0, 0, 0, time.UTC)
+	repo := telemetryFixture(created, created.Add(time.Second), session.Completed, session.Success)
+	binding := telemetryProjectCommandBinding(t)
+	repo.receipt.SchemaVersion = 3
+	repo.receipt.ProjectCommand = &binding
+	repo.reservation.SchemaVersion = 3
+	repo.reservation.ProjectCommand = &binding
+	repo.reservation.Argv = append([]string(nil), binding.ResolvedArgv...)
+	repo.reservation.LogicalCWD = binding.LogicalCWD
+	repo.reservation.CWD = binding.ResolvedCWD
+	repo.receipt.CWD = binding.ResolvedCWD
+	service, err := newService(repo, "darwin", "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.DeriveTerminal(context.Background(), repo.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bindingDigest, err := binding.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProjectCommandBindingDigest != bindingDigest || got.ProjectCommandID != binding.CommandID || got.ParameterBindingFingerprint != binding.ParameterFingerprint || got.ScopeClass != core.ScopeProjectCommand {
+		t.Fatalf("typed telemetry provenance=%#v", got)
+	}
+	if got.CommandSemanticsFingerprint != repo.receipt.ExecutionFingerprint {
+		t.Fatalf("execution semantics changed: %#v", got)
+	}
+}
+
+func TestServiceOrdinaryOperationKeepsProjectCommandProvenanceAbsent(t *testing.T) {
+	repo := telemetryFixture(time.Now().UTC().Add(-time.Second), time.Now().UTC(), session.Completed, session.Success)
+	service, err := newService(repo, "darwin", "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.DeriveTerminal(context.Background(), repo.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ProjectCommandBindingDigest != "" || got.ParameterBindingFingerprint != "" || got.ScopeClass != core.ScopeArgv {
+		t.Fatalf("ordinary telemetry gained typed provenance: %#v", got)
+	}
+}
+
+func telemetryProjectCommandBinding(t *testing.T) project.CommandBinding {
+	t.Helper()
+	params := []project.ParameterBinding{{ID: "package", Kind: project.ParameterRepoPackage, Value: "./internal/app", Source: project.BindingSourceCaller, ProviderID: "go-repo-package", ProviderVersion: 1}}
+	fingerprint, err := project.ParameterFingerprint(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := project.CommandBinding{
+		SchemaVersion:  project.BindingSchemaVersion,
+		ManifestDigest: strings.Repeat("4", 64), ManifestSchemaVersion: project.ManifestSchemaV2,
+		CommandID: "test_package", ParameterFingerprint: fingerprint, Parameters: params,
+		ResolvedArgv: []string{"go", "test", "./internal/app"}, LogicalCWD: ".", ResolvedCWD: "/tmp",
+		SourceGeneration: "gen_" + strings.Repeat("5", 64), PathObservationQuality: project.PathObservationExactAtBind,
+	}
+	if err := binding.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return binding
 }
