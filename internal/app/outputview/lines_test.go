@@ -58,7 +58,7 @@ func TestHugeLogicalLinesStayWithinReturnAndWorkBudgets(t *testing.T) {
 	data := bytes.Repeat([]byte{'x'}, MaxWorkBytes+128)
 
 	lineStore := retainedStore(data)
-	lineResult, err := New(lineStore).Read(context.Background(), Request{SessionID: "s", Selector: Selector{Kind: SelectorLines, StartLine: 1, MaxLines: 1}})
+	lineResult, err := newCursorService(t, lineStore).Read(context.Background(), Request{SessionID: "s", Selector: Selector{Kind: SelectorLines, StartLine: 1, MaxLines: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestHugeLogicalLinesStayWithinReturnAndWorkBudgets(t *testing.T) {
 	}
 
 	tailStore := retainedStore(data)
-	tailResult, err := New(tailStore).Read(context.Background(), Request{SessionID: "s", Selector: Selector{Kind: SelectorTail, TailLines: 1}})
+	tailResult, err := newCursorService(t, tailStore).Read(context.Background(), Request{SessionID: "s", Selector: Selector{Kind: SelectorTail, TailLines: 1}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,5 +83,47 @@ func TestHugeLogicalLinesStayWithinReturnAndWorkBudgets(t *testing.T) {
 		if read.max > MaxWorkBytes {
 			t.Fatalf("tail read=%#v", read)
 		}
+	}
+}
+
+func TestLineRangeContinuationResumesAtFirstUnreturnedByte(t *testing.T) {
+	data := bytes.Repeat([]byte{'x'}, MaxWorkBytes+128)
+	store := retainedStore(data)
+	svc := newCursorService(t, store)
+	sel := Selector{Kind: SelectorLines, StartLine: 1, MaxLines: 1}
+	first, err := svc.Read(context.Background(), Request{SessionID: "s", Selector: sel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Continuation == "" || len(first.Ranges) != 1 || first.Ranges[0] != (RawRange{Start: 0, End: int64(MaxReturnBytes)}) {
+		t.Fatalf("first continuation=%t ranges=%v partial=%v", first.Continuation != "", first.Ranges, first.Partial)
+	}
+	second, err := svc.Read(context.Background(), Request{SessionID: "s", Selector: sel, Continuation: first.Continuation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Ranges) != 1 || second.Ranges[0].Start != first.Ranges[0].End || second.Ranges[0].End-second.Ranges[0].Start > int64(MaxReturnBytes) {
+		t.Fatalf("second ranges=%v first ranges=%v continuation=%t", second.Ranges, first.Ranges, second.Continuation != "")
+	}
+}
+
+func TestTailLineContinuationRetrievesPrecedingPartWithoutGap(t *testing.T) {
+	data := bytes.Repeat([]byte{'x'}, MaxWorkBytes+128)
+	store := retainedStore(data)
+	svc := newCursorService(t, store)
+	sel := Selector{Kind: SelectorTail, TailLines: 1}
+	first, err := svc.Read(context.Background(), Request{SessionID: "s", Selector: sel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Continuation == "" || len(first.Ranges) != 1 || first.Ranges[0].End != int64(len(data)) {
+		t.Fatalf("first continuation=%t ranges=%v partial=%v", first.Continuation != "", first.Ranges, first.Partial)
+	}
+	second, err := svc.Read(context.Background(), Request{SessionID: "s", Selector: sel, Continuation: first.Continuation})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Ranges) != 1 || second.Ranges[0].End != first.Ranges[0].Start || second.Ranges[0].End-second.Ranges[0].Start > int64(MaxReturnBytes) {
+		t.Fatalf("second ranges=%v first ranges=%v continuation=%t", second.Ranges, first.Ranges, second.Continuation != "")
 	}
 }

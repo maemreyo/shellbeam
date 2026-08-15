@@ -37,6 +37,8 @@ const (
 	OutputCompacted                 Code = "output_compacted"
 	OutputUnavailable               Code = "output_unavailable"
 	OutputOutOfRange                Code = "output_out_of_range"
+	OutputContinuationInvalid       Code = "output_continuation_invalid"
+	OutputContinuationExpired       Code = "output_continuation_expired"
 	IdentityObservationFailed       Code = "identity_observation_failed"
 	EventCursorInvalid              Code = "event_cursor_invalid"
 	EventCursorExpired              Code = "event_cursor_expired"
@@ -104,6 +106,8 @@ var publicSpecs = map[Code]publicSpec{
 	OutputCompacted:                 {message: "retained output has been compacted", details: keys("session_id")},
 	OutputUnavailable:               {message: "retained output unavailable", retryable: true, details: keys("session_id", "reason")},
 	OutputOutOfRange:                {message: "output selector is out of range", details: keys("session_id", "reason")},
+	OutputContinuationInvalid:       {message: "output continuation is invalid", details: keys("reason")},
+	OutputContinuationExpired:       {message: "output continuation has expired", details: keys("reason")},
 	IdentityObservationFailed:       {message: "identity observation failed", retryable: true, details: keys("provider", "reason")},
 	EventCursorInvalid:              {message: "event cursor is invalid", details: keys("reason")},
 	EventCursorExpired:              {message: "event cursor has expired", details: keys("reason")},

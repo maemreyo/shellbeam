@@ -1,7 +1,6 @@
 package outputview
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 
@@ -10,9 +9,15 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
-type Service struct{ store Store }
+type Service struct {
+	store  Store
+	cursor *CursorCodec
+}
 
 func New(store Store) *Service { return &Service{store: store} }
+func NewWithCursor(store Store, cursor *CursorCodec) *Service {
+	return &Service{store: store, cursor: cursor}
+}
 
 func (s *Service) Read(ctx context.Context, req Request) (Result, error) {
 	if err := req.Validate(); err != nil {
@@ -25,16 +30,33 @@ func (s *Service) Read(ctx context.Context, req Request) (Result, error) {
 	if err := retentionError(req.SessionID, extent.State); err != nil {
 		return Result{}, err
 	}
-	base := Result{SchemaVersion: 1, SessionID: req.SessionID, SelectorKind: req.Selector.Kind, RetentionState: extent.State, FrozenCutBytes: extent.Bytes}
+	var cursorState CursorState
+	frozenCut := extent.Bytes
+	if req.Continuation != "" {
+		if s.cursor == nil {
+			return Result{}, failure.New(failure.OutputContinuationInvalid, map[string]string{"reason": "codec_unavailable"}, nil)
+		}
+		cursorState, err = s.cursor.Decode(req.Continuation, req.SessionID, req.Selector)
+		if err != nil {
+			return Result{}, err
+		}
+		if cursorState.FrozenCutBytes > extent.Bytes {
+			return Result{}, failure.New(failure.OutputUnavailable, map[string]string{"session_id": req.SessionID, "reason": "cut_unavailable"}, nil)
+		}
+		frozenCut = cursorState.FrozenCutBytes
+	}
+	base := Result{SchemaVersion: 1, SessionID: req.SessionID, SelectorKind: req.Selector.Kind, RetentionState: extent.State, FrozenCutBytes: frozenCut}
 	switch req.Selector.Kind {
 	case SelectorRawRange:
 		return s.readRaw(ctx, base, req.Selector)
 	case SelectorTail:
-		return s.readTail(ctx, base, req.Selector)
+		return s.readTail(ctx, base, req.Selector, cursorState)
 	case SelectorLines:
-		return s.readLines(ctx, base, req.Selector)
+		return s.readLines(ctx, base, req.Selector, cursorState)
 	case SelectorPreview:
 		return s.readPreview(ctx, base, req.Selector)
+	case SelectorSearch:
+		return s.readSearch(ctx, base, req.Selector, cursorState)
 	default:
 		return Result{}, failure.New(failure.InvalidInput, map[string]string{"field": "selector"}, fmt.Errorf("selector not implemented"))
 	}
@@ -68,70 +90,6 @@ func (s *Service) readRaw(ctx context.Context, out Result, sel Selector) (Result
 	return out, nil
 }
 
-func (s *Service) readTail(ctx context.Context, out Result, sel Selector) (Result, error) {
-	if sel.TailBytes > 0 {
-		start := max(int64(0), out.FrozenCutBytes-int64(sel.TailBytes))
-		data, err := s.readExactWindow(ctx, out.SessionID, start, int(out.FrozenCutBytes-start))
-		if err != nil {
-			return Result{}, err
-		}
-		out.Text = safeText(data)
-		out.Ranges = []RawRange{{Start: start, End: out.FrozenCutBytes}}
-		out.Truncated = start > 0
-		return out, nil
-	}
-	return s.readTailLines(ctx, out, sel.TailLines)
-}
-
-func (s *Service) readTailLines(ctx context.Context, out Result, lines int) (Result, error) {
-	work := min(out.FrozenCutBytes, int64(MaxWorkBytes))
-	start := out.FrozenCutBytes - work
-	data, err := s.readExactWindow(ctx, out.SessionID, start, int(work))
-	if err != nil {
-		return Result{}, err
-	}
-	rel, foundAll := tailLineStart(data, lines)
-	if !foundAll && start > 0 {
-		out.Partial = true
-	}
-	selected := data[rel:]
-	absolute := start + int64(rel)
-	if len(selected) > MaxReturnBytes {
-		drop := len(selected) - MaxReturnBytes
-		selected = selected[drop:]
-		absolute += int64(drop)
-		out.Partial = true
-	}
-	out.Text = safeText(selected)
-	out.Ranges = []RawRange{{Start: absolute, End: out.FrozenCutBytes}}
-	out.Truncated = absolute > 0 || out.Partial
-	return out, nil
-}
-
-func (s *Service) readLines(ctx context.Context, out Result, sel Selector) (Result, error) {
-	work := min(out.FrozenCutBytes, int64(MaxWorkBytes))
-	data, err := s.readExactWindow(ctx, out.SessionID, 0, int(work))
-	if err != nil {
-		return Result{}, err
-	}
-	start, end, found := selectLines(data, sel.StartLine, sel.MaxLines)
-	if !found {
-		if work < out.FrozenCutBytes {
-			out.Partial = true
-			return out, nil
-		}
-		return Result{}, outOfRange(out.SessionID, "line")
-	}
-	selected := data[start:end]
-	text, consumed, clipped := receipt.VisibleOutput(selected, MaxReturnBytes)
-	selectedEnd := start + consumed
-	out.Text = text
-	out.Ranges = []RawRange{{Start: int64(start), End: int64(selectedEnd)}}
-	out.Partial = clipped || (int64(end) == work && work < out.FrozenCutBytes && (end == 0 || data[end-1] != '\n'))
-	out.Truncated = int64(selectedEnd) < out.FrozenCutBytes
-	return out, nil
-}
-
 func (s *Service) readExactWindow(ctx context.Context, sessionID string, start int64, maxBytes int) ([]byte, error) {
 	if maxBytes <= 0 {
 		return nil, nil
@@ -144,51 +102,6 @@ func (s *Service) readExactWindow(ctx context.Context, sessionID string, start i
 		return nil, failure.New(failure.OutputUnavailable, map[string]string{"session_id": sessionID, "reason": "accounting"}, nil)
 	}
 	return data, nil
-}
-
-func selectLines(data []byte, startLine, maxLines int) (int, int, bool) {
-	line, start := 1, 0
-	for line < startLine {
-		i := bytes.IndexByte(data[start:], '\n')
-		if i < 0 {
-			return 0, 0, false
-		}
-		start += i + 1
-		line++
-	}
-	if start >= len(data) && startLine > 1 {
-		return 0, 0, false
-	}
-	end, count := start, 0
-	for end < len(data) && count < maxLines {
-		i := bytes.IndexByte(data[end:], '\n')
-		if i < 0 {
-			end = len(data)
-			count++
-			break
-		}
-		end += i + 1
-		count++
-	}
-	return start, end, count > 0 || (startLine == 1 && len(data) == 0)
-}
-
-func tailLineStart(data []byte, want int) (int, bool) {
-	if len(data) == 0 {
-		return 0, true
-	}
-	pos := len(data)
-	if data[pos-1] == '\n' {
-		pos--
-	}
-	for range want {
-		i := bytes.LastIndexByte(data[:pos], '\n')
-		if i < 0 {
-			return 0, false
-		}
-		pos = i
-	}
-	return pos + 1, true
 }
 
 func safeText(data []byte) string {
