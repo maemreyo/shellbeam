@@ -38,12 +38,12 @@
 - Limits for expected outputs, returned records, artifact metadata/digest/tree work, pagination cursor.
 - `WithEvidence(...)` capability helper but features remain unpromoted in daemon catalog until Task 7.
 
-- [ ] RED: validation/result tests for pass/fail/incomplete/ambiguous and optional-vs-required artifacts.
-- [ ] RED: validity tests prove fast source is never exact.
-- [ ] RED: capability baseline unavailable and helper requires positive limits.
-- [ ] GREEN: minimum contracts + validators + derivation.
-- [ ] Focused/race/devctl/diff gates.
-- [ ] Commit `feat: define evidence and artifact contracts`.
+- [x] RED: validation/result tests for pass/fail/incomplete/ambiguous and optional-vs-required artifacts.
+- [x] RED: validity tests prove fast source is never exact.
+- [x] RED: capability baseline unavailable and helper requires positive limits.
+- [x] GREEN: minimum contracts + validators + derivation.
+- [x] Focused/race/devctl/diff gates.
+- [x] Commit `feat: define evidence and artifact contracts`.
 
 ### Task 2: Freeze caller and typed evidence bindings at admission
 
@@ -73,13 +73,13 @@
 - Typed receipt obtains evidence contract solely from frozen v2 project binding.
 - Lost-response retry never rereads current manifest/provider.
 
-- [ ] RED: project binding v1 compatibility + v2 required frozen metadata/digest sensitivity.
-- [ ] RED: binder freezes command metadata and deep copies outputs.
-- [ ] RED: caller evidence changes observation fingerprint but not execution fingerprint.
-- [ ] RED: retry conflicting evidence metadata fails before spawn/current-state reads.
-- [ ] GREEN: schema-v2 project binding + normalized durable evidence binding.
-- [ ] Focused/race/devctl/diff gates.
-- [ ] Commit `feat: freeze evidence contracts at admission`.
+- [x] RED: project binding v1 compatibility + v2 required frozen metadata/digest sensitivity.
+- [x] RED: binder freezes command metadata and deep copies outputs.
+- [x] RED: caller evidence changes observation fingerprint but not execution fingerprint.
+- [x] RED: retry conflicting evidence metadata fails before spawn/current-state reads.
+- [x] GREEN: schema-v2 project binding + normalized durable evidence binding.
+- [x] Focused/race/devctl/diff gates.
+- [x] Commit `feat: freeze evidence contracts at admission`.
 
 ### Task 3: Bounded filesystem artifact observer
 
@@ -98,12 +98,12 @@
 - Explicit missing/kind-mismatch/unavailable semantics.
 - Work ceilings enforced without partial digest identity.
 
-- [ ] RED: file/dir/symlink/current/missing/kind mismatch/optional required cases.
-- [ ] RED: file SHA-256 complete and mutation/work-limit unavailable cases.
-- [ ] RED: deterministic lexical tree digest, tree ceilings, escaping intermediate/final symlinks.
-- [ ] GREEN: minimal bounded observer.
-- [ ] Focused/race/devctl/diff gates.
-- [ ] Commit `feat: observe expected artifacts safely`.
+- [x] RED: file/dir/symlink/current/missing/kind mismatch/optional required cases.
+- [x] RED: file SHA-256 complete and mutation/work-limit unavailable cases.
+- [x] RED: deterministic lexical tree digest, tree ceilings, escaping intermediate/final symlinks.
+- [x] GREEN: minimal bounded observer.
+- [x] Focused/race/devctl/diff gates.
+- [x] Commit `feat: observe expected artifacts safely`.
 
 ### Task 4: Immutable evidence persistence, terminal worker, and E21 events
 
@@ -128,12 +128,12 @@
 - Duplicate scheduling idempotent; conflicting bytes fail closed.
 - No worker schedule for unqualified bare command.
 
-- [ ] RED: store exact-once/restart/index tests.
-- [ ] RED: terminal scheduling durable-first/no-before-spawn/no-contract/no-tax/backpressure tests.
-- [ ] RED: receipt success + missing required artifact produces evidence fail while receipt stays success.
-- [ ] GREEN: persistence + worker + daemon composition.
-- [ ] Relevant race/devctl/diff gates.
-- [ ] Commit `feat: persist terminal verification evidence`.
+- [x] RED: store exact-once/restart/index tests.
+- [x] RED: terminal scheduling durable-first/no-before-spawn/no-contract/no-tax/backpressure tests.
+- [x] RED: receipt success + missing required artifact produces evidence fail while receipt stays success.
+- [x] GREEN: persistence + worker + daemon composition.
+- [x] Relevant race/devctl/diff gates.
+- [x] Commit `feat: persist terminal evidence records`.
 
 ### Task 5: Bounded evidence inspection and lazy current validity
 
@@ -153,12 +153,12 @@
 - Optional bounded artifact revalidation; immutable base record unchanged.
 - Separate validity observation persistence and `evidence_validity_changed` event only when an explicit re-observation changes status.
 
-- [ ] RED: pagination/tamper/filter binding/never-run tests.
-- [ ] RED: fast-current/fast-mismatch/unknown and never-exact-with-fast-only tests.
-- [ ] RED: revalidation changes separate validity but immutable record bytes stay identical.
-- [ ] GREEN: bounded inspect/cursor/lazy validity.
-- [ ] Focused/race/devctl/diff gates.
-- [ ] Commit `feat: inspect bounded evidence validity`.
+- [x] RED: pagination/tamper/filter binding/never-run tests.
+- [x] RED: fast-current/fast-mismatch/unknown and never-exact-with-fast-only tests.
+- [x] RED: revalidation changes separate validity but immutable record bytes stay identical.
+- [x] GREEN: bounded inspect/cursor/lazy validity.
+- [x] Focused/race/devctl/diff gates.
+- [x] Commit `feat: inspect persisted evidence validity`.
 
 ### Task 6: IPC/MCP/schema exposure for evidence declarations and inspection
 
@@ -182,11 +182,11 @@
 - Unknown/cross-action fields rejected.
 - No second tool and no deferred branch.
 
-- [ ] RED: closed schema start evidence + inspect request/response.
-- [ ] RED: IPC/MCP forwarding and no-spawn inspection tests.
-- [ ] GREEN: transport/application wiring.
-- [ ] Package/race/devctl/diff gates.
-- [ ] Commit `feat: expose evidence through local shell`.
+- [x] RED: closed schema start evidence + inspect request/response.
+- [x] RED: IPC/MCP forwarding and no-spawn inspection tests.
+- [x] GREEN: transport/application wiring.
+- [x] Package/race/devctl/diff gates.
+- [x] Commit `feat: expose evidence through local shell`.
 
 ### Task 7: Capability promotion, real-daemon acceptance, no-tax, and A2.4 checkpoint
 
@@ -208,13 +208,13 @@
 - Event Journal sees bounded artifact/evidence events after durable state;
 - exactly one `local_shell` tool.
 
-- [ ] RED final capability/real-daemon/no-tax acceptance.
-- [ ] Promote `FeatureEvidenceLedger` + `FeatureExpectedOutputs` with exact hard limits.
-- [ ] Acceptance x3; relevant/full race; `go mod verify`.
-- [ ] `go run ./tools/devctl check` and `devctl test --dirty --base origin/main --json`.
-- [ ] Privacy/anti-goal scan; one-tool discovery; `git diff --check`; `.codegraph` clean.
-- [ ] Capture exact fingerprint/fresh receipts and post-commit verify exact checkpoint.
-- [ ] Commit `test: verify evidence ledger and expected outputs`.
+- [x] RED final capability/real-daemon/no-tax acceptance.
+- [x] Promote `FeatureEvidenceLedger` + `FeatureExpectedOutputs` with exact hard limits.
+- [x] Acceptance x3; relevant/full race; `go mod verify`.
+- [x] `go run ./tools/devctl check` and `devctl test --dirty --base origin/main --json`.
+- [x] Privacy/anti-goal scan; one-tool discovery; `git diff --check`; `.codegraph` clean.
+- [x] Capture exact fingerprint/fresh receipts and post-commit verify exact checkpoint.
+- [x] Commit `test: verify evidence ledger and expected outputs`.
 
 ## Self-review
 

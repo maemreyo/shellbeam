@@ -22,6 +22,7 @@ import (
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	projectcore "github.com/maemreyo/shellbeam/internal/core/project"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
@@ -298,6 +299,10 @@ func (a *daemonActions) InspectRepro(ctx context.Context, reproID string) (repro
 func daemonCatalog(limits capability.Limits) capability.Catalog {
 	return capability.Baseline(limits).
 		WithProjectReadiness(projectapp.DefaultReadinessTTL.Milliseconds(), projectapp.DefaultReadinessMaxEntries).
+		WithEvidence(
+			coreevidence.MaxInspectRecords, coreevidence.MaxExpectedOutputs, coreevidence.MaxArtifactMetadataBytes,
+			coreevidence.MaxArtifactDigestBytes, coreevidence.MaxTreeEntries, coreevidence.MaxCursorBytes,
+		).
 		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
 		WithStructuredResults(
 			[]string{"go-test-json", "go-vet-json"},
