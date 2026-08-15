@@ -63,11 +63,15 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		return err
 	}
 	incarnation := ulid.Make().String()
+	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
 	catalog := daemonCatalog(capability.Limits{
 		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
 		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
 		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
 	})
+	if mutationScopeSvc != nil {
+		catalog = mutationScopeCatalog(catalog)
+	}
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
@@ -114,7 +118,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	)
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
-	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
+	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc}
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
@@ -233,17 +237,18 @@ func (a daemonCoherenceAdapter) CaptureBarrier() workspacecore.CoherenceBarrier 
 
 type daemonActions struct {
 	ipcadapter.Actions
-	observation *daemonapp.Service
-	workspace   *workspaceapp.Service
-	activity    *activityapp.Service
-	project     *projectapp.Service
-	events      *observationapp.Service
-	structured  *structuredapp.Inspector
-	telemetry   *telemetryapp.Service
-	evidence    *evidenceapp.Inspector
-	repro       *reproapp.Service
-	output      *outputview.Service
-	code        daemonCodeInspector
+	observation    *daemonapp.Service
+	workspace      *workspaceapp.Service
+	activity       *activityapp.Service
+	project        *projectapp.Service
+	events         *observationapp.Service
+	structured     *structuredapp.Inspector
+	telemetry      *telemetryapp.Service
+	evidence       *evidenceapp.Inspector
+	repro          *reproapp.Service
+	output         *outputview.Service
+	code           daemonCodeInspector
+	mutationScopes mutationScopeCoordinator
 }
 
 func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {
