@@ -512,7 +512,7 @@ git commit -m "feat: probe built-in toolchains lazily"
 
 ### Step 4.1 — RED tests for ShellBeam session resolver
 
-- [ ] Step 4.1: RED tests for ShellBeam session resolver
+- [x] Step 4.1: RED tests for ShellBeam session resolver
 
 Add an optional concrete handle capability, not a new method on the existing `ProcessHandle` interface:
 
@@ -538,7 +538,7 @@ go test ./internal/app/daemon ./internal/adapter/process
 
 ### Step 4.2 — RED tests for host adapter classification
 
-- [ ] Step 4.2: RED tests for host adapter classification
+- [x] Step 4.2: RED tests for host adapter classification
 
 Use injectable filesystem/command/syscall ports where possible; use short real-PID integration tests only for stable POSIX facts.
 
@@ -562,7 +562,7 @@ Darwin:
 
 ### Step 4.3 — RED tests for bounded traversal
 
-- [ ] Step 4.3: RED tests for bounded traversal
+- [x] Step 4.3: RED tests for bounded traversal
 
 App service owns BFS limits.
 
@@ -578,7 +578,7 @@ Cover:
 
 ### Step 4.4 — Implement host/process service
 
-- [ ] Step 4.4: Implement host/process service
+- [x] Step 4.4: Implement host/process service
 
 Separate:
 
@@ -599,7 +599,7 @@ For explicit PID:
 
 ### Step 4.5 — Race and targeted verification
 
-- [ ] Step 4.5: Race and targeted verification
+- [x] Step 4.5: Race and targeted verification
 
 ```bash
 go test ./internal/app/daemon ./internal/app/process ./internal/adapter/process
@@ -608,7 +608,7 @@ go test -race ./internal/app/daemon ./internal/app/process ./internal/adapter/pr
 
 ### Step 4.6 — Commit
 
-- [ ] Step 4.6: Commit
+- [x] Step 4.6: Commit
 
 Run structural/staged gates, then:
 

@@ -141,3 +141,16 @@ func TestUnavailableObservationMayOmitRootButCannotClaimComplete(t *testing.T) {
 		t.Fatal("complete observation accepted without root")
 	}
 }
+
+func TestProcessIdentitySupportsStablePlatformStartToken(t *testing.T) {
+	identity, err := NewIdentityFromToken(77, "proc-start-ticks:123456", "/usr/bin/sleep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity.Value == "" || identity.StartToken != "proc-start-ticks:123456" || !identity.StartTime.IsZero() {
+		t.Fatalf("identity=%#v", identity)
+	}
+	if _, err := NewIdentityFromToken(77, "", "/usr/bin/sleep"); err == nil {
+		t.Fatal("empty stable start token accepted")
+	}
+}

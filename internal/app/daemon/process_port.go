@@ -33,6 +33,10 @@ func bindExecution(owner ProcessOwner, spec operation.ExecutionSpec) operation.E
 	return spec
 }
 
+type pidHandle interface {
+	PID() int
+}
+
 type ProcessHandle interface {
 	Write([]byte) error
 	CloseStdin() error

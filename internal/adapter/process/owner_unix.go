@@ -73,6 +73,13 @@ func (Owner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.Out
 	return h, spawn, nil
 }
 
+func (h *Handle) PID() int {
+	if h == nil || h.cmd == nil || h.cmd.Process == nil {
+		return 0
+	}
+	return h.cmd.Process.Pid
+}
+
 func (h *Handle) capture() {
 	defer close(h.captureDone)
 	b := make([]byte, 32*1024)

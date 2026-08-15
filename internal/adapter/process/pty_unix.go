@@ -45,6 +45,13 @@ func startPTY(spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHan
 	go h.reap()
 	return h, spawn, nil
 }
+func (h *ptyHandle) PID() int {
+	if h == nil || h.cmd == nil || h.cmd.Process == nil {
+		return 0
+	}
+	return h.cmd.Process.Pid
+}
+
 func (h *ptyHandle) capture() {
 	defer close(h.captureDone)
 	b := make([]byte, 32*1024)

@@ -49,6 +49,23 @@ func NewIdentity(pid int, startTime time.Time, executableIdentity string) (Ident
 	return Identity{Value: "proc_" + hex.EncodeToString(sum[:]), StartTime: startTime.UTC()}, nil
 }
 
+func NewIdentityFromToken(pid int, startToken, executableIdentity string) (Identity, error) {
+	if pid <= 0 || startToken == "" {
+		return Identity{}, fmt.Errorf("stable process identity requires pid and start token")
+	}
+	encoded, err := json.Marshal(struct {
+		Version            int    `json:"version"`
+		PID                int    `json:"pid"`
+		StartToken         string `json:"start_token"`
+		ExecutableIdentity string `json:"executable_identity,omitempty"`
+	}{SchemaVersion, pid, startToken, executableIdentity})
+	if err != nil {
+		return Identity{}, err
+	}
+	sum := sha256.Sum256(encoded)
+	return Identity{Value: "proc_" + hex.EncodeToString(sum[:]), StartToken: startToken}, nil
+}
+
 func (o Observation) Validate() error {
 	if o.SchemaVersion != SchemaVersion || o.ObservedAt.IsZero() {
 		return fmt.Errorf("invalid process observation identity")
@@ -116,10 +133,12 @@ func validateFact(fact ProcessFact) error {
 		return fmt.Errorf("invalid process fact state/relation")
 	}
 	if fact.Identity != nil {
-		if !validPrefixedDigest(fact.Identity.Value, "proc_") || fact.Identity.StartTime.IsZero() {
+		hasTime := !fact.Identity.StartTime.IsZero()
+		hasToken := fact.Identity.StartToken != ""
+		if !validPrefixedDigest(fact.Identity.Value, "proc_") || hasTime == hasToken {
 			return fmt.Errorf("invalid process identity")
 		}
-		if !fact.StartTime.IsZero() && !fact.StartTime.Equal(fact.Identity.StartTime) {
+		if !fact.StartTime.IsZero() && (!hasTime || !fact.StartTime.Equal(fact.Identity.StartTime)) {
 			return fmt.Errorf("process identity start time mismatch")
 		}
 	}

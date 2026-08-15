@@ -47,6 +47,14 @@ const (
 	DiagnosticIdentityChanged       = "process_identity_changed"
 )
 
+type SessionResolution struct {
+	SessionID string `json:"session_id"`
+	Known     bool   `json:"known"`
+	Current   bool   `json:"current"`
+	PID       int    `json:"pid,omitempty"`
+	State     string `json:"state,omitempty"`
+}
+
 type Target struct {
 	Kind      TargetKind `json:"kind"`
 	SessionID string     `json:"session_id,omitempty"`
@@ -54,8 +62,9 @@ type Target struct {
 }
 
 type Identity struct {
-	Value     string    `json:"value"`
-	StartTime time.Time `json:"start_time"`
+	Value      string    `json:"value"`
+	StartTime  time.Time `json:"start_time,omitempty"`
+	StartToken string    `json:"start_token,omitempty"`
 }
 
 type ArgvView struct {
