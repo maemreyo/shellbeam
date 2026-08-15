@@ -1,6 +1,9 @@
 package schema
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestEvidenceMCPInputSchemaExposesClosedStartAndInspection(t *testing.T) {
 	input := resolvedSchema(t, MCPInputV2)
@@ -83,6 +86,10 @@ func TestEvidenceIPCSchemaExposesClosedStartInspectionAndResponse(t *testing.T) 
 			"ipc_version": 2.0, "kind": "response", "request_id": "inspect-evidence", "action": "inspect.evidence", "ok": true,
 			"evidence": map[string]any{"schema_version": 1.0, "status": "bogus"},
 		},
+		{
+			"ipc_version": 2.0, "kind": "response", "request_id": "inspect-env-bad", "action": "inspect.evidence", "ok": true,
+			"evidence": evidenceAvailablePayloadWithInvalidEnvironmentBinding(),
+		},
 	}
 	for _, payload := range invalid {
 		if err := ipc.Validate(payload); err == nil {
@@ -105,6 +112,7 @@ func TestEvidenceMCPOutputSchemaExposesClosedInspectionResult(t *testing.T) {
 	invalid := []map[string]any{
 		{"schema_version": 2.0, "ok": true, "action": "inspect.evidence", "evidence": map[string]any{"schema_version": 1.0, "status": "bogus"}},
 		{"schema_version": 2.0, "ok": true, "action": "inspect.evidence", "evidence": map[string]any{"schema_version": 1.0, "status": "never_run", "artifact_body": "secret"}},
+		{"schema_version": 2.0, "ok": true, "action": "inspect.evidence", "evidence": evidenceAvailablePayloadWithInvalidEnvironmentBinding()},
 	}
 	for _, payload := range invalid {
 		if err := output.Validate(payload); err == nil {
@@ -127,6 +135,16 @@ func evidenceNeverRunPayload() map[string]any {
 	return map[string]any{"schema_version": 1.0, "status": "never_run"}
 }
 
+func evidenceAvailablePayloadWithInvalidEnvironmentBinding() map[string]any {
+	payload := evidenceAvailablePayload()
+	records := payload["records"].([]any)
+	entry := records[0].(map[string]any)
+	record := entry["record"].(map[string]any)
+	binding := record["environment_binding"].(map[string]any)
+	binding["environment_fingerprint_version"] = 2.0
+	return payload
+}
+
 func evidenceAvailablePayload() map[string]any {
 	hex64 := "1111111111111111111111111111111111111111111111111111111111111111"
 	return map[string]any{
@@ -135,19 +153,20 @@ func evidenceAvailablePayload() map[string]any {
 		"records": []any{
 			map[string]any{
 				"record": map[string]any{
-					"schema_version":    1.0,
-					"evidence_id":       "ev_" + hex64,
-					"operation_id":      "evidence-start",
-					"session_id":        "session-1",
-					"verification_kind": "test",
-					"source_scope":      "full",
-					"contract_digest":   hex64,
-					"command":           map[string]any{},
-					"receipt_digest":    hex64,
-					"terminal":          map[string]any{"authoritative": true, "outcome": "success"},
-					"result":            "pass",
-					"source":            map[string]any{"observation_quality": "fast"},
-					"completed_at":      "2026-08-15T08:00:00Z",
+					"schema_version":      1.0,
+					"evidence_id":         "ev_" + hex64,
+					"operation_id":        "evidence-start",
+					"session_id":          "session-1",
+					"verification_kind":   "test",
+					"source_scope":        "full",
+					"contract_digest":     hex64,
+					"command":             map[string]any{},
+					"receipt_digest":      hex64,
+					"terminal":            map[string]any{"authoritative": true, "outcome": "success"},
+					"result":              "pass",
+					"source":              map[string]any{"observation_quality": "fast"},
+					"environment_binding": map[string]any{"snapshot_id": "env_" + strings.Repeat("a", 64), "environment_fingerprint": strings.Repeat("b", 64), "environment_fingerprint_version": 1.0, "captured_at": "2026-08-15T12:00:00Z"},
+					"completed_at":        "2026-08-15T08:00:00Z",
 				},
 				"validity": map[string]any{
 					"source_match": "unknown", "freshness": "unknown", "artifact_match": "not_required", "policy_match": "unknown",

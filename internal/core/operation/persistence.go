@@ -1,6 +1,7 @@
 package operation
 
 import (
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -33,6 +34,7 @@ type Reservation struct {
 	Intent                        *DeclaredIntent         `json:"intent,omitempty"`
 	Evidence                      *evidence.Contract      `json:"evidence,omitempty"`
 	CreatedAt                     time.Time               `json:"created_at"`
+	EnvironmentBinding            *environment.Binding    `json:"environment_binding,omitempty"`
 }
 
 func (r Reservation) EffectiveRequestFingerprint() string {

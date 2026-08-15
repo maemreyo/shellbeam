@@ -59,6 +59,11 @@ func (r Record) Validate() error {
 	if err := validateSource(r.Source); err != nil {
 		return err
 	}
+	if r.EnvironmentBinding != nil {
+		if err := r.EnvironmentBinding.Validate(); err != nil {
+			return fmt.Errorf("invalid evidence environment binding: %w", err)
+		}
+	}
 	for _, artifact := range r.Artifacts {
 		if artifact.Path == "" {
 			return fmt.Errorf("invalid artifact observation")

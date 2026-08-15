@@ -71,6 +71,7 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 		ContractDigest: contractDigest, Command: command, ReceiptDigest: receiptDigest,
 		Terminal: terminal, Result: core.DeriveResult(terminal, artifacts), Source: source,
 		Artifacts: artifacts, CompletedAt: snapshot.UpdatedAt.UTC(),
+		EnvironmentBinding: cloneEnvironmentBinding(reservation.EnvironmentBinding),
 	}
 	if record.WorkspaceID == "" {
 		record.WorkspaceID = reservation.WorkspaceID

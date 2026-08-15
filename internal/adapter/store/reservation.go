@@ -110,7 +110,7 @@ func validateReservation(v operation.Reservation) error {
 	}
 	switch v.SchemaVersion {
 	case 1:
-		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil {
+		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil {
 			return fmt.Errorf("invalid reservation")
 		}
 	case 2:
@@ -157,6 +157,11 @@ func validateReservation(v operation.Reservation) error {
 		}
 	default:
 		return fmt.Errorf("invalid reservation")
+	}
+	if v.EnvironmentBinding != nil {
+		if err := v.EnvironmentBinding.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation environment binding: %w", err)
+		}
 	}
 	return nil
 }

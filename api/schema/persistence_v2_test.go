@@ -2,6 +2,7 @@ package schema
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -21,6 +22,7 @@ func TestV2PersistedSchemasAreClosedAndSeparateFingerprints(t *testing.T) {
 				"observation_binding_fingerprint": "obs", "structured_adapter": "go-test-json", "workspace_id": "ws_01K00000000000000000000000", "logical_cwd": "src", "command": "true", "cwd": "/tmp/src",
 				"tty": false, "timeout_ms": 0.0, "shell": "/bin/sh", "daemon_incarnation": "d",
 				"control_reservation_bytes": 0.0, "created_at": "2026-08-13T00:00:00Z",
+				"environment_binding": map[string]any{"snapshot_id": "env_" + strings.Repeat("a", 64), "environment_fingerprint": strings.Repeat("b", 64), "environment_fingerprint_version": 1.0, "captured_at": "2026-08-15T12:00:00Z"},
 			}, {
 				"schema_version": 2.0, "operation_id": "op-argv", "session_id": "s-argv",
 				"request_fingerprint": "req-a", "execution_fingerprint": "exec-a", "execution_mode": "argv", "executable": "/bin/echo",
@@ -32,6 +34,7 @@ func TestV2PersistedSchemasAreClosedAndSeparateFingerprints(t *testing.T) {
 				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "execution_fingerprint": "exec", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},
 				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "request_fingerprint": "req", "execution_fingerprint": "exec", "fingerprint": "legacy", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},
 				{"schema_version": 2.0, "operation_id": "op", "session_id": "s", "request_fingerprint": "req", "execution_fingerprint": "exec", "structured_adapter": "../bad", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d"},
+				{"schema_version": 2.0, "operation_id": "op-env-bad", "session_id": "s-env-bad", "request_fingerprint": "req", "execution_fingerprint": "exec", "command": "true", "cwd": "/tmp", "shell": "/bin/sh", "daemon_incarnation": "d", "environment_binding": map[string]any{"snapshot_id": "env_" + strings.Repeat("a", 64), "environment_fingerprint": strings.Repeat("b", 64), "environment_fingerprint_version": 2.0, "captured_at": "2026-08-15T12:00:00Z"}},
 			},
 		},
 		{

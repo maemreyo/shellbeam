@@ -161,6 +161,9 @@ func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, rese
 	sid := newSessionID()
 	reservation.SessionID = operation.SessionID(sid)
 	reservation.CreatedAt = time.Now().UTC()
+	if reservation.SchemaVersion >= 2 {
+		s.freezeEnvironmentBinding(&reservation)
+	}
 	stored, created, result := commit(ctx, reservation)
 	if result.Err != nil {
 		return View{}, failure.Normalize(result.Err)

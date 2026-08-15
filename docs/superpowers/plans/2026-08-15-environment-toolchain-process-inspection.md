@@ -690,7 +690,7 @@ git commit -m "feat: observe process listening ports best effort"
 
 ### Step 6.1 — Define the authority rule in tests first
 
-- [ ] Step 6.1: Define the authority rule in tests first
+- [x] Step 6.1: Define the authority rule in tests first
 
 The only evidence-eligible A2.5 binding is one already present in the compatible environment cache at operation admission.
 
@@ -718,7 +718,7 @@ The provider must not expose a method capable of refresh through this admission 
 
 ### Step 6.2 — Implement admission freeze minimally
 
-- [ ] Step 6.2: Implement admission freeze minimally
+- [x] Step 6.2: Implement admission freeze minimally
 
 Call only the non-probing cached lookup after execution spec binding and before reservation persistence. Matching key includes workspace selection + execution mode/identity + fingerprint versions.
 
@@ -726,7 +726,7 @@ Do not change request/execution/observation-binding fingerprint replay semantics
 
 ### Step 6.3 — Evidence RED tests
 
-- [ ] Step 6.3: Evidence RED tests
+- [x] Step 6.3: Evidence RED tests
 
 Extend new evidence records with optional:
 
@@ -747,7 +747,7 @@ Tests:
 
 ### Step 6.4 — Implement evidence copy/validation
 
-- [ ] Step 6.4: Implement evidence copy/validation
+- [x] Step 6.4: Implement evidence copy/validation
 
 No current environment read from `evidence.Service`.
 
@@ -760,7 +760,7 @@ go test -race ./internal/app/daemon ./internal/app/evidence
 
 ### Step 6.5 — Commit
 
-- [ ] Step 6.5: Commit
+- [x] Step 6.5: Commit
 
 ```bash
 git commit -m "feat: bind frozen environment facts to evidence"

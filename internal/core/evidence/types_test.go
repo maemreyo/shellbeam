@@ -2,6 +2,8 @@ package evidence
 
 import (
 	"strings"
+
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	"testing"
 	"time"
 
@@ -174,5 +176,32 @@ func TestRecordValidateRejectsUnsafeAuthorityIDs(t *testing.T) {
 				t.Fatalf("unsafe record accepted: %#v", got)
 			}
 		})
+	}
+}
+
+func TestRecordValidateAcceptsFrozenEnvironmentBindingAndRejectsIncompatibleVersion(t *testing.T) {
+	now := time.Now().UTC()
+	binding := environment.Binding{
+		SnapshotID:                    "env_" + strings.Repeat("a", 64),
+		EnvironmentFingerprint:        strings.Repeat("b", 64),
+		EnvironmentFingerprintVersion: environment.FingerprintVersion,
+		CapturedAt:                    now,
+	}
+	record := Record{
+		SchemaVersion: SchemaVersion, EvidenceID: "ev_" + strings.Repeat("c", 64),
+		OperationID: "op-env", SessionID: "sid-env", VerificationKind: VerificationTest,
+		ContractDigest: strings.Repeat("d", 64), ReceiptDigest: strings.Repeat("e", 64),
+		Terminal: TerminalResult{Authoritative: true, Outcome: session.Success},
+		Result:   ResultPass, Source: SourceBinding{ObservationQuality: SourceQualityUnknown},
+		CompletedAt: now, EnvironmentBinding: &binding,
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatalf("valid environment binding rejected: %v", err)
+	}
+	bad := binding
+	bad.EnvironmentFingerprintVersion++
+	record.EnvironmentBinding = &bad
+	if err := record.Validate(); err == nil {
+		t.Fatal("incompatible environment fingerprint version accepted")
 	}
 }

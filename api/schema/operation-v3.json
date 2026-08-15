@@ -214,6 +214,66 @@
     },
     "project_command": {
       "$ref": "#/$defs/project_command_binding"
+    },
+    "environment_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshot_id": {
+          "type": "string",
+          "pattern": "^env_[0-9a-f]{64}$"
+        },
+        "environment_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "environment_fingerprint_version": {
+          "const": 1
+        },
+        "toolchain_fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "toolchain_fingerprint_version": {
+          "const": 1
+        },
+        "captured_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "environment_fingerprint",
+        "environment_fingerprint_version",
+        "captured_at"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "toolchain_fingerprint"
+            ]
+          },
+          "then": {
+            "required": [
+              "toolchain_fingerprint_version"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "toolchain_fingerprint_version"
+            ]
+          },
+          "then": {
+            "required": [
+              "toolchain_fingerprint"
+            ]
+          }
+        }
+      ]
     }
   },
   "required": [

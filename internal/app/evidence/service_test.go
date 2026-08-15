@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/project"
@@ -136,4 +137,49 @@ func validProjectBinding(t *testing.T, version int) project.CommandBinding {
 		t.Fatal(err)
 	}
 	return project.CommandBinding{SchemaVersion: version, ManifestDigest: strings.Repeat("e", 64), ManifestSchemaVersion: project.ManifestSchemaV2, CommandID: "verify", ParameterFingerprint: fingerprint, Parameters: params, ResolvedArgv: []string{"go", "test", "./..."}, LogicalCWD: ".", ResolvedCWD: "/repo"}
+}
+
+func TestDeriveTerminalCopiesOnlyFrozenEnvironmentBinding(t *testing.T) {
+	repo := rawEvidenceServiceRepo(t, t.TempDir(), "", &core.Contract{VerificationKind: core.VerificationTest})
+	binding := environment.Binding{
+		SnapshotID:                    "env_" + strings.Repeat("a", 64),
+		EnvironmentFingerprint:        strings.Repeat("b", 64),
+		EnvironmentFingerprintVersion: environment.FingerprintVersion,
+		CapturedAt:                    time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC),
+	}
+	if err := binding.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	repo.reservation.EnvironmentBinding = &binding
+	record, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !created || record.EnvironmentBinding == nil || *record.EnvironmentBinding != binding {
+		t.Fatalf("record environment binding=%#v created=%v", record.EnvironmentBinding, created)
+	}
+	if len(repo.records) != 1 || repo.records[0].EnvironmentBinding == nil || *repo.records[0].EnvironmentBinding != binding {
+		t.Fatalf("persisted record=%#v", repo.records)
+	}
+
+	repo.reservation.EnvironmentBinding.EnvironmentFingerprint = strings.Repeat("c", 64)
+	if record.EnvironmentBinding.EnvironmentFingerprint != strings.Repeat("b", 64) {
+		t.Fatal("derived evidence aliased mutable reservation binding")
+	}
+}
+
+func TestDeriveTerminalRejectsMalformedFrozenEnvironmentBinding(t *testing.T) {
+	repo := rawEvidenceServiceRepo(t, t.TempDir(), "", &core.Contract{VerificationKind: core.VerificationTest})
+	repo.reservation.EnvironmentBinding = &environment.Binding{
+		SnapshotID:                    "env_" + strings.Repeat("a", 64),
+		EnvironmentFingerprint:        strings.Repeat("b", 64),
+		EnvironmentFingerprintVersion: environment.FingerprintVersion + 1,
+		CapturedAt:                    time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC),
+	}
+	if _, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal); err == nil || created {
+		t.Fatalf("malformed frozen environment binding accepted: created=%v err=%v", created, err)
+	}
+	if len(repo.records) != 0 {
+		t.Fatalf("malformed binding persisted evidence: %#v", repo.records)
+	}
 }

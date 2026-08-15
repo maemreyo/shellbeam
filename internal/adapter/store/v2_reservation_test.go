@@ -6,8 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
@@ -123,5 +126,53 @@ func TestAbandonUnresolvedV2PreservesFingerprintBindings(t *testing.T) {
 	}
 	if rec.SchemaVersion != 2 || rec.RequestFingerprint != "request" || rec.ExecutionFingerprint != "execution" || rec.ObservationBindingFingerprint != "observation" || rec.Fingerprint != "" {
 		t.Fatalf("abandoned v2 receipt=%#v", rec)
+	}
+}
+
+func TestV2ReservationPersistsAndValidatesEnvironmentBinding(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	r := openRecoveryRepository(t, root)
+	binding := environment.Binding{
+		SnapshotID:                    "env_" + strings.Repeat("a", 64),
+		EnvironmentFingerprint:        strings.Repeat("b", 64),
+		EnvironmentFingerprintVersion: environment.FingerprintVersion,
+		CapturedAt:                    time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC),
+	}
+	base := operation.Reservation{
+		SchemaVersion: 2, OperationID: "op-v2-env", SessionID: "s-v2-env",
+		RequestFingerprint: "req", ExecutionFingerprint: "exec", ObservationBindingFingerprint: "obs",
+		Command: "true", CWD: "/", Shell: "/bin/sh", DaemonIncarnation: "d",
+		EnvironmentBinding: &binding,
+	}
+	stored, created, got := r.ReserveOperation(context.Background(), base)
+	if got.Err != nil || !created || stored.EnvironmentBinding == nil || *stored.EnvironmentBinding != binding {
+		t.Fatalf("stored=%#v created=%v result=%#v", stored, created, got)
+	}
+	loaded, err := r.LoadOperation(context.Background(), "op-v2-env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.EnvironmentBinding == nil || *loaded.EnvironmentBinding != binding {
+		t.Fatalf("loaded environment binding=%#v", loaded.EnvironmentBinding)
+	}
+
+	bad := base
+	bad.OperationID, bad.SessionID = "op-v2-env-bad", "s-v2-env-bad"
+	bad.EnvironmentBinding = &environment.Binding{
+		SnapshotID:                    "env_" + strings.Repeat("c", 64),
+		EnvironmentFingerprint:        strings.Repeat("d", 64),
+		EnvironmentFingerprintVersion: environment.FingerprintVersion + 1,
+		CapturedAt:                    binding.CapturedAt,
+	}
+	if _, created, result := r.ReserveOperation(context.Background(), bad); result.Err == nil || created {
+		t.Fatalf("malformed binding accepted: created=%v result=%#v", created, result)
+	}
+
+	legacy := operation.Reservation{
+		SchemaVersion: 1, OperationID: "op-v1-env", SessionID: "s-v1-env",
+		Fingerprint: "legacy", CWD: "/", Shell: "/bin/sh", EnvironmentBinding: &binding,
+	}
+	if _, created, result := r.ReserveOperation(context.Background(), legacy); result.Err == nil || created {
+		t.Fatalf("v1 environment binding accepted: created=%v result=%#v", created, result)
 	}
 }

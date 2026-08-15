@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/project"
@@ -158,22 +159,23 @@ type CommandAuthority struct {
 }
 
 type Record struct {
-	SchemaVersion    int                   `json:"schema_version"`
-	EvidenceID       string                `json:"evidence_id"`
-	OperationID      string                `json:"operation_id"`
-	SessionID        string                `json:"session_id"`
-	ActivityID       string                `json:"activity_id,omitempty"`
-	WorkspaceID      string                `json:"workspace_id,omitempty"`
-	VerificationKind VerificationKind      `json:"verification_kind"`
-	SourceScope      SourceScope           `json:"source_scope,omitempty"`
-	ContractDigest   string                `json:"contract_digest"`
-	Command          CommandAuthority      `json:"command"`
-	ReceiptDigest    string                `json:"receipt_digest"`
-	Terminal         TerminalResult        `json:"terminal"`
-	Result           Result                `json:"result"`
-	Source           SourceBinding         `json:"source"`
-	Artifacts        []ArtifactObservation `json:"artifacts,omitempty"`
-	CompletedAt      time.Time             `json:"completed_at"`
+	SchemaVersion      int                   `json:"schema_version"`
+	EvidenceID         string                `json:"evidence_id"`
+	OperationID        string                `json:"operation_id"`
+	SessionID          string                `json:"session_id"`
+	ActivityID         string                `json:"activity_id,omitempty"`
+	WorkspaceID        string                `json:"workspace_id,omitempty"`
+	VerificationKind   VerificationKind      `json:"verification_kind"`
+	SourceScope        SourceScope           `json:"source_scope,omitempty"`
+	ContractDigest     string                `json:"contract_digest"`
+	Command            CommandAuthority      `json:"command"`
+	ReceiptDigest      string                `json:"receipt_digest"`
+	Terminal           TerminalResult        `json:"terminal"`
+	Result             Result                `json:"result"`
+	Source             SourceBinding         `json:"source"`
+	Artifacts          []ArtifactObservation `json:"artifacts,omitempty"`
+	CompletedAt        time.Time             `json:"completed_at"`
+	EnvironmentBinding *environment.Binding  `json:"environment_binding,omitempty"`
 }
 
 func (c Contract) Digest() (string, error) {
