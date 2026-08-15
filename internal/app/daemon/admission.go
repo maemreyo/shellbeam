@@ -7,6 +7,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -48,7 +49,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
+	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName}
 	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -73,6 +74,20 @@ func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (ope
 }
 
 func validateStartMetadata(req StartRequest) error {
+	if (req.Persistent || req.SessionName != "") && req.ProtocolVersion != 2 {
+		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions", "required_version": "2"}, nil)
+	}
+	if req.SessionName != "" && !req.Persistent {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "session_name"}, fmt.Errorf("session name requires persistent execution"))
+	}
+	if req.Persistent && req.TTY {
+		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_tty"}, nil)
+	}
+	if req.SessionName != "" {
+		if err := persistentsession.ValidateSessionName(req.SessionName); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "session_name"}, err)
+		}
+	}
 	if req.WorkspaceHint != nil {
 		if err := req.WorkspaceHint.Validate(); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)

@@ -72,7 +72,7 @@ func typedRequestIntent(req StartRequest) (operation.TypedRequestIntent, string,
 	}
 	intent := operation.TypedRequestIntent{
 		WorkspaceID: req.WorkspaceID, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMap(req.Params),
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS,
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName,
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
@@ -92,7 +92,7 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 	if stored.EffectiveRequestFingerprint() != requestFingerprint {
 		return View{}, true, failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
-	if stored.SchemaVersion != 3 || stored.ProjectCommand == nil || stored.WorkspaceID != req.WorkspaceID || stored.ProjectCommand.CommandID != req.ProjectCommandID {
+	if ((req.Persistent && stored.SchemaVersion != 4) || (!req.Persistent && stored.SchemaVersion != 3)) || stored.ProjectCommand == nil || stored.WorkspaceID != req.WorkspaceID || stored.ProjectCommand.CommandID != req.ProjectCommandID || stored.Persistent != req.Persistent || stored.SessionName != req.SessionName {
 		return View{}, true, failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	if err := stored.ProjectCommand.Validate(); err != nil {
@@ -134,7 +134,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 	})
 	resolvedIntent := operation.Intent{
 		Argv: append([]string(nil), binding.ResolvedArgv...), WorkspaceID: req.WorkspaceID,
-		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS,
+		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName,
 	}
 	executionFingerprint, err := resolvedIntent.ExecutionFingerprint(spec.Executable)
 	if err != nil {
@@ -145,13 +145,18 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
 	reservation := operation.Reservation{
-		SchemaVersion: 3, OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID,
+		SchemaVersion: func() int {
+			if req.Persistent {
+				return 4
+			}
+			return 3
+		}(), OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID,
 		LogicalCWD: binding.LogicalCWD, StructuredAdapter: structuredAdapter,
 		RequestFingerprint: requestFingerprint, ExecutionFingerprint: executionFingerprint,
 		ObservationBindingFingerprint: observationFingerprint,
 		ExecutionMode:                 operation.ExecutionModeArgv, Executable: spec.Executable,
 		Argv: append([]string(nil), binding.ResolvedArgv...), CWD: binding.ResolvedCWD,
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, DaemonIncarnation: s.options.Incarnation,
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, DaemonIncarnation: s.options.Incarnation,
 		ProjectCommand: &binding,
 	}
 	return reservation, spec, nil

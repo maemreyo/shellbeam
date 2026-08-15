@@ -27,6 +27,8 @@ type Reservation struct {
 	CWD                           string                  `json:"cwd"`
 	TTY                           bool                    `json:"tty"`
 	TimeoutMS                     int64                   `json:"timeout_ms"`
+	Persistent                    bool                    `json:"persistent,omitempty"`
+	SessionName                   string                  `json:"session_name,omitempty"`
 	Shell                         string                  `json:"shell"`
 	DaemonIncarnation             string                  `json:"daemon_incarnation"`
 	ControlReservationBytes       int64                   `json:"control_reservation_bytes"`

@@ -34,6 +34,8 @@ type StartRequest struct {
 	CWD               string                    `json:"cwd"`
 	TTY               bool                      `json:"tty"`
 	TimeoutMS         int64                     `json:"timeout_ms"`
+	Persistent        bool                      `json:"persistent,omitempty"`
+	SessionName       string                    `json:"session_name,omitempty"`
 	YieldMS           int64                     `json:"yield_time_ms"`
 	MaxOutputBytes    int                       `json:"max_output_bytes"`
 	StructuredAdapter string                    `json:"structured_adapter,omitempty"`

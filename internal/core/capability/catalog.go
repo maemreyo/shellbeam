@@ -34,59 +34,71 @@ const (
 )
 
 type Limits struct {
-	CommandBytes                     int   `json:"command_bytes"`
-	ResponseBytes                    int   `json:"response_bytes"`
-	SessionOutputBytes               int64 `json:"session_output_bytes"`
-	RuntimeMS                        int64 `json:"runtime_ms"`
-	LiveSessions                     int   `json:"live_sessions"`
-	ActivityHistory                  int   `json:"activity_history"`
-	EventJournalMaxEvents            int   `json:"event_journal_max_events,omitempty"`
-	EventCursorBytes                 int   `json:"event_cursor_bytes,omitempty"`
-	EventSnapshotFacts               int   `json:"event_snapshot_facts,omitempty"`
-	StructuredInspectRecords         int   `json:"structured_inspect_records,omitempty"`
-	TelemetryMaxSamples              int   `json:"telemetry_max_samples,omitempty"`
-	TelemetryMetadataBytes           int64 `json:"telemetry_metadata_bytes,omitempty"`
-	TelemetryMaxKeys                 int   `json:"telemetry_max_keys,omitempty"`
-	TelemetryMaxKeysPerRepository    int   `json:"telemetry_max_keys_per_repository,omitempty"`
-	TelemetryMaxSamplesPerKey        int   `json:"telemetry_max_samples_per_key,omitempty"`
-	TelemetryRetentionAgeMS          int64 `json:"telemetry_retention_age_ms,omitempty"`
-	TelemetryInspectSamples          int   `json:"telemetry_inspect_samples,omitempty"`
-	ReproMaxCapsules                 int   `json:"repro_max_capsules,omitempty"`
-	ReproMaxReferences               int   `json:"repro_max_references,omitempty"`
-	ReproMetadataBytes               int   `json:"repro_metadata_bytes,omitempty"`
-	ReadinessCacheTTLMS              int64 `json:"readiness_cache_ttl_ms,omitempty"`
-	ReadinessCacheEntries            int   `json:"readiness_cache_entries,omitempty"`
-	OutputViewMaxReturnBytes         int   `json:"output_view_max_return_bytes,omitempty"`
-	OutputViewMaxWorkBytes           int   `json:"output_view_max_work_bytes,omitempty"`
-	OutputViewMaxLines               int   `json:"output_view_max_lines,omitempty"`
-	OutputViewMaxMatches             int   `json:"output_view_max_matches,omitempty"`
-	OutputViewMaxPatternBytes        int   `json:"output_view_max_pattern_bytes,omitempty"`
-	OutputViewMaxContinuationBytes   int   `json:"output_view_max_continuation_bytes,omitempty"`
-	EvidenceInspectRecords           int   `json:"evidence_inspect_records,omitempty"`
-	EvidenceExpectedOutputs          int   `json:"evidence_expected_outputs,omitempty"`
-	EvidenceArtifactMetadataBytes    int   `json:"evidence_artifact_metadata_bytes,omitempty"`
-	EvidenceArtifactDigestBytes      int64 `json:"evidence_artifact_digest_bytes,omitempty"`
-	EvidenceTreeEntries              int   `json:"evidence_tree_entries,omitempty"`
-	EvidenceCursorBytes              int   `json:"evidence_cursor_bytes,omitempty"`
-	EnvironmentRelevantVariables     int   `json:"environment_relevant_variables,omitempty"`
-	EnvironmentToolchainProbes       int   `json:"environment_toolchain_probes,omitempty"`
-	EnvironmentToolchainObservations int   `json:"environment_toolchain_observations,omitempty"`
-	EnvironmentProbeTimeoutMS        int64 `json:"environment_probe_timeout_ms,omitempty"`
-	EnvironmentProbeOutputBytes      int   `json:"environment_probe_output_bytes,omitempty"`
-	EnvironmentCacheEntries          int   `json:"environment_cache_entries,omitempty"`
-	ProcessDescendants               int   `json:"process_descendants,omitempty"`
-	ProcessTraversalDepth            int   `json:"process_traversal_depth,omitempty"`
-	ProcessObservationBytes          int   `json:"process_observation_bytes,omitempty"`
-	ProcessObservationMS             int64 `json:"process_observation_ms,omitempty"`
-	ProcessPortRecords               int   `json:"process_port_records,omitempty"`
-	MutationScopeActivePerActivity   int   `json:"mutation_scope_active_per_activity,omitempty"`
-	MutationScopeActivePerWorkspace  int   `json:"mutation_scope_active_per_workspace,omitempty"`
-	MutationScopePathsPerScope       int   `json:"mutation_scope_paths_per_scope,omitempty"`
-	MutationScopeSelectorBytes       int   `json:"mutation_scope_selector_bytes,omitempty"`
-	MutationScopeAdvisories          int   `json:"mutation_scope_advisories,omitempty"`
-	MutationScopeMinTTLMS            int64 `json:"mutation_scope_min_ttl_ms,omitempty"`
-	MutationScopeDefaultTTLMS        int64 `json:"mutation_scope_default_ttl_ms,omitempty"`
-	MutationScopeMaxTTLMS            int64 `json:"mutation_scope_max_ttl_ms,omitempty"`
+	CommandBytes                         int   `json:"command_bytes"`
+	ResponseBytes                        int   `json:"response_bytes"`
+	SessionOutputBytes                   int64 `json:"session_output_bytes"`
+	RuntimeMS                            int64 `json:"runtime_ms"`
+	LiveSessions                         int   `json:"live_sessions"`
+	ActivityHistory                      int   `json:"activity_history"`
+	EventJournalMaxEvents                int   `json:"event_journal_max_events,omitempty"`
+	EventCursorBytes                     int   `json:"event_cursor_bytes,omitempty"`
+	EventSnapshotFacts                   int   `json:"event_snapshot_facts,omitempty"`
+	StructuredInspectRecords             int   `json:"structured_inspect_records,omitempty"`
+	TelemetryMaxSamples                  int   `json:"telemetry_max_samples,omitempty"`
+	TelemetryMetadataBytes               int64 `json:"telemetry_metadata_bytes,omitempty"`
+	TelemetryMaxKeys                     int   `json:"telemetry_max_keys,omitempty"`
+	TelemetryMaxKeysPerRepository        int   `json:"telemetry_max_keys_per_repository,omitempty"`
+	TelemetryMaxSamplesPerKey            int   `json:"telemetry_max_samples_per_key,omitempty"`
+	TelemetryRetentionAgeMS              int64 `json:"telemetry_retention_age_ms,omitempty"`
+	TelemetryInspectSamples              int   `json:"telemetry_inspect_samples,omitempty"`
+	ReproMaxCapsules                     int   `json:"repro_max_capsules,omitempty"`
+	ReproMaxReferences                   int   `json:"repro_max_references,omitempty"`
+	ReproMetadataBytes                   int   `json:"repro_metadata_bytes,omitempty"`
+	ReadinessCacheTTLMS                  int64 `json:"readiness_cache_ttl_ms,omitempty"`
+	ReadinessCacheEntries                int   `json:"readiness_cache_entries,omitempty"`
+	OutputViewMaxReturnBytes             int   `json:"output_view_max_return_bytes,omitempty"`
+	OutputViewMaxWorkBytes               int   `json:"output_view_max_work_bytes,omitempty"`
+	OutputViewMaxLines                   int   `json:"output_view_max_lines,omitempty"`
+	OutputViewMaxMatches                 int   `json:"output_view_max_matches,omitempty"`
+	OutputViewMaxPatternBytes            int   `json:"output_view_max_pattern_bytes,omitempty"`
+	OutputViewMaxContinuationBytes       int   `json:"output_view_max_continuation_bytes,omitempty"`
+	EvidenceInspectRecords               int   `json:"evidence_inspect_records,omitempty"`
+	EvidenceExpectedOutputs              int   `json:"evidence_expected_outputs,omitempty"`
+	EvidenceArtifactMetadataBytes        int   `json:"evidence_artifact_metadata_bytes,omitempty"`
+	EvidenceArtifactDigestBytes          int64 `json:"evidence_artifact_digest_bytes,omitempty"`
+	EvidenceTreeEntries                  int   `json:"evidence_tree_entries,omitempty"`
+	EvidenceCursorBytes                  int   `json:"evidence_cursor_bytes,omitempty"`
+	EnvironmentRelevantVariables         int   `json:"environment_relevant_variables,omitempty"`
+	EnvironmentToolchainProbes           int   `json:"environment_toolchain_probes,omitempty"`
+	EnvironmentToolchainObservations     int   `json:"environment_toolchain_observations,omitempty"`
+	EnvironmentProbeTimeoutMS            int64 `json:"environment_probe_timeout_ms,omitempty"`
+	EnvironmentProbeOutputBytes          int   `json:"environment_probe_output_bytes,omitempty"`
+	EnvironmentCacheEntries              int   `json:"environment_cache_entries,omitempty"`
+	ProcessDescendants                   int   `json:"process_descendants,omitempty"`
+	ProcessTraversalDepth                int   `json:"process_traversal_depth,omitempty"`
+	ProcessObservationBytes              int   `json:"process_observation_bytes,omitempty"`
+	ProcessObservationMS                 int64 `json:"process_observation_ms,omitempty"`
+	ProcessPortRecords                   int   `json:"process_port_records,omitempty"`
+	MutationScopeActivePerActivity       int   `json:"mutation_scope_active_per_activity,omitempty"`
+	MutationScopeActivePerWorkspace      int   `json:"mutation_scope_active_per_workspace,omitempty"`
+	MutationScopePathsPerScope           int   `json:"mutation_scope_paths_per_scope,omitempty"`
+	MutationScopeSelectorBytes           int   `json:"mutation_scope_selector_bytes,omitempty"`
+	MutationScopeAdvisories              int   `json:"mutation_scope_advisories,omitempty"`
+	MutationScopeMinTTLMS                int64 `json:"mutation_scope_min_ttl_ms,omitempty"`
+	MutationScopeDefaultTTLMS            int64 `json:"mutation_scope_default_ttl_ms,omitempty"`
+	MutationScopeMaxTTLMS                int64 `json:"mutation_scope_max_ttl_ms,omitempty"`
+	PersistentSessions                   int   `json:"persistent_sessions,omitempty"`
+	PersistentSessionNameBytes           int   `json:"persistent_session_name_bytes,omitempty"`
+	PersistentSessionInspectRows         int   `json:"persistent_session_inspect_rows,omitempty"`
+	PersistentSessionInspectDefaultRows  int   `json:"persistent_session_inspect_default_rows,omitempty"`
+	PersistentInputRecords               int   `json:"persistent_input_records,omitempty"`
+	PersistentInputRecordMetadataBytes   int   `json:"persistent_input_record_metadata_bytes,omitempty"`
+	PersistentKillRecords                int   `json:"persistent_kill_records,omitempty"`
+	PersistentRecoverySpoolBytes         int64 `json:"persistent_recovery_spool_bytes,omitempty"`
+	PersistentQueuedInputBytes           int   `json:"persistent_queued_input_bytes,omitempty"`
+	PersistentReattachHandshakeTimeoutMS int64 `json:"persistent_reattach_handshake_timeout_ms,omitempty"`
+	PersistentStartupReattachConcurrency int   `json:"persistent_startup_reattach_concurrency,omitempty"`
+	PersistentStartupReattachBudgetMS    int64 `json:"persistent_startup_reattach_budget_ms,omitempty"`
 }
 
 type Catalog struct {
@@ -110,6 +122,12 @@ type Catalog struct {
 	EnvironmentToolchainProbeIDs      []string                    `json:"environment_toolchain_probe_ids,omitempty"`
 	ProcessObservationSchemaVersions  []int                       `json:"process_observation_schema_versions,omitempty"`
 	MutationScopeSchemaVersions       []int                       `json:"mutation_scope_schema_versions,omitempty"`
+	PersistentSessionSchemaVersions   []int                       `json:"persistent_session_schema_versions,omitempty"`
+	SupervisorProtocolVersions        []int                       `json:"supervisor_protocol_versions,omitempty"`
+	PersistentNonTTY                  bool                        `json:"persistent_non_tty,omitempty"`
+	PersistentTTY                     bool                        `json:"persistent_tty,omitempty"`
+	PersistentContinuity              string                      `json:"persistent_continuity,omitempty"`
+	HostRebootContinuity              bool                        `json:"host_reboot_continuity,omitempty"`
 	PortObservationSupported          bool                        `json:"port_observation_supported,omitempty"`
 	ReadinessRequirementKinds         []string                    `json:"project_readiness_requirement_kinds,omitempty"`
 	TypedCommandVersions              []int                       `json:"typed_project_command_versions,omitempty"`
@@ -188,6 +206,8 @@ func (c Catalog) Clone() Catalog {
 	out.EnvironmentToolchainProbeIDs = append([]string(nil), c.EnvironmentToolchainProbeIDs...)
 	out.ProcessObservationSchemaVersions = append([]int(nil), c.ProcessObservationSchemaVersions...)
 	out.MutationScopeSchemaVersions = append([]int(nil), c.MutationScopeSchemaVersions...)
+	out.PersistentSessionSchemaVersions = append([]int(nil), c.PersistentSessionSchemaVersions...)
+	out.SupervisorProtocolVersions = append([]int(nil), c.SupervisorProtocolVersions...)
 	out.ReadinessRequirementKinds = append([]string(nil), c.ReadinessRequirementKinds...)
 	out.TypedCommandVersions = append([]int(nil), c.TypedCommandVersions...)
 	out.TypedCommandParameterKinds = append([]string(nil), c.TypedCommandParameterKinds...)

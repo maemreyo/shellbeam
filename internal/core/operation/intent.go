@@ -19,6 +19,8 @@ type Intent struct {
 	ResolvedCWD    string   `json:"-"`
 	TTY            bool     `json:"tty"`
 	TimeoutMS      int64    `json:"timeout_ms"`
+	Persistent     bool     `json:"persistent,omitempty"`
+	SessionName    string   `json:"session_name,omitempty"`
 	YieldMS        int64    `json:"-"`
 	MaxOutputBytes int      `json:"-"`
 }
@@ -56,6 +58,9 @@ func (i Intent) RequestFingerprint() (string, error) {
 		return "", err
 	}
 	logicalCWD := address.LogicalCWD()
+	if i.Persistent {
+		return i.persistentRequestFingerprint(mode, logicalCWD)
+	}
 	if mode == ExecutionModeShell {
 		return hashIntent(2, "request", i.Command, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "")
 	}
@@ -80,6 +85,9 @@ func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error)
 	if !filepath.IsAbs(cwd) {
 		return "", fmt.Errorf("resolved cwd must be absolute")
 	}
+	if i.Persistent {
+		return i.persistentExecutionFingerprint(mode, cwd, effectiveExecutable)
+	}
 	if mode == ExecutionModeShell {
 		return hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable)
 	}
@@ -92,6 +100,9 @@ func (i Intent) validateCommon() error {
 	}
 	if i.TimeoutMS < 0 {
 		return fmt.Errorf("timeout must be non-negative")
+	}
+	if err := i.validatePersistent(); err != nil {
+		return err
 	}
 	return nil
 }

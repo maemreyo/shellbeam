@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -28,6 +29,8 @@ type TypedRequestIntent struct {
 	Params           map[string]string `json:"params,omitempty"`
 	TTY              bool              `json:"tty"`
 	TimeoutMS        int64             `json:"timeout_ms"`
+	Persistent       bool              `json:"persistent,omitempty"`
+	SessionName      string            `json:"session_name,omitempty"`
 }
 
 type TypedIntentClaim struct {
@@ -53,6 +56,17 @@ func (i TypedRequestIntent) Validate() error {
 	if i.TimeoutMS < 0 {
 		return fmt.Errorf("timeout must be non-negative")
 	}
+	if !i.Persistent && i.SessionName != "" {
+		return fmt.Errorf("session name requires persistent execution")
+	}
+	if i.Persistent && i.TTY {
+		return fmt.Errorf("persistent tty unsupported")
+	}
+	if i.SessionName != "" {
+		if err := persistentsession.ValidateSessionName(i.SessionName); err != nil {
+			return err
+		}
+	}
 	if len(i.Params) > maxTypedParams {
 		return fmt.Errorf("typed parameter limit exceeded")
 	}
@@ -73,14 +87,28 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 		params = append(params, typedParam{ID: id, Value: value})
 	}
 	sort.Slice(params, func(a, b int) bool { return params[a].ID < params[b].ID })
-	payload := struct {
-		Version          int          `json:"version"`
-		WorkspaceID      string       `json:"workspace_id"`
-		ProjectCommandID string       `json:"project_command_id"`
-		Params           []typedParam `json:"params"`
-		TTY              bool         `json:"tty"`
-		TimeoutMS        int64        `json:"timeout_ms"`
-	}{1, i.WorkspaceID, i.ProjectCommandID, params, i.TTY, i.TimeoutMS}
+	var payload any
+	if i.Persistent {
+		payload = struct {
+			Version          int          `json:"version"`
+			WorkspaceID      string       `json:"workspace_id"`
+			ProjectCommandID string       `json:"project_command_id"`
+			Params           []typedParam `json:"params"`
+			TTY              bool         `json:"tty"`
+			TimeoutMS        int64        `json:"timeout_ms"`
+			Persistent       bool         `json:"persistent"`
+			SessionName      string       `json:"session_name,omitempty"`
+		}{2, i.WorkspaceID, i.ProjectCommandID, params, i.TTY, i.TimeoutMS, true, i.SessionName}
+	} else {
+		payload = struct {
+			Version          int          `json:"version"`
+			WorkspaceID      string       `json:"workspace_id"`
+			ProjectCommandID string       `json:"project_command_id"`
+			Params           []typedParam `json:"params"`
+			TTY              bool         `json:"tty"`
+			TimeoutMS        int64        `json:"timeout_ms"`
+		}{1, i.WorkspaceID, i.ProjectCommandID, params, i.TTY, i.TimeoutMS}
+	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", err

@@ -88,8 +88,17 @@ func validateTypedBindingCommit(claim operation.TypedIntentClaim, id operation.I
 	if want.EffectiveRequestFingerprint() != claim.RequestFingerprint {
 		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
-	if want.SchemaVersion != 3 || want.ProjectCommand == nil {
-		return fmt.Errorf("typed binding requires schema v3 reservation")
+	if want.ProjectCommand == nil || (want.SchemaVersion != 3 && want.SchemaVersion != 4) {
+		return fmt.Errorf("typed binding requires schema v3 or persistent v4 reservation")
+	}
+	if claim.Intent.Persistent != want.Persistent || claim.Intent.SessionName != want.SessionName {
+		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
+	}
+	if want.SchemaVersion == 3 && want.Persistent {
+		return fmt.Errorf("schema v3 cannot be persistent")
+	}
+	if want.SchemaVersion == 4 && !want.Persistent {
+		return fmt.Errorf("schema v4 typed binding must be persistent")
 	}
 	if err := want.ProjectCommand.Validate(); err != nil {
 		return err

@@ -111,7 +111,12 @@ func abandonedReceipt(snap session.Snapshot, reservation operation.Reservation, 
 		rec.CWD = reservation.CWD
 		rec.TTY = reservation.TTY
 		rec.TimeoutMS = reservation.TimeoutMS
+		rec.Persistent = reservation.Persistent
+		rec.SessionName = reservation.SessionName
 		rec.ProjectCommand = reservation.ProjectCommand
+		if reservation.SchemaVersion == 4 && reservation.ProjectCommand == nil {
+			rec.Evidence = reservation.Evidence
+		}
 		return rec
 	}
 	rec.Fingerprint = reservation.Fingerprint

@@ -76,6 +76,16 @@ const (
 	MutationScopeBindingConflict      Code = "mutation_scope_binding_conflict"
 	MutationMetadataConflict          Code = "mutation_metadata_conflict"
 	MutationScopeCapacityExceeded     Code = "mutation_scope_capacity_exceeded"
+	PersistentSessionNameConflict     Code = "persistent_session_name_conflict"
+	PersistentSessionOwnershipLost    Code = "persistent_session_ownership_lost"
+	SupervisorUnavailable             Code = "supervisor_unavailable"
+	SupervisorProtocolMismatch        Code = "supervisor_protocol_mismatch"
+	SupervisorAuthFailed              Code = "supervisor_auth_failed"
+	SupervisorStateConflict           Code = "supervisor_state_conflict"
+	PersistentRecoveryOutputConflict  Code = "persistent_recovery_output_conflict"
+	PersistentHistoryExhausted        Code = "persistent_history_exhausted"
+	PersistentInputHistoryExhausted   Code = "persistent_input_history_exhausted"
+	PersistentKillHistoryExhausted    Code = "persistent_kill_history_exhausted"
 	PersistenceAmbiguous              Code = "persistence_ambiguous"
 	CapacityExceeded                  Code = "capacity_exceeded"
 	PersistenceUnavailable            Code = "persistence_unavailable"
@@ -162,6 +172,16 @@ var publicSpecs = map[Code]publicSpec{
 	MutationScopeBindingConflict:      {message: "mutation scope binding conflicts with existing binding", details: keys("scope_id")},
 	MutationMetadataConflict:          {message: "mutation metadata conflicts with existing mutation", details: keys("mutation_id", "scope_id", "field")},
 	MutationScopeCapacityExceeded:     {message: "mutation scope capacity exceeded", retryable: true, details: keys("scope_id", "workspace_id", "activity_id", "reason")},
+	PersistentSessionNameConflict:     {message: "persistent session name conflicts with existing binding", details: keys("session_id", "session_name", "reason")},
+	PersistentSessionOwnershipLost:    {message: "persistent session ownership lost", details: keys("session_id", "session_name", "reason")},
+	SupervisorUnavailable:             {message: "persistent session supervisor unavailable", retryable: true, details: keys("session_id", "session_name", "reason")},
+	SupervisorProtocolMismatch:        {message: "persistent session supervisor protocol mismatch", details: keys("session_id", "session_name", "reason", "required_version")},
+	SupervisorAuthFailed:              {message: "persistent session supervisor authentication failed", details: keys("session_id", "session_name", "reason")},
+	SupervisorStateConflict:           {message: "persistent session supervisor state conflict", details: keys("session_id", "session_name", "reason")},
+	PersistentRecoveryOutputConflict:  {message: "persistent recovery output conflicts with canonical output", details: keys("session_id", "reason")},
+	PersistentHistoryExhausted:        {message: "persistent session history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
+	PersistentInputHistoryExhausted:   {message: "persistent input history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
+	PersistentKillHistoryExhausted:    {message: "persistent kill history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
 	CapacityExceeded:                  {message: "capacity exceeded", retryable: true},
 	PersistenceUnavailable:            {message: "persistence unavailable", retryable: true},

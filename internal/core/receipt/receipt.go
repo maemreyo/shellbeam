@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -42,6 +43,8 @@ type Receipt struct {
 	CWD                           string                  `json:"cwd,omitempty"`
 	TTY                           bool                    `json:"tty"`
 	TimeoutMS                     int64                   `json:"timeout_ms"`
+	Persistent                    bool                    `json:"persistent,omitempty"`
+	SessionName                   string                  `json:"session_name,omitempty"`
 	OutputBytes                   int64                   `json:"output_bytes"`
 	OutputComplete                bool                    `json:"output_complete"`
 	InputAcceptedBytes            int64                   `json:"input_accepted_bytes"`
@@ -83,6 +86,27 @@ func (r Receipt) Validate() error {
 		}
 		if err := r.ProjectCommand.Validate(); err != nil {
 			return fmt.Errorf("invalid v3 project command provenance: %w", err)
+		}
+	case 4:
+		if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" || !r.Persistent || r.TTY {
+			return fmt.Errorf("v4 persistent receipt identity missing")
+		}
+		if r.SessionName != "" {
+			if err := persistentsession.ValidateSessionName(r.SessionName); err != nil {
+				return fmt.Errorf("invalid v4 session name: %w", err)
+			}
+		}
+		if r.ProjectCommand != nil {
+			if r.Evidence != nil {
+				return fmt.Errorf("v4 typed receipt cannot carry raw evidence provenance")
+			}
+			if err := r.ProjectCommand.Validate(); err != nil {
+				return fmt.Errorf("invalid v4 project command provenance: %w", err)
+			}
+		} else if r.Evidence != nil {
+			if err := r.Evidence.Validate(); err != nil {
+				return fmt.Errorf("invalid evidence provenance: %w", err)
+			}
 		}
 	default:
 		return fmt.Errorf("unsupported receipt schema")

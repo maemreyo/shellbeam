@@ -42,16 +42,16 @@ Worktree/branch: /Users/trung.ngo/Documents/zaob-dev/shellbeam-worktrees/design_
 
 Files: create internal/core/persistentsession/{types.go,types_test.go}; modify internal/core/operation/{intent.go,intent_test.go,persistence.go}; internal/core/failure/failure.go; internal/core/capability/{catalog.go,catalog_test.go}; internal/app/daemon/{types.go,admission.go,bindings.go}; internal/adapter/store/{reservation.go,v2_reservation_test.go}.
 
-- [ ] Add lifecycle/ownership enums, validation, exact B1 constants, inspect request/result types.
-- [ ] RED tests for valid/invalid names, lifecycle validation, persistent TTY rejection, name-without-persistent rejection.
-- [ ] Extend operation.Intent, operation.Reservation, and daemon.StartRequest with Persistent bool, SessionName string.
-- [ ] Persistent modern starts use a new request-fingerprint encoding including both fields. Ordinary existing fingerprints stay byte-compatible.
-- [ ] Add reservation schema 4 for persistent starts. Schemas 1/2/3 keep their existing meanings; schema 3 remains typed-project-command. Schema 4 accepts shell/argv/project-command execution while durably encoding persistent intent/name before spawn.
-- [ ] Replay tests: same operation/same persistent metadata replays; changed mode/name conflicts; old schemas remain readable.
-- [ ] Add stable B1 failure codes/reasons without endpoint/capability/PID leakage.
-- [ ] Add Catalog.WithNamedSessions(...); baseline remains unavailable until real composition.
-- [ ] Run focused tests across core/daemon/store plus race on core packages.
-- [ ] Commit: feat: define persistent session contracts
+- [x] Add lifecycle/ownership enums, validation, exact B1 constants, inspect request/result types.
+- [x] RED tests for valid/invalid names, lifecycle validation, persistent TTY rejection, name-without-persistent rejection.
+- [x] Extend operation.Intent, operation.Reservation, and daemon.StartRequest with Persistent bool, SessionName string.
+- [x] Persistent modern starts use a new request-fingerprint encoding including both fields. Ordinary existing fingerprints stay byte-compatible.
+- [x] Add reservation schema 4 for persistent starts. Schemas 1/2/3 keep their existing meanings; schema 3 remains typed-project-command. Schema 4 accepts shell/argv/project-command execution while durably encoding persistent intent/name before spawn.
+- [x] Replay tests: same operation/same persistent metadata replays; changed mode/name conflicts; old schemas remain readable.
+- [x] Add stable B1 failure codes/reasons without endpoint/capability/PID leakage.
+- [x] Add Catalog.WithNamedSessions(...); baseline remains unavailable until real composition.
+- [x] Run focused tests across core/daemon/store plus race on core packages.
+- [x] Commit: feat: define persistent session contracts
 
 ### Task 2 - Canonical persistent binding/name registry and bounded listing
 

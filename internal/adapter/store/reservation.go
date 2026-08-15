@@ -12,6 +12,7 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
@@ -91,8 +92,8 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 	if existing.ObservationBindingFingerprint != want.ObservationBindingFingerprint {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
-	if existing.SchemaVersion == 3 || want.SchemaVersion == 3 {
-		if existing.SchemaVersion != 3 || want.SchemaVersion != 3 || existing.ProjectCommand == nil || want.ProjectCommand == nil {
+	if existing.SchemaVersion == 3 || want.SchemaVersion == 3 || existing.ProjectCommand != nil || want.ProjectCommand != nil {
+		if existing.ProjectCommand == nil || want.ProjectCommand == nil {
 			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 		}
 		existingDigest, existingErr := existing.ProjectCommand.Digest()
@@ -100,6 +101,9 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 		if existingErr != nil || wantErr != nil || existingDigest != wantDigest {
 			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 		}
+	}
+	if existing.Persistent != want.Persistent || existing.SessionName != want.SessionName {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
 	return existing, false, r.ensureSessionMetadata(existing)
 }
@@ -155,6 +159,10 @@ func validateReservation(v operation.Reservation) error {
 		if !slices.Equal(v.Argv, v.ProjectCommand.ResolvedArgv) || v.CWD != v.ProjectCommand.ResolvedCWD || v.LogicalCWD != v.ProjectCommand.LogicalCWD || v.WorkspaceID == "" {
 			return fmt.Errorf("invalid reservation")
 		}
+	case 4:
+		if err := validatePersistentReservation(v); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("invalid reservation")
 	}
@@ -199,6 +207,53 @@ func ensurePrivateDir(path string) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0700 || !ownedByCurrent(info) {
 		return fmt.Errorf("unsafe session directory")
+	}
+	return nil
+}
+
+func validatePersistentReservation(v operation.Reservation) error {
+	if !v.Persistent || v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
+		return fmt.Errorf("invalid persistent reservation")
+	}
+	if v.TTY {
+		return fmt.Errorf("invalid persistent reservation")
+	}
+	if v.SessionName != "" {
+		if err := persistentsession.ValidateSessionName(v.SessionName); err != nil {
+			return fmt.Errorf("invalid persistent reservation: %w", err)
+		}
+	}
+	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
+		return fmt.Errorf("invalid persistent reservation")
+	}
+	if v.ProjectCommand != nil {
+		if v.Intent != nil || v.Evidence != nil || v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || len(v.Argv) == 0 || v.Argv[0] == "" {
+			return fmt.Errorf("invalid persistent typed reservation")
+		}
+		if err := v.ProjectCommand.Validate(); err != nil {
+			return fmt.Errorf("invalid persistent typed reservation: %w", err)
+		}
+		if !slices.Equal(v.Argv, v.ProjectCommand.ResolvedArgv) || v.CWD != v.ProjectCommand.ResolvedCWD || v.LogicalCWD != v.ProjectCommand.LogicalCWD || v.WorkspaceID == "" {
+			return fmt.Errorf("invalid persistent typed reservation")
+		}
+		return nil
+	}
+	if v.Intent != nil {
+		if err := v.Intent.Validate(); err != nil {
+			return fmt.Errorf("invalid persistent reservation: %w", err)
+		}
+	}
+	switch v.ExecutionMode {
+	case operation.ExecutionModeShell:
+		if v.Command == "" || len(v.Argv) != 0 || v.Shell == "" || v.Executable == "" {
+			return fmt.Errorf("invalid persistent reservation")
+		}
+	case operation.ExecutionModeArgv:
+		if len(v.Argv) == 0 || v.Argv[0] == "" || v.Command != "" || v.Shell != "" || v.Executable == "" {
+			return fmt.Errorf("invalid persistent reservation")
+		}
+	default:
+		return fmt.Errorf("invalid persistent reservation")
 	}
 	return nil
 }
