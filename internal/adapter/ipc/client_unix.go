@@ -66,7 +66,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -92,6 +92,7 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.Command = in.Start.Command
 		req.Argv = append([]string(nil), in.Start.Argv...)
 		req.Intent = in.Start.Intent
+		req.Evidence = in.Start.Evidence
 		req.CWD = in.Start.CWD
 		req.TTY = in.Start.TTY
 		req.TimeoutMS = in.Start.TimeoutMS
@@ -136,6 +137,8 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.TestStatus = in.StructuredInspect.Filter.TestStatus
 		req.Continuation = in.StructuredInspect.Continuation
 		req.MaxRecords = in.StructuredInspect.MaxRecords
+	case "inspect.evidence":
+		applyEvidenceInspectV2(&req, in)
 	case "inspect.telemetry":
 		req.OperationID = in.TelemetryInspect.OperationID
 		req.MaxSamples = in.TelemetryInspect.MaxSamples
@@ -152,6 +155,19 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.Signal = in.Kill.Signal
 	}
 	return req
+}
+
+func applyEvidenceInspectV2(req *RequestV2, in bridge.Request) {
+	req.EvidenceID = in.EvidenceInspect.Filter.EvidenceID
+	req.OperationID = in.EvidenceInspect.Filter.OperationID
+	req.WorkspaceID = in.EvidenceInspect.Filter.WorkspaceID
+	req.ProjectCommandID = in.EvidenceInspect.Filter.ProjectCommandID
+	req.ActivityID = in.EvidenceInspect.Filter.ActivityID
+	req.VerificationKind = in.EvidenceInspect.Filter.VerificationKind
+	req.EvidenceResult = in.EvidenceInspect.Filter.Result
+	req.RevalidateArtifacts = in.EvidenceInspect.Filter.RevalidateArtifacts
+	req.Continuation = in.EvidenceInspect.Continuation
+	req.MaxRecords = in.EvidenceInspect.MaxRecords
 }
 
 func (c *Client) Call(ctx context.Context, req Request) (Response, error) {

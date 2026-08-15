@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
@@ -45,6 +46,10 @@ type EventActions interface {
 
 type StructuredActions interface {
 	InspectStructured(context.Context, structuredapp.InspectRequest) (structuredapp.InspectResult, error)
+}
+
+type EvidenceActions interface {
+	InspectEvidence(context.Context, evidenceapp.InspectRequest) (evidenceapp.InspectResult, error)
 }
 
 type TelemetryActions interface {
@@ -240,7 +245,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
 	switch req.Action {
 	case "start":
-		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, Evidence: req.Evidence, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
 		err = callErr
 		if err == nil {
 			result, resultErr := view.StructuredResult()
@@ -293,7 +298,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			resp.Capsule = &capsule
 		}
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.repro", "inspect.code":
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.repro", "inspect.code":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
@@ -306,7 +311,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 
 func clearResponseV2Payload(resp *ResponseV2) {
 	resp.View, resp.Result, resp.Server, resp.Project, resp.Readiness = nil, nil, nil, nil, nil
-	resp.Workspace, resp.Activity, resp.Events, resp.Structured = nil, nil, nil, nil
+	resp.Workspace, resp.Activity, resp.Events, resp.Structured, resp.Evidence = nil, nil, nil, nil, nil
 	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView = nil, nil, nil, nil, nil
 }
 
@@ -343,6 +348,15 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		request := structuredapp.InspectRequest{OperationID: req.OperationID, Filter: structuredapp.RecordFilter{RecordKind: req.RecordKind, Severity: req.Severity, Path: req.Path, TestStatus: req.TestStatus}, Continuation: req.Continuation, MaxRecords: req.MaxRecords}
 		result, err := actions.InspectStructured(ctx, request)
 		resp.Structured = &result
+		return err
+	case "inspect.evidence":
+		actions, ok := s.actions.(EvidenceActions)
+		if !ok {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+		}
+		request := evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{EvidenceID: req.EvidenceID, OperationID: req.OperationID, WorkspaceID: req.WorkspaceID, ProjectCommandID: req.ProjectCommandID, ActivityID: req.ActivityID, VerificationKind: req.VerificationKind, Result: req.EvidenceResult, RevalidateArtifacts: req.RevalidateArtifacts}, Continuation: req.Continuation, MaxRecords: req.MaxRecords}
+		result, err := actions.InspectEvidence(ctx, request)
+		resp.Evidence = &result
 		return err
 	case "inspect.telemetry":
 		actions, ok := s.actions.(TelemetryActions)

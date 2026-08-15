@@ -7,12 +7,14 @@ import (
 	"io"
 	"strings"
 
+	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
@@ -21,44 +23,49 @@ import (
 )
 
 type input struct {
-	Action            string                    `json:"action"`
-	OperationID       string                    `json:"operation_id,omitempty"`
-	WorkspaceID       string                    `json:"workspace_id,omitempty"`
-	ActivityID        string                    `json:"activity_id,omitempty"`
-	CodeQuery         *codeintel.Query          `json:"code_query,omitempty"`
-	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
-	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
-	ProjectCommandID  string                    `json:"project_command_id,omitempty"`
-	Params            map[string]string         `json:"params,omitempty"`
-	Command           string                    `json:"command,omitempty"`
-	Argv              []string                  `json:"argv,omitempty"`
-	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
-	CWD               string                    `json:"cwd,omitempty"`
-	TTY               bool                      `json:"tty,omitempty"`
-	YieldMS           int64                     `json:"yield_time_ms,omitempty"`
-	TimeoutMS         int64                     `json:"timeout_ms,omitempty"`
-	MaxOutputBytes    int                       `json:"max_output_bytes,omitempty"`
-	SessionID         string                    `json:"session_id,omitempty"`
-	Selector          *outputview.Selector      `json:"selector,omitempty"`
-	Cursor            int64                     `json:"cursor,omitempty"`
-	InputOffset       int64                     `json:"input_offset,omitempty"`
-	Chars             string                    `json:"chars,omitempty"`
-	EOF               bool                      `json:"eof,omitempty"`
-	KillID            string                    `json:"kill_id,omitempty"`
-	Signal            string                    `json:"signal,omitempty"`
-	Target            *observationcore.Target   `json:"target,omitempty"`
-	AfterEventCursor  string                    `json:"after_event_cursor,omitempty"`
-	MaxEvents         int                       `json:"max_events,omitempty"`
-	RecordKind        structuredcore.RecordKind `json:"record_kind,omitempty"`
-	Severity          structuredcore.Severity   `json:"severity,omitempty"`
-	Path              string                    `json:"path,omitempty"`
-	TestStatus        structuredcore.TestStatus `json:"test_status,omitempty"`
-	Continuation      string                    `json:"continuation,omitempty"`
-	MaxRecords        int                       `json:"max_records,omitempty"`
-	MaxSamples        int                       `json:"max_samples,omitempty"`
-	ReproCreateID     string                    `json:"repro_create_id,omitempty"`
-	CapturePolicy     *reprocore.CapturePolicy  `json:"capture_policy,omitempty"`
-	ReproID           string                    `json:"repro_id,omitempty"`
+	Action              string                        `json:"action"`
+	OperationID         string                        `json:"operation_id,omitempty"`
+	WorkspaceID         string                        `json:"workspace_id,omitempty"`
+	ActivityID          string                        `json:"activity_id,omitempty"`
+	CodeQuery           *codeintel.Query              `json:"code_query,omitempty"`
+	WorkspaceHint       *workspace.Hint               `json:"workspace_hint,omitempty"`
+	StructuredAdapter   string                        `json:"structured_adapter,omitempty"`
+	ProjectCommandID    string                        `json:"project_command_id,omitempty"`
+	Params              map[string]string             `json:"params,omitempty"`
+	Command             string                        `json:"command,omitempty"`
+	Argv                []string                      `json:"argv,omitempty"`
+	Intent              *operation.DeclaredIntent     `json:"intent,omitempty"`
+	Evidence            *coreevidence.Contract        `json:"evidence,omitempty"`
+	CWD                 string                        `json:"cwd,omitempty"`
+	TTY                 bool                          `json:"tty,omitempty"`
+	YieldMS             int64                         `json:"yield_time_ms,omitempty"`
+	TimeoutMS           int64                         `json:"timeout_ms,omitempty"`
+	MaxOutputBytes      int                           `json:"max_output_bytes,omitempty"`
+	SessionID           string                        `json:"session_id,omitempty"`
+	Selector            *outputview.Selector          `json:"selector,omitempty"`
+	Cursor              int64                         `json:"cursor,omitempty"`
+	InputOffset         int64                         `json:"input_offset,omitempty"`
+	Chars               string                        `json:"chars,omitempty"`
+	EOF                 bool                          `json:"eof,omitempty"`
+	KillID              string                        `json:"kill_id,omitempty"`
+	Signal              string                        `json:"signal,omitempty"`
+	Target              *observationcore.Target       `json:"target,omitempty"`
+	AfterEventCursor    string                        `json:"after_event_cursor,omitempty"`
+	MaxEvents           int                           `json:"max_events,omitempty"`
+	RecordKind          structuredcore.RecordKind     `json:"record_kind,omitempty"`
+	Severity            structuredcore.Severity       `json:"severity,omitempty"`
+	Path                string                        `json:"path,omitempty"`
+	TestStatus          structuredcore.TestStatus     `json:"test_status,omitempty"`
+	Continuation        string                        `json:"continuation,omitempty"`
+	MaxRecords          int                           `json:"max_records,omitempty"`
+	EvidenceID          string                        `json:"evidence_id,omitempty"`
+	VerificationKind    coreevidence.VerificationKind `json:"verification_kind,omitempty"`
+	EvidenceResult      coreevidence.Result           `json:"result,omitempty"`
+	RevalidateArtifacts bool                          `json:"revalidate_artifacts,omitempty"`
+	MaxSamples          int                           `json:"max_samples,omitempty"`
+	ReproCreateID       string                        `json:"repro_create_id,omitempty"`
+	CapturePolicy       *reprocore.CapturePolicy      `json:"capture_policy,omitempty"`
+	ReproID             string                        `json:"repro_id,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -120,6 +127,9 @@ func validateV2(v input) error {
 			return fmt.Errorf("inspect.code requires code_query")
 		}
 		return v.CodeQuery.Validate()
+	case "inspect.evidence":
+		_, err := evidenceapp.NormalizeInspectRequestForTransport(evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{EvidenceID: v.EvidenceID, OperationID: v.OperationID, WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, ActivityID: v.ActivityID, VerificationKind: v.VerificationKind, Result: v.EvidenceResult, RevalidateArtifacts: v.RevalidateArtifacts}, Continuation: v.Continuation, MaxRecords: v.MaxRecords})
+		return err
 	case "inspect.structured":
 		return (structuredapp.InspectRequest{OperationID: v.OperationID, Filter: structuredapp.RecordFilter{RecordKind: v.RecordKind, Severity: v.Severity, Path: v.Path, TestStatus: v.TestStatus}, Continuation: v.Continuation, MaxRecords: v.MaxRecords}).Validate()
 	case "inspect.telemetry", "repro.create", "inspect.repro":
@@ -170,6 +180,14 @@ func validateStartV2(v input) error {
 		address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
 		if err := address.Validate(); err != nil {
 			return err
+		}
+	}
+	if v.Evidence != nil {
+		if _, err := v.Evidence.Normalize(); err != nil {
+			return err
+		}
+		if typed {
+			return fmt.Errorf("typed project commands use frozen manifest evidence")
 		}
 	}
 	if v.Intent != nil {
@@ -299,7 +317,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":
@@ -320,6 +338,8 @@ func v2ActionFields(action string) []string {
 		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
 	case "inspect.telemetry":
 		return []string{"operation_id", "max_samples"}
+	case "inspect.evidence":
+		return []string{"evidence_id", "operation_id", "workspace_id", "project_command_id", "activity_id", "verification_kind", "result", "revalidate_artifacts", "continuation", "max_records"}
 	case "repro.create":
 		return []string{"repro_create_id", "operation_id", "capture_policy"}
 	case "inspect.repro":

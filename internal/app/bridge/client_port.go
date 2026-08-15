@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/maemreyo/shellbeam/internal/app/daemon"
+	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
@@ -33,6 +34,7 @@ type Request struct {
 	Write             daemon.WriteRequest
 	Kill              daemon.KillRequest
 	EventInspect      observationapp.InspectRequest
+	EvidenceInspect   evidenceapp.InspectRequest
 	StructuredInspect structuredapp.InspectRequest
 	TelemetryInspect  telemetryapp.InspectRequest
 	ReproCreate       reprocore.CreateRequest
@@ -48,6 +50,7 @@ type Response struct {
 	Workspace  *workspace.Workspace
 	Activity   *activity.Activity
 	Events     *observationapp.InspectResult
+	Evidence   *evidenceapp.InspectResult
 	Structured *structuredapp.InspectResult
 	Telemetry  *telemetryapp.InspectResult
 	Capsule    *reprocore.Capsule

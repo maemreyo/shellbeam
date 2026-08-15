@@ -8,10 +8,13 @@ import (
 	"time"
 
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 func TestExecutionEvidenceRuntimeRecoversDurableTerminalCandidate(t *testing.T) {
@@ -31,7 +34,7 @@ func TestExecutionEvidenceRuntimeRecoversDurableTerminalCandidate(t *testing.T) 
 		t.Fatal(result.Err)
 	}
 
-	runtime, err := newExecutionEvidenceRuntime(store)
+	runtime, err := newExecutionEvidenceRuntime(store, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,4 +70,87 @@ func TestEvidenceWorkerProxyRejectsSchedulingBeforeBind(t *testing.T) {
 	if err := proxy.ScheduleTerminal(context.Background(), receipt.Receipt{}); err == nil {
 		t.Fatal("unbound evidence proxy accepted scheduling")
 	}
+}
+
+type evidenceWorkspaceRegistryFake struct {
+	workspaces []workspacecore.Workspace
+	err        error
+}
+
+func (r evidenceWorkspaceRegistryFake) ListWorkspaces(context.Context) ([]workspacecore.Workspace, error) {
+	return append([]workspacecore.Workspace(nil), r.workspaces...), r.err
+}
+
+type evidenceFreshObserverFake struct {
+	snapshot workspacecore.FastSnapshot
+	calls    int
+}
+
+func (o *evidenceFreshObserverFake) ObserveFresh(context.Context, string) workspacecore.FastSnapshot {
+	o.calls++
+	return o.snapshot
+}
+
+func TestEvidenceCurrentStateProviderUsesOnlyFreshFastGeneration(t *testing.T) {
+	root := t.TempDir()
+	now := time.Now().UTC()
+	workspaceID := workspacecore.WorkspaceID("ws_01K00000000000000000000000")
+	repositoryID := workspacecore.RepositoryID("repo_01K00000000000000000000000")
+	registry := evidenceWorkspaceRegistryFake{workspaces: []workspacecore.Workspace{{SchemaVersion: workspacecore.SchemaVersion, ID: workspaceID, RepositoryID: repositoryID, Label: "evidence", Root: root, GitDir: filepath.Join(root, ".git"), CreatedAt: now.Add(-time.Hour), LastSeenAt: now}}}
+	generation := "gen_" + strings.Repeat("d", 64)
+	observer := &evidenceFreshObserverFake{snapshot: workspacecore.FastSnapshot{SchemaVersion: workspacecore.SnapshotSchemaVersion, RepositoryID: repositoryID, WorkspaceID: workspaceID, Generation: generation, Quality: workspacecore.QualityFresh, UpstreamQuality: workspacecore.QualityFresh, ObservedAt: now}}
+	provider := newEvidenceCurrentStateProvider(registry, observer)
+	state := provider.ObserveCurrent(context.Background(), core.Record{WorkspaceID: string(workspaceID)})
+	if state.Source.WorkspaceID != string(workspaceID) || state.Source.Generation != generation || state.Source.Quality != core.SourceQualityFast || state.Source.SourceContentDigest != "" || state.Source.VCSStateDigest != "" || state.WorkspaceRoot != root || observer.calls != 1 {
+		t.Fatalf("state=%#v calls=%d", state, observer.calls)
+	}
+
+	observer.snapshot.Quality = workspacecore.QualityUnavailable
+	observer.snapshot.Generation = ""
+	state = provider.ObserveCurrent(context.Background(), core.Record{WorkspaceID: string(workspaceID)})
+	if state.Source.Quality != core.SourceQualityUnknown || state.Source.Generation != "" || state.Source.SourceContentDigest != "" || state.WorkspaceRoot != root {
+		t.Fatalf("unavailable state=%#v", state)
+	}
+}
+
+func TestDaemonActionsInspectEvidenceDelegatesOnlyAfterRuntimeBind(t *testing.T) {
+	actions := &daemonActions{}
+	if _, err := actions.InspectEvidence(context.Background(), evidenceapp.InspectRequest{}); err == nil {
+		t.Fatal("unbound evidence inspection accepted")
+	}
+	repo := &inspectRepoForDaemonAction{}
+	codec, err := evidenceapp.NewCursorCodec(observationCursorKeyForEvidenceTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions.evidence = evidenceapp.NewInspector(repo, nil, nil, codec)
+	got, err := actions.InspectEvidence(context.Background(), evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{OperationID: "never-run"}, MaxRecords: 1})
+	if err != nil || got.Status != evidenceapp.InspectNeverRun {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+}
+
+type inspectRepoForDaemonAction struct{}
+
+func (*inspectRepoForDaemonAction) ObservationHighWatermark(context.Context) (observation.ChangeSeq, error) {
+	return 0, nil
+}
+func (*inspectRepoForDaemonAction) ListEvidenceIndexObligations(context.Context, observation.ChangeSeq, observation.ChangeSeq, int) ([]observation.ObservationObligation, error) {
+	return nil, nil
+}
+func (*inspectRepoForDaemonAction) FindEvidenceByID(context.Context, string) (core.Record, bool, error) {
+	return core.Record{}, false, nil
+}
+func (*inspectRepoForDaemonAction) FindEvidenceByOperation(context.Context, operation.ID) (core.Record, bool, error) {
+	return core.Record{}, false, nil
+}
+func (*inspectRepoForDaemonAction) LoadEvidenceValidity(context.Context, string) (core.ValidityObservation, bool, error) {
+	return core.ValidityObservation{}, false, nil
+}
+func (*inspectRepoForDaemonAction) PutEvidenceValidity(context.Context, core.ValidityObservation) (bool, error) {
+	return false, nil
+}
+
+func observationCursorKeyForEvidenceTest() observation.CursorKeyMaterial {
+	return observation.CursorKeyMaterial{StateRootEpoch: "epoch_11111111111111111111111111111111", Generation: "key_22222222222222222222222222222222", Secret: []byte(strings.Repeat("k", 32))}
 }

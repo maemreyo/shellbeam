@@ -7,6 +7,7 @@ import (
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
@@ -65,7 +66,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 	}
 	switch in.Action {
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
 	case "read_output":
@@ -89,6 +90,8 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		}
 	case "inspect.structured":
 		request.StructuredInspect = structuredapp.InspectRequest{OperationID: in.OperationID, Filter: structuredapp.RecordFilter{RecordKind: in.RecordKind, Severity: in.Severity, Path: in.Path, TestStatus: in.TestStatus}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
+	case "inspect.evidence":
+		request.EvidenceInspect = evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{EvidenceID: in.EvidenceID, OperationID: in.OperationID, WorkspaceID: in.WorkspaceID, ProjectCommandID: in.ProjectCommandID, ActivityID: in.ActivityID, VerificationKind: in.VerificationKind, Result: in.EvidenceResult, RevalidateArtifacts: in.RevalidateArtifacts}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
 	case "inspect.telemetry":
 		request.TelemetryInspect = telemetryapp.InspectRequest{OperationID: in.OperationID, MaxSamples: in.MaxSamples}
 	case "repro.create":
@@ -209,7 +212,7 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
-	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "repro.create", "inspect.repro", "inspect.events", "inspect.server":
+	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "repro.create", "inspect.repro", "inspect.events", "inspect.server":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)
 		if failed != nil {
@@ -263,6 +266,12 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 		}
 		body["structured"] = out.Structured
 		return "inspect.structured: " + string(out.Structured.Status), nil
+	case "inspect.evidence":
+		if out.Evidence == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "evidence inspection missing", false)
+		}
+		body["evidence"] = out.Evidence
+		return "inspect.evidence: " + string(out.Evidence.Status), nil
 	case "inspect.telemetry":
 		if out.Telemetry == nil {
 			return "", toolErrorV2(action, "invalid_daemon_response", "telemetry inspection missing", false)

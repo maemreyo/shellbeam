@@ -71,6 +71,10 @@ func (s *Inspector) Inspect(ctx context.Context, request InspectRequest) (Inspec
 	return s.inspectIndex(ctx, request, maxRecords)
 }
 
+func NormalizeInspectRequestForTransport(request InspectRequest) (int, error) {
+	return normalizeInspectRequest(request)
+}
+
 func normalizeInspectRequest(request InspectRequest) (int, error) {
 	if err := request.Filter.Validate(); err != nil {
 		return 0, failure.New(failure.InvalidInput, map[string]string{"field": "filter"}, err)

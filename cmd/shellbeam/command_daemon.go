@@ -12,6 +12,7 @@ import (
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
+	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
@@ -99,7 +100,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		projectapp.ReadinessOptions{},
 	)
 	actions := &daemonActions{Actions: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service}
-	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, structuredScheduler, telemetryScheduler, evidenceScheduler)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
 func serveDaemonRuntime(
@@ -110,6 +111,7 @@ func serveDaemonRuntime(
 	incarnation string,
 	svc *daemonapp.Service,
 	actions *daemonActions,
+	workspaceObserver *workspaceapp.Observer,
 	structuredScheduler *structuredWorkerProxy,
 	telemetryScheduler *telemetryWorkerProxy,
 	evidenceScheduler *evidenceWorkerProxy,
@@ -147,7 +149,7 @@ func serveDaemonRuntime(
 	if err != nil {
 		return err
 	}
-	evidenceRuntime, err := newExecutionEvidenceRuntime(store)
+	evidenceRuntime, err := newExecutionEvidenceRuntime(store, workspaceObserver)
 	if err != nil {
 		shutdownTelemetry(telemetryRuntime, terminationGrace)
 		return err
@@ -164,6 +166,7 @@ func serveDaemonRuntime(
 	actions.events = observationRuntime.events
 	actions.structured = observationRuntime.structured
 	actions.telemetry = telemetryRuntime.service
+	actions.evidence = evidenceRuntime.inspector
 	actions.repro = reproapp.New(store)
 	observationRuntime.startMaterialization(ctx)
 	evidenceRuntime.startRecovery(ctx)
@@ -221,6 +224,7 @@ type daemonActions struct {
 	events     *observationapp.Service
 	structured *structuredapp.Inspector
 	telemetry  *telemetryapp.Service
+	evidence   *evidenceapp.Inspector
 	repro      *reproapp.Service
 	output     *outputview.Service
 	code       daemonCodeInspector
@@ -268,6 +272,13 @@ func (a *daemonActions) InspectTelemetry(ctx context.Context, request telemetrya
 		return telemetryapp.InspectResult{}, fmt.Errorf("execution telemetry unavailable")
 	}
 	return a.telemetry.Inspect(ctx, request)
+}
+
+func (a *daemonActions) InspectEvidence(ctx context.Context, request evidenceapp.InspectRequest) (evidenceapp.InspectResult, error) {
+	if a.evidence == nil {
+		return evidenceapp.InspectResult{}, fmt.Errorf("execution evidence unavailable")
+	}
+	return a.evidence.Inspect(ctx, request)
 }
 
 func (a *daemonActions) CreateRepro(ctx context.Context, request reprocore.CreateRequest) (reprocore.Capsule, error) {
