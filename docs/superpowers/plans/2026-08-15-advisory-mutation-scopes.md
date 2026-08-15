@@ -1,6 +1,6 @@
 # ShellBeam A2.6 Advisory Mutation Scopes Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement durable TTL-bounded advisory mutation scopes so cooperating agents can declare repository-relative read/mutate intent and receive deterministic overlap warnings without locks, permissions, workflow semantics, or ordinary-command admission tax.
 
@@ -84,14 +84,14 @@ func (c Catalog) WithMutationScopes(maxActivity, maxWorkspace, maxPaths, maxSele
 
 Produce `Mode`, `Scope`, `ScopeIdentity`, `MutationReceipt`, `Advisory`, `InspectResult`, and hard-limit constants. Invalid/zero capability limits keep the feature unavailable.
 
-- [ ] **Step 1: Write selector RED tests.** Cover `**`, exact/exact, exact/subtree both orders, subtree ancestor/equal/disjoint, `path/**` including `path`, canonical sorting, duplicate rejection, and invalid absolute/traversal/backslash/control/empty-segment/malformed wildcard/oversized/invalid-UTF8 inputs.
-- [ ] **Step 2: Run RED.** `go test ./internal/core/mutationscope -run 'Selector|Normalize' -count=1`; expected compile/failing tests because package/API is absent.
-- [ ] **Step 3: Implement minimum selector core.** Pure string normalization only; reject rather than expand unknown glob syntax. No filesystem imports in selector implementation.
-- [ ] **Step 4: Write advisory/record RED tests.** Prove mode matrix, deterministic pair ordering, cause fingerprint stability across input order, truncation to 32, record/receipt validation, fixed limits, and safe identifier validation.
-- [ ] **Step 5: Run RED then implement minimal types/validation/evaluator helpers needed in core.** `go test ./internal/core/mutationscope -count=1` must transition RED -> GREEN.
-- [ ] **Step 6: Add typed failure/capability RED tests.** Require safe stable A2.6 categories and `FeatureMutationScopes` availability only after valid `WithMutationScopes` composition with exact schema/TTL/count limits.
-- [ ] **Step 7: Implement capability/failure contract and run GREEN/race.** `go test -race ./internal/core/mutationscope ./internal/core/capability ./internal/core/failure -count=1`.
-- [ ] **Step 8: Run `go run ./tools/devctl check`, `git diff --check`, stage only Task 1 files, run commit-gate, commit `feat: define advisory mutation scope contracts`.**
+- [x] **Step 1: Write selector RED tests.** Cover `**`, exact/exact, exact/subtree both orders, subtree ancestor/equal/disjoint, `path/**` including `path`, canonical sorting, duplicate rejection, and invalid absolute/traversal/backslash/control/empty-segment/malformed wildcard/oversized/invalid-UTF8 inputs.
+- [x] **Step 2: Run RED.** `go test ./internal/core/mutationscope -run 'Selector|Normalize' -count=1`; expected compile/failing tests because package/API is absent.
+- [x] **Step 3: Implement minimum selector core.** Pure string normalization only; reject rather than expand unknown glob syntax. No filesystem imports in selector implementation.
+- [x] **Step 4: Write advisory/record RED tests.** Prove mode matrix, deterministic pair ordering, cause fingerprint stability across input order, truncation to 32, record/receipt validation, fixed limits, and safe identifier validation.
+- [x] **Step 5: Run RED then implement minimal types/validation/evaluator helpers needed in core.** `go test ./internal/core/mutationscope -count=1` must transition RED -> GREEN.
+- [x] **Step 6: Add typed failure/capability RED tests.** Require safe stable A2.6 categories and `FeatureMutationScopes` availability only after valid `WithMutationScopes` composition with exact schema/TTL/count limits.
+- [x] **Step 7: Implement capability/failure contract and run GREEN/race.** `go test -race ./internal/core/mutationscope ./internal/core/capability ./internal/core/failure -count=1`.
+- [x] **Step 8: Run `go run ./tools/devctl check`, `git diff --check`, stage only Task 1 files, run commit-gate, commit `feat: define advisory mutation scope contracts`.**
 
 ---
 
@@ -116,13 +116,13 @@ func (r *Repository) CommitMutationScopeRelease(ctx context.Context, scopeID str
 
 Persist under dedicated private state-root directories, not `activities/` operation history. The store may split observation-aware private helpers from these public methods while preserving the app-facing contract.
 
-- [ ] **Step 1: Write strict round-trip/security RED tests.** Active scope, scope identity, compact mutation receipt; unknown fields/trailing JSON/corruption; symlink/collision protection; file/dir permissions; no absolute path/command/env/source fixtures in serialized bytes.
-- [ ] **Step 2: Write exactly-once store RED tests.** Concurrent duplicate mutation, same ID/different fingerprint, old-receipt replay after newer revision, active capacity counting only unexpired records, and active/identity binding survival across release/expiry.
-- [ ] **Step 3: Write fault RED tests.** Pre-publication failure => no claimed state; post-rename/ambiguous durability => ambiguity surfaced and retry must load before deciding; cleanup failure cannot affect logical expiration.
-- [ ] **Step 4: Run RED.** `go test ./internal/adapter/store -run 'MutationScope' -count=1`.
-- [ ] **Step 5: Implement dedicated directories/mutex and strict atomic persistence.** Extend `store.Limits` only with A2.6 limits needed for test/operator overrides; normalize defaults to spec hard values; do not couple to session capacity ledger.
-- [ ] **Step 6: Run GREEN/race/stress.** `go test -race ./internal/adapter/store -run 'MutationScope' -count=1`; then concurrent duplicate test `-count=20`.
-- [ ] **Step 7: Run structural/diff/commit gates and commit `feat: persist advisory mutation scopes safely`.**
+- [x] **Step 1: Write strict round-trip/security RED tests.** Active scope, scope identity, compact mutation receipt; unknown fields/trailing JSON/corruption; symlink/collision protection; file/dir permissions; no absolute path/command/env/source fixtures in serialized bytes.
+- [x] **Step 2: Write exactly-once store RED tests.** Concurrent duplicate mutation, same ID/different fingerprint, old-receipt replay after newer revision, active capacity counting only unexpired records, and active/identity binding survival across release/expiry.
+- [x] **Step 3: Write fault RED tests.** Pre-publication failure => no claimed state; post-rename/ambiguous durability => ambiguity surfaced and retry must load before deciding; cleanup failure cannot affect logical expiration.
+- [x] **Step 4: Run RED.** `go test ./internal/adapter/store -run 'MutationScope' -count=1`.
+- [x] **Step 5: Implement dedicated directories/mutex and strict atomic persistence.** Extend `store.Limits` only with A2.6 limits needed for test/operator overrides; normalize defaults to spec hard values; do not couple to session capacity ledger.
+- [x] **Step 6: Run GREEN/race/stress.** `go test -race ./internal/adapter/store -run 'MutationScope' -count=1`; then concurrent duplicate test `-count=20`.
+- [x] **Step 7: Run structural/diff/commit gates and commit `feat: persist advisory mutation scopes safely`.**
 
 ---
 
@@ -145,13 +145,13 @@ func (s *Service) Inspect(ctx context.Context, req InspectRequest) (mutationscop
 
 Consume only narrow store/clock ports; observation obligations remain part of durable store publication rather than a second app-side truth. Inject the clock explicitly for TTL boundary tests.
 
-- [ ] **Step 1: Write RED request-validation/idempotency tests.** First set, exact replay with same mutation ID, mismatch conflict, replacement with new mutation ID, old retry after replacement, cross-activity/workspace rebinding rejection.
-- [ ] **Step 2: Write RED TTL/release tests.** Before expiry active; at expiry inactive; expired capacity freed; lazy cleanup failure leaves inactive truth; active release changes once; absent/expired release returns stable `already_absent=true`.
-- [ ] **Step 3: Write RED advisory tests.** read/read quiet; read/mutate and mutate/mutate overlap advise; disjoint quiet; activity ID never suppresses conflicts; order/cause stable; truncation exact; no persisted advisory requirement.
-- [ ] **Step 4: Run RED.** `go test ./internal/app/mutationscope -count=1`.
-- [ ] **Step 5: Implement minimal orchestration/evaluator.** Compute `expires_at` once before first successful mutation publication and persist/replay it; never recompute for retry.
-- [ ] **Step 6: Run GREEN/race.** `go test -race ./internal/app/mutationscope -count=1`.
-- [ ] **Step 7: Gate and commit `feat: coordinate advisory mutation scopes`.**
+- [x] **Step 1: Write RED request-validation/idempotency tests.** First set, exact replay with same mutation ID, mismatch conflict, replacement with new mutation ID, old retry after replacement, cross-activity/workspace rebinding rejection.
+- [x] **Step 2: Write RED TTL/release tests.** Before expiry active; at expiry inactive; expired capacity freed; lazy cleanup failure leaves inactive truth; active release changes once; absent/expired release returns stable `already_absent=true`.
+- [x] **Step 3: Write RED advisory tests.** read/read quiet; read/mutate and mutate/mutate overlap advise; disjoint quiet; activity ID never suppresses conflicts; order/cause stable; truncation exact; no persisted advisory requirement.
+- [x] **Step 4: Run RED.** `go test ./internal/app/mutationscope -count=1`.
+- [x] **Step 5: Implement minimal orchestration/evaluator.** Compute `expires_at` once before first successful mutation publication and persist/replay it; never recompute for retry.
+- [x] **Step 6: Run GREEN/race.** `go test -race ./internal/app/mutationscope -count=1`.
+- [x] **Step 7: Gate and commit `feat: coordinate advisory mutation scopes`.**
 
 ---
 
@@ -168,12 +168,12 @@ Consume only narrow store/clock ports; observation obligations remain part of du
 - Add closed event kind `mutation_scope_changed`.
 - Active-state set/release publication creates one recoverable E21 obligation under the same visibility boundary; no-op release/retry/expiry creates none.
 
-- [ ] **Step 1: Write EventKind RED test** requiring the new closed vocabulary member.
-- [ ] **Step 2: Write store/app RED tests** for one set event, one active release event, zero extra on exact retry, zero on absent release, zero on lazy expiry, and materializer failure preserving committed scope truth.
-- [ ] **Step 3: Run RED.** `go test ./internal/core/observation ./internal/adapter/store ./internal/app/mutationscope -run 'MutationScope|EventKind' -count=1`.
-- [ ] **Step 4: Implement minimal observation preparation/commit integration by reusing existing observation obligation machinery.** Do not add a separate journal transaction model.
-- [ ] **Step 5: Run GREEN/race and existing observation regression suites.** `go test -race ./internal/core/observation ./internal/app/observation ./internal/adapter/store ./internal/app/mutationscope -count=1`.
-- [ ] **Step 6: Gate and commit `feat: journal mutation scope changes`.**
+- [x] **Step 1: Write EventKind RED test** requiring the new closed vocabulary member.
+- [x] **Step 2: Write store/app RED tests** for one set event, one active release event, zero extra on exact retry, zero on absent release, zero on lazy expiry, and materializer failure preserving committed scope truth.
+- [x] **Step 3: Run RED.** `go test ./internal/core/observation ./internal/adapter/store ./internal/app/mutationscope -run 'MutationScope|EventKind' -count=1`.
+- [x] **Step 4: Implement minimal observation preparation/commit integration by reusing existing observation obligation machinery.** Do not add a separate journal transaction model.
+- [x] **Step 5: Run GREEN/race and existing observation regression suites.** `go test -race ./internal/core/observation ./internal/app/observation ./internal/adapter/store ./internal/app/mutationscope -count=1`.
+- [x] **Step 6: Gate and commit `feat: journal mutation scope changes`.**
 
 ---
 
@@ -192,13 +192,13 @@ Consume only narrow store/clock ports; observation obligations remain part of du
 - Modern action names: `mutation_scope.set`, `mutation_scope.release`, `inspect.mutation_scopes`.
 - `inspect.activity` modern response may include bounded active scopes/advisories/truncation supplied by daemon composition.
 
-- [ ] **Step 1: Write closed-schema RED tests.** Exact required fields; cross-action fields/unknown fields rejected; TTL/mode/ID/selectors/count/bytes represented; invalid extra selectors rejected; legacy generations reject/omit A2.6 fields.
-- [ ] **Step 2: Write IPC RED tests** for lossless typed routing/results and `feature_unavailable` when A2.6 actions are not composed.
-- [ ] **Step 3: Write MCP RED tests** for structuredContent/output-schema parity, safe text summary with no paths/command/raw source, capability limits, and exactly one registered `local_shell` tool.
-- [ ] **Step 4: Run RED.** `go test ./api/schema ./internal/adapter/ipc ./internal/adapter/mcp -run 'MutationScope|OneTool|Schema' -count=1`.
-- [ ] **Step 5: Implement v2 transport/schema mappings minimally.** Keep legacy v1 unchanged and strip A2.6 capability fields from legacy projection.
-- [ ] **Step 6: Run GREEN/race/schema inventory.** `go test -race ./internal/adapter/ipc ./internal/adapter/mcp -count=1`; `go test ./api/schema -count=1`.
-- [ ] **Step 7: Gate and commit `feat: expose advisory mutation scopes`.**
+- [x] **Step 1: Write closed-schema RED tests.** Exact required fields; cross-action fields/unknown fields rejected; TTL/mode/ID/selectors/count/bytes represented; invalid extra selectors rejected; legacy generations reject/omit A2.6 fields.
+- [x] **Step 2: Write IPC RED tests** for lossless typed routing/results and `feature_unavailable` when A2.6 actions are not composed.
+- [x] **Step 3: Write MCP RED tests** for structuredContent/output-schema parity, safe text summary with no paths/command/raw source, capability limits, and exactly one registered `local_shell` tool.
+- [x] **Step 4: Run RED.** `go test ./api/schema ./internal/adapter/ipc ./internal/adapter/mcp -run 'MutationScope|OneTool|Schema' -count=1`.
+- [x] **Step 5: Implement v2 transport/schema mappings minimally.** Keep legacy v1 unchanged and strip A2.6 capability fields from legacy projection.
+- [x] **Step 6: Run GREEN/race/schema inventory.** `go test -race ./internal/adapter/ipc ./internal/adapter/mcp -count=1`; `go test ./api/schema -count=1`.
+- [x] **Step 7: Gate and commit `feat: expose advisory mutation scopes`.**
 
 ---
 
@@ -215,13 +215,13 @@ Consume only narrow store/clock ports; observation obligations remain part of du
 - Advertise `FeatureMutationScopes` only when composition succeeds.
 - Explicit A2.6 actions call this service; ordinary execution service has no dependency/callback into it.
 
-- [ ] **Step 1: Write composition RED test.** Real daemon capability unavailable without service and available with exact limits when real service/store is wired.
-- [ ] **Step 2: Write activity-inspection RED test.** Modern inspect returns bounded active scopes/advisories/truncation; expired entries omitted; activity history itself remains unchanged.
-- [ ] **Step 3: Write no-tax RED instrumentation test.** Inject/count scope store/service calls; ordinary `start -> poll -> terminal` while another scope exists must produce exactly zero A2.6 reads/writes/evaluations.
-- [ ] **Step 4: Run RED.** `go test ./cmd/shellbeam ./internal/app/daemon -run 'MutationScope|NoTax|Activity' -count=1`.
-- [ ] **Step 5: Implement daemon actions/composition only.** Do not add scope checks to start admission, workspace resolver, process owner, typed commands, evidence, or Git mutation paths.
-- [ ] **Step 6: Run GREEN/race and ordinary execution regressions.** `go test -race ./internal/app/daemon ./cmd/shellbeam -run 'MutationScope|NoTax|Start|Poll|Activity' -count=1`.
-- [ ] **Step 7: Gate and commit `feat: compose advisory mutation scope service`.**
+- [x] **Step 1: Write composition RED test.** Real daemon capability unavailable without service and available with exact limits when real service/store is wired.
+- [x] **Step 2: Write activity-inspection RED test.** Modern inspect returns bounded active scopes/advisories/truncation; expired entries omitted; activity history itself remains unchanged.
+- [x] **Step 3: Write no-tax RED instrumentation test.** Inject/count scope store/service calls; ordinary `start -> poll -> terminal` while another scope exists must produce exactly zero A2.6 reads/writes/evaluations.
+- [x] **Step 4: Run RED.** `go test ./cmd/shellbeam ./internal/app/daemon -run 'MutationScope|NoTax|Activity' -count=1`.
+- [x] **Step 5: Implement daemon actions/composition only.** Do not add scope checks to start admission, workspace resolver, process owner, typed commands, evidence, or Git mutation paths.
+- [x] **Step 6: Run GREEN/race and ordinary execution regressions.** `go test -race ./internal/app/daemon ./cmd/shellbeam -run 'MutationScope|NoTax|Start|Poll|Activity' -count=1`.
+- [x] **Step 7: Gate and commit `feat: compose advisory mutation scope service`.**
 
 ---
 
@@ -235,14 +235,14 @@ Consume only narrow store/clock ports; observation obligations remain part of du
 **Interfaces:**
 - No new product API; proves final behavior through real daemon/IPC/MCP paths.
 
-- [ ] **Step 1: Add real daemon overlap acceptance.** Set two overlapping mutate scopes and prove one deterministic advisory; disjoint/read-read cases remain quiet.
-- [ ] **Step 2: Add non-blocking Git/shell acceptance.** In a temporary isolated Git repo with active scopes, execute representative file edit, `git switch`, stash, and reset-style operations through ordinary ShellBeam start; prove normal admission/outcome is unaffected by scopes.
-- [ ] **Step 3: Add restart/TTL acceptance.** Unexpired durable scope survives daemon service reconstruction; expired one is inactive; no process/session authority is reconstructed.
-- [ ] **Step 4: Add no-hidden-work acceptance.** Fake/guard Git/process/provider executables and prove set/release/inspect spawn none; ordinary start pays no A2.6 call tax.
-- [ ] **Step 5: Add privacy/adversarial acceptance.** Sentinel absolute path, command-like text, env/secret/source fixtures must not appear in A2.6 durable files, mutation receipts, Event Journal summaries, or MCP safe summaries except canonical data explicitly allowed elsewhere and not copied by A2.6.
-- [ ] **Step 6: Run focused acceptance x3 and race.** `go test ./cmd/shellbeam ./tests/integration -run 'MutationScope|A26' -count=3`; `go test -race ./internal/core/mutationscope ./internal/app/mutationscope ./internal/adapter/store ./internal/adapter/ipc ./internal/adapter/mcp ./internal/app/daemon ./cmd/shellbeam ./tests/integration -run 'MutationScope|A26' -count=1`.
-- [ ] **Step 7: Run anti-goal scan** proving no scope lock/permission/admission gate, command parsing/inference, watcher/timer loop, hidden Git/provider call, or second MCP tool was added.
-- [ ] **Step 8: Gate and commit `test: verify advisory mutation scopes`.**
+- [x] **Step 1: Add real daemon overlap acceptance.** Set two overlapping mutate scopes and prove one deterministic advisory; disjoint/read-read cases remain quiet.
+- [x] **Step 2: Add non-blocking Git/shell acceptance.** In a temporary isolated Git repo with active scopes, execute representative file edit, `git switch`, stash, and reset-style operations through ordinary ShellBeam start; prove normal admission/outcome is unaffected by scopes.
+- [x] **Step 3: Add restart/TTL acceptance.** Unexpired durable scope survives daemon service reconstruction; expired one is inactive; no process/session authority is reconstructed.
+- [x] **Step 4: Add no-hidden-work acceptance.** Fake/guard Git/process/provider executables and prove set/release/inspect spawn none; ordinary start pays no A2.6 call tax.
+- [x] **Step 5: Add privacy/adversarial acceptance.** Sentinel absolute path, command-like text, env/secret/source fixtures must not appear in A2.6 durable files, mutation receipts, Event Journal summaries, or MCP safe summaries except canonical data explicitly allowed elsewhere and not copied by A2.6.
+- [x] **Step 6: Run focused acceptance x3 and race.** `go test ./cmd/shellbeam ./tests/integration -run 'MutationScope|A26' -count=3`; `go test -race ./internal/core/mutationscope ./internal/app/mutationscope ./internal/adapter/store ./internal/adapter/ipc ./internal/adapter/mcp ./internal/app/daemon ./cmd/shellbeam ./tests/integration -run 'MutationScope|A26' -count=1`.
+- [x] **Step 7: Run anti-goal scan** proving no scope lock/permission/admission gate, command parsing/inference, watcher/timer loop, hidden Git/provider call, or second MCP tool was added.
+- [x] **Step 8: Gate and commit `test: verify advisory mutation scopes`.**
 
 ---
 
@@ -254,14 +254,16 @@ Consume only narrow store/clock ports; observation obligations remain part of du
 **Interfaces:**
 - Produces final verified A2.6 commit and exact source fingerprint evidence; no new runtime behavior.
 
-- [ ] **Step 1: Confirm every Task 1-7 checkbox is complete, `git status` contains only intended final plan update, and no unrelated historical plan checkbox is treated as A2.6 work.**
-- [ ] **Step 2: Run fresh exact gates on final source bytes:** `go mod verify`; `go test ./... -count=1`; relevant full race scopes for core/app/store/ipc/mcp/daemon/cmd/integration; `go run ./tools/devctl check`; `go run ./tools/devctl test --dirty --base origin/main --json`.
-- [ ] **Step 3: Run fresh A2.6 acceptance/capability/one-tool/privacy gates.** Include focused real-daemon acceptance and scoped source scan.
-- [ ] **Step 4: Record checkpoint evidence under ignored `.build/a26/final-checkpoint.json` with pre-commit source fingerprint, gate statuses, receipt paths, and current HEAD. Do not embed the fingerprint into a tracked file that participates in its own hash.**
-- [ ] **Step 5: Stage only final plan bytes; `git diff --cached --check`; run `go run ./tools/devctl commit-gate --json`; require commit-gate fingerprint to equal the checkpoint fingerprint.**
-- [ ] **Step 6: Commit `test: checkpoint advisory mutation scopes` through repository hooks.**
-- [ ] **Step 7: Re-run `devctl check`/fingerprint on post-commit tree and prove it is identical to the staged/checkpoint fingerprint. Record final HEAD in `.build/a26/final-checkpoint.json`.**
-- [ ] **Step 8: Final `git status --porcelain=v1 --untracked-files=all` must be empty; report A2.6 commit chain, exact fingerprint, limits/actions, no-tax/non-blocking/restart evidence, and `push=NO`, `PR=NO`, `merge=NO`.**
+- [x] **Step 1: Confirm every Task 1-7 checkbox is complete, `git status` contains only intended final plan update, and no unrelated historical plan checkbox is treated as A2.6 work.**
+- [x] **Step 2: Run fresh exact gates on final source bytes:** `go mod verify`; `go test ./... -count=1`; relevant full race scopes for core/app/store/ipc/mcp/daemon/cmd/integration; `go run ./tools/devctl check`; `go run ./tools/devctl test --dirty --base origin/main --json`.
+- [x] **Step 3: Run fresh A2.6 acceptance/capability/one-tool/privacy gates.** Include focused real-daemon acceptance and scoped source scan.
+- [x] **Step 4: Record checkpoint evidence under ignored `.build/a26/final-checkpoint.json` with pre-commit source fingerprint, gate statuses, receipt paths, and current HEAD. Do not embed the fingerprint into a tracked file that participates in its own hash.**
+
+  Checkpoint note: the exact source fingerprint is stored only under ignored `.build/a26/final-checkpoint.json` because the tracked plan participates in `sourceFingerprint()`; embedding the digest here would make the proof self-referential.
+- [x] **Step 5: Stage only final plan bytes; `git diff --cached --check`; run `go run ./tools/devctl commit-gate --json`; require commit-gate fingerprint to equal the checkpoint fingerprint.**
+- [x] **Step 6: Commit `test: checkpoint advisory mutation scopes` through repository hooks.**
+- [x] **Step 7: Re-run `devctl check`/fingerprint on post-commit tree and prove it is identical to the staged/checkpoint fingerprint. Record final HEAD in `.build/a26/final-checkpoint.json`.**
+- [x] **Step 8: Final `git status --porcelain=v1 --untracked-files=all` must be empty; report A2.6 commit chain, exact fingerprint, limits/actions, no-tax/non-blocking/restart evidence, and `push=NO`, `PR=NO`, `merge=NO`.**
 
 ## Stop Conditions
 
