@@ -21,6 +21,11 @@ const (
 	WorkspaceAddressEscape          Code = "workspace_address_escape"
 	ManifestInvalid                 Code = "manifest_invalid"
 	ManifestReviewRequired          Code = "manifest_review_required"
+	ProjectReadinessUnavailable     Code = "project_readiness_unavailable"
+	ProjectRequirementInvalid       Code = "project_requirement_invalid"
+	ToolchainMissing                Code = "toolchain_missing"
+	ToolchainVersionUnknown         Code = "toolchain_version_unknown"
+	ToolchainIncompatible           Code = "toolchain_incompatible"
 	IdentityObservationFailed       Code = "identity_observation_failed"
 	EventCursorInvalid              Code = "event_cursor_invalid"
 	EventCursorExpired              Code = "event_cursor_expired"
@@ -72,6 +77,11 @@ var publicSpecs = map[Code]publicSpec{
 	WorkspaceAddressEscape:          {message: "workspace address escapes registered root", details: keys("workspace_id", "cwd")},
 	ManifestInvalid:                 {message: "project manifest is invalid", details: keys("field", "reason")},
 	ManifestReviewRequired:          {message: "project manifest review required", details: keys("manifest_version", "reason")},
+	ProjectReadinessUnavailable:     {message: "project readiness unavailable", retryable: true, details: keys("workspace_id", "reason")},
+	ProjectRequirementInvalid:       {message: "project requirement invalid", details: keys("requirement", "kind", "reason")},
+	ToolchainMissing:                {message: "required toolchain missing", details: keys("toolchain")},
+	ToolchainVersionUnknown:         {message: "toolchain version unknown", retryable: true, details: keys("toolchain", "reason")},
+	ToolchainIncompatible:           {message: "toolchain incompatible", details: keys("toolchain", "reason")},
 	IdentityObservationFailed:       {message: "identity observation failed", retryable: true, details: keys("provider", "reason")},
 	EventCursorInvalid:              {message: "event cursor is invalid", details: keys("reason")},
 	EventCursorExpired:              {message: "event cursor has expired", details: keys("reason")},

@@ -138,3 +138,33 @@ func TestA4FailureCodesAreStableAndDoNotLeakDetails(t *testing.T) {
 		}
 	}
 }
+
+func TestA5ReadinessFailureCodesAreStable(t *testing.T) {
+	codes := []Code{
+		ProjectReadinessUnavailable,
+		ProjectRequirementInvalid,
+		ToolchainMissing,
+		ToolchainVersionUnknown,
+		ToolchainIncompatible,
+	}
+	for _, code := range codes {
+		public := Public(New(code, map[string]string{
+			"workspace_id": "ws_01K00000000000000000000000",
+			"requirement":  "go",
+			"kind":         "toolchain",
+			"toolchain":    "go",
+			"reason":       "bounded",
+			"path":         "/Users/alice/.ssh/id_work token=secret",
+		}, errors.New("private /Users/alice/.ssh/id_work token=secret")))
+		if public.Code != code || public.Message == "" {
+			t.Fatalf("missing readiness failure spec for %q: %#v", code, public)
+		}
+		data, err := json.Marshal(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "id_work") || strings.Contains(string(data), "token=secret") {
+			t.Fatalf("readiness failure leaked private detail: %s", data)
+		}
+	}
+}
