@@ -9,6 +9,7 @@ import (
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
@@ -49,6 +50,7 @@ type RequestV2 struct {
 	YieldMS           int64                     `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes    int                       `json:"max_output_bytes,omitempty"`
 	SessionID         string                    `json:"session_id,omitempty"`
+	Selector          *outputview.Selector      `json:"selector,omitempty"`
 	Cursor            int64                     `json:"cursor,omitempty"`
 	InputOffset       int64                     `json:"input_offset,omitempty"`
 	Chars             string                    `json:"chars,omitempty"`
@@ -89,6 +91,7 @@ type ResponseV2 struct {
 	Capsule    *reprocore.Capsule            `json:"capsule,omitempty"`
 	Repro      *reproapp.InspectResult       `json:"repro,omitempty"`
 	Code       *codeintel.Result             `json:"code,omitempty"`
+	OutputView *outputview.Result            `json:"output_view,omitempty"`
 	Error      *Error                        `json:"error,omitempty"`
 }
 
@@ -157,6 +160,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
+	case "read_output":
+		return []string{"session_id", "selector", "continuation"}
 	case "write":
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":
@@ -201,6 +206,13 @@ func validateRequestV2(v RequestV2) error {
 	case "poll":
 		if v.SessionID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "session_id"}, fmt.Errorf("missing session id"))
+		}
+	case "read_output":
+		if v.Selector == nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "selector"}, fmt.Errorf("output selector missing"))
+		}
+		if err := (outputview.Request{SessionID: v.SessionID, Selector: *v.Selector, Continuation: v.Continuation}).Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "read_output"}, err)
 		}
 	case "write":
 		if v.SessionID == "" || (v.Chars == "" && !v.EOF) || (v.Chars != "" && v.EOF) {
@@ -358,21 +370,14 @@ func validReproIDV2(value string) bool {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "repro.create", "inspect.repro", "inspect.code":
+	case "start", "poll", "write", "kill", "read_output", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "repro.create", "inspect.repro", "inspect.code":
 		return true
 	default:
 		return false
 	}
 }
 
-func isDeferredV2Action(action string) bool {
-	switch action {
-	case "read_output":
-		return true
-	default:
-		return false
-	}
-}
+func isDeferredV2Action(string) bool { return false }
 
 func readBoundedJSON(r io.Reader) ([]byte, error) {
 	limited := io.LimitReader(r, (1<<20)+1)

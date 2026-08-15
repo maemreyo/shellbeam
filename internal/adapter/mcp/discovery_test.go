@@ -121,7 +121,7 @@ func TestAgentExecutionA1InspectServerV2DoesNotStartCommand(t *testing.T) {
 	}
 }
 
-func TestMCPV2UnsupportedFeatureReturnsFeatureUnavailable(t *testing.T) {
+func TestMCPV2ReadOutputRequiresSelector(t *testing.T) {
 	catalog := capability.Baseline(capability.Limits{})
 	fake := &discoveryClient{catalog: catalog}
 	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
@@ -138,7 +138,7 @@ func TestMCPV2UnsupportedFeatureReturnsFeatureUnavailable(t *testing.T) {
 		t.Fatalf("structured=%T %#v", res.StructuredContent, res.StructuredContent)
 	}
 	errBody, _ := body["error"].(map[string]any)
-	if fmt.Sprint(body["schema_version"]) != "2" || errBody["code"] != "feature_unavailable" {
+	if fmt.Sprint(body["schema_version"]) != "2" || errBody["code"] != "invalid_request" {
 		t.Fatalf("body=%#v", body)
 	}
 }

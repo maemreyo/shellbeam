@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
@@ -38,6 +39,7 @@ type input struct {
 	TimeoutMS         int64                     `json:"timeout_ms,omitempty"`
 	MaxOutputBytes    int                       `json:"max_output_bytes,omitempty"`
 	SessionID         string                    `json:"session_id,omitempty"`
+	Selector          *outputview.Selector      `json:"selector,omitempty"`
 	Cursor            int64                     `json:"cursor,omitempty"`
 	InputOffset       int64                     `json:"input_offset,omitempty"`
 	Chars             string                    `json:"chars,omitempty"`
@@ -94,6 +96,11 @@ func validateForVersion(version int, v input, raw []byte) error {
 
 func validateV2(v input) error {
 	switch v.Action {
+	case "read_output":
+		if v.Selector == nil {
+			return fmt.Errorf("read_output requires selector")
+		}
+		return (outputview.Request{SessionID: v.SessionID, Selector: *v.Selector, Continuation: v.Continuation}).Validate()
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		_, err := workspace.ParseWorkspaceID(v.WorkspaceID)
 		return err
@@ -295,6 +302,8 @@ func v2ActionFields(action string) []string {
 		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
+	case "read_output":
+		return []string{"session_id", "selector", "continuation"}
 	case "write":
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":
@@ -335,11 +344,4 @@ func validReproIDInput(value string) bool {
 	return true
 }
 
-func isDeferredAction(action string) bool {
-	switch action {
-	case "read_output":
-		return true
-	default:
-		return false
-	}
-}
+func isDeferredAction(string) bool { return false }

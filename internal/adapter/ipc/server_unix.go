@@ -9,6 +9,7 @@ import (
 	"fmt"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
@@ -32,6 +33,10 @@ type Actions interface {
 	Write(context.Context, app.WriteRequest) (app.View, error)
 	Kill(context.Context, app.KillRequest) (app.View, error)
 	InspectServer(context.Context) (app.ServerInfo, error)
+}
+
+type OutputViewActions interface {
+	ReadOutputView(context.Context, outputview.Request) (outputview.Result, error)
 }
 
 type EventActions interface {
@@ -254,6 +259,17 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 				resp.Result = &result
 			}
 		}
+	case "read_output":
+		actions, ok := s.actions.(OutputViewActions)
+		if !ok {
+			err = failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
+			break
+		}
+		result, callErr := actions.ReadOutputView(r.Context(), outputview.Request{SessionID: req.SessionID, Selector: *req.Selector, Continuation: req.Continuation})
+		err = callErr
+		if err == nil {
+			resp.OutputView = &result
+		}
 	case "write":
 		view, callErr := s.actions.Write(r.Context(), app.WriteRequest{SessionID: req.SessionID, InputOffset: req.InputOffset, Chars: req.Chars, EOF: req.EOF})
 		err = callErr
@@ -291,7 +307,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 func clearResponseV2Payload(resp *ResponseV2) {
 	resp.View, resp.Result, resp.Server, resp.Project, resp.Readiness = nil, nil, nil, nil, nil
 	resp.Workspace, resp.Activity, resp.Events, resp.Structured = nil, nil, nil, nil
-	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code = nil, nil, nil, nil
+	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView = nil, nil, nil, nil, nil
 }
 
 func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {

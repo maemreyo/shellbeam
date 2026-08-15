@@ -59,7 +59,7 @@ func TestIPCV2RejectsUnknownVersionActionAndExtraProperties(t *testing.T) {
 		{"unknown-version.json", failure.FeatureUnavailable},
 		{"unknown-action.json", failure.InvalidInput},
 		{"extra-property.json", failure.InvalidInput},
-		{"unsupported-feature.json", failure.FeatureUnavailable},
+		{"read-output-missing-selector.json", failure.InvalidInput},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -77,13 +77,13 @@ func TestIPCV2RejectsUnknownVersionActionAndExtraProperties(t *testing.T) {
 
 func bytesReaderV2(data []byte) *bytes.Reader { return bytes.NewReader(data) }
 
-func TestIPCV2ErrorsPreserveHeader(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("testdata", "v2", "unsupported-feature.json"))
+func TestIPCV2InvalidRequestsPreserveHeader(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "v2", "read-output-missing-selector.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := decodeRequestV2(bytesReaderV2(data))
-	if !errors.Is(err, failure.FeatureUnavailable) {
+	if !errors.Is(err, failure.InvalidInput) {
 		t.Fatalf("error=%v", err)
 	}
 	if got.RequestID != "v2-feature" || got.Action != "read_output" || got.IPVersion != 2 {
@@ -103,18 +103,18 @@ type roundTripV2Func func(*http.Request) (*http.Response, error)
 
 func (f roundTripV2Func) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func TestIPCV2ClientRejectsUnsupportedFeatureBeforeNetwork(t *testing.T) {
+func TestIPCV2ClientRejectsInvalidReadOutputBeforeNetwork(t *testing.T) {
 	called := false
 	client := &Client{http: &http.Client{Transport: roundTripV2Func(func(*http.Request) (*http.Response, error) {
 		called = true
 		return nil, errors.New("network should not run")
 	})}}
 	_, err := client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "x", Action: "read_output"})
-	if !errors.Is(err, failure.FeatureUnavailable) {
-		t.Fatalf("error=%v want feature_unavailable", err)
+	if !errors.Is(err, failure.InvalidInput) {
+		t.Fatalf("error=%v want invalid_input", err)
 	}
 	if called {
-		t.Fatal("unsupported feature reached transport")
+		t.Fatal("invalid read_output reached transport")
 	}
 }
 

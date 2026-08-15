@@ -13,6 +13,7 @@ import (
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
@@ -130,6 +131,15 @@ func serveDaemonRuntime(
 			return err
 		}
 	}
+	outputKey, err := store.EventCursorKey(startupCtx)
+	if err != nil {
+		return err
+	}
+	outputCodec, err := outputview.NewCursorCodec(outputKey)
+	if err != nil {
+		return err
+	}
+	actions.output = outputview.NewWithCursor(store, outputCodec)
 	telemetryRuntime, err := newExecutionTelemetryRuntime(store)
 	if err != nil {
 		return err
@@ -194,6 +204,7 @@ type daemonActions struct {
 	structured *structuredapp.Inspector
 	telemetry  *telemetryapp.Service
 	repro      *reproapp.Service
+	output     *outputview.Service
 	code       daemonCodeInspector
 }
 
@@ -211,6 +222,13 @@ func (a daemonActions) InspectProject(ctx context.Context, workspaceID string) (
 
 func (a daemonActions) InspectProjectReadiness(ctx context.Context, workspaceID string) (projectcore.Readiness, error) {
 	return a.project.Readiness(ctx, workspaceID)
+}
+
+func (a *daemonActions) ReadOutputView(ctx context.Context, request outputview.Request) (outputview.Result, error) {
+	if a.output == nil {
+		return outputview.Result{}, fmt.Errorf("output view service unavailable")
+	}
+	return a.output.Read(ctx, request)
 }
 
 func (a *daemonActions) InspectEvents(ctx context.Context, request observationapp.InspectRequest) (observationapp.InspectResult, error) {

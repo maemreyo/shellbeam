@@ -68,6 +68,10 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
+	case "read_output":
+		request.OutputRead.SessionID = in.SessionID
+		request.OutputRead.Selector = *in.Selector
+		request.OutputRead.Continuation = in.Continuation
 	case "write":
 		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
@@ -137,6 +141,7 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.TelemetrySchemaVersions = nil
 	out.ReproSchemaVersions = nil
 	out.ReadinessSchemaVersions = nil
+	out.OutputViewSchemaVersions = nil
 	out.ReadinessRequirementKinds = nil
 	out.TypedCommandVersions = nil
 	out.TypedCommandManifestVersion = 0
@@ -162,6 +167,12 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.Limits.ReproMetadataBytes = 0
 	out.Limits.ReadinessCacheTTLMS = 0
 	out.Limits.ReadinessCacheEntries = 0
+	out.Limits.OutputViewMaxReturnBytes = 0
+	out.Limits.OutputViewMaxWorkBytes = 0
+	out.Limits.OutputViewMaxLines = 0
+	out.Limits.OutputViewMaxMatches = 0
+	out.Limits.OutputViewMaxPatternBytes = 0
+	out.Limits.OutputViewMaxContinuationBytes = 0
 	out.Limits.EventJournalMaxEvents = 0
 	out.Limits.EventCursorBytes = 0
 	out.Limits.EventSnapshotFacts = 0
@@ -175,6 +186,7 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureReproductionCapsules)
 	delete(out.Features, capability.FeatureProjectReadiness)
 	delete(out.Features, capability.FeatureTypedProjectCommands)
+	delete(out.Features, capability.FeatureOutputViews)
 	return out
 }
 
@@ -183,76 +195,107 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	summary := action
 	switch action {
 	case "start", "poll":
-		if out.Result == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "structured result missing", false)
-		}
-		body["result"] = out.Result
-		summary = fmt.Sprintf("%s session %s: %s", action, out.Result.Operation.SessionID, out.Result.Operation.State)
-	case "write", "kill":
-		body["view"] = controlView(out.View)
-		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
-	case "inspect.workspace":
-		if out.Workspace == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "workspace inspection missing", false)
-		}
-		body["workspace"] = out.Workspace
-		summary = "inspect.workspace: " + string(out.Workspace.ID)
-	case "inspect.activity":
-		if out.Activity == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "activity inspection missing", false)
-		}
-		body["activity"] = out.Activity
-		summary = "inspect.activity: " + string(out.Activity.ID)
-	case "inspect.project", "inspect.readiness":
 		var failed *mcpgo.CallToolResult
-		summary, failed = projectSuccessV2(action, out, body)
+		summary, failed = executionSuccessV2(action, out, body)
 		if failed != nil {
 			return failed
 		}
-	case "inspect.code":
-		if out.CodeResult == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "code inspection missing", false)
+	case "read_output":
+		var failed *mcpgo.CallToolResult
+		summary, failed = outputViewSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
 		}
-		body["code"] = out.CodeResult
-		summary = "inspect.code: " + string(out.CodeResult.Status)
-	case "inspect.structured":
-		if out.Structured == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "structured inspection missing", false)
+	case "write", "kill":
+		body["view"] = controlView(out.View)
+		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
+	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "repro.create", "inspect.repro", "inspect.events", "inspect.server":
+		var failed *mcpgo.CallToolResult
+		summary, failed = inspectionSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
 		}
-		body["structured"] = out.Structured
-		summary = "inspect.structured: " + string(out.Structured.Status)
-	case "inspect.telemetry":
-		if out.Telemetry == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "telemetry inspection missing", false)
-		}
-		body["telemetry"] = out.Telemetry
-		summary = fmt.Sprintf("inspect.telemetry: %d sample(s)", out.Telemetry.SamplesReturned)
-	case "repro.create":
-		if out.Capsule == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "repro capsule missing", false)
-		}
-		body["capsule"] = out.Capsule
-		summary = "repro.create: " + out.Capsule.ReproID
-	case "inspect.repro":
-		if out.Repro == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "repro inspection missing", false)
-		}
-		body["repro"] = out.Repro
-		summary = "inspect.repro: " + out.Repro.Capsule.ReproID
-	case "inspect.events":
-		if out.Events == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "event inspection missing", false)
-		}
-		body["events"] = out.Events
-		summary = fmt.Sprintf("inspect.events: %d event(s)", len(out.Events.Events))
-	case "inspect.server":
-		if out.Server == nil {
-			return toolErrorV2(action, "invalid_daemon_response", "server catalog missing", false)
-		}
-		body["server"] = out.Server
-		summary = "inspect.server: capabilities"
 	}
 	return toolSuccess(summary, body)
+}
+
+func executionSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	if out.Result == nil {
+		return "", toolErrorV2(action, "invalid_daemon_response", "structured result missing", false)
+	}
+	body["result"] = out.Result
+	return fmt.Sprintf("%s session %s: %s", action, out.Result.Operation.SessionID, out.Result.Operation.State), nil
+}
+
+func outputViewSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	if out.OutputView == nil {
+		return "", toolErrorV2(action, "invalid_daemon_response", "output view missing", false)
+	}
+	body["output_view"] = out.OutputView
+	return "read_output: " + string(out.OutputView.SelectorKind), nil
+}
+
+func inspectionSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	switch action {
+	case "inspect.workspace":
+		if out.Workspace == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "workspace inspection missing", false)
+		}
+		body["workspace"] = out.Workspace
+		return "inspect.workspace: " + string(out.Workspace.ID), nil
+	case "inspect.activity":
+		if out.Activity == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "activity inspection missing", false)
+		}
+		body["activity"] = out.Activity
+		return "inspect.activity: " + string(out.Activity.ID), nil
+	case "inspect.project", "inspect.readiness":
+		return projectSuccessV2(action, out, body)
+	case "inspect.code":
+		if out.CodeResult == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "code inspection missing", false)
+		}
+		body["code"] = out.CodeResult
+		return "inspect.code: " + string(out.CodeResult.Status), nil
+	case "inspect.structured":
+		if out.Structured == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "structured inspection missing", false)
+		}
+		body["structured"] = out.Structured
+		return "inspect.structured: " + string(out.Structured.Status), nil
+	case "inspect.telemetry":
+		if out.Telemetry == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "telemetry inspection missing", false)
+		}
+		body["telemetry"] = out.Telemetry
+		return fmt.Sprintf("inspect.telemetry: %d sample(s)", out.Telemetry.SamplesReturned), nil
+	case "repro.create":
+		if out.Capsule == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "repro capsule missing", false)
+		}
+		body["capsule"] = out.Capsule
+		return "repro.create: " + out.Capsule.ReproID, nil
+	case "inspect.repro":
+		if out.Repro == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "repro inspection missing", false)
+		}
+		body["repro"] = out.Repro
+		return "inspect.repro: " + out.Repro.Capsule.ReproID, nil
+	case "inspect.events":
+		if out.Events == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "event inspection missing", false)
+		}
+		body["events"] = out.Events
+		return fmt.Sprintf("inspect.events: %d event(s)", len(out.Events.Events)), nil
+	case "inspect.server":
+		if out.Server == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "server catalog missing", false)
+		}
+		body["server"] = out.Server
+		return "inspect.server: capabilities", nil
+	default:
+		return action, nil
+	}
 }
 
 func projectSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {

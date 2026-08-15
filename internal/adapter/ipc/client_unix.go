@@ -66,7 +66,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -102,6 +102,11 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.Cursor = in.Poll.Cursor
 		req.YieldMS = in.Poll.YieldMS
 		req.MaxOutputBytes = in.Poll.MaxOutputBytes
+	case "read_output":
+		req.SessionID = in.OutputRead.SessionID
+		selector := in.OutputRead.Selector
+		req.Selector = &selector
+		req.Continuation = in.OutputRead.Continuation
 	case "write":
 		req.SessionID = in.Write.SessionID
 		req.InputOffset = in.Write.InputOffset

@@ -6,6 +6,7 @@ import (
 
 	"github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
@@ -36,6 +37,7 @@ type Request struct {
 	TelemetryInspect  telemetryapp.InspectRequest
 	ReproCreate       reprocore.CreateRequest
 	ReproID           string
+	OutputRead        outputview.Request
 }
 type Response struct {
 	View       daemon.View
@@ -51,6 +53,7 @@ type Response struct {
 	Capsule    *reprocore.Capsule
 	Repro      *reproapp.InspectResult
 	CodeResult *codeintel.Result
+	OutputView *outputview.Result
 	Code       string
 	Message    string
 	Retryable  bool

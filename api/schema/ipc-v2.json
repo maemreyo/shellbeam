@@ -8,6 +8,7 @@
     {"$ref": "#/$defs/raw_start_request"},
     {"$ref": "#/$defs/typed_start_request"},
     {"$ref": "#/$defs/poll_request"},
+    {"$ref": "#/$defs/read_output_request"},
     {"$ref": "#/$defs/write_request"},
     {"$ref": "#/$defs/kill_request"},
     {"$ref": "#/$defs/inspect_server_request"},
@@ -22,6 +23,7 @@
     {"$ref": "#/$defs/inspect_repro_request"},
     {"$ref": "#/$defs/inspect_code_request"},
     {"$ref": "#/$defs/start_poll_success_response"},
+    {"$ref": "#/$defs/read_output_success_response"},
     {"$ref": "#/$defs/write_kill_success_response"},
     {"$ref": "#/$defs/inspect_server_success_response"},
     {"$ref": "#/$defs/inspect_workspace_success_response"},
@@ -37,6 +39,12 @@
     {"$ref": "#/$defs/error_response"}
   ],
   "$defs": {
+    "output_selector": {"oneOf":[{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"raw_range"},"start_byte":{"type":"integer","minimum":0},"max_bytes":{"type":"integer","minimum":1,"maximum":65536}},"required":["kind","max_bytes"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"tail"},"bytes":{"type":"integer","minimum":1,"maximum":65536}},"required":["kind","bytes"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"tail"},"lines":{"type":"integer","minimum":1,"maximum":512}},"required":["kind","lines"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"lines"},"start_line":{"type":"integer","minimum":1},"max_lines":{"type":"integer","minimum":1,"maximum":512}},"required":["kind","start_line","max_lines"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"preview"},"head_bytes":{"type":"integer","minimum":1,"maximum":65536}},"required":["kind","head_bytes"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"preview"},"tail_bytes":{"type":"integer","minimum":1,"maximum":65536}},"required":["kind","tail_bytes"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"preview"},"head_bytes":{"type":"integer","minimum":1,"maximum":32768},"tail_bytes":{"type":"integer","minimum":1,"maximum":32768}},"required":["kind","head_bytes","tail_bytes"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"search"},"mode":{"enum":["literal","regex"]},"pattern":{"type":"string","minLength":1,"maxLength":4096},"case_sensitive":{"type":"boolean"},"max_matches":{"type":"integer","minimum":1,"maximum":128}},"required":["kind","mode","pattern","max_matches"]}]},
+    "output_raw_range": {"type":"object","additionalProperties":false,"properties":{"start":{"type":"integer","minimum":0},"end":{"type":"integer","minimum":0}},"required":["start","end"]},
+    "output_match": {"type":"object","additionalProperties":false,"properties":{"line":{"type":"integer","minimum":1},"raw_range":{"$ref":"#/$defs/output_raw_range"},"excerpt":{"type":"string","maxLength":512},"truncated":{"type":"boolean"}},"required":["raw_range","excerpt"]},
+    "output_view": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"session_id":{"type":"string","minLength":1,"maxLength":128},"selector_kind":{"enum":["raw_range","tail","lines","preview","search"]},"retention_state":{"enum":["retained","compacted","unavailable"]},"frozen_cut_bytes":{"type":"integer","minimum":0},"raw_ranges":{"type":"array","maxItems":2,"items":{"$ref":"#/$defs/output_raw_range"}},"text":{"type":"string","maxLength":65536},"matches":{"type":"array","maxItems":128,"items":{"$ref":"#/$defs/output_match"}},"partial":{"type":"boolean"},"truncated":{"type":"boolean"},"continuation":{"type":"string","minLength":12,"maxLength":2048,"pattern":"^outcur_v1_[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"}},"required":["schema_version","session_id","selector_kind","retention_state","frozen_cut_bytes"]},
+    "read_output_request": {"type":"object","additionalProperties":false,"properties":{"ipc_version":{"const":2},"kind":{"const":"request"},"request_id":{"type":"string"},"action":{"const":"read_output"},"session_id":{"type":"string","minLength":1},"selector":{"$ref":"#/$defs/output_selector"},"continuation":{"type":"string","minLength":12,"maxLength":2048,"pattern":"^outcur_v1_[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"}},"required":["ipc_version","kind","request_id","action","session_id","selector"]},
+    "read_output_success_response": {"type":"object","additionalProperties":false,"properties":{"ipc_version":{"const":2},"kind":{"const":"response"},"request_id":{"type":"string"},"action":{"const":"read_output"},"ok":{"const":true},"output_view":{"$ref":"#/$defs/output_view"}},"required":["ipc_version","kind","request_id","action","ok","output_view"]},
     "raw_start_request": {
       "type": "object",
       "additionalProperties": false,
