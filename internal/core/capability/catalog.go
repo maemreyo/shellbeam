@@ -68,22 +68,16 @@ type Limits struct {
 	EvidenceArtifactDigestBytes    int64 `json:"evidence_artifact_digest_bytes,omitempty"`
 	EvidenceTreeEntries            int   `json:"evidence_tree_entries,omitempty"`
 	EvidenceCursorBytes            int   `json:"evidence_cursor_bytes,omitempty"`
-}
-
-type ResourceQuality string
-
-const (
-	ResourceExact            ResourceQuality = "exact"
-	ResourcePlatformReported ResourceQuality = "platform_reported"
-	ResourceSampled          ResourceQuality = "sampled"
-	ResourceUnavailable      ResourceQuality = "unavailable"
-)
-
-type ResourceObservationSupport struct {
-	CPUTime          ResourceQuality `json:"cpu_time"`
-	MaxRSS           ResourceQuality `json:"max_rss"`
-	IOBytes          ResourceQuality `json:"io_bytes"`
-	ProcessCountPeak ResourceQuality `json:"process_count_peak"`
+	EnvironmentRelevantVariables   int   `json:"environment_relevant_variables,omitempty"`
+	EnvironmentToolchainProbes     int   `json:"environment_toolchain_probes,omitempty"`
+	EnvironmentProbeTimeoutMS      int64 `json:"environment_probe_timeout_ms,omitempty"`
+	EnvironmentProbeOutputBytes    int   `json:"environment_probe_output_bytes,omitempty"`
+	EnvironmentCacheEntries        int   `json:"environment_cache_entries,omitempty"`
+	ProcessDescendants             int   `json:"process_descendants,omitempty"`
+	ProcessTraversalDepth          int   `json:"process_traversal_depth,omitempty"`
+	ProcessObservationBytes        int   `json:"process_observation_bytes,omitempty"`
+	ProcessObservationMS           int64 `json:"process_observation_ms,omitempty"`
+	ProcessPortRecords             int   `json:"process_port_records,omitempty"`
 }
 
 type Catalog struct {
@@ -101,6 +95,12 @@ type Catalog struct {
 	OutputViewSchemaVersions          []int                       `json:"output_view_schema_versions,omitempty"`
 	EvidenceSchemaVersions            []int                       `json:"evidence_schema_versions,omitempty"`
 	ArtifactObservationSchemaVersions []int                       `json:"artifact_observation_schema_versions,omitempty"`
+	EnvironmentSnapshotSchemaVersions []int                       `json:"environment_snapshot_schema_versions,omitempty"`
+	EnvironmentFingerprintVersions    []int                       `json:"environment_fingerprint_versions,omitempty"`
+	ToolchainFingerprintVersions      []int                       `json:"toolchain_fingerprint_versions,omitempty"`
+	EnvironmentToolchainProbeIDs      []string                    `json:"environment_toolchain_probe_ids,omitempty"`
+	ProcessObservationSchemaVersions  []int                       `json:"process_observation_schema_versions,omitempty"`
+	PortObservationSupported          bool                        `json:"port_observation_supported,omitempty"`
 	ReadinessRequirementKinds         []string                    `json:"project_readiness_requirement_kinds,omitempty"`
 	TypedCommandVersions              []int                       `json:"typed_project_command_versions,omitempty"`
 	TypedCommandManifestVersion       int                         `json:"typed_project_command_manifest_version,omitempty"`
@@ -172,6 +172,11 @@ func (c Catalog) Clone() Catalog {
 	out.OutputViewSchemaVersions = append([]int(nil), c.OutputViewSchemaVersions...)
 	out.EvidenceSchemaVersions = append([]int(nil), c.EvidenceSchemaVersions...)
 	out.ArtifactObservationSchemaVersions = append([]int(nil), c.ArtifactObservationSchemaVersions...)
+	out.EnvironmentSnapshotSchemaVersions = append([]int(nil), c.EnvironmentSnapshotSchemaVersions...)
+	out.EnvironmentFingerprintVersions = append([]int(nil), c.EnvironmentFingerprintVersions...)
+	out.ToolchainFingerprintVersions = append([]int(nil), c.ToolchainFingerprintVersions...)
+	out.EnvironmentToolchainProbeIDs = append([]string(nil), c.EnvironmentToolchainProbeIDs...)
+	out.ProcessObservationSchemaVersions = append([]int(nil), c.ProcessObservationSchemaVersions...)
 	out.ReadinessRequirementKinds = append([]string(nil), c.ReadinessRequirementKinds...)
 	out.TypedCommandVersions = append([]int(nil), c.TypedCommandVersions...)
 	out.TypedCommandParameterKinds = append([]string(nil), c.TypedCommandParameterKinds...)

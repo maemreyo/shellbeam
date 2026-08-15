@@ -233,3 +233,56 @@ func TestEvidenceCapabilitiesRequireCompletePositiveLimits(t *testing.T) {
 		t.Fatal("incomplete limits promoted evidence")
 	}
 }
+
+func TestA25EnvironmentCapabilityIsExplicitVersionedAndBounded(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureEnvironmentFingerprint] != Unavailable || len(base.EnvironmentSnapshotSchemaVersions) != 0 || len(base.EnvironmentFingerprintVersions) != 0 || len(base.ToolchainFingerprintVersions) != 0 || len(base.EnvironmentToolchainProbeIDs) != 0 {
+		t.Fatalf("baseline leaked environment observation support: %#v", base)
+	}
+	catalog := base.WithEnvironmentObservation(64, 5, 2000, 512, 128, []string{"go", "node", "python", "java", "rust"})
+	if catalog.Features[FeatureEnvironmentFingerprint] != Available {
+		t.Fatalf("environment feature=%q", catalog.Features[FeatureEnvironmentFingerprint])
+	}
+	if !reflect.DeepEqual(catalog.EnvironmentSnapshotSchemaVersions, []int{1}) || !reflect.DeepEqual(catalog.EnvironmentFingerprintVersions, []int{1}) || !reflect.DeepEqual(catalog.ToolchainFingerprintVersions, []int{1}) {
+		t.Fatalf("environment versions=%#v", catalog)
+	}
+	if !reflect.DeepEqual(catalog.EnvironmentToolchainProbeIDs, []string{"go", "node", "python", "java", "rust"}) {
+		t.Fatalf("toolchain probes=%v", catalog.EnvironmentToolchainProbeIDs)
+	}
+	limits := catalog.Limits
+	if limits.EnvironmentRelevantVariables != 64 || limits.EnvironmentToolchainProbes != 5 || limits.EnvironmentProbeTimeoutMS != 2000 || limits.EnvironmentProbeOutputBytes != 512 || limits.EnvironmentCacheEntries != 128 {
+		t.Fatalf("environment limits=%#v", limits)
+	}
+	clone := catalog.Clone()
+	clone.EnvironmentSnapshotSchemaVersions[0] = 99
+	clone.EnvironmentToolchainProbeIDs[0] = "changed"
+	if catalog.EnvironmentSnapshotSchemaVersions[0] != 1 || catalog.EnvironmentToolchainProbeIDs[0] != "go" {
+		t.Fatal("environment capability clone aliases slices")
+	}
+	if invalid := base.WithEnvironmentObservation(64, 5, 2000, 512, 128, nil); invalid.Features[FeatureEnvironmentFingerprint] != Unavailable {
+		t.Fatal("probe-less environment observation advertised")
+	}
+}
+
+func TestA25ProcessCapabilityIsExplicitVersionedAndBounded(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureProcessInspection] != Unavailable || len(base.ProcessObservationSchemaVersions) != 0 || base.PortObservationSupported {
+		t.Fatalf("baseline leaked process observation support: %#v", base)
+	}
+	catalog := base.WithProcessInspection(128, 8, 64<<10, 2000, 64, true)
+	if catalog.Features[FeatureProcessInspection] != Available || !reflect.DeepEqual(catalog.ProcessObservationSchemaVersions, []int{1}) || !catalog.PortObservationSupported {
+		t.Fatalf("process capability=%#v", catalog)
+	}
+	limits := catalog.Limits
+	if limits.ProcessDescendants != 128 || limits.ProcessTraversalDepth != 8 || limits.ProcessObservationBytes != 64<<10 || limits.ProcessObservationMS != 2000 || limits.ProcessPortRecords != 64 {
+		t.Fatalf("process limits=%#v", limits)
+	}
+	clone := catalog.Clone()
+	clone.ProcessObservationSchemaVersions[0] = 99
+	if catalog.ProcessObservationSchemaVersions[0] != 1 {
+		t.Fatal("process capability clone aliases versions")
+	}
+	if invalid := base.WithProcessInspection(0, 8, 64<<10, 2000, 64, true); invalid.Features[FeatureProcessInspection] != Unavailable {
+		t.Fatal("invalid process bounds advertised")
+	}
+}

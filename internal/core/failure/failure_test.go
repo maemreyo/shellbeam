@@ -213,3 +213,40 @@ func TestEvidenceCursorFailureCodesAreStable(t *testing.T) {
 		}
 	}
 }
+
+func TestA25ObservationFailureCodesAreStableAndSecretSafe(t *testing.T) {
+	codes := []Code{
+		EnvironmentObservationUnavailable,
+		ToolchainProbeUnavailable,
+		ToolchainProbeTimeout,
+		ToolchainProbeUnsupported,
+		ProcessNotFound,
+		ProcessAccessDenied,
+		ProcessIdentityChanged,
+		ProcessObservationIncomplete,
+		ProcessLimitExceeded,
+		PortObservationUnavailable,
+	}
+	for _, code := range codes {
+		public := Public(New(code, map[string]string{
+			"toolchain": "go",
+			"pid":       "123",
+			"reason":    "bounded",
+			"path":      "/Users/alice/.ssh/id_work",
+			"value":     "low-entropy-secret",
+		}, errors.New("private /Users/alice/.ssh/id_work token=low-entropy-secret")))
+		if public.Code != code || public.Message == "" {
+			t.Fatalf("missing A2.5 failure spec for %q: %#v", code, public)
+		}
+		data, err := json.Marshal(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(data)
+		for _, secret := range []string{"id_work", "low-entropy-secret", `"path"`, `"value"`} {
+			if strings.Contains(text, secret) {
+				t.Fatalf("A2.5 public failure leaked %q: %s", secret, text)
+			}
+		}
+	}
+}

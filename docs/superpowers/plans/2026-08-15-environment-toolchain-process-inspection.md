@@ -112,7 +112,7 @@ The output must never return raw PATH or environment values.
 
 ### Step 1.1 — Write environment normalization RED tests
 
-- [ ] Step 1.1: Write environment normalization RED tests
+- [x] Step 1.1: Write environment normalization RED tests
 
 Cover:
 
@@ -135,7 +135,7 @@ Expected: **RED** because the package/contracts do not exist.
 
 ### Step 1.2 — Implement minimum environment core
 
-- [ ] Step 1.2: Implement minimum environment core
+- [x] Step 1.2: Implement minimum environment core
 
 Implement:
 
@@ -166,7 +166,7 @@ Run the environment package tests again; expect GREEN.
 
 ### Step 1.3 — Write process contract RED tests
 
-- [ ] Step 1.3: Write process contract RED tests
+- [x] Step 1.3: Write process contract RED tests
 
 Cover:
 
@@ -187,7 +187,7 @@ Expected: **RED**.
 
 ### Step 1.4 — Implement minimum process core
 
-- [ ] Step 1.4: Implement minimum process core
+- [x] Step 1.4: Implement minimum process core
 
 Implement:
 
@@ -206,7 +206,7 @@ Run GREEN.
 
 ### Step 1.5 — Add typed failures RED → GREEN
 
-- [ ] Step 1.5: Add typed failures RED → GREEN
+- [x] Step 1.5: Add typed failures RED → GREEN
 
 Add public stable codes:
 
@@ -231,7 +231,7 @@ go test ./internal/core/failure
 
 ### Step 1.6 — Capability contract RED → GREEN
 
-- [ ] Step 1.6: Capability contract RED → GREEN
+- [x] Step 1.6: Capability contract RED → GREEN
 
 Add exact A2.5 capability fields:
 
@@ -259,7 +259,7 @@ go test -race ./internal/core/capability ./internal/core/environment ./internal/
 
 ### Step 1.7 — Structural gate and commit
 
-- [ ] Step 1.7: Structural gate and commit
+- [x] Step 1.7: Structural gate and commit
 
 ```bash
 git diff --check
