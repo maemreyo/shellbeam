@@ -4,6 +4,7 @@ package daemon
 import (
 	"context"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -36,6 +37,15 @@ type Store interface {
 	AppendOutput(context.Context, operation.SessionID, []byte) (int, StoreResult)
 	ReadOutput(context.Context, operation.SessionID, int64, int) ([]byte, int64, error)
 	Compact(context.Context, operation.SessionID) StoreResult
+}
+
+type PersistentSessionStore interface {
+	ReservePersistentBinding(context.Context, persistent.Binding) (persistent.Binding, bool, StoreResult)
+	AdvancePersistentBinding(context.Context, persistent.Binding) StoreResult
+	LoadPersistentBinding(context.Context, operation.SessionID) (persistent.Binding, error)
+	FindPersistentBinding(context.Context, operation.SessionID) (persistent.Binding, bool, error)
+	FindPersistentBindingByName(context.Context, string) (persistent.Binding, bool, error)
+	ListPersistentBindings(context.Context, persistent.InspectRequest) (persistent.BindingPage, error)
 }
 
 type processObservationStore interface {

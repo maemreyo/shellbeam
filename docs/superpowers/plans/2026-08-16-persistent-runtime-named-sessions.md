@@ -55,16 +55,16 @@ Files: create internal/core/persistentsession/{types.go,types_test.go}; modify i
 
 ### Task 2 - Canonical persistent binding/name registry and bounded listing
 
-Files: create internal/adapter/store/{persistent_sessions.go,persistent_sessions_test.go,persistent_sessions_fault_test.go}; modify repository.go, reservation.go, daemon store port.
+Files: create internal/adapter/store/{persistent_sessions.go,persistent_session_cursor.go,persistent_sessions_test.go,persistent_sessions_fault_test.go}; modify repository.go, internal/app/daemon/store_port.go, internal/core/persistentsession/types.go.
 
-- [ ] RED tests for idempotent binding creation, permanent B1.0 name reservation, exact-name replay, conflicting name/session, corruption, deterministic list/pagination.
-- [ ] Canonical public-safe binding fields: schema/session/operation/activity/workspace/name/persistent/supervision/continuity/generation/opaque endpoint ref/lifecycle/timestamps.
-- [ ] State layout uses private atomic/no-follow helpers; name index key may hash name but record stores exact name and session to detect collision/mismatch.
-- [ ] Binding creation requires an existing persistent reservation; binding never authorizes a second spawn independently.
-- [ ] Add deterministic ListPersistentBindings with exact filters, default 25/max100, opaque cursor bound to normalized filters.
-- [ ] Fault matrix: reservation->binding, binding->name-index ambiguity, conflicting retry, corrupt index.
-- [ ] Focused/race tests.
-- [ ] Commit: feat: persist canonical persistent sessions
+- [x] RED tests for idempotent binding creation, permanent B1.0 name reservation, exact-name replay, conflicting name/session, corruption, deterministic list/pagination.
+- [x] Canonical public-safe binding fields: schema/session/operation/activity/workspace/name/persistent/supervision/continuity/generation/opaque endpoint ref/lifecycle/timestamps.
+- [x] State layout uses private atomic/no-follow helpers; name index key may hash name but record stores exact name and session to detect collision/mismatch.
+- [x] Binding creation requires an existing persistent reservation; binding never authorizes a second spawn independently.
+- [x] Add deterministic ListPersistentBindings with exact filters, default 25/max100, opaque cursor bound to normalized filters.
+- [x] Fault matrix: reservation->name claim, name claim->binding ambiguity, conflicting retry, corrupt claim/binding.
+- [x] Focused/race tests.
+- [x] Commit: feat: persist canonical persistent sessions
 
 ### Task 3 - Private supervisor protocol, authentication, private state boundary
 

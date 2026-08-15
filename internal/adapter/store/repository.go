@@ -50,6 +50,7 @@ type Repository struct {
 	telemetryMu              sync.Mutex
 	reproMu                  sync.Mutex
 	mutationScopeMu          sync.Mutex
+	persistentSessionMu      sync.Mutex
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
 	observationHighWatermark uint64
@@ -164,6 +165,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initMutationScopeStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initPersistentSessionStore(); err != nil {
 		return nil, err
 	}
 	return repository, nil

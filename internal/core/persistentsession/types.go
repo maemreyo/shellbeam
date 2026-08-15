@@ -95,6 +95,11 @@ type InspectPage struct {
 	Continuation string    `json:"continuation,omitempty"`
 }
 
+type BindingPage struct {
+	Bindings     []Binding `json:"bindings"`
+	Continuation string    `json:"continuation,omitempty"`
+}
+
 func ValidateSessionName(v string) error {
 	if !utf8.ValidString(v) || len(v) < 1 || len(v) > MaxSessionNameBytes {
 		return fmt.Errorf("invalid persistent session name")
