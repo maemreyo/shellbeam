@@ -120,3 +120,12 @@ func TestMutationReceiptValidatesExactlyOnceShape(t *testing.T) {
 		t.Fatal("invalid digest accepted")
 	}
 }
+
+func TestScopeValidateRejectsPathLikeIDs(t *testing.T) {
+	for _, id := range []string{".", "..", "scope/name", "scope name"} {
+		scope := testScope(id, "activity-a", ModeMutate, "src/**")
+		if err := scope.Validate(); err == nil {
+			t.Fatalf("path-like scope id accepted: %q", id)
+		}
+	}
+}

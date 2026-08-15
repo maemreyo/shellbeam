@@ -13,6 +13,20 @@ import (
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
+func ValidateScopeID(v string) error {
+	if !safeID(v, MaxScopeIDBytes) {
+		return fmt.Errorf("invalid scope id")
+	}
+	return nil
+}
+
+func ValidateMutationID(v string) error {
+	if !safeID(v, MaxMutationIDBytes) {
+		return fmt.Errorf("invalid mutation id")
+	}
+	return nil
+}
+
 func (s Scope) Validate() error {
 	if s.SchemaVersion != SchemaVersion || !safeID(s.ScopeID, MaxScopeIDBytes) || !safeID(s.RevisionID, MaxMutationIDBytes) {
 		return fmt.Errorf("invalid scope identity")
@@ -127,7 +141,7 @@ func advisoryFingerprint(a, b Scope, kind ConflictKind) string {
 }
 
 func safeID(v string, max int) bool {
-	if v == "" || len(v) > max || !utf8.ValidString(v) {
+	if v == "" || v == "." || v == ".." || len(v) > max || !utf8.ValidString(v) {
 		return false
 	}
 	for _, r := range v {
