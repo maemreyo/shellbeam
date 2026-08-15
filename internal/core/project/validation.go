@@ -174,6 +174,11 @@ func validateOutput(raw rawOutput, topLevel bool) (Output, error) {
 	if !topLevel && raw.Role != "" {
 		return Output{}, projectError(CodeSchemaError, "command output cannot declare role")
 	}
+	if (raw.Kind == "file" && raw.Digest == "tree-sha256") ||
+		(raw.Kind == "directory" && raw.Digest == "sha256") ||
+		(raw.Kind == "symlink" && raw.Digest != "" && raw.Digest != "none") {
+		return Output{}, projectError(CodeSchemaError, "output digest incompatible with kind")
+	}
 	required := true
 	if raw.Required != nil {
 		required = *raw.Required

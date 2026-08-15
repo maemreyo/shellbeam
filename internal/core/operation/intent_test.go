@@ -1,6 +1,11 @@
 package operation
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	"github.com/maemreyo/shellbeam/internal/core/project"
+)
 
 func TestFingerprintExcludesResponseTuning(t *testing.T) {
 	a := Intent{Command: "printf hi", CWD: "/tmp", TTY: true, TimeoutMS: 10}
@@ -253,5 +258,45 @@ func TestStructuredAdapterOnlyChangesObservationBindingFingerprint(t *testing.T)
 	}
 	if _, err := (ObservationBinding{StructuredAdapter: "../unknown"}).Fingerprint(); err == nil {
 		t.Fatal("unsafe adapter id accepted")
+	}
+}
+
+func TestEvidenceContractChangesOnlyObservationBindingFingerprint(t *testing.T) {
+	intent := Intent{Argv: []string{"go", "test", "./..."}, CWD: "/tmp"}
+	requestBefore, err := intent.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	execBefore, err := intent.ExecutionFingerprint("/usr/bin/go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base, err := (ObservationBinding{ActivityID: "a"}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := &evidence.Contract{VerificationKind: evidence.VerificationTest, SourceScope: evidence.SourceScopeFull, ExpectedOutputs: []project.Output{{Path: "dist/report.json", Kind: "file", Required: true, Digest: "sha256"}}}
+	bound, err := (ObservationBinding{ActivityID: "a", Evidence: contract}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound == "" || bound == base {
+		t.Fatalf("evidence observation binding base=%q bound=%q", base, bound)
+	}
+	requestAfter, _ := intent.RequestFingerprint()
+	execAfter, _ := intent.ExecutionFingerprint("/usr/bin/go")
+	if requestBefore != requestAfter || execBefore != execAfter {
+		t.Fatal("evidence metadata changed execution semantics")
+	}
+
+	changed := *contract
+	changed.ExpectedOutputs = append([]project.Output(nil), contract.ExpectedOutputs...)
+	changed.ExpectedOutputs[0].Path = "dist/other.json"
+	other, err := (ObservationBinding{ActivityID: "a", Evidence: &changed}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other == bound {
+		t.Fatal("evidence contract mutation did not change observation fingerprint")
 	}
 }

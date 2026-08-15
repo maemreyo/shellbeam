@@ -165,10 +165,11 @@ type Record struct {
 }
 
 func (c Contract) Digest() (string, error) {
-	if err := c.Validate(); err != nil {
+	normalized, err := c.Normalize()
+	if err != nil {
 		return "", err
 	}
-	data, err := json.Marshal(c)
+	data, err := json.Marshal(normalized)
 	if err != nil {
 		return "", err
 	}

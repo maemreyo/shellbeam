@@ -32,7 +32,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if err != nil {
 		return View{}, true, err
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: req.Evidence}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -81,6 +81,21 @@ func validateStartMetadata(req StartRequest) error {
 	if req.Intent != nil {
 		if err := req.Intent.Validate(); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
+		}
+	}
+	if req.Evidence != nil {
+		if req.ProtocolVersion != 2 {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "evidence", "required_version": "2"}, nil)
+		}
+		normalized, err := req.Evidence.Normalize()
+		if err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, err)
+		}
+		if len(normalized.ExpectedOutputs) > 0 && req.WorkspaceID == "" {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("evidence expected outputs require workspace"))
+		}
+		if wantsProjectCommand(req) {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, fmt.Errorf("typed project commands use frozen project evidence metadata"))
 		}
 	}
 	return nil

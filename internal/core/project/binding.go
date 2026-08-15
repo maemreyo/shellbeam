@@ -10,7 +10,10 @@ import (
 	"strings"
 )
 
-const BindingSchemaVersion = 1
+const (
+	BindingSchemaV1      = 1
+	BindingSchemaVersion = 2
+)
 
 const (
 	BindingSourceCaller        = "caller"
@@ -39,6 +42,9 @@ type CommandBinding struct {
 	ResolvedCWD            string             `json:"resolved_cwd"`
 	SourceGeneration       string             `json:"source_generation,omitempty"`
 	PathObservationQuality string             `json:"path_observation_quality,omitempty"`
+	Kind                   string             `json:"kind,omitempty"`
+	SourceScope            string             `json:"source_scope,omitempty"`
+	ExpectedOutputs        []Output           `json:"expected_outputs,omitempty"`
 }
 
 func (p ParameterBinding) Validate() error {
@@ -80,8 +86,20 @@ func ParameterFingerprint(parameters []ParameterBinding) (string, error) {
 }
 
 func (b CommandBinding) Validate() error {
-	if b.SchemaVersion != BindingSchemaVersion || !validDigestHex(b.ManifestDigest) || b.ManifestSchemaVersion != ManifestSchemaV2 {
+	if (b.SchemaVersion != BindingSchemaV1 && b.SchemaVersion != BindingSchemaVersion) || !validDigestHex(b.ManifestDigest) || b.ManifestSchemaVersion != ManifestSchemaV2 {
 		return fmt.Errorf("invalid command binding identity")
+	}
+	if b.SchemaVersion == BindingSchemaV1 && (b.Kind != "" || b.SourceScope != "" || len(b.ExpectedOutputs) != 0) {
+		return fmt.Errorf("legacy command binding contains v2 metadata")
+	}
+	if b.SchemaVersion == BindingSchemaVersion {
+		if !oneOfOptional(b.Kind, "format", "inspect", "test", "build", "generate", "release") || !oneOfOptional(b.SourceScope, "none", "affected", "full") {
+			return fmt.Errorf("invalid command binding evidence metadata")
+		}
+		normalized, err := ValidateExpectedOutputs(b.ExpectedOutputs)
+		if err != nil || !sameOutputs(normalized, b.ExpectedOutputs) {
+			return fmt.Errorf("invalid command binding expected outputs")
+		}
 	}
 	if !idPattern.MatchString(b.CommandID) || !validDigestHex(b.ParameterFingerprint) {
 		return fmt.Errorf("invalid command binding identity")
@@ -117,6 +135,18 @@ func (b CommandBinding) Validate() error {
 		return fmt.Errorf("invalid path observation quality")
 	}
 	return nil
+}
+
+func sameOutputs(a, b []Output) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (b CommandBinding) Digest() (string, error) {

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	"github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -70,5 +72,21 @@ func assertReceiptJSONValid(t *testing.T, want Receipt) {
 	}
 	if err := got.Validate(); err != nil {
 		t.Fatalf("receipt=%s validation=%v", encoded, err)
+	}
+}
+
+func TestReceiptV2PersistsRawEvidenceContractAndV3RejectsCompetingRawEvidence(t *testing.T) {
+	contract := &evidence.Contract{VerificationKind: evidence.VerificationBuild, SourceScope: evidence.SourceScopeFull, ExpectedOutputs: []project.Output{{Path: "dist/app", Kind: "file", Required: true, Digest: "sha256"}}}
+	v2 := Receipt{SchemaVersion: 2, RequestFingerprint: "request", ExecutionFingerprint: "execution", DaemonIncarnation: "daemon", State: session.Running, Evidence: contract}
+	if err := v2.Validate(); err != nil {
+		t.Fatalf("v2 evidence receipt rejected: %v", err)
+	}
+	v1 := Receipt{SchemaVersion: 1, State: session.Running, Evidence: contract}
+	if err := v1.Validate(); err == nil {
+		t.Fatal("v1 receipt accepted evidence contract")
+	}
+	v3 := Receipt{SchemaVersion: 3, RequestFingerprint: "request", ExecutionFingerprint: "execution", State: session.Running, Evidence: contract}
+	if err := v3.Validate(); err == nil {
+		t.Fatal("v3 typed receipt accepted competing raw evidence contract")
 	}
 }

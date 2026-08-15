@@ -67,7 +67,7 @@ func typedRequestIntent(req StartRequest) (operation.TypedRequestIntent, string,
 	if req.ProjectCommandID == "" || req.WorkspaceID == "" {
 		return operation.TypedRequestIntent{}, "", failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command requires workspace and command id"))
 	}
-	if req.Command != "" || len(req.Argv) != 0 || req.CWD != "" {
+	if req.Command != "" || len(req.Argv) != 0 || req.CWD != "" || req.Evidence != nil {
 		return operation.TypedRequestIntent{}, "", failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command conflicts with raw execution fields"))
 	}
 	intent := operation.TypedRequestIntent{
@@ -233,6 +233,7 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 func cloneProjectCommandBinding(value project.CommandBinding) project.CommandBinding {
 	value.Parameters = append([]project.ParameterBinding(nil), value.Parameters...)
 	value.ResolvedArgv = append([]string(nil), value.ResolvedArgv...)
+	value.ExpectedOutputs = append([]project.Output(nil), value.ExpectedOutputs...)
 	return value
 }
 

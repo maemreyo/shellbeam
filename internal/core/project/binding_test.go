@@ -52,7 +52,7 @@ func TestCommandBindingValidationAndDigest(t *testing.T) {
 func TestCommandBindingRejectsMalformedFrozenFacts(t *testing.T) {
 	base := validCommandBinding(t)
 	cases := map[string]func(*CommandBinding){
-		"schema":                func(v *CommandBinding) { v.SchemaVersion = 2 },
+		"schema":                func(v *CommandBinding) { v.SchemaVersion = 99 },
 		"manifest digest":       func(v *CommandBinding) { v.ManifestDigest = "bad" },
 		"manifest schema":       func(v *CommandBinding) { v.ManifestSchemaVersion = ManifestSchemaV1 },
 		"command id":            func(v *CommandBinding) { v.CommandID = "../bad" },
@@ -96,5 +96,44 @@ func validCommandBinding(t *testing.T) CommandBinding {
 		ResolvedCWD:            "/repo",
 		SourceGeneration:       "gen_" + strings.Repeat("b", 64),
 		PathObservationQuality: PathObservationExactAtBind,
+	}
+}
+
+func TestCommandBindingV1CompatibilityAndV2EvidenceMetadata(t *testing.T) {
+	legacy := validCommandBinding(t)
+	legacy.SchemaVersion = 1
+	legacy.Kind = ""
+	legacy.SourceScope = ""
+	legacy.ExpectedOutputs = nil
+	if err := legacy.Validate(); err != nil {
+		t.Fatalf("persisted v1 binding rejected: %v", err)
+	}
+
+	v2 := validCommandBinding(t)
+	v2.SchemaVersion = 2
+	v2.Kind = "test"
+	v2.SourceScope = "full"
+	v2.ExpectedOutputs = []Output{{Path: "dist/report.json", Kind: "file", Required: true, Digest: "sha256"}}
+	if err := v2.Validate(); err != nil {
+		t.Fatalf("v2 binding rejected: %v", err)
+	}
+	first, err := v2.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := v2
+	changed.ExpectedOutputs = append([]Output(nil), v2.ExpectedOutputs...)
+	changed.ExpectedOutputs[0].Path = "dist/other.json"
+	second, err := changed.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("expected-output change did not change frozen binding digest")
+	}
+
+	legacy.Kind = "test"
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("schema-v1 binding accepted schema-v2 evidence metadata")
 	}
 }

@@ -72,6 +72,8 @@ func (b *Binder) Bind(ctx context.Context, request BindRequest) (core.CommandBin
 		ManifestSchemaVersion: manifest.SchemaVersion, CommandID: request.CommandID,
 		ParameterFingerprint: fingerprint, Parameters: parameters, ResolvedArgv: resolvedArgv,
 		LogicalCWD: command.CWD, ResolvedCWD: resolvedCWD, PathObservationQuality: pathQuality,
+		Kind: command.Kind, SourceScope: command.SourceScope,
+		ExpectedOutputs: append([]core.Output(nil), command.ExpectedOutputs...),
 	}
 	if err := binding.Validate(); err != nil {
 		return core.CommandBinding{}, err

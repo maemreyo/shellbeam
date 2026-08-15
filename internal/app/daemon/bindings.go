@@ -25,8 +25,16 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 	if err != nil {
 		return operation.Reservation{}, err
 	}
+	var frozenEvidence = req.Evidence
+	if req.Evidence != nil {
+		normalized, normalizeErr := req.Evidence.Normalize()
+		if normalizeErr != nil {
+			return operation.Reservation{}, normalizeErr
+		}
+		frozenEvidence = &normalized
+	}
 	base := operation.Reservation{
-		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter,
+		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence,
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
 		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Shell: shell, DaemonIncarnation: s.options.Incarnation,
 	}
@@ -48,7 +56,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		if err != nil {
 			return operation.Reservation{}, err
 		}
-		observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
+		observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence}).Fingerprint()
 		if err != nil {
 			return operation.Reservation{}, err
 		}
@@ -74,6 +82,11 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		rec.ExecutionFingerprint = l.reservation.ExecutionFingerprint
 		rec.ObservationBindingFingerprint = l.reservation.ObservationBindingFingerprint
 		rec.ProjectCommand = l.reservation.ProjectCommand
+		if rec.SchemaVersion == 2 && l.reservation.Evidence != nil {
+			frozen := *l.reservation.Evidence
+			frozen.ExpectedOutputs = append(frozen.ExpectedOutputs[:0:0], l.reservation.Evidence.ExpectedOutputs...)
+			rec.Evidence = &frozen
+		}
 	} else {
 		rec.Fingerprint = l.reservation.Fingerprint
 	}

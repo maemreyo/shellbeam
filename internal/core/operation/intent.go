@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -114,9 +115,10 @@ func hashIntent(version int, kind, command, workspaceID, cwd string, tty bool, t
 }
 
 type ObservationBinding struct {
-	ActivityID        string          `json:"activity_id,omitempty"`
-	Intent            *DeclaredIntent `json:"intent,omitempty"`
-	StructuredAdapter string          `json:"structured_adapter,omitempty"`
+	ActivityID        string             `json:"activity_id,omitempty"`
+	Intent            *DeclaredIntent    `json:"intent,omitempty"`
+	StructuredAdapter string             `json:"structured_adapter,omitempty"`
+	Evidence          *evidence.Contract `json:"evidence,omitempty"`
 }
 
 func ValidStructuredAdapterID(value string) bool {
@@ -135,6 +137,29 @@ func ValidStructuredAdapterID(value string) bool {
 func (b ObservationBinding) Fingerprint() (string, error) {
 	if b.StructuredAdapter != "" && !ValidStructuredAdapterID(b.StructuredAdapter) {
 		return "", fmt.Errorf("invalid structured adapter")
+	}
+	if b.Evidence != nil {
+		normalized, err := b.Evidence.Normalize()
+		if err != nil {
+			return "", err
+		}
+		if b.Intent != nil {
+			if err := b.Intent.Validate(); err != nil {
+				return "", err
+			}
+		}
+		data, err := json.Marshal(struct {
+			Version           int               `json:"version"`
+			ActivityID        string            `json:"activity_id,omitempty"`
+			Intent            *DeclaredIntent   `json:"intent,omitempty"`
+			StructuredAdapter string            `json:"structured_adapter,omitempty"`
+			Evidence          evidence.Contract `json:"evidence"`
+		}{Version: 4, ActivityID: b.ActivityID, Intent: b.Intent, StructuredAdapter: b.StructuredAdapter, Evidence: normalized})
+		if err != nil {
+			return "", err
+		}
+		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:]), nil
 	}
 	if b.StructuredAdapter == "" {
 		if b.Intent == nil {

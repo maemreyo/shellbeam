@@ -4,6 +4,7 @@ package receipt
 import (
 	"fmt"
 
+	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -49,6 +50,7 @@ type Receipt struct {
 	FailureReason                 string                  `json:"failure_reason,omitempty"`
 	WorkspaceProvenance           *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
 	ProjectCommand                *project.CommandBinding `json:"project_command,omitempty"`
+	Evidence                      *evidence.Contract      `json:"evidence,omitempty"`
 	Spawn                         SpawnEvidence           `json:"spawn_evidence"`
 	Exit                          ExitEvidence            `json:"exit_evidence"`
 	Signal                        SignalEvidence          `json:"signal_evidence"`
@@ -57,8 +59,8 @@ type Receipt struct {
 func (r Receipt) Validate() error {
 	switch r.SchemaVersion {
 	case 1:
-		if r.ProjectCommand != nil {
-			return fmt.Errorf("project command provenance requires v3 receipt")
+		if r.ProjectCommand != nil || r.Evidence != nil {
+			return fmt.Errorf("derived provenance requires newer receipt schema")
 		}
 	case 2:
 		if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" {
@@ -67,7 +69,15 @@ func (r Receipt) Validate() error {
 		if r.ProjectCommand != nil {
 			return fmt.Errorf("project command provenance requires v3 receipt")
 		}
+		if r.Evidence != nil {
+			if err := r.Evidence.Validate(); err != nil {
+				return fmt.Errorf("invalid evidence provenance: %w", err)
+			}
+		}
 	case 3:
+		if r.Evidence != nil {
+			return fmt.Errorf("v3 receipt cannot carry raw evidence provenance")
+		}
 		if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" || r.ProjectCommand == nil {
 			return fmt.Errorf("v3 receipt project command provenance missing")
 		}

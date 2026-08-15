@@ -4,30 +4,35 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+
+	"github.com/maemreyo/shellbeam/internal/core/project"
 )
 
 func (c Contract) Validate() error {
+	_, err := c.Normalize()
+	return err
+}
+
+func (c Contract) Normalize() (Contract, error) {
 	if !validVerificationKind(c.VerificationKind) {
-		return fmt.Errorf("invalid verification kind")
+		return Contract{}, fmt.Errorf("invalid verification kind")
 	}
 	if c.SourceScope != "" && c.SourceScope != SourceScopeNone && c.SourceScope != SourceScopeAffected && c.SourceScope != SourceScopeFull {
-		return fmt.Errorf("invalid source scope")
+		return Contract{}, fmt.Errorf("invalid source scope")
 	}
 	if len(c.ExpectedOutputs) > MaxExpectedOutputs {
-		return fmt.Errorf("too many expected outputs")
+		return Contract{}, fmt.Errorf("too many expected outputs")
 	}
 	if c.VerificationKind == VerificationArtifact && len(c.ExpectedOutputs) == 0 {
-		return fmt.Errorf("artifact verification requires expected outputs")
+		return Contract{}, fmt.Errorf("artifact verification requires expected outputs")
 	}
-	for _, output := range c.ExpectedOutputs {
-		if strings.TrimSpace(output.Path) == "" || (output.Kind != "file" && output.Kind != "directory" && output.Kind != "symlink") {
-			return fmt.Errorf("invalid expected output")
-		}
-		if output.Role != "" {
-			return fmt.Errorf("per-command expected output role must be empty")
-		}
+	outputs, err := project.ValidateExpectedOutputs(c.ExpectedOutputs)
+	if err != nil {
+		return Contract{}, err
 	}
-	return nil
+	out := c
+	out.ExpectedOutputs = outputs
+	return out, nil
 }
 
 func (r Record) Validate() error {

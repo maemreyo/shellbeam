@@ -3,6 +3,7 @@ package operation
 import (
 	"time"
 
+	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 )
 
@@ -29,6 +30,7 @@ type Reservation struct {
 	DaemonIncarnation             string                  `json:"daemon_incarnation"`
 	ControlReservationBytes       int64                   `json:"control_reservation_bytes"`
 	ProjectCommand                *project.CommandBinding `json:"project_command,omitempty"`
+	Evidence                      *evidence.Contract      `json:"evidence,omitempty"`
 	CreatedAt                     time.Time               `json:"created_at"`
 }
 

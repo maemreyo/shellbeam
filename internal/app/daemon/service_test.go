@@ -6,9 +6,11 @@ import (
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	"path/filepath"
@@ -319,5 +321,81 @@ func TestObservationSpawnFailureAbortsProcessStartedObligation(t *testing.T) {
 		obligations[1].Kind != observation.EventProcessStarted || obligations[1].State != observation.ObligationAborted ||
 		obligations[2].Kind != observation.EventProcessTerminal || obligations[2].State != observation.ObligationCommitted {
 		t.Fatalf("obligations=%#v", obligations)
+	}
+}
+
+func TestV2EvidenceContractPersistsAndConflictingRetryNeverRespawns(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &fakeOwner{}
+	svc := app.NewService(st, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	contract := &evidence.Contract{VerificationKind: evidence.VerificationTest, SourceScope: evidence.SourceScopeFull}
+	req := app.StartRequest{ProtocolVersion: 2, OperationID: "evidence-retry", Command: "true", CWD: "/", Evidence: contract, YieldMS: 100}
+	started, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := waitForTerminal(t, svc, started.SessionID)
+	stored, err := st.LoadOperation(context.Background(), "evidence-retry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Evidence == nil || stored.Evidence.VerificationKind != evidence.VerificationTest {
+		t.Fatalf("stored evidence=%#v", stored.Evidence)
+	}
+	if terminal.Receipt == nil || terminal.Receipt.Evidence == nil || terminal.Receipt.Evidence.VerificationKind != evidence.VerificationTest {
+		t.Fatalf("terminal receipt=%#v", terminal.Receipt)
+	}
+	replay := req
+	replay.YieldMS = 0
+	if _, err := svc.Start(context.Background(), replay); err != nil {
+		t.Fatalf("same evidence replay: %v", err)
+	}
+	changed := req
+	changed.Evidence = &evidence.Contract{VerificationKind: evidence.VerificationBuild, SourceScope: evidence.SourceScopeFull}
+	if _, err := svc.Start(context.Background(), changed); !errors.Is(err, failure.OperationMetadataConflict) {
+		t.Fatalf("evidence conflict err=%v", err)
+	}
+	if owner.starts.Load() != 1 {
+		t.Fatalf("starts=%d", owner.starts.Load())
+	}
+}
+
+func TestV2EvidenceExpectedOutputsRequireWorkspaceBeforeSpawn(t *testing.T) {
+	owner := &fakeOwner{}
+	svc := app.NewService(nil, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	contract := &evidence.Contract{VerificationKind: evidence.VerificationBuild, ExpectedOutputs: []project.Output{{Path: "dist/app", Kind: "file", Required: true, Digest: "sha256"}}}
+	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "evidence-no-workspace", Command: "true", CWD: "/", Evidence: contract})
+	if !errors.Is(err, failure.InvalidInput) {
+		t.Fatalf("err=%v", err)
+	}
+	if owner.starts.Load() != 0 {
+		t.Fatalf("starts=%d", owner.starts.Load())
+	}
+}
+
+func TestV2EvidenceRejectsProtocolV1BeforeSpawn(t *testing.T) {
+	owner := &fakeOwner{}
+	svc := app.NewService(nil, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 1, OperationID: "evidence-v1", Command: "true", CWD: "/", Evidence: &evidence.Contract{VerificationKind: evidence.VerificationTest}})
+	if err == nil {
+		t.Fatal("protocol v1 evidence accepted")
+	}
+	if owner.starts.Load() != 0 {
+		t.Fatalf("starts=%d", owner.starts.Load())
+	}
+}
+
+func TestTypedProjectCommandRejectsCompetingRawEvidenceBeforeBind(t *testing.T) {
+	owner := &fakeOwner{}
+	svc := app.NewService(nil, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "typed-raw-evidence", WorkspaceID: "ws_01K00000000000000000000000", ProjectCommandID: "test", Params: map[string]string{}, Evidence: &evidence.Contract{VerificationKind: evidence.VerificationTest}})
+	if !errors.Is(err, failure.InvalidInput) {
+		t.Fatalf("err=%v", err)
+	}
+	if owner.starts.Load() != 0 {
+		t.Fatalf("starts=%d", owner.starts.Load())
 	}
 }

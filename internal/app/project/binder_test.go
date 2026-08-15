@@ -392,3 +392,38 @@ provider="go"
 		})
 	}
 }
+
+func TestBinderFreezesVerificationMetadataAndExpectedOutputs(t *testing.T) {
+	load := bindProjectLoad(t, `schema_version=2
+[commands.test]
+argv=["go","test","{pkg}"]
+cwd="."
+kind="test"
+source_scope="full"
+[[commands.test.expected_outputs]]
+path="dist/report.json"
+kind="file"
+required=true
+digest="sha256"
+[commands.test.params.pkg]
+kind="repo_package"
+required=true
+provider="go"
+`)
+	binder := NewBinder(fakeWorkspaceLookup{values: []workspace.Workspace{bindWorkspace()}}, &fakeLoader{result: load}, &fakePathValidator{}, &fakePackageValidator{})
+	got, err := binder.Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test", Params: map[string]string{"pkg": "./internal/app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SchemaVersion != 2 || got.Kind != "test" || got.SourceScope != "full" || len(got.ExpectedOutputs) != 1 {
+		t.Fatalf("frozen binding=%#v", got)
+	}
+	if got.ExpectedOutputs[0].Path != "dist/report.json" || got.ExpectedOutputs[0].Digest != "sha256" || !got.ExpectedOutputs[0].Required {
+		t.Fatalf("expected outputs=%#v", got.ExpectedOutputs)
+	}
+	command := load.Parsed.Manifest.Commands["test"]
+	command.ExpectedOutputs[0].Path = "dist/mutated.json"
+	if got.ExpectedOutputs[0].Path != "dist/report.json" {
+		t.Fatalf("binding aliased mutable manifest output: %#v", got.ExpectedOutputs)
+	}
+}

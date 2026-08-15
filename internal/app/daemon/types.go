@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -35,6 +36,7 @@ type StartRequest struct {
 	YieldMS           int64                     `json:"yield_time_ms"`
 	MaxOutputBytes    int                       `json:"max_output_bytes"`
 	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
+	Evidence          *evidence.Contract        `json:"evidence,omitempty"`
 	ProjectCommandID  string                    `json:"project_command_id,omitempty"`
 	Params            map[string]string         `json:"params,omitempty"`
 }
