@@ -789,7 +789,7 @@ git commit -m "feat: bind frozen environment facts to evidence"
 
 ### Step 7.1 — Closed-schema RED tests
 
-- [ ] Step 7.1: Closed-schema RED tests
+- [x] Step 7.1: Closed-schema RED tests
 
 Before production transport edits, add schema tests proving accepted and rejected shapes for both new actions.
 
@@ -811,7 +811,7 @@ go test ./api/schema
 
 ### Step 7.2 — IPC RED tests
 
-- [ ] Step 7.2: IPC RED tests
+- [x] Step 7.2: IPC RED tests
 
 Add narrow optional interfaces, preserving base `ipc.Actions`:
 
@@ -834,7 +834,7 @@ go test ./internal/adapter/ipc
 
 ### Step 7.3 — Bridge/MCP RED tests
 
-- [ ] Step 7.3: Bridge/MCP RED tests
+- [x] Step 7.3: Bridge/MCP RED tests
 
 Prove:
 - bridge maps both requests without lossy fields;
@@ -850,7 +850,7 @@ go test ./internal/app/bridge ./internal/adapter/mcp
 
 ### Step 7.4 — Implement schemas + transport
 
-- [ ] Step 7.4: Implement schemas + transport
+- [x] Step 7.4: Implement schemas + transport
 
 Add distinct process target object; do not reuse event `target`.
 
@@ -862,7 +862,7 @@ Keep all JSON schemas `additionalProperties:false`.
 
 ### Step 7.5 — Wire daemon services/capabilities
 
-- [ ] Step 7.5: Wire daemon services/capabilities
+- [x] Step 7.5: Wire daemon services/capabilities
 
 `cmd/shellbeam/command_daemon.go`:
 
@@ -878,7 +878,7 @@ No watcher/background loop.
 
 ### Step 7.6 — No-tax unit proof
 
-- [ ] Step 7.6: No-tax unit proof
+- [x] Step 7.6: No-tax unit proof
 
 Add spies/counters around environment probe and process observer wiring and prove a normal `start` + `poll` does not call them.
 
@@ -893,7 +893,7 @@ go test -race ./internal/adapter/ipc ./internal/adapter/mcp ./cmd/shellbeam
 
 ### Step 7.7 — Capability/one-tool checks and commit
 
-- [ ] Step 7.7: Capability/one-tool checks and commit
+- [x] Step 7.7: Capability/one-tool checks and commit
 
 ```bash
 go run ./tools/devctl check
@@ -915,7 +915,7 @@ git commit -m "feat: expose environment and process inspection"
 
 ### Step 8.1 — Real daemon environment acceptance
 
-- [ ] Step 8.1: Real daemon environment acceptance
+- [x] Step 8.1: Real daemon environment acceptance
 
 Start a real isolated daemon/runtime and use IPC/MCP v2.
 
@@ -931,7 +931,7 @@ Prove:
 
 ### Step 8.2 — Real daemon process acceptance
 
-- [ ] Step 8.2: Real daemon process acceptance
+- [x] Step 8.2: Real daemon process acceptance
 
 Start a ShellBeam operation that remains running long enough to inspect.
 
@@ -947,7 +947,7 @@ Prove:
 
 ### Step 8.3 — Real no-tax acceptance
 
-- [ ] Step 8.3: Real no-tax acceptance
+- [x] Step 8.3: Real no-tax acceptance
 
 Instrument/fake fixed probe binaries where the repository acceptance harness permits, or use explicit counters injected into a real daemon test.
 
@@ -961,7 +961,7 @@ Run ordinary `start`/`poll` without any A2.5 inspect action and prove:
 
 ### Step 8.4 — Anti-goal/privacy scan
 
-- [ ] Step 8.4: Anti-goal/privacy scan
+- [x] Step 8.4: Anti-goal/privacy scan
 
 Freshly scan source and schemas for forbidden patterns; review every hit rather than relying only on grep count.
 
@@ -982,7 +982,7 @@ Expected:
 
 ### Step 8.5 — Full affected verification
 
-- [ ] Step 8.5: Full affected verification
+- [x] Step 8.5: Full affected verification
 
 ```bash
 go test ./internal/core/environment ./internal/app/environment ./internal/adapter/environment
@@ -994,7 +994,7 @@ go test -race ./internal/app/environment ./internal/adapter/environment ./intern
 
 ### Step 8.6 — Commit acceptance slice
 
-- [ ] Step 8.6: Commit acceptance slice
+- [x] Step 8.6: Commit acceptance slice
 
 ```bash
 git diff --check
@@ -1013,7 +1013,7 @@ No production edits should be planned in this task. If a gate fails, use systema
 
 ### Step 9.1 — Confirm plan completion and clean intended tree
 
-- [ ] Step 9.1: Confirm plan completion and clean intended tree
+- [x] Step 9.1: Confirm plan completion and clean intended tree
 
 ```bash
 git status --short
@@ -1025,7 +1025,7 @@ All implementation task checkboxes must be complete before final claim.
 
 ### Step 9.2 — Fresh exact gates
 
-- [ ] Step 9.2: Fresh exact gates
+- [x] Step 9.2: Fresh exact gates
 
 Run in this order:
 
@@ -1043,7 +1043,7 @@ If the repository's current `devctl` exact-fingerprint/checkpoint command differ
 
 ### Step 9.3 — Fresh capability/one-tool/privacy acceptance
 
-- [ ] Step 9.3: Fresh capability/one-tool/privacy acceptance
+- [x] Step 9.3: Fresh capability/one-tool/privacy acceptance
 
 Re-run:
 - one-tool MCP `tools/list`;
@@ -1058,7 +1058,7 @@ Do not reuse pre-change receipts.
 
 ### Step 9.4 — Stage only final checkpoint changes
 
-- [ ] Step 9.4: Stage only final checkpoint changes
+- [x] Step 9.4: Stage only final checkpoint changes
 
 If the plan file is being updated with checked boxes as implementation proceeds, include only that plan/checkpoint metadata plus any explicitly intended final test metadata.
 
@@ -1069,9 +1069,11 @@ go run ./tools/devctl commit-gate --json
 
 ### Step 9.5 — Record exact source fingerprint and commit
 
-- [ ] Step 9.5: Record exact source fingerprint and commit
+- [x] Step 9.5: Record exact source fingerprint and commit
 
 Use the repository's exact current source-fingerprint command. Record it in the plan/checkpoint section before the final commit.
+
+Checkpoint fingerprint evidence is recorded under `.build/` because `devctl` hashes this tracked plan itself; embedding the digest here would make the source hash self-referential. `.build/` is explicitly excluded by `sourceFingerprint()`.
 
 Suggested final commit:
 
@@ -1081,7 +1083,7 @@ test: checkpoint environment and process observation
 
 ### Step 9.6 — Prove identical post-commit source fingerprint
 
-- [ ] Step 9.6: Prove identical post-commit source fingerprint
+- [x] Step 9.6: Prove identical post-commit source fingerprint
 
 Immediately after the commit:
 
