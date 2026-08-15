@@ -42,12 +42,12 @@ type InspectRequest struct {
 }
 
 type MutationResult struct {
-	Receipt             core.MutationReceipt
-	Scope               *core.Scope
-	Replayed            bool
-	CurrentRevision     bool
-	Advisories          []core.Advisory
-	AdvisoryCount       int
-	AdvisoryLimit       int
-	AdvisoriesTruncated bool
+	Receipt             core.MutationReceipt `json:"receipt"`
+	Scope               *core.Scope          `json:"scope,omitempty"`
+	Replayed            bool                 `json:"replayed"`
+	CurrentRevision     bool                 `json:"current_revision"`
+	Advisories          []core.Advisory      `json:"advisories,omitempty"`
+	AdvisoryCount       int                  `json:"advisory_count"`
+	AdvisoryLimit       int                  `json:"advisory_limit"`
+	AdvisoriesTruncated bool                 `json:"advisories_truncated,omitempty"`
 }

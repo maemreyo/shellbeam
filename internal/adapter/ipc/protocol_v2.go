@@ -9,6 +9,7 @@ import (
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
@@ -20,6 +21,7 @@ import (
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
@@ -83,32 +85,43 @@ type RequestV2 struct {
 	ReproCreateID       string                            `json:"repro_create_id,omitempty"`
 	CapturePolicy       *reprocore.CapturePolicy          `json:"capture_policy,omitempty"`
 	ReproID             string                            `json:"repro_id,omitempty"`
+	MutationID          string                            `json:"mutation_id,omitempty"`
+	ScopeID             string                            `json:"scope_id,omitempty"`
+	Mode                mutationscopecore.Mode            `json:"mode,omitempty"`
+	Paths               []string                          `json:"paths,omitempty"`
+	TTLMS               int64                             `json:"ttl_ms,omitempty"`
 }
 
 type ResponseV2 struct {
-	IPVersion   int                           `json:"ipc_version"`
-	Kind        string                        `json:"kind"`
-	RequestID   string                        `json:"request_id"`
-	Action      string                        `json:"action"`
-	OK          bool                          `json:"ok"`
-	View        *app.View                     `json:"view,omitempty"`
-	Result      *receipt.Result               `json:"result,omitempty"`
-	Server      *capability.Catalog           `json:"server,omitempty"`
-	Project     *project.Inspection           `json:"project,omitempty"`
-	Readiness   *project.Readiness            `json:"readiness,omitempty"`
-	Workspace   *workspace.Workspace          `json:"workspace,omitempty"`
-	Activity    *activity.Activity            `json:"activity,omitempty"`
-	Events      *observationapp.InspectResult `json:"events,omitempty"`
-	Structured  *structuredapp.InspectResult  `json:"structured,omitempty"`
-	Evidence    *evidenceapp.InspectResult    `json:"evidence,omitempty"`
-	Environment *environmentcore.Snapshot     `json:"environment,omitempty"`
-	Process     *processcore.Observation      `json:"process,omitempty"`
-	Telemetry   *telemetryapp.InspectResult   `json:"telemetry,omitempty"`
-	Capsule     *reprocore.Capsule            `json:"capsule,omitempty"`
-	Repro       *reproapp.InspectResult       `json:"repro,omitempty"`
-	Code        *codeintel.Result             `json:"code,omitempty"`
-	OutputView  *outputview.Result            `json:"output_view,omitempty"`
-	Error       *Error                        `json:"error,omitempty"`
+	IPVersion                        int                              `json:"ipc_version"`
+	Kind                             string                           `json:"kind"`
+	RequestID                        string                           `json:"request_id"`
+	Action                           string                           `json:"action"`
+	OK                               bool                             `json:"ok"`
+	View                             *app.View                        `json:"view,omitempty"`
+	Result                           *receipt.Result                  `json:"result,omitempty"`
+	Server                           *capability.Catalog              `json:"server,omitempty"`
+	Project                          *project.Inspection              `json:"project,omitempty"`
+	Readiness                        *project.Readiness               `json:"readiness,omitempty"`
+	Workspace                        *workspace.Workspace             `json:"workspace,omitempty"`
+	Activity                         *activity.Activity               `json:"activity,omitempty"`
+	Events                           *observationapp.InspectResult    `json:"events,omitempty"`
+	Structured                       *structuredapp.InspectResult     `json:"structured,omitempty"`
+	Evidence                         *evidenceapp.InspectResult       `json:"evidence,omitempty"`
+	Environment                      *environmentcore.Snapshot        `json:"environment,omitempty"`
+	Process                          *processcore.Observation         `json:"process,omitempty"`
+	Mutation                         *mutationscopeapp.MutationResult `json:"mutation,omitempty"`
+	MutationScopes                   *mutationscopecore.InspectResult `json:"mutation_scopes,omitempty"`
+	ActiveMutationScopes             []mutationscopecore.Scope        `json:"active_mutation_scopes,omitempty"`
+	MutationScopeAdvisories          []mutationscopecore.Advisory     `json:"mutation_scope_advisories,omitempty"`
+	MutationScopesTruncated          bool                             `json:"mutation_scopes_truncated,omitempty"`
+	MutationScopeAdvisoriesTruncated bool                             `json:"mutation_scope_advisories_truncated,omitempty"`
+	Telemetry                        *telemetryapp.InspectResult      `json:"telemetry,omitempty"`
+	Capsule                          *reprocore.Capsule               `json:"capsule,omitempty"`
+	Repro                            *reproapp.InspectResult          `json:"repro,omitempty"`
+	Code                             *codeintel.Result                `json:"code,omitempty"`
+	OutputView                       *outputview.Result               `json:"output_view,omitempty"`
+	Error                            *Error                           `json:"error,omitempty"`
 }
 
 type v2Header struct {
@@ -186,6 +199,12 @@ func actionFieldsV2(action string) []string {
 		return []string{"workspace_id"}
 	case "inspect.activity":
 		return []string{"activity_id"}
+	case "mutation_scope.set":
+		return []string{"mutation_id", "scope_id", "activity_id", "workspace_id", "mode", "paths", "ttl_ms"}
+	case "mutation_scope.release":
+		return []string{"mutation_id", "scope_id"}
+	case "inspect.mutation_scopes":
+		return []string{"workspace_id", "activity_id"}
 	case "inspect.events":
 		return []string{"target", "after_event_cursor", "max_events"}
 	case "inspect.structured":
@@ -248,6 +267,8 @@ func validateRequestV2(v RequestV2) error {
 		if _, err := activity.ParseID(v.ActivityID); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
 		}
+	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+		return validateMutationScopeRequestV2(v)
 	case "inspect.structured":
 		return validateStructuredInspectV2(v)
 	case "inspect.evidence":
@@ -439,7 +460,7 @@ func validReproIDV2(value string) bool {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "read_output", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.code":
+	case "start", "poll", "write", "kill", "read_output", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		return true
 	default:
 		return false

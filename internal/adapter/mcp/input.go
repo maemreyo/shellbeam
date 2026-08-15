@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	mutationapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
@@ -16,6 +17,7 @@ import (
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	mutationcore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
@@ -72,6 +74,11 @@ type input struct {
 	ReproCreateID       string                            `json:"repro_create_id,omitempty"`
 	CapturePolicy       *reprocore.CapturePolicy          `json:"capture_policy,omitempty"`
 	ReproID             string                            `json:"repro_id,omitempty"`
+	MutationID          string                            `json:"mutation_id,omitempty"`
+	ScopeID             string                            `json:"scope_id,omitempty"`
+	Mode                mutationcore.Mode                 `json:"mode,omitempty"`
+	Paths               []string                          `json:"paths,omitempty"`
+	TTLMS               int64                             `json:"ttl_ms,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -120,6 +127,8 @@ func validateV2(v input) error {
 	case "inspect.activity":
 		_, err := activity.ParseID(v.ActivityID)
 		return err
+	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+		return validateMutationScopeInput(v)
 	case "inspect.code":
 		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
 			return err
@@ -233,6 +242,49 @@ func validateStartV2(v input) error {
 		return fmt.Errorf("invalid structured adapter")
 	}
 	return validateNonNegative(v)
+}
+
+func validateMutationScopeInput(v input) error {
+	switch v.Action {
+	case "mutation_scope.set":
+		return validateMutationScopeSetInput(v)
+	case "mutation_scope.release":
+		if mutationcore.ValidateMutationID(v.MutationID) != nil || mutationcore.ValidateScopeID(v.ScopeID) != nil {
+			return fmt.Errorf("invalid mutation scope release")
+		}
+	case "inspect.mutation_scopes":
+		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
+			return err
+		}
+		if v.ActivityID != "" {
+			_, err := activity.ParseID(v.ActivityID)
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMutationScopeSetInput(v input) error {
+	if mutationcore.ValidateMutationID(v.MutationID) != nil || mutationcore.ValidateScopeID(v.ScopeID) != nil {
+		return fmt.Errorf("invalid mutation scope id")
+	}
+	if _, err := activity.ParseID(v.ActivityID); err != nil {
+		return err
+	}
+	if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
+		return err
+	}
+	if v.Mode != mutationcore.ModeRead && v.Mode != mutationcore.ModeMutate {
+		return fmt.Errorf("invalid mutation scope mode")
+	}
+	if _, err := mutationcore.NormalizeSelectors(v.Paths); err != nil {
+		return err
+	}
+	if v.TTLMS != 0 && (v.TTLMS < mutationcore.MinTTL.Milliseconds() || v.TTLMS > mutationcore.MaxTTL.Milliseconds()) {
+		return fmt.Errorf("invalid mutation scope ttl")
+	}
+	_ = mutationapp.SetRequest{}
+	return nil
 }
 
 func validateA4Input(v input) error {
@@ -356,6 +408,12 @@ func v2ActionFields(action string) []string {
 		return []string{"workspace_id"}
 	case "inspect.activity":
 		return []string{"activity_id"}
+	case "mutation_scope.set":
+		return []string{"mutation_id", "scope_id", "activity_id", "workspace_id", "mode", "paths", "ttl_ms"}
+	case "mutation_scope.release":
+		return []string{"mutation_id", "scope_id"}
+	case "inspect.mutation_scopes":
+		return []string{"workspace_id", "activity_id"}
 	case "inspect.events":
 		return []string{"target", "after_event_cursor", "max_events"}
 	case "inspect.structured":

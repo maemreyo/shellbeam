@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
+	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	"net"
 	"net/http"
 )
@@ -66,9 +67,16 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
 	if out.View != nil {
 		response.View = *out.View
+	}
+	if out.ActiveMutationScopes != nil || out.MutationScopeAdvisories != nil || out.MutationScopesTruncated || out.MutationScopeAdvisoriesTruncated {
+		response.ActivityMutationScopes = &mutationscopecore.InspectResult{
+			ActiveScopes:    append([]mutationscopecore.Scope(nil), out.ActiveMutationScopes...),
+			Advisories:      append([]mutationscopecore.Advisory(nil), out.MutationScopeAdvisories...),
+			ScopesTruncated: out.MutationScopesTruncated, AdvisoriesTruncated: out.MutationScopeAdvisoriesTruncated,
+		}
 	}
 	if out.Error != nil {
 		response.Code = out.Error.Code
@@ -102,6 +110,8 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
 		req.ActivityID = in.ActivityID
+	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+		applyMutationScopeV2(&req, in)
 	case "inspect.events":
 		target := in.EventInspect.Target
 		req.Target = &target
@@ -142,6 +152,19 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.Signal = in.Kill.Signal
 	}
 	return req
+}
+
+func applyMutationScopeV2(req *RequestV2, in bridge.Request) {
+	switch in.Action {
+	case "mutation_scope.set":
+		v := in.MutationScopeSet
+		req.MutationID, req.ScopeID, req.ActivityID, req.WorkspaceID = v.MutationID, v.ScopeID, v.ActivityID, string(v.WorkspaceID)
+		req.Mode, req.Paths, req.TTLMS = v.Mode, append([]string(nil), v.Paths...), v.TTLMS
+	case "mutation_scope.release":
+		req.MutationID, req.ScopeID = in.MutationScopeRelease.MutationID, in.MutationScopeRelease.ScopeID
+	case "inspect.mutation_scopes":
+		req.WorkspaceID, req.ActivityID = string(in.MutationScopeInspect.WorkspaceID), in.MutationScopeInspect.ActivityID
+	}
 }
 
 func applyStartV2(req *RequestV2, in bridge.Request) {

@@ -9,12 +9,14 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	mutationapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
+	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -81,6 +83,12 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
 		request.ActivityID = in.ActivityID
+	case "mutation_scope.set":
+		request.MutationScopeSet = mutationapp.SetRequest{MutationID: in.MutationID, ScopeID: in.ScopeID, ActivityID: in.ActivityID, WorkspaceID: workspacecore.WorkspaceID(in.WorkspaceID), Mode: in.Mode, Paths: append([]string(nil), in.Paths...), TTLMS: in.TTLMS}
+	case "mutation_scope.release":
+		request.MutationScopeRelease = mutationapp.ReleaseRequest{MutationID: in.MutationID, ScopeID: in.ScopeID}
+	case "inspect.mutation_scopes":
+		request.MutationScopeInspect = mutationapp.InspectRequest{WorkspaceID: workspacecore.WorkspaceID(in.WorkspaceID), ActivityID: in.ActivityID}
 	case "inspect.events":
 		request.EventInspect = observationapp.InspectRequest{Target: *in.Target, AfterEventCursor: in.AfterEventCursor, MaxEvents: in.MaxEvents}
 	case "inspect.code":
@@ -200,6 +208,16 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureProjectReadiness)
 	delete(out.Features, capability.FeatureTypedProjectCommands)
 	delete(out.Features, capability.FeatureOutputViews)
+	delete(out.Features, capability.FeatureMutationScopes)
+	out.MutationScopeSchemaVersions = nil
+	out.Limits.MutationScopeActivePerActivity = 0
+	out.Limits.MutationScopeActivePerWorkspace = 0
+	out.Limits.MutationScopePathsPerScope = 0
+	out.Limits.MutationScopeSelectorBytes = 0
+	out.Limits.MutationScopeAdvisories = 0
+	out.Limits.MutationScopeMinTTLMS = 0
+	out.Limits.MutationScopeDefaultTTLMS = 0
+	out.Limits.MutationScopeMaxTTLMS = 0
 	return out
 }
 
@@ -222,7 +240,7 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
-	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server":
+	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)
 		if failed != nil {
@@ -257,11 +275,9 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 		body["workspace"] = out.Workspace
 		return "inspect.workspace: " + string(out.Workspace.ID), nil
 	case "inspect.activity":
-		if out.Activity == nil {
-			return "", toolErrorV2(action, "invalid_daemon_response", "activity inspection missing", false)
-		}
-		body["activity"] = out.Activity
-		return "inspect.activity: " + string(out.Activity.ID), nil
+		return activitySuccessV2(action, out, body)
+	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+		return mutationScopeSuccessV2(action, out, body)
 	case "inspect.project", "inspect.readiness":
 		return projectSuccessV2(action, out, body)
 	case "inspect.code":
@@ -327,6 +343,35 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 	default:
 		return action, nil
 	}
+}
+
+func activitySuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	if out.Activity == nil {
+		return "", toolErrorV2(action, "invalid_daemon_response", "activity inspection missing", false)
+	}
+	body["activity"] = out.Activity
+	if out.ActivityMutationScopes != nil {
+		body["active_mutation_scopes"] = out.ActivityMutationScopes.ActiveScopes
+		body["mutation_scope_advisories"] = out.ActivityMutationScopes.Advisories
+		body["mutation_scopes_truncated"] = out.ActivityMutationScopes.ScopesTruncated
+		body["mutation_scope_advisories_truncated"] = out.ActivityMutationScopes.AdvisoriesTruncated
+	}
+	return "inspect.activity: " + string(out.Activity.ID), nil
+}
+
+func mutationScopeSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	if action == "inspect.mutation_scopes" {
+		if out.MutationScopes == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "mutation scope inspection missing", false)
+		}
+		body["mutation_scopes"] = out.MutationScopes
+		return fmt.Sprintf("inspect.mutation_scopes: %d active scope(s), %d advisory(s)", out.MutationScopes.ActiveCount, out.MutationScopes.AdvisoryCount), nil
+	}
+	if out.Mutation == nil {
+		return "", toolErrorV2(action, "invalid_daemon_response", "mutation scope result missing", false)
+	}
+	body["mutation"] = out.Mutation
+	return fmt.Sprintf("%s: %s", action, out.Mutation.Receipt.Result), nil
 }
 
 func projectSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {

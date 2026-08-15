@@ -298,7 +298,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			resp.Capsule = &capsule
 		}
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code":
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
@@ -312,7 +312,9 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 func clearResponseV2Payload(resp *ResponseV2) {
 	resp.View, resp.Result, resp.Server, resp.Project, resp.Readiness = nil, nil, nil, nil, nil
 	resp.Workspace, resp.Activity, resp.Events, resp.Structured, resp.Evidence = nil, nil, nil, nil, nil
-	resp.Environment, resp.Process = nil, nil
+	resp.Environment, resp.Process, resp.Mutation, resp.MutationScopes = nil, nil, nil, nil
+	resp.ActiveMutationScopes, resp.MutationScopeAdvisories = nil, nil
+	resp.MutationScopesTruncated, resp.MutationScopeAdvisoriesTruncated = false, false
 	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView = nil, nil, nil, nil, nil
 }
 
@@ -331,13 +333,9 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		resp.Workspace = &record
 		return err
 	case "inspect.activity":
-		actions, ok := s.actions.(ActivityActions)
-		if !ok {
-			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": req.Action}, nil)
-		}
-		record, err := actions.InspectActivity(ctx, req.ActivityID)
-		resp.Activity = &record
-		return err
+		return s.inspectActivityV2(ctx, req, resp)
+	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+		return s.mutationScopeV2(ctx, req, resp)
 	case "inspect.project", "inspect.readiness":
 		return s.inspectProjectV2(ctx, req, resp)
 	case "inspect.structured":

@@ -7,6 +7,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
@@ -17,6 +18,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
+	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -28,44 +30,50 @@ type DaemonClient interface {
 	Forward(context.Context, Request) (Response, error)
 }
 type Request struct {
-	ProtocolVersion    int
-	Action             string
-	WorkspaceID        string
-	ActivityID         string
-	CodeQuery          *codeintel.Query
-	Start              daemon.StartRequest
-	Poll               daemon.PollRequest
-	Write              daemon.WriteRequest
-	Kill               daemon.KillRequest
-	EventInspect       observationapp.InspectRequest
-	EvidenceInspect    evidenceapp.InspectRequest
-	EnvironmentInspect environmentapp.InspectRequest
-	ProcessInspect     processapp.InspectRequest
-	StructuredInspect  structuredapp.InspectRequest
-	TelemetryInspect   telemetryapp.InspectRequest
-	ReproCreate        reprocore.CreateRequest
-	ReproID            string
-	OutputRead         outputview.Request
+	ProtocolVersion      int
+	Action               string
+	WorkspaceID          string
+	ActivityID           string
+	CodeQuery            *codeintel.Query
+	Start                daemon.StartRequest
+	Poll                 daemon.PollRequest
+	Write                daemon.WriteRequest
+	Kill                 daemon.KillRequest
+	EventInspect         observationapp.InspectRequest
+	EvidenceInspect      evidenceapp.InspectRequest
+	EnvironmentInspect   environmentapp.InspectRequest
+	ProcessInspect       processapp.InspectRequest
+	MutationScopeSet     mutationscopeapp.SetRequest
+	MutationScopeRelease mutationscopeapp.ReleaseRequest
+	MutationScopeInspect mutationscopeapp.InspectRequest
+	StructuredInspect    structuredapp.InspectRequest
+	TelemetryInspect     telemetryapp.InspectRequest
+	ReproCreate          reprocore.CreateRequest
+	ReproID              string
+	OutputRead           outputview.Request
 }
 type Response struct {
-	View        daemon.View
-	Result      *receipt.Result
-	Server      *capability.Catalog
-	Project     *project.Inspection
-	Readiness   *project.Readiness
-	Workspace   *workspace.Workspace
-	Activity    *activity.Activity
-	Events      *observationapp.InspectResult
-	Evidence    *evidenceapp.InspectResult
-	Environment *environmentcore.Snapshot
-	Process     *processcore.Observation
-	Structured  *structuredapp.InspectResult
-	Telemetry   *telemetryapp.InspectResult
-	Capsule     *reprocore.Capsule
-	Repro       *reproapp.InspectResult
-	CodeResult  *codeintel.Result
-	OutputView  *outputview.Result
-	Code        string
-	Message     string
-	Retryable   bool
+	View                   daemon.View
+	Result                 *receipt.Result
+	Server                 *capability.Catalog
+	Project                *project.Inspection
+	Readiness              *project.Readiness
+	Workspace              *workspace.Workspace
+	Activity               *activity.Activity
+	Events                 *observationapp.InspectResult
+	Evidence               *evidenceapp.InspectResult
+	Environment            *environmentcore.Snapshot
+	Process                *processcore.Observation
+	Mutation               *mutationscopeapp.MutationResult
+	MutationScopes         *mutationscopecore.InspectResult
+	ActivityMutationScopes *mutationscopecore.InspectResult
+	Structured             *structuredapp.InspectResult
+	Telemetry              *telemetryapp.InspectResult
+	Capsule                *reprocore.Capsule
+	Repro                  *reproapp.InspectResult
+	CodeResult             *codeintel.Result
+	OutputView             *outputview.Result
+	Code                   string
+	Message                string
+	Retryable              bool
 }
