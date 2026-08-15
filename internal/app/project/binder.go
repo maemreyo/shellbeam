@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -50,7 +51,7 @@ func (b *Binder) Bind(ctx context.Context, request BindRequest) (core.CommandBin
 	if err != nil {
 		return core.CommandBinding{}, err
 	}
-	parameters, values, pathQuality, err := b.bindParameters(ctx, record, command, request.Params)
+	parameters, values, pathQuality, err := b.bindParameters(ctx, record, request.CommandID, command, request.Params)
 	if err != nil {
 		return core.CommandBinding{}, err
 	}
@@ -80,29 +81,29 @@ func (b *Binder) Bind(ctx context.Context, request BindRequest) (core.CommandBin
 
 func bindTarget(load core.LoadResult, commandID string) (core.Manifest, core.Command, error) {
 	if load.State != core.LoadValid || load.Parsed == nil || load.ManifestDigest == "" {
-		return core.Manifest{}, core.Command{}, fmt.Errorf("project manifest unavailable")
+		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotFound, map[string]string{"command": commandID}, fmt.Errorf("project manifest unavailable"))
 	}
 	manifest := load.Parsed.Manifest
 	if manifest.SchemaVersion != core.ManifestSchemaV2 {
-		return core.Manifest{}, core.Command{}, fmt.Errorf("typed project commands require manifest v2")
+		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotParameterized, map[string]string{"command": commandID}, fmt.Errorf("typed project commands require manifest v2"))
 	}
 	command, ok := manifest.Commands[commandID]
 	if !ok || commandID == "" {
-		return core.Manifest{}, core.Command{}, fmt.Errorf("project command not found")
+		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotFound, map[string]string{"command": commandID}, fmt.Errorf("project command not found"))
 	}
 	if len(command.Params) == 0 {
-		return core.Manifest{}, core.Command{}, fmt.Errorf("project command is not parameterized")
+		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotParameterized, map[string]string{"command": commandID}, fmt.Errorf("project command is not parameterized"))
 	}
 	if len(command.Argv) == 0 || command.Shell != "" {
-		return core.Manifest{}, core.Command{}, fmt.Errorf("parameterized project command must use argv")
+		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotParameterized, map[string]string{"command": commandID}, fmt.Errorf("parameterized project command must use argv"))
 	}
 	return manifest, command, nil
 }
 
-func (b *Binder) bindParameters(ctx context.Context, record workspace.Workspace, command core.Command, supplied map[string]string) ([]core.ParameterBinding, map[string]string, string, error) {
+func (b *Binder) bindParameters(ctx context.Context, record workspace.Workspace, commandID string, command core.Command, supplied map[string]string) ([]core.ParameterBinding, map[string]string, string, error) {
 	for id := range supplied {
 		if _, ok := command.Params[id]; !ok {
-			return nil, nil, "", fmt.Errorf("unknown parameter %q", id)
+			return nil, nil, "", failure.New(failure.ParameterUnknown, map[string]string{"command": commandID, "parameter": id}, fmt.Errorf("unknown parameter"))
 		}
 	}
 	ids := make([]string, 0, len(command.Params))
@@ -114,7 +115,7 @@ func (b *Binder) bindParameters(ctx context.Context, record workspace.Workspace,
 	values := make(map[string]string, len(ids))
 	pathQuality := ""
 	for _, id := range ids {
-		binding, quality, err := b.bindParameter(ctx, record, id, command.Params[id], supplied)
+		binding, quality, err := b.bindParameter(ctx, record, commandID, id, command.Params[id], supplied)
 		if err != nil {
 			return nil, nil, "", err
 		}
@@ -127,10 +128,10 @@ func (b *Binder) bindParameters(ctx context.Context, record workspace.Workspace,
 	return bindings, values, pathQuality, nil
 }
 
-func (b *Binder) bindParameter(ctx context.Context, record workspace.Workspace, id string, definition core.ParameterDefinition, supplied map[string]string) (core.ParameterBinding, string, error) {
+func (b *Binder) bindParameter(ctx context.Context, record workspace.Workspace, commandID, id string, definition core.ParameterDefinition, supplied map[string]string) (core.ParameterBinding, string, error) {
 	value, source, err := parameterInput(id, definition, supplied)
 	if err != nil {
-		return core.ParameterBinding{}, "", err
+		return core.ParameterBinding{}, "", failure.New(failure.ParameterMissing, map[string]string{"command": commandID, "parameter": id}, err)
 	}
 	result := ParameterValidation{Value: value}
 	switch definition.Kind {
@@ -142,21 +143,29 @@ func (b *Binder) bindParameter(ctx context.Context, record workspace.Workspace, 
 		result.Value, err = bindInteger(definition, value)
 	case core.ParameterRepoPath:
 		if b.pathValidator == nil {
-			err = fmt.Errorf("repo path validator unavailable")
+			err = failure.New(failure.ParameterValidationUnavailable, map[string]string{"command": commandID, "parameter": id, "kind": string(definition.Kind)}, fmt.Errorf("repo path validator unavailable"))
 		} else {
 			result, err = b.pathValidator.ValidatePath(ctx, record, definition, value)
 		}
 	case core.ParameterRepoPackage:
 		if b.packageValidator == nil {
-			err = fmt.Errorf("repo package validator unavailable")
+			err = failure.New(failure.ParameterValidationUnavailable, map[string]string{"command": commandID, "parameter": id, "kind": string(definition.Kind), "provider": definition.Provider}, fmt.Errorf("repo package validator unavailable"))
 		} else {
 			result, err = b.packageValidator.ValidatePackage(ctx, record, definition.Provider, value)
 		}
 	default:
-		err = fmt.Errorf("unsupported parameter kind")
+		err = failure.New(failure.ParameterKindUnsupported, map[string]string{"command": commandID, "parameter": id, "kind": string(definition.Kind)}, fmt.Errorf("unsupported parameter kind"))
 	}
 	if err != nil {
-		return core.ParameterBinding{}, "", err
+		public := failure.Public(err)
+		if public.Code != failure.Internal {
+			return core.ParameterBinding{}, "", err
+		}
+		code := failure.ParameterInvalid
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			code = failure.ParameterValidationUnavailable
+		}
+		return core.ParameterBinding{}, "", failure.New(code, map[string]string{"command": commandID, "parameter": id, "kind": string(definition.Kind), "provider": definition.Provider}, err)
 	}
 	binding := core.ParameterBinding{ID: id, Kind: definition.Kind, Value: result.Value, Source: source, ProviderID: result.ProviderID, ProviderVersion: result.ProviderVersion}
 	if err := binding.Validate(); err != nil {

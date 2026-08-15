@@ -26,6 +26,14 @@ const (
 	ToolchainMissing                Code = "toolchain_missing"
 	ToolchainVersionUnknown         Code = "toolchain_version_unknown"
 	ToolchainIncompatible           Code = "toolchain_incompatible"
+	ProjectCommandNotFound          Code = "project_command_not_found"
+	ProjectCommandNotParameterized  Code = "project_command_not_parameterized"
+	ParameterUnknown                Code = "parameter_unknown"
+	ParameterMissing                Code = "parameter_missing"
+	ParameterInvalid                Code = "parameter_invalid"
+	ParameterKindUnsupported        Code = "parameter_kind_unsupported"
+	ParameterValidationUnavailable  Code = "parameter_validation_unavailable"
+	ProjectCommandBindingConflict   Code = "project_command_binding_conflict"
 	IdentityObservationFailed       Code = "identity_observation_failed"
 	EventCursorInvalid              Code = "event_cursor_invalid"
 	EventCursorExpired              Code = "event_cursor_expired"
@@ -82,6 +90,14 @@ var publicSpecs = map[Code]publicSpec{
 	ToolchainMissing:                {message: "required toolchain missing", details: keys("toolchain")},
 	ToolchainVersionUnknown:         {message: "toolchain version unknown", retryable: true, details: keys("toolchain", "reason")},
 	ToolchainIncompatible:           {message: "toolchain incompatible", details: keys("toolchain", "reason")},
+	ProjectCommandNotFound:          {message: "project command not found", details: keys("command")},
+	ProjectCommandNotParameterized:  {message: "project command is not parameterized", details: keys("command")},
+	ParameterUnknown:                {message: "project command parameter unknown", details: keys("command", "parameter")},
+	ParameterMissing:                {message: "project command parameter missing", details: keys("command", "parameter")},
+	ParameterInvalid:                {message: "project command parameter invalid", details: keys("command", "parameter", "kind", "reason")},
+	ParameterKindUnsupported:        {message: "project command parameter kind unsupported", details: keys("command", "parameter", "kind")},
+	ParameterValidationUnavailable:  {message: "project command parameter validation unavailable", retryable: true, details: keys("command", "parameter", "kind", "provider", "reason")},
+	ProjectCommandBindingConflict:   {message: "project command binding conflicts with admitted operation", details: keys("operation_id", "command")},
 	IdentityObservationFailed:       {message: "identity observation failed", retryable: true, details: keys("provider", "reason")},
 	EventCursorInvalid:              {message: "event cursor is invalid", details: keys("reason")},
 	EventCursorExpired:              {message: "event cursor has expired", details: keys("reason")},

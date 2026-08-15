@@ -23,6 +23,7 @@ const (
 	FeatureMutationScopes         Feature = "mutation_scopes"
 	FeatureProjectManifest        Feature = "project_manifest"
 	FeatureProjectReadiness       Feature = "project_readiness"
+	FeatureTypedProjectCommands   Feature = "typed_project_commands"
 	FeatureStructuredResults      Feature = "structured_results"
 	FeatureStructuredLifecycle    Feature = "structured_lifecycle"
 	FeatureEventJournal           Feature = "event_journal"
@@ -74,21 +75,25 @@ type ResourceObservationSupport struct {
 }
 
 type Catalog struct {
-	ProtocolVersion            int                         `json:"shellbeam_protocol_version"`
-	ReceiptSchemaVersions      []int                       `json:"receipt_schema_versions"`
-	ManifestVersions           []int                       `json:"project_manifest_schema_versions"`
-	EventCursorSchemaVersions  []int                       `json:"event_cursor_schema_versions,omitempty"`
-	ResultCursorSchemaVersions []int                       `json:"result_cursor_schema_versions,omitempty"`
-	StructuredAdapterIDs       []string                    `json:"structured_adapter_ids,omitempty"`
-	StructuredResultKinds      []string                    `json:"structured_result_kinds,omitempty"`
-	StructuredLifecycle        bool                        `json:"structured_lifecycle,omitempty"`
-	TelemetrySchemaVersions    []int                       `json:"telemetry_schema_versions,omitempty"`
-	ReproSchemaVersions        []int                       `json:"repro_schema_versions,omitempty"`
-	ReadinessSchemaVersions    []int                       `json:"project_readiness_schema_versions,omitempty"`
-	ReadinessRequirementKinds  []string                    `json:"project_readiness_requirement_kinds,omitempty"`
-	ResourceObservation        *ResourceObservationSupport `json:"resource_observation,omitempty"`
-	Features                   map[Feature]Availability    `json:"features"`
-	Limits                     Limits                      `json:"limits"`
+	ProtocolVersion              int                         `json:"shellbeam_protocol_version"`
+	ReceiptSchemaVersions        []int                       `json:"receipt_schema_versions"`
+	ManifestVersions             []int                       `json:"project_manifest_schema_versions"`
+	EventCursorSchemaVersions    []int                       `json:"event_cursor_schema_versions,omitempty"`
+	ResultCursorSchemaVersions   []int                       `json:"result_cursor_schema_versions,omitempty"`
+	StructuredAdapterIDs         []string                    `json:"structured_adapter_ids,omitempty"`
+	StructuredResultKinds        []string                    `json:"structured_result_kinds,omitempty"`
+	StructuredLifecycle          bool                        `json:"structured_lifecycle,omitempty"`
+	TelemetrySchemaVersions      []int                       `json:"telemetry_schema_versions,omitempty"`
+	ReproSchemaVersions          []int                       `json:"repro_schema_versions,omitempty"`
+	ReadinessSchemaVersions      []int                       `json:"project_readiness_schema_versions,omitempty"`
+	ReadinessRequirementKinds    []string                    `json:"project_readiness_requirement_kinds,omitempty"`
+	TypedCommandVersions         []int                       `json:"typed_project_command_versions,omitempty"`
+	TypedCommandManifestVersion  int                         `json:"typed_project_command_manifest_version,omitempty"`
+	TypedCommandParameterKinds   []string                    `json:"typed_project_command_parameter_kinds,omitempty"`
+	TypedCommandPackageProviders []string                    `json:"typed_project_command_package_providers,omitempty"`
+	ResourceObservation          *ResourceObservationSupport `json:"resource_observation,omitempty"`
+	Features                     map[Feature]Availability    `json:"features"`
+	Limits                       Limits                      `json:"limits"`
 }
 
 var targetFeatures = []Feature{
@@ -105,6 +110,7 @@ var targetFeatures = []Feature{
 	FeatureMutationScopes,
 	FeatureProjectManifest,
 	FeatureProjectReadiness,
+	FeatureTypedProjectCommands,
 	FeatureStructuredResults,
 	FeatureStructuredLifecycle,
 	FeatureEventJournal,
@@ -149,6 +155,9 @@ func (c Catalog) Clone() Catalog {
 	out.ReproSchemaVersions = append([]int(nil), c.ReproSchemaVersions...)
 	out.ReadinessSchemaVersions = append([]int(nil), c.ReadinessSchemaVersions...)
 	out.ReadinessRequirementKinds = append([]string(nil), c.ReadinessRequirementKinds...)
+	out.TypedCommandVersions = append([]int(nil), c.TypedCommandVersions...)
+	out.TypedCommandParameterKinds = append([]string(nil), c.TypedCommandParameterKinds...)
+	out.TypedCommandPackageProviders = append([]string(nil), c.TypedCommandPackageProviders...)
 	if c.ResourceObservation != nil {
 		resource := *c.ResourceObservation
 		out.ResourceObservation = &resource
@@ -229,6 +238,31 @@ func (c Catalog) WithProjectReadiness(ttlMS int64, maxEntries int) Catalog {
 	out.ReadinessRequirementKinds = []string{"toolchain", "executable", "environment_presence"}
 	out.Limits.ReadinessCacheTTLMS = ttlMS
 	out.Limits.ReadinessCacheEntries = maxEntries
+	return out
+}
+
+func (c Catalog) WithTypedProjectCommands(packageProviders []string) Catalog {
+	out := c.Clone()
+	if len(packageProviders) == 0 {
+		return out
+	}
+	for _, provider := range packageProviders {
+		if provider == "" {
+			return out
+		}
+	}
+	out.Features[FeatureTypedProjectCommands] = Available
+	out.TypedCommandVersions = []int{1}
+	out.TypedCommandManifestVersion = 2
+	out.TypedCommandParameterKinds = []string{"string", "enum", "integer", "repo_path", "repo_package"}
+	out.TypedCommandPackageProviders = append([]string(nil), packageProviders...)
+	foundV3 := false
+	for _, version := range out.ReceiptSchemaVersions {
+		foundV3 = foundV3 || version == 3
+	}
+	if !foundV3 {
+		out.ReceiptSchemaVersions = append(out.ReceiptSchemaVersions, 3)
+	}
 	return out
 }
 

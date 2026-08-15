@@ -340,3 +340,20 @@ func cloneTestBinding(value project.CommandBinding) project.CommandBinding {
 	value.ResolvedArgv = append([]string(nil), value.ResolvedArgv...)
 	return value
 }
+
+func TestProjectCommandBinderMismatchReturnsStableBindingConflict(t *testing.T) {
+	sequence := &typedSequence{}
+	store := newTypedRecordingStore(t, sequence)
+	binding := daemonProjectBinding(t, []string{"go", "test", "./internal/app"})
+	binding.CommandID = "different_command"
+	binder := &typedBinder{sequence: sequence, binding: binding}
+	owner := &typedOrderOwner{sequence: sequence}
+	svc := app.NewService(store, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, ProjectCommandBinder: binder})
+	_, err := svc.Start(context.Background(), typedStartRequest("typed-binder-mismatch", "./internal/app"))
+	if got := failure.Public(err).Code; got != failure.ProjectCommandBindingConflict {
+		t.Fatalf("code=%q err=%v", got, err)
+	}
+	if owner.starts.Load() != 0 {
+		t.Fatalf("binder mismatch spawned child: %d", owner.starts.Load())
+	}
+}

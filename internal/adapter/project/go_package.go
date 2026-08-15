@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	app "github.com/maemreyo/shellbeam/internal/app/project"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	core "github.com/maemreyo/shellbeam/internal/core/project"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -28,7 +29,7 @@ func (v *GoPackageValidator) ValidatePackage(ctx context.Context, record workspa
 		return app.ParameterValidation{}, err
 	}
 	if provider != "go" {
-		return app.ParameterValidation{}, fmt.Errorf("repo package provider unavailable")
+		return app.ParameterValidation{}, failure.New(failure.ParameterValidationUnavailable, map[string]string{"provider": provider, "kind": string(core.ParameterRepoPackage)}, fmt.Errorf("repo package provider unavailable"))
 	}
 	normalized, base, err := normalizeGoPackage(value)
 	if err != nil {

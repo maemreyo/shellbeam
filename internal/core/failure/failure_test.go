@@ -168,3 +168,36 @@ func TestA5ReadinessFailureCodesAreStable(t *testing.T) {
 		}
 	}
 }
+
+func TestA5TypedProjectCommandFailureCodesAreStable(t *testing.T) {
+	codes := []Code{
+		ProjectCommandNotFound,
+		ProjectCommandNotParameterized,
+		ParameterUnknown,
+		ParameterMissing,
+		ParameterInvalid,
+		ParameterKindUnsupported,
+		ParameterValidationUnavailable,
+		ProjectCommandBindingConflict,
+	}
+	for _, code := range codes {
+		public := Public(New(code, map[string]string{
+			"command":   "test_package",
+			"parameter": "package",
+			"kind":      "repo_package",
+			"provider":  "go",
+			"reason":    "bounded",
+			"path":      "/Users/alice/.ssh/id_work token=secret",
+		}, errors.New("private /Users/alice/.ssh/id_work token=secret")))
+		if public.Code != code || public.Message == "" {
+			t.Fatalf("missing typed-command failure spec for %q: %#v", code, public)
+		}
+		data, err := json.Marshal(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "id_work") || strings.Contains(string(data), "token=secret") {
+			t.Fatalf("typed-command failure leaked private detail: %s", data)
+		}
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	core "github.com/maemreyo/shellbeam/internal/core/project"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -336,4 +337,58 @@ func FuzzBindStringBoundsUnicodeAndOptionShape(f *testing.F) {
 			t.Fatalf("valid scalar %q => %q err=%v", raw, got, err)
 		}
 	})
+}
+
+func TestBinderReturnsStableTypedCommandFailures(t *testing.T) {
+	workspaceLookup := fakeWorkspaceLookup{values: []workspace.Workspace{bindWorkspace()}}
+	valid := bindProjectLoad(t, `schema_version=2
+[commands.test]
+argv=["tool","{name}"]
+cwd="."
+[commands.test.params.name]
+kind="string"
+required=true
+`)
+	cases := []struct {
+		name    string
+		binder  *Binder
+		request BindRequest
+		code    failure.Code
+	}{
+		{"not found", NewBinder(workspaceLookup, &fakeLoader{result: valid}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "missing"}, failure.ProjectCommandNotFound},
+		{"missing", NewBinder(workspaceLookup, &fakeLoader{result: valid}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}, failure.ParameterMissing},
+		{"unknown", NewBinder(workspaceLookup, &fakeLoader{result: valid}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test", Params: map[string]string{"name": "ok", "extra": "x"}}, failure.ParameterUnknown},
+		{"invalid", NewBinder(workspaceLookup, &fakeLoader{result: valid}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test", Params: map[string]string{"name": "line\nbreak"}}, failure.ParameterInvalid},
+	}
+	unparameterized := bindProjectLoad(t, "schema_version=2\n[commands.test]\nargv=[\"true\"]\ncwd=\".\"\n")
+	cases = append(cases, struct {
+		name    string
+		binder  *Binder
+		request BindRequest
+		code    failure.Code
+	}{"not parameterized", NewBinder(workspaceLookup, &fakeLoader{result: unparameterized}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}, failure.ProjectCommandNotParameterized})
+	packageLoad := bindProjectLoad(t, `schema_version=2
+[commands.test]
+argv=["go","test","{pkg}"]
+cwd="."
+[commands.test.params.pkg]
+kind="repo_package"
+required=true
+provider="go"
+`)
+	cases = append(cases, struct {
+		name    string
+		binder  *Binder
+		request BindRequest
+		code    failure.Code
+	}{"validation unavailable", NewBinder(workspaceLookup, &fakeLoader{result: packageLoad}, &fakePathValidator{}, nil), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test", Params: map[string]string{"pkg": "./internal/app"}}, failure.ParameterValidationUnavailable})
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.binder.Bind(context.Background(), tc.request)
+			if got := failure.Public(err).Code; got != tc.code {
+				t.Fatalf("code=%q want=%q err=%v", got, tc.code, err)
+			}
+		})
+	}
 }

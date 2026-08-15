@@ -262,5 +262,6 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 			telemetryMaxSamplesPerKey, telemetryRetentionAge.Milliseconds(), telemetryapp.MaxInspectSamples,
 		).
 		WithReproductionCapsules(reproMaxCapsules, reprocore.MaxReferenceDescriptors, reproMetadataBytes).
-		WithCodeIntelligence()
+		WithCodeIntelligence().
+		WithTypedProjectCommands([]string{"go"})
 }

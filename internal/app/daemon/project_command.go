@@ -93,10 +93,10 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 		return View{}, true, failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	if stored.SchemaVersion != 3 || stored.ProjectCommand == nil || stored.WorkspaceID != req.WorkspaceID || stored.ProjectCommand.CommandID != req.ProjectCommandID {
-		return View{}, true, failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(id), "field": "project_command"}, nil)
+		return View{}, true, failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	if err := stored.ProjectCommand.Validate(); err != nil {
-		return View{}, true, failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(id), "field": "project_command"}, err)
+		return View{}, true, failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(id)}, err)
 	}
 	structuredAdapter, err := normalizedStructuredAdapterForArgv(req, stored.ProjectCommand.ResolvedArgv)
 	if err != nil {
@@ -122,7 +122,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 		return operation.Reservation{}, operation.ExecutionSpec{}, err
 	}
 	if binding.CommandID != req.ProjectCommandID {
-		return operation.Reservation{}, operation.ExecutionSpec{}, failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(id), "field": "project_command"}, fmt.Errorf("binder command mismatch"))
+		return operation.Reservation{}, operation.ExecutionSpec{}, failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(id), "command": req.ProjectCommandID}, fmt.Errorf("binder command mismatch"))
 	}
 	structuredAdapter, err := normalizedStructuredAdapterForArgv(req, binding.ResolvedArgv)
 	if err != nil {

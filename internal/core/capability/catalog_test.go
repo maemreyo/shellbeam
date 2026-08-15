@@ -153,3 +153,41 @@ func TestProjectReadinessCapabilityIsExplicitAndCloned(t *testing.T) {
 		t.Fatalf("clone aliased readiness slices: %#v", catalog)
 	}
 }
+
+func TestTypedProjectCommandCapabilityIsExplicitVersionedAndCloned(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureTypedProjectCommands] != Unavailable || len(base.TypedCommandVersions) != 0 || base.TypedCommandManifestVersion != 0 || len(base.TypedCommandParameterKinds) != 0 || len(base.TypedCommandPackageProviders) != 0 {
+		t.Fatalf("baseline leaked typed command support: %#v", base)
+	}
+	catalog := base.WithTypedProjectCommands([]string{"go"})
+	if catalog.Features[FeatureTypedProjectCommands] != Available {
+		t.Fatalf("feature=%q", catalog.Features[FeatureTypedProjectCommands])
+	}
+	if !reflect.DeepEqual(catalog.TypedCommandVersions, []int{1}) || catalog.TypedCommandManifestVersion != 2 {
+		t.Fatalf("versions=%v manifest=%d", catalog.TypedCommandVersions, catalog.TypedCommandManifestVersion)
+	}
+	if !reflect.DeepEqual(catalog.TypedCommandParameterKinds, []string{"string", "enum", "integer", "repo_path", "repo_package"}) || !reflect.DeepEqual(catalog.TypedCommandPackageProviders, []string{"go"}) {
+		t.Fatalf("typed capability=%#v", catalog)
+	}
+	if !reflect.DeepEqual(catalog.ReceiptSchemaVersions, []int{1, 2, 3}) {
+		t.Fatalf("receipt versions=%v", catalog.ReceiptSchemaVersions)
+	}
+	clone := catalog.Clone()
+	clone.TypedCommandVersions[0] = 99
+	clone.TypedCommandParameterKinds[0] = "changed"
+	clone.TypedCommandPackageProviders[0] = "changed"
+	if catalog.TypedCommandVersions[0] != 1 || catalog.TypedCommandParameterKinds[0] != "string" || catalog.TypedCommandPackageProviders[0] != "go" {
+		t.Fatalf("clone aliases typed command slices: %#v", catalog)
+	}
+}
+
+func TestTypedProjectCommandCapabilityRequiresProviderAndDoesNotMutateBaseline(t *testing.T) {
+	base := Baseline(Limits{})
+	if got := base.WithTypedProjectCommands(nil); got.Features[FeatureTypedProjectCommands] != Unavailable {
+		t.Fatalf("providerless typed command advertised: %#v", got)
+	}
+	_ = base.WithTypedProjectCommands([]string{"go"})
+	if base.Features[FeatureTypedProjectCommands] != Unavailable || !reflect.DeepEqual(base.ReceiptSchemaVersions, []int{1, 2}) {
+		t.Fatalf("composition mutated baseline: %#v", base)
+	}
+}

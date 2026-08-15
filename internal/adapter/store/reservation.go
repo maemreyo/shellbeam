@@ -79,12 +79,12 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 	}
 	if existing.SchemaVersion == 3 || want.SchemaVersion == 3 {
 		if existing.SchemaVersion != 3 || want.SchemaVersion != 3 || existing.ProjectCommand == nil || want.ProjectCommand == nil {
-			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "project_command"}, nil)}
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 		}
 		existingDigest, existingErr := existing.ProjectCommand.Digest()
 		wantDigest, wantErr := want.ProjectCommand.Digest()
 		if existingErr != nil || wantErr != nil || existingDigest != wantDigest {
-			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "project_command"}, nil)}
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 		}
 	}
 	return existing, false, r.ensureSessionMetadata(existing)

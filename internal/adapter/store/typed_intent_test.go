@@ -144,8 +144,8 @@ func TestCommitTypedBindingRejectsMissingClaimClaimMismatchAndBindingConflict(t 
 	binding.ParameterFingerprint = fingerprint
 	conflict.ProjectCommand = &binding
 	conflict.Argv = append([]string(nil), binding.ResolvedArgv...)
-	if _, _, got := r.CommitTypedBinding(context.Background(), claim.OperationID, conflict); got.Err == nil {
-		t.Fatal("conflicting frozen binding replay accepted")
+	if _, _, got := r.CommitTypedBinding(context.Background(), claim.OperationID, conflict); !errors.Is(got.Err, failure.ProjectCommandBindingConflict) {
+		t.Fatalf("conflicting frozen binding code=%v", got.Err)
 	}
 	loaded, err := r.LoadOperation(context.Background(), claim.OperationID)
 	if err != nil || loaded.ProjectCommand == nil || loaded.ProjectCommand.ParameterFingerprint != want.ProjectCommand.ParameterFingerprint {

@@ -5,7 +5,8 @@
   "type": "object",
   "unevaluatedProperties": false,
   "oneOf": [
-    {"$ref": "#/$defs/start_request"},
+    {"$ref": "#/$defs/raw_start_request"},
+    {"$ref": "#/$defs/typed_start_request"},
     {"$ref": "#/$defs/poll_request"},
     {"$ref": "#/$defs/write_request"},
     {"$ref": "#/$defs/kill_request"},
@@ -36,7 +37,7 @@
     {"$ref": "#/$defs/error_response"}
   ],
   "$defs": {
-    "start_request": {
+    "raw_start_request": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
@@ -78,6 +79,29 @@
           {"required": ["argv"], "not": {"required": ["command"]}}
         ]}
       ]
+    },
+    "typed_start_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipc_version": {"const": 2},
+        "kind": {"const": "request"},
+        "request_id": {"type": "string"},
+        "action": {"const": "start"},
+        "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+        "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+        "activity_id": {"type": "string", "minLength": 1, "maxLength": 128, "allOf": [{"not": {"pattern": "/"}}, {"not": {"pattern": "\\\\"}}]},
+        "structured_adapter": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "workspace_hint": {"type": "object", "additionalProperties": false, "minProperties": 1, "properties": {"workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"}, "branch": {"type": "string", "maxLength": 128}, "git_profile": {"type": "string", "maxLength": 128}}},
+        "project_command_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+        "params": {"type": "object", "maxProperties": 32, "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{0,63}$"}, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 1024}},
+        "intent": {"type": "object", "additionalProperties": false, "properties": {"kind": {"enum": ["inspect", "format", "edit", "test", "build", "generate", "git-push", "release", "long-running", "other"]}, "mutates_source": {"oneOf": [{"type": "boolean"}, {"type": "null"}]}, "external_effect": {"oneOf": [{"type": "boolean"}, {"type": "null"}]}}, "required": ["kind"]},
+        "tty": {"type": "boolean"},
+        "timeout_ms": {"type": "integer", "minimum": 0},
+        "yield_time_ms": {"type": "integer", "minimum": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 1}
+      },
+      "required": ["ipc_version", "kind", "request_id", "action", "operation_id", "workspace_id", "project_command_id"]
     },
     "poll_request": {
       "type": "object",
@@ -161,7 +185,7 @@
         "kill_id": {"type": "string"},
         "signal": {"type": "string"},
         "signal_attempt": {"$ref": "#/$defs/signal_evidence"},
-        "receipt": {"oneOf": [{"$ref": "#/$defs/receipt_v1"}, {"$ref": "#/$defs/receipt_v2"}]}
+        "receipt": {"oneOf": [{"$ref": "#/$defs/receipt_v1"}, {"$ref": "#/$defs/receipt_v2"}, {"$ref": "#/$defs/receipt_v3"}]}
       },
       "required": ["session_id", "state", "outcome", "cursor", "next_cursor", "truncated", "signal_attempt"]
     },
@@ -201,6 +225,10 @@
         "repro_schema_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
         "project_readiness_schema_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
         "project_readiness_requirement_kinds": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"enum":["toolchain","executable","environment_presence"]}},
+        "typed_project_command_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
+        "typed_project_command_manifest_version": {"type":"integer","minimum":1},
+        "typed_project_command_parameter_kinds": {"type":"array","maxItems":5,"uniqueItems":true,"items":{"enum":["string","enum","integer","repo_path","repo_package"]}},
+        "typed_project_command_package_providers": {"type":"array","maxItems":16,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":64}},
         "resource_observation": {"type":"object","additionalProperties":false,"properties":{"cpu_time":{"enum":["exact","platform_reported","sampled","unavailable"]},"max_rss":{"enum":["exact","platform_reported","sampled","unavailable"]},"io_bytes":{"enum":["exact","platform_reported","sampled","unavailable"]},"process_count_peak":{"enum":["exact","platform_reported","sampled","unavailable"]}},"required":["cpu_time","max_rss","io_bytes","process_count_peak"]},
         "features": {"type": "object", "additionalProperties": {"$ref": "#/$defs/availability"}},
         "limits": {
@@ -324,6 +352,9 @@
     },
     "workspace_observation": {"oneOf":[{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"freshly_sampled"},"quality":{"enum":["fresh","cached","stale"]},"diagnostic_code":{"type":"string","minLength":1,"maxLength":128},"generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"observed_at":{"type":"string","format":"date-time"}},"required":["kind","quality","generation","observed_at"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"freshly_sampled"},"quality":{"const":"unavailable"},"diagnostic_code":{"type":"string","minLength":1,"maxLength":128},"observed_at":{"type":"string","format":"date-time"}},"required":["kind","quality","observed_at","diagnostic_code"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"cached"},"quality":{"enum":["fresh","cached","stale"]},"diagnostic_code":{"type":"string","minLength":1,"maxLength":128},"generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"observed_at":{"type":"string","format":"date-time"}},"required":["kind","quality","generation","observed_at"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"cached"},"quality":{"const":"unavailable"},"diagnostic_code":{"type":"string","minLength":1,"maxLength":128}},"required":["kind","quality","diagnostic_code"]},{"type":"object","additionalProperties":false,"properties":{"kind":{"const":"unreconciled"},"diagnostic_code":{"type":"string","minLength":1,"maxLength":128},"observation_invalidated":{"type":"boolean"}},"required":["kind"]}]},
     "workspace_provenance": {"oneOf":[{"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"repository_id":{"type":"string","pattern":"^repo_[0-9A-HJKMNP-TV-Z]{26}$"},"workspace_id":{"type":"string","pattern":"^ws_[0-9A-HJKMNP-TV-Z]{26}$"},"pre_generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"post_generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"pre_quality":{"enum":["fresh","cached","stale","unavailable"]},"post_quality":{"enum":["fresh","cached","stale","unavailable"]},"pre_observed_at":{"type":"string","format":"date-time"},"post_observed_at":{"type":"string","format":"date-time"},"pre_diagnostic_code":{"type":"string","maxLength":128},"post_diagnostic_code":{"type":"string","maxLength":128},"observed_change":{"type":"boolean"}},"required":["schema_version","pre_quality","post_quality","pre_observed_at","post_observed_at","observed_change"]},{"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":2},"binding":{"type":"object","additionalProperties":false,"properties":{"repository_id":{"type":"string","pattern":"^repo_[0-9A-HJKMNP-TV-Z]{26}$"},"workspace_id":{"type":"string","pattern":"^ws_[0-9A-HJKMNP-TV-Z]{26}$"}}},"pre":{"$ref":"#/$defs/workspace_observation"},"post":{"$ref":"#/$defs/workspace_observation"},"observed_change":{"type":"boolean"}},"required":["schema_version","binding","pre","post","observed_change"]}]},
+    "project_parameter_binding": {"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"},"kind":{"enum":["string","enum","integer","repo_path","repo_package"]},"value":{"type":"string","minLength":1,"maxLength":1024},"source":{"enum":["caller","default"]},"provider_id":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"},"provider_version":{"type":"integer","minimum":1}},"required":["id","kind","value","source"]},
+    "project_command_binding": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"manifest_digest":{"type":"string","pattern":"^[0-9a-f]{64}$"},"manifest_schema_version":{"const":2},"command_id":{"type":"string","pattern":"^[a-z][a-z0-9_-]{0,63}$"},"parameter_fingerprint":{"type":"string","pattern":"^[0-9a-f]{64}$"},"parameters":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/project_parameter_binding"}},"resolved_argv":{"type":"array","minItems":1,"maxItems":128,"items":{"type":"string","minLength":1,"maxLength":1024}},"logical_cwd":{"type":"string","minLength":1,"maxLength":1024},"resolved_cwd":{"type":"string","pattern":"^/","maxLength":4096},"source_generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"path_observation_quality":{"enum":["exact_at_bind"]}},"required":["schema_version","manifest_digest","manifest_schema_version","command_id","parameter_fingerprint","parameters","resolved_argv","logical_cwd","resolved_cwd"]},
+    "receipt_v3": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":3},"operation_id":{"type":"string","minLength":1},"session_id":{"type":"string","minLength":1},"request_fingerprint":{"type":"string","minLength":1},"execution_fingerprint":{"type":"string","minLength":1},"observation_binding_fingerprint":{"type":"string","minLength":1},"daemon_incarnation":{"type":"string","minLength":1},"execution_mode":{"enum":["shell","argv"]},"executable":{"type":"string","minLength":1},"state":{"enum":["starting","running","finalizing","completed","failed","timed_out","killed","abandoned"]},"outcome":{"enum":["","success","failure","timeout","killed","ambiguous"]},"shell":{"type":"string"},"cwd":{"type":"string"},"tty":{"type":"boolean"},"timeout_ms":{"type":"integer","minimum":0},"output_bytes":{"type":"integer","minimum":0},"output_complete":{"type":"boolean"},"input_accepted_bytes":{"type":"integer","minimum":0},"input_delivered_bytes":{"type":"integer","minimum":0},"stdin_closed":{"type":"boolean"},"failure_reason":{"type":"string"},"workspace_provenance":{"$ref":"#/$defs/workspace_provenance"},"spawn_evidence":{"$ref":"#/$defs/spawn_evidence"},"exit_evidence":{"$ref":"#/$defs/exit_evidence"},"signal_evidence":{"$ref":"#/$defs/signal_evidence"},"project_command":{"$ref":"#/$defs/project_command_binding"}},"required":["schema_version","operation_id","session_id","request_fingerprint","execution_fingerprint","daemon_incarnation","state","outcome","tty","timeout_ms","output_bytes","output_complete","input_accepted_bytes","input_delivered_bytes","stdin_closed","spawn_evidence","exit_evidence","signal_evidence","project_command"]},
     "receipt_v1": {
       "type": "object",
       "additionalProperties": false,
@@ -493,7 +524,7 @@
         "output": {"$ref": "#/$defs/output_result"},
         "context_events": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/context_event"}},
         "advisories": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/advisory"}},
-        "receipt": {"oneOf": [{"$ref": "#/$defs/receipt_v1"}, {"$ref": "#/$defs/receipt_v2"}]}
+        "receipt": {"oneOf": [{"$ref": "#/$defs/receipt_v1"}, {"$ref": "#/$defs/receipt_v2"}, {"$ref": "#/$defs/receipt_v3"}]}
       },
       "required": ["schema_version", "operation", "child", "output"]
     },

@@ -38,6 +38,8 @@ type RequestV2 struct {
 	CodeQuery         *codeintel.Query          `json:"code_query,omitempty"`
 	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
 	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
+	ProjectCommandID  string                    `json:"project_command_id,omitempty"`
+	Params            map[string]string         `json:"params,omitempty"`
 	Command           string                    `json:"command,omitempty"`
 	Argv              []string                  `json:"argv,omitempty"`
 	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
@@ -152,7 +154,7 @@ func validateV2FieldSet(data []byte, action string) error {
 func actionFieldsV2(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "command", "argv", "intent", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":
@@ -195,34 +197,7 @@ func validateRequestV2(v RequestV2) error {
 	}
 	switch v.Action {
 	case "start":
-		if v.OperationID == "" {
-			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_start_field"}, fmt.Errorf("missing start field"))
-		}
-		if _, err := (operation.Intent{Command: v.Command, Argv: v.Argv}).ExecutionMode(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "command"}, err)
-		}
-		if v.Intent != nil {
-			if err := v.Intent.Validate(); err != nil {
-				return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
-			}
-		}
-		address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
-		if err := address.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "cwd"}, err)
-		}
-		if v.WorkspaceHint != nil {
-			if err := v.WorkspaceHint.Validate(); err != nil {
-				return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
-			}
-		}
-		if v.ActivityID != "" {
-			if _, err := activity.ParseID(v.ActivityID); err != nil {
-				return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
-			}
-		}
-		if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
-		}
+		return validateStartRequestV2(v)
 	case "poll":
 		if v.SessionID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "session_id"}, fmt.Errorf("missing session id"))
@@ -251,6 +226,55 @@ func validateRequestV2(v RequestV2) error {
 		if v.SessionID == "" || v.KillID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
 		}
+	}
+	return nil
+}
+
+func validateStartRequestV2(v RequestV2) error {
+	if v.OperationID == "" {
+		return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_start_field"}, fmt.Errorf("missing start field"))
+	}
+	if _, err := operation.ParseID(v.OperationID); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
+	}
+	typed := v.ProjectCommandID != "" || v.Params != nil
+	if typed {
+		if v.ProjectCommandID == "" || v.WorkspaceID == "" {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command requires workspace and command id"))
+		}
+		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command conflicts with raw execution fields"))
+		}
+		intent := operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS}
+		if err := intent.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, err)
+		}
+	} else {
+		if _, err := (operation.Intent{Command: v.Command, Argv: v.Argv}).ExecutionMode(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "command"}, err)
+		}
+		address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
+		if err := address.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "cwd"}, err)
+		}
+	}
+	if v.Intent != nil {
+		if err := v.Intent.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
+		}
+	}
+	if v.WorkspaceHint != nil {
+		if err := v.WorkspaceHint.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
+		}
+	}
+	if v.ActivityID != "" {
+		if _, err := activity.ParseID(v.ActivityID); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
+		}
+	}
+	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
 	}
 	return nil
 }

@@ -48,6 +48,24 @@
     },
     {
       "properties": {
+        "action": {"const": "start"},
+        "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+        "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+        "activity_id": {"type": "string", "minLength": 1, "maxLength": 128, "allOf": [{"not": {"pattern": "/"}}, {"not": {"pattern": "\\\\"}}]},
+        "structured_adapter": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"},
+        "workspace_hint": {"type": "object", "additionalProperties": false, "minProperties": 1, "properties": {"workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"}, "branch": {"type": "string", "maxLength": 128}, "git_profile": {"type": "string", "maxLength": 128}}},
+        "project_command_id": {"type": "string", "pattern": "^[a-z][a-z0-9_-]{0,63}$"},
+        "params": {"type": "object", "maxProperties": 32, "propertyNames": {"pattern": "^[a-z][a-z0-9_-]{0,63}$"}, "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 1024}},
+        "intent": {"type": "object", "additionalProperties": false, "properties": {"kind": {"enum": ["inspect", "format", "edit", "test", "build", "generate", "git-push", "release", "long-running", "other"]}, "mutates_source": {"oneOf": [{"type": "boolean"}, {"type": "null"}]}, "external_effect": {"oneOf": [{"type": "boolean"}, {"type": "null"}]}}, "required": ["kind"]},
+        "tty": {"type": "boolean", "default": false},
+        "yield_time_ms": {"type": "integer", "minimum": 0, "default": 10000},
+        "timeout_ms": {"type": "integer", "minimum": 0, "default": 0},
+        "max_output_bytes": {"type": "integer", "minimum": 0, "default": 20000}
+      },
+      "required": ["action", "operation_id", "workspace_id", "project_command_id"]
+    },
+    {
+      "properties": {
         "action": {"const": "poll"},
         "session_id": {"type": "string", "minLength": 1},
         "cursor": {"type": "integer", "minimum": 0, "default": 0},

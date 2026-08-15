@@ -65,7 +65,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 	}
 	switch in.Action {
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
 	case "write":
@@ -138,6 +138,17 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.ReproSchemaVersions = nil
 	out.ReadinessSchemaVersions = nil
 	out.ReadinessRequirementKinds = nil
+	out.TypedCommandVersions = nil
+	out.TypedCommandManifestVersion = 0
+	out.TypedCommandParameterKinds = nil
+	out.TypedCommandPackageProviders = nil
+	filteredReceipts := out.ReceiptSchemaVersions[:0]
+	for _, version := range out.ReceiptSchemaVersions {
+		if version <= 2 {
+			filteredReceipts = append(filteredReceipts, version)
+		}
+	}
+	out.ReceiptSchemaVersions = filteredReceipts
 	out.ResourceObservation = nil
 	out.Limits.TelemetryMaxSamples = 0
 	out.Limits.TelemetryMetadataBytes = 0
@@ -163,6 +174,7 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureExecutionTelemetry)
 	delete(out.Features, capability.FeatureReproductionCapsules)
 	delete(out.Features, capability.FeatureProjectReadiness)
+	delete(out.Features, capability.FeatureTypedProjectCommands)
 	return out
 }
 
@@ -300,4 +312,15 @@ func toolError(code, message string, retryable bool) *mcpgo.CallToolResult {
 func toolErrorV2(action, code, message string, retryable bool) *mcpgo.CallToolResult {
 	body := map[string]any{"schema_version": 2, "ok": false, "action": action, "error": map[string]any{"code": code, "message": message, "retryable": retryable}}
 	return &mcpgo.CallToolResult{IsError: true, Content: []mcpgo.Content{&mcpgo.TextContent{Text: code + ": " + message}}, StructuredContent: body}
+}
+
+func cloneMCPStringMap(input map[string]string) map[string]string {
+	if input == nil {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }

@@ -27,6 +27,8 @@ type input struct {
 	CodeQuery         *codeintel.Query          `json:"code_query,omitempty"`
 	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
 	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
+	ProjectCommandID  string                    `json:"project_command_id,omitempty"`
+	Params            map[string]string         `json:"params,omitempty"`
 	Command           string                    `json:"command,omitempty"`
 	Argv              []string                  `json:"argv,omitempty"`
 	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
@@ -133,23 +135,40 @@ func validateV2(v input) error {
 	if v.Action != "start" {
 		return validateV1(v)
 	}
+	return validateStartV2(v)
+}
+
+func validateStartV2(v input) error {
 	if v.OperationID == "" {
 		return fmt.Errorf("start requires operation_id")
 	}
-	if _, err := (operation.Intent{Command: v.Command, Argv: v.Argv}).ExecutionMode(); err != nil {
+	if _, err := operation.ParseID(v.OperationID); err != nil {
 		return err
+	}
+	typed := v.ProjectCommandID != "" || v.Params != nil
+	if typed {
+		if v.ProjectCommandID == "" || v.WorkspaceID == "" {
+			return fmt.Errorf("typed project command requires workspace and command id")
+		}
+		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
+			return fmt.Errorf("typed project command conflicts with raw execution fields")
+		}
+		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS}).Validate(); err != nil {
+			return err
+		}
+	} else {
+		if _, err := (operation.Intent{Command: v.Command, Argv: v.Argv}).ExecutionMode(); err != nil {
+			return err
+		}
+		address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
+		if err := address.Validate(); err != nil {
+			return err
+		}
 	}
 	if v.Intent != nil {
 		if err := v.Intent.Validate(); err != nil {
 			return err
 		}
-	}
-	if _, err := operation.ParseID(v.OperationID); err != nil {
-		return err
-	}
-	address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
-	if err := address.Validate(); err != nil {
-		return err
 	}
 	if v.WorkspaceHint != nil {
 		if err := v.WorkspaceHint.Validate(); err != nil {
@@ -193,6 +212,9 @@ func validateA4Input(v input) error {
 func validateV1(v input) error {
 	switch v.Action {
 	case "start":
+		if v.ProjectCommandID != "" || v.Params != nil {
+			return fmt.Errorf("typed project commands require modern protocol")
+		}
 		if v.OperationID == "" || v.Command == "" || len(v.CWD) == 0 || v.CWD[0] != '/' {
 			return fmt.Errorf("start requires operation_id, command, and absolute cwd")
 		}
@@ -270,7 +292,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "write":
