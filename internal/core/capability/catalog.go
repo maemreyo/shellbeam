@@ -62,6 +62,12 @@ type Limits struct {
 	OutputViewMaxMatches           int   `json:"output_view_max_matches,omitempty"`
 	OutputViewMaxPatternBytes      int   `json:"output_view_max_pattern_bytes,omitempty"`
 	OutputViewMaxContinuationBytes int   `json:"output_view_max_continuation_bytes,omitempty"`
+	EvidenceInspectRecords         int   `json:"evidence_inspect_records,omitempty"`
+	EvidenceExpectedOutputs        int   `json:"evidence_expected_outputs,omitempty"`
+	EvidenceArtifactMetadataBytes  int   `json:"evidence_artifact_metadata_bytes,omitempty"`
+	EvidenceArtifactDigestBytes    int64 `json:"evidence_artifact_digest_bytes,omitempty"`
+	EvidenceTreeEntries            int   `json:"evidence_tree_entries,omitempty"`
+	EvidenceCursorBytes            int   `json:"evidence_cursor_bytes,omitempty"`
 }
 
 type ResourceQuality string
@@ -81,26 +87,28 @@ type ResourceObservationSupport struct {
 }
 
 type Catalog struct {
-	ProtocolVersion              int                         `json:"shellbeam_protocol_version"`
-	ReceiptSchemaVersions        []int                       `json:"receipt_schema_versions"`
-	ManifestVersions             []int                       `json:"project_manifest_schema_versions"`
-	EventCursorSchemaVersions    []int                       `json:"event_cursor_schema_versions,omitempty"`
-	ResultCursorSchemaVersions   []int                       `json:"result_cursor_schema_versions,omitempty"`
-	StructuredAdapterIDs         []string                    `json:"structured_adapter_ids,omitempty"`
-	StructuredResultKinds        []string                    `json:"structured_result_kinds,omitempty"`
-	StructuredLifecycle          bool                        `json:"structured_lifecycle,omitempty"`
-	TelemetrySchemaVersions      []int                       `json:"telemetry_schema_versions,omitempty"`
-	ReproSchemaVersions          []int                       `json:"repro_schema_versions,omitempty"`
-	ReadinessSchemaVersions      []int                       `json:"project_readiness_schema_versions,omitempty"`
-	OutputViewSchemaVersions     []int                       `json:"output_view_schema_versions,omitempty"`
-	ReadinessRequirementKinds    []string                    `json:"project_readiness_requirement_kinds,omitempty"`
-	TypedCommandVersions         []int                       `json:"typed_project_command_versions,omitempty"`
-	TypedCommandManifestVersion  int                         `json:"typed_project_command_manifest_version,omitempty"`
-	TypedCommandParameterKinds   []string                    `json:"typed_project_command_parameter_kinds,omitempty"`
-	TypedCommandPackageProviders []string                    `json:"typed_project_command_package_providers,omitempty"`
-	ResourceObservation          *ResourceObservationSupport `json:"resource_observation,omitempty"`
-	Features                     map[Feature]Availability    `json:"features"`
-	Limits                       Limits                      `json:"limits"`
+	ProtocolVersion                   int                         `json:"shellbeam_protocol_version"`
+	ReceiptSchemaVersions             []int                       `json:"receipt_schema_versions"`
+	ManifestVersions                  []int                       `json:"project_manifest_schema_versions"`
+	EventCursorSchemaVersions         []int                       `json:"event_cursor_schema_versions,omitempty"`
+	ResultCursorSchemaVersions        []int                       `json:"result_cursor_schema_versions,omitempty"`
+	StructuredAdapterIDs              []string                    `json:"structured_adapter_ids,omitempty"`
+	StructuredResultKinds             []string                    `json:"structured_result_kinds,omitempty"`
+	StructuredLifecycle               bool                        `json:"structured_lifecycle,omitempty"`
+	TelemetrySchemaVersions           []int                       `json:"telemetry_schema_versions,omitempty"`
+	ReproSchemaVersions               []int                       `json:"repro_schema_versions,omitempty"`
+	ReadinessSchemaVersions           []int                       `json:"project_readiness_schema_versions,omitempty"`
+	OutputViewSchemaVersions          []int                       `json:"output_view_schema_versions,omitempty"`
+	EvidenceSchemaVersions            []int                       `json:"evidence_schema_versions,omitempty"`
+	ArtifactObservationSchemaVersions []int                       `json:"artifact_observation_schema_versions,omitempty"`
+	ReadinessRequirementKinds         []string                    `json:"project_readiness_requirement_kinds,omitempty"`
+	TypedCommandVersions              []int                       `json:"typed_project_command_versions,omitempty"`
+	TypedCommandManifestVersion       int                         `json:"typed_project_command_manifest_version,omitempty"`
+	TypedCommandParameterKinds        []string                    `json:"typed_project_command_parameter_kinds,omitempty"`
+	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
+	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
+	Features                          map[Feature]Availability    `json:"features"`
+	Limits                            Limits                      `json:"limits"`
 }
 
 var targetFeatures = []Feature{
@@ -162,6 +170,8 @@ func (c Catalog) Clone() Catalog {
 	out.ReproSchemaVersions = append([]int(nil), c.ReproSchemaVersions...)
 	out.ReadinessSchemaVersions = append([]int(nil), c.ReadinessSchemaVersions...)
 	out.OutputViewSchemaVersions = append([]int(nil), c.OutputViewSchemaVersions...)
+	out.EvidenceSchemaVersions = append([]int(nil), c.EvidenceSchemaVersions...)
+	out.ArtifactObservationSchemaVersions = append([]int(nil), c.ArtifactObservationSchemaVersions...)
 	out.ReadinessRequirementKinds = append([]string(nil), c.ReadinessRequirementKinds...)
 	out.TypedCommandVersions = append([]int(nil), c.TypedCommandVersions...)
 	out.TypedCommandParameterKinds = append([]string(nil), c.TypedCommandParameterKinds...)
@@ -174,6 +184,24 @@ func (c Catalog) Clone() Catalog {
 	for feature, availability := range c.Features {
 		out.Features[feature] = availability
 	}
+	return out
+}
+
+func (c Catalog) WithEvidence(maxRecords, maxOutputs, metadataBytes int, digestBytes int64, treeEntries, cursorBytes int) Catalog {
+	out := c.Clone()
+	if maxRecords < 1 || maxOutputs < 1 || metadataBytes < 1 || digestBytes < 1 || treeEntries < 1 || cursorBytes < 1 {
+		return out
+	}
+	out.Features[FeatureEvidenceLedger] = Available
+	out.Features[FeatureExpectedOutputs] = Available
+	out.EvidenceSchemaVersions = []int{1}
+	out.ArtifactObservationSchemaVersions = []int{1}
+	out.Limits.EvidenceInspectRecords = maxRecords
+	out.Limits.EvidenceExpectedOutputs = maxOutputs
+	out.Limits.EvidenceArtifactMetadataBytes = metadataBytes
+	out.Limits.EvidenceArtifactDigestBytes = digestBytes
+	out.Limits.EvidenceTreeEntries = treeEntries
+	out.Limits.EvidenceCursorBytes = cursorBytes
 	return out
 }
 

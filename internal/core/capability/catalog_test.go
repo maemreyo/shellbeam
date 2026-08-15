@@ -212,3 +212,24 @@ func TestOutputViewsCapabilityRequiresPositiveLimits(t *testing.T) {
 		t.Fatal("invalid limits promoted output views")
 	}
 }
+
+func TestEvidenceCapabilitiesRequireCompletePositiveLimits(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureEvidenceLedger] != Unavailable || base.Features[FeatureExpectedOutputs] != Unavailable || len(base.EvidenceSchemaVersions) != 0 {
+		t.Fatalf("baseline unexpectedly advertises evidence: %#v", base)
+	}
+	catalog := base.WithEvidence(128, 64, 32768, 64<<20, 4096, 2048)
+	if catalog.Features[FeatureEvidenceLedger] != Available || catalog.Features[FeatureExpectedOutputs] != Available {
+		t.Fatalf("features=%#v", catalog.Features)
+	}
+	if len(catalog.EvidenceSchemaVersions) != 1 || catalog.EvidenceSchemaVersions[0] != 1 || len(catalog.ArtifactObservationSchemaVersions) != 1 || catalog.ArtifactObservationSchemaVersions[0] != 1 {
+		t.Fatalf("schema versions evidence=%v artifact=%v", catalog.EvidenceSchemaVersions, catalog.ArtifactObservationSchemaVersions)
+	}
+	limits := catalog.Limits
+	if limits.EvidenceInspectRecords != 128 || limits.EvidenceExpectedOutputs != 64 || limits.EvidenceArtifactMetadataBytes != 32768 || limits.EvidenceArtifactDigestBytes != 64<<20 || limits.EvidenceTreeEntries != 4096 || limits.EvidenceCursorBytes != 2048 {
+		t.Fatalf("limits=%#v", limits)
+	}
+	if bad := base.WithEvidence(128, 0, 1, 1, 1, 1); bad.Features[FeatureEvidenceLedger] != Unavailable || bad.Features[FeatureExpectedOutputs] != Unavailable {
+		t.Fatal("incomplete limits promoted evidence")
+	}
+}
