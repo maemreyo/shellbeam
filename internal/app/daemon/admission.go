@@ -108,13 +108,17 @@ func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest,
 }
 
 func normalizedStructuredAdapter(req StartRequest) (string, error) {
+	return normalizedStructuredAdapterForArgv(req, req.Argv)
+}
+
+func normalizedStructuredAdapterForArgv(req StartRequest, argv []string) (string, error) {
 	if req.StructuredAdapter != "" {
 		if !operation.ValidStructuredAdapterID(req.StructuredAdapter) {
 			return "", failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
 		}
 		return req.StructuredAdapter, nil
 	}
-	selection := structuredapp.SelectAdapter("", req.Argv)
+	selection := structuredapp.SelectAdapter("", argv)
 	if selection.Status == structuredapp.SelectionSelected {
 		return selection.AdapterID, nil
 	}

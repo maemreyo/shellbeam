@@ -123,6 +123,9 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err := validateStartMetadata(req); err != nil {
 		return View{}, err
 	}
+	if wantsProjectCommand(req) {
+		return s.startProjectCommand(ctx, req, id)
+	}
 	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
@@ -131,61 +134,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	sid := newSessionID()
-	reservation.SessionID = operation.SessionID(sid)
-	reservation.CreatedAt = time.Now().UTC()
-	stored, created, result := s.store.ReserveOperation(ctx, reservation)
-	if result.Err != nil {
-		return View{}, failure.Normalize(result.Err)
-	}
-	sid = string(stored.SessionID)
-	if !created {
-		return s.waitReservedStart(ctx, req, stored, sid)
-	}
-	executionCWD := stored.CWD
-	workspaceObservation := s.captureWorkspace(ctx, executionCWD)
-	activityReq := req
-	activityReq.CWD = executionCWD
-	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation.binding)
-	spec.CWD = executionCWD
-	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
-	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
-	if processObservation.Err != nil {
-		return View{}, failure.Normalize(processObservation.Err)
-	}
-	s.activateLiveSession(live)
-	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
-	live.mu.Lock()
-	live.spawn = spawn
-	if spawnErr == nil {
-		live.handle = h
-		live.state = session.Running
-	}
-	live.notify()
-	live.mu.Unlock()
-	if spawnErr != nil {
-		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
-		s.finishSpawnFailure(live)
-		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)
-		if viewErr == nil {
-			s.enrichWorkspaceContext(&view, workspaceObservation.context, req.WorkspaceHint)
-			s.enrichStructuredAdapterAvailability(&view, stored)
-		}
-		return view, viewErr
-	}
-	s.resolveProcessStartedObservation(processObservation.ObservationSeq, true)
-	snap := session.Snapshot{SchemaVersion: 1, OperationID: req.OperationID, SessionID: sid, DaemonIncarnation: s.options.Incarnation, State: session.Running, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
-	if got := s.store.AdvanceSession(context.Background(), snap); got.Err != nil {
-		h.Signal("TERM")
-	}
-	go s.writeLoop(live)
-	go s.waitLoop(live)
-	if req.TimeoutMS > 0 {
-		go s.timeoutLoop(live, time.Duration(req.TimeoutMS)*time.Millisecond)
-	}
-	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
-	s.decorateNewStartView(&view, viewErr, stored, workspaceObservation, req.WorkspaceHint)
-	return view, viewErr
+	return s.admitPreparedStart(ctx, req, reservation, spec, s.store.ReserveOperation, false)
 }
 
 func (s *Service) activateLiveSession(live *liveSession) {

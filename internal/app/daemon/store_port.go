@@ -26,6 +26,9 @@ type Store interface {
 	ReserveOperation(context.Context, operation.Reservation) (operation.Reservation, bool, StoreResult)
 	LoadOperation(context.Context, operation.ID) (operation.Reservation, error)
 	FindOperation(context.Context, operation.ID) (operation.Reservation, bool, error)
+	ReserveTypedIntent(context.Context, operation.TypedIntentClaim) (operation.TypedIntentClaim, bool, StoreResult)
+	FindTypedIntent(context.Context, operation.ID) (operation.TypedIntentClaim, bool, error)
+	CommitTypedBinding(context.Context, operation.ID, operation.Reservation) (operation.Reservation, bool, StoreResult)
 	LoadSession(context.Context, operation.SessionID) (session.Snapshot, error)
 	AdvanceSession(context.Context, session.Snapshot) StoreResult
 	PublishTerminal(context.Context, receipt.Receipt) StoreResult

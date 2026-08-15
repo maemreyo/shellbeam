@@ -78,17 +78,20 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	defer codeRuntime.Close()
 	structuredScheduler := &structuredWorkerProxy{}
 	telemetryScheduler := &telemetryWorkerProxy{}
+	projectLoader := projectadapter.NewLoader()
+	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
-		MaxQueuedInputBytes: cfg.MaxQueuedInputSessionBytes,
-		TerminationGrace:    time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
-		Capabilities:        catalog,
-		StructuredWorker:    structuredScheduler,
-		TelemetryWorker:     telemetryScheduler,
+		MaxQueuedInputBytes:  cfg.MaxQueuedInputSessionBytes,
+		TerminationGrace:     time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
+		Capabilities:         catalog,
+		StructuredWorker:     structuredScheduler,
+		TelemetryWorker:      telemetryScheduler,
+		ProjectCommandBinder: projectBinder,
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
 	projectSvc := projectapp.NewWithReadiness(
-		store, projectadapter.NewLoader(), store,
+		store, projectLoader, store,
 		projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
 		projectapp.ReadinessOptions{},
 	)

@@ -69,10 +69,11 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		Shell: l.reservation.Shell, CWD: l.reservation.CWD, TTY: l.reservation.TTY, TimeoutMS: l.reservation.TimeoutMS,
 		State: state, Outcome: outcome,
 	}
-	if rec.SchemaVersion == 2 {
+	if rec.SchemaVersion >= 2 {
 		rec.RequestFingerprint = l.reservation.RequestFingerprint
 		rec.ExecutionFingerprint = l.reservation.ExecutionFingerprint
 		rec.ObservationBindingFingerprint = l.reservation.ObservationBindingFingerprint
+		rec.ProjectCommand = l.reservation.ProjectCommand
 	} else {
 		rec.Fingerprint = l.reservation.Fingerprint
 	}

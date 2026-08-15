@@ -11,13 +11,14 @@ import (
 )
 
 type Options struct {
-	Incarnation         string
-	Shell               string
-	MaxQueuedInputBytes int
-	TerminationGrace    time.Duration
-	Capabilities        capability.Catalog
-	StructuredWorker    StructuredWorker
-	TelemetryWorker     TelemetryWorker
+	Incarnation          string
+	Shell                string
+	MaxQueuedInputBytes  int
+	TerminationGrace     time.Duration
+	Capabilities         capability.Catalog
+	StructuredWorker     StructuredWorker
+	TelemetryWorker      TelemetryWorker
+	ProjectCommandBinder ProjectCommandBinder
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`
@@ -34,6 +35,8 @@ type StartRequest struct {
 	YieldMS           int64                     `json:"yield_time_ms"`
 	MaxOutputBytes    int                       `json:"max_output_bytes"`
 	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
+	ProjectCommandID  string                    `json:"project_command_id,omitempty"`
+	Params            map[string]string         `json:"params,omitempty"`
 }
 
 type StructuredWorker interface {
