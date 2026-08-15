@@ -191,3 +191,24 @@ func TestTypedProjectCommandCapabilityRequiresProviderAndDoesNotMutateBaseline(t
 		t.Fatalf("composition mutated baseline: %#v", base)
 	}
 }
+
+func TestOutputViewsCapabilityRequiresPositiveLimits(t *testing.T) {
+	base := Baseline(Limits{})
+	if base.Features[FeatureOutputViews] != Unavailable || len(base.OutputViewSchemaVersions) != 0 {
+		t.Fatalf("baseline unexpectedly advertises output views: %#v", base)
+	}
+	catalog := base.WithOutputViews(65536, 1<<20, 512, 128, 4096, 2048)
+	if catalog.Features[FeatureOutputViews] != Available {
+		t.Fatalf("output views=%q", catalog.Features[FeatureOutputViews])
+	}
+	if len(catalog.OutputViewSchemaVersions) != 1 || catalog.OutputViewSchemaVersions[0] != 1 {
+		t.Fatalf("schema versions=%v", catalog.OutputViewSchemaVersions)
+	}
+	if catalog.Limits.OutputViewMaxReturnBytes != 65536 || catalog.Limits.OutputViewMaxWorkBytes != 1<<20 || catalog.Limits.OutputViewMaxLines != 512 || catalog.Limits.OutputViewMaxMatches != 128 || catalog.Limits.OutputViewMaxPatternBytes != 4096 || catalog.Limits.OutputViewMaxContinuationBytes != 2048 {
+		t.Fatalf("limits=%#v", catalog.Limits)
+	}
+	bad := base.WithOutputViews(0, 1, 1, 1, 1, 1)
+	if bad.Features[FeatureOutputViews] != Unavailable {
+		t.Fatal("invalid limits promoted output views")
+	}
+}

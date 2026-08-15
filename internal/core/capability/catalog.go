@@ -34,28 +34,34 @@ const (
 )
 
 type Limits struct {
-	CommandBytes                  int   `json:"command_bytes"`
-	ResponseBytes                 int   `json:"response_bytes"`
-	SessionOutputBytes            int64 `json:"session_output_bytes"`
-	RuntimeMS                     int64 `json:"runtime_ms"`
-	LiveSessions                  int   `json:"live_sessions"`
-	ActivityHistory               int   `json:"activity_history"`
-	EventJournalMaxEvents         int   `json:"event_journal_max_events,omitempty"`
-	EventCursorBytes              int   `json:"event_cursor_bytes,omitempty"`
-	EventSnapshotFacts            int   `json:"event_snapshot_facts,omitempty"`
-	StructuredInspectRecords      int   `json:"structured_inspect_records,omitempty"`
-	TelemetryMaxSamples           int   `json:"telemetry_max_samples,omitempty"`
-	TelemetryMetadataBytes        int64 `json:"telemetry_metadata_bytes,omitempty"`
-	TelemetryMaxKeys              int   `json:"telemetry_max_keys,omitempty"`
-	TelemetryMaxKeysPerRepository int   `json:"telemetry_max_keys_per_repository,omitempty"`
-	TelemetryMaxSamplesPerKey     int   `json:"telemetry_max_samples_per_key,omitempty"`
-	TelemetryRetentionAgeMS       int64 `json:"telemetry_retention_age_ms,omitempty"`
-	TelemetryInspectSamples       int   `json:"telemetry_inspect_samples,omitempty"`
-	ReproMaxCapsules              int   `json:"repro_max_capsules,omitempty"`
-	ReproMaxReferences            int   `json:"repro_max_references,omitempty"`
-	ReproMetadataBytes            int   `json:"repro_metadata_bytes,omitempty"`
-	ReadinessCacheTTLMS           int64 `json:"readiness_cache_ttl_ms,omitempty"`
-	ReadinessCacheEntries         int   `json:"readiness_cache_entries,omitempty"`
+	CommandBytes                   int   `json:"command_bytes"`
+	ResponseBytes                  int   `json:"response_bytes"`
+	SessionOutputBytes             int64 `json:"session_output_bytes"`
+	RuntimeMS                      int64 `json:"runtime_ms"`
+	LiveSessions                   int   `json:"live_sessions"`
+	ActivityHistory                int   `json:"activity_history"`
+	EventJournalMaxEvents          int   `json:"event_journal_max_events,omitempty"`
+	EventCursorBytes               int   `json:"event_cursor_bytes,omitempty"`
+	EventSnapshotFacts             int   `json:"event_snapshot_facts,omitempty"`
+	StructuredInspectRecords       int   `json:"structured_inspect_records,omitempty"`
+	TelemetryMaxSamples            int   `json:"telemetry_max_samples,omitempty"`
+	TelemetryMetadataBytes         int64 `json:"telemetry_metadata_bytes,omitempty"`
+	TelemetryMaxKeys               int   `json:"telemetry_max_keys,omitempty"`
+	TelemetryMaxKeysPerRepository  int   `json:"telemetry_max_keys_per_repository,omitempty"`
+	TelemetryMaxSamplesPerKey      int   `json:"telemetry_max_samples_per_key,omitempty"`
+	TelemetryRetentionAgeMS        int64 `json:"telemetry_retention_age_ms,omitempty"`
+	TelemetryInspectSamples        int   `json:"telemetry_inspect_samples,omitempty"`
+	ReproMaxCapsules               int   `json:"repro_max_capsules,omitempty"`
+	ReproMaxReferences             int   `json:"repro_max_references,omitempty"`
+	ReproMetadataBytes             int   `json:"repro_metadata_bytes,omitempty"`
+	ReadinessCacheTTLMS            int64 `json:"readiness_cache_ttl_ms,omitempty"`
+	ReadinessCacheEntries          int   `json:"readiness_cache_entries,omitempty"`
+	OutputViewMaxReturnBytes       int   `json:"output_view_max_return_bytes,omitempty"`
+	OutputViewMaxWorkBytes         int   `json:"output_view_max_work_bytes,omitempty"`
+	OutputViewMaxLines             int   `json:"output_view_max_lines,omitempty"`
+	OutputViewMaxMatches           int   `json:"output_view_max_matches,omitempty"`
+	OutputViewMaxPatternBytes      int   `json:"output_view_max_pattern_bytes,omitempty"`
+	OutputViewMaxContinuationBytes int   `json:"output_view_max_continuation_bytes,omitempty"`
 }
 
 type ResourceQuality string
@@ -86,6 +92,7 @@ type Catalog struct {
 	TelemetrySchemaVersions      []int                       `json:"telemetry_schema_versions,omitempty"`
 	ReproSchemaVersions          []int                       `json:"repro_schema_versions,omitempty"`
 	ReadinessSchemaVersions      []int                       `json:"project_readiness_schema_versions,omitempty"`
+	OutputViewSchemaVersions     []int                       `json:"output_view_schema_versions,omitempty"`
 	ReadinessRequirementKinds    []string                    `json:"project_readiness_requirement_kinds,omitempty"`
 	TypedCommandVersions         []int                       `json:"typed_project_command_versions,omitempty"`
 	TypedCommandManifestVersion  int                         `json:"typed_project_command_manifest_version,omitempty"`
@@ -154,6 +161,7 @@ func (c Catalog) Clone() Catalog {
 	out.TelemetrySchemaVersions = append([]int(nil), c.TelemetrySchemaVersions...)
 	out.ReproSchemaVersions = append([]int(nil), c.ReproSchemaVersions...)
 	out.ReadinessSchemaVersions = append([]int(nil), c.ReadinessSchemaVersions...)
+	out.OutputViewSchemaVersions = append([]int(nil), c.OutputViewSchemaVersions...)
 	out.ReadinessRequirementKinds = append([]string(nil), c.ReadinessRequirementKinds...)
 	out.TypedCommandVersions = append([]int(nil), c.TypedCommandVersions...)
 	out.TypedCommandParameterKinds = append([]string(nil), c.TypedCommandParameterKinds...)
@@ -166,6 +174,22 @@ func (c Catalog) Clone() Catalog {
 	for feature, availability := range c.Features {
 		out.Features[feature] = availability
 	}
+	return out
+}
+
+func (c Catalog) WithOutputViews(maxReturnBytes, maxWorkBytes, maxLines, maxMatches, maxPatternBytes, maxContinuationBytes int) Catalog {
+	out := c.Clone()
+	if maxReturnBytes < 1 || maxWorkBytes < 1 || maxLines < 1 || maxMatches < 1 || maxPatternBytes < 1 || maxContinuationBytes < 1 {
+		return out
+	}
+	out.Features[FeatureOutputViews] = Available
+	out.OutputViewSchemaVersions = []int{1}
+	out.Limits.OutputViewMaxReturnBytes = maxReturnBytes
+	out.Limits.OutputViewMaxWorkBytes = maxWorkBytes
+	out.Limits.OutputViewMaxLines = maxLines
+	out.Limits.OutputViewMaxMatches = maxMatches
+	out.Limits.OutputViewMaxPatternBytes = maxPatternBytes
+	out.Limits.OutputViewMaxContinuationBytes = maxContinuationBytes
 	return out
 }
 
