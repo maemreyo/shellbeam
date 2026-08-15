@@ -232,6 +232,7 @@
         "telemetry_schema_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
         "repro_schema_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
         "project_readiness_schema_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
+        "output_view_schema_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
         "project_readiness_requirement_kinds": {"type":"array","maxItems":3,"uniqueItems":true,"items":{"enum":["toolchain","executable","environment_presence"]}},
         "typed_project_command_versions": {"type":"array","maxItems":8,"uniqueItems":true,"items":{"type":"integer","minimum":1}},
         "typed_project_command_manifest_version": {"type":"integer","minimum":1},
@@ -264,7 +265,13 @@
             "repro_max_references": {"type":"integer","minimum":1,"maximum":32},
             "repro_metadata_bytes": {"type":"integer","minimum":1},
             "readiness_cache_ttl_ms": {"type":"integer","minimum":1},
-            "readiness_cache_entries": {"type":"integer","minimum":1}
+            "readiness_cache_entries": {"type":"integer","minimum":1},
+            "output_view_max_return_bytes": {"type":"integer","minimum":1,"maximum":65536},
+            "output_view_max_work_bytes": {"type":"integer","minimum":1,"maximum":1048576},
+            "output_view_max_lines": {"type":"integer","minimum":1,"maximum":512},
+            "output_view_max_matches": {"type":"integer","minimum":1,"maximum":128},
+            "output_view_max_pattern_bytes": {"type":"integer","minimum":1,"maximum":4096},
+            "output_view_max_continuation_bytes": {"type":"integer","minimum":1,"maximum":2048}
           },
           "required": ["command_bytes", "response_bytes", "session_output_bytes", "runtime_ms", "live_sessions", "activity_history"]
         }

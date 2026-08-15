@@ -281,5 +281,9 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 		).
 		WithReproductionCapsules(reproMaxCapsules, reprocore.MaxReferenceDescriptors, reproMetadataBytes).
 		WithCodeIntelligence().
-		WithTypedProjectCommands([]string{"go"})
+		WithTypedProjectCommands([]string{"go"}).
+		WithOutputViews(
+			outputview.MaxReturnBytes, outputview.MaxWorkBytes, outputview.MaxLines,
+			outputview.MaxMatches, outputview.MaxPatternBytes, outputview.MaxContinuationBytes,
+		)
 }

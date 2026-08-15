@@ -1,6 +1,6 @@
 # Bounded Output Views Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement A2.3 bounded retained-output slicing/search through the existing `local_shell` tool without adding ordinary start/poll tax or a second truth store.
 
@@ -33,12 +33,12 @@
 - Produces: `outputview.Request`, `Selector`, `Result`, `Match`, `RetentionState`, constants `MaxReturnBytes`, `MaxWorkBytes`, `MaxLines`, `MaxMatches`, `MaxPatternBytes`, `MaxContinuationBytes`.
 - Produces: `capability.Catalog.WithOutputViews(...)` and output-view limit fields.
 
-- [ ] **Step 1: Write RED validation tests** covering exactly-one selector contract, raw/tail/lines/preview/search bounds, invalid regex-independent shape, and capability remaining unavailable before `WithOutputViews`.
-- [ ] **Step 2: Run** `go test ./internal/app/outputview ./internal/core/capability` and confirm missing package/types fail.
-- [ ] **Step 3: Implement minimal closed contracts** with selector `Kind` values `raw_range|tail|lines|preview|search`; reject conflicting fields and over-limit requests.
-- [ ] **Step 4: Add truthful capability fields**: `output_view_schema_versions`, and limits for return/work/lines/matches/pattern/continuation. `WithOutputViews` sets `FeatureOutputViews=available` only with positive limits.
-- [ ] **Step 5: Run focused tests +** `go run ./tools/devctl check`, `git diff --check`, `.codegraph` status.
-- [ ] **Step 6: Commit** `feat: define bounded output view contracts`.
+- [x] **Step 1: Write RED validation tests** covering exactly-one selector contract, raw/tail/lines/preview/search bounds, invalid regex-independent shape, and capability remaining unavailable before `WithOutputViews`.
+- [x] **Step 2: Run** `go test ./internal/app/outputview ./internal/core/capability` and confirm missing package/types fail.
+- [x] **Step 3: Implement minimal closed contracts** with selector `Kind` values `raw_range|tail|lines|preview|search`; reject conflicting fields and over-limit requests.
+- [x] **Step 4: Add truthful capability fields**: `output_view_schema_versions`, and limits for return/work/lines/matches/pattern/continuation. `WithOutputViews` sets `FeatureOutputViews=available` only with positive limits.
+- [x] **Step 5: Run focused tests +** `go run ./tools/devctl check`, `git diff --check`, `.codegraph` status.
+- [x] **Step 6: Commit** `feat: define bounded output view contracts`.
 
 ### Task 2: Retained-output store metadata and bounded range reads
 
@@ -51,12 +51,12 @@
 - Produces store methods: `OutputExtent(ctx, sessionID) (outputview.Extent, error)` and existing bounded `ReadOutput` as the byte reader.
 - `Extent` contains session identity, retained byte size, retention state, and terminal/live cut metadata without output-content hashes.
 
-- [ ] **Step 1: Write RED store tests** for retained empty output, retained non-empty output, compacted output, unknown session, and read out-of-range.
-- [ ] **Step 2: Run** `go test ./internal/adapter/store -run 'Output(View|Extent|Cursor)'` and confirm RED.
-- [ ] **Step 3: Implement `OutputExtent`** from session metadata + `output.log` stat; distinguish `retained`, `compacted`, `unavailable`; never fabricate compacted bytes from receipt metadata.
-- [ ] **Step 4: Keep range reads bounded** and normalize missing-file behavior using extent semantics rather than treating every zero cursor as empty output.
-- [ ] **Step 5: Run package/race/devctl/diff gates.**
-- [ ] **Step 6: Commit** `feat: expose retained output extents`.
+- [x] **Step 1: Write RED store tests** for retained empty output, retained non-empty output, compacted output, unknown session, and read out-of-range.
+- [x] **Step 2: Run** `go test ./internal/adapter/store -run 'Output(View|Extent|Cursor)'` and confirm RED.
+- [x] **Step 3: Implement `OutputExtent`** from session metadata + `output.log` stat; distinguish `retained`, `compacted`, `unavailable`; never fabricate compacted bytes from receipt metadata.
+- [x] **Step 4: Keep range reads bounded** and normalize missing-file behavior using extent semantics rather than treating every zero cursor as empty output.
+- [x] **Step 5: Run package/race/devctl/diff gates.**
+- [x] **Step 6: Commit** `feat: expose retained output extents`.
 
 ### Task 3: Raw, tail, line, and deterministic preview selectors
 
@@ -71,12 +71,12 @@
 - Produces: `type Store interface { OutputExtent(...); ReadOutput(...) }` and `Service.Read(ctx, Request) (Result, error)`.
 - `Result` reports selector kind, retention state, frozen cut bytes, returned raw ranges, rendered text, partial/truncated flags, and optional continuation.
 
-- [ ] **Step 1: RED raw/tail/line tests** for byte accounting, UTF-8 boundary safety, empty output, byte/line out-of-range, bounded backwards tail work, and huge-line handling.
-- [ ] **Step 2: RED rendering tests** for ANSI stripping, invalid UTF-8 replacement, CR progress collapse, binary-like summarization, and first+last omission marker.
-- [ ] **Step 3: Implement minimal bounded readers** using chunked `ReadOutput`; never allocate beyond return/work caps.
-- [ ] **Step 4: Implement deterministic renderer** only inside explicit output-view actions; do not modify ordinary `start/poll` rendering in this task.
-- [ ] **Step 5: Run focused/package/race/devctl/diff gates.**
-- [ ] **Step 6: Commit** `feat: read bounded output views`.
+- [x] **Step 1: RED raw/tail/line tests** for byte accounting, UTF-8 boundary safety, empty output, byte/line out-of-range, bounded backwards tail work, and huge-line handling.
+- [x] **Step 2: RED rendering tests** for ANSI stripping, invalid UTF-8 replacement, CR progress collapse, binary-like summarization, and first+last omission marker.
+- [x] **Step 3: Implement minimal bounded readers** using chunked `ReadOutput`; never allocate beyond return/work caps.
+- [x] **Step 4: Implement deterministic renderer** only inside explicit output-view actions; do not modify ordinary `start/poll` rendering in this task.
+- [x] **Step 5: Run focused/package/race/devctl/diff gates.**
+- [x] **Step 6: Commit** `feat: read bounded output views`.
 
 ### Task 4: Opaque continuation and bounded literal/RE2 line search
 
@@ -90,12 +90,12 @@
 - Produces: `NewCursorCodec(observation.CursorKeyMaterial)`, signed token prefix `outcur_v1_`, encode/decode bound to session + selector fingerprint + frozen cut + scan byte + line number.
 - `search` supports `literal|regex`, case sensitivity, max matches, bounded per-call work, line-oriented regex semantics.
 
-- [ ] **Step 1: RED cursor tests** for tampering, wrong session/selector/cut, key generation expiry, token-size bound.
-- [ ] **Step 2: RED search tests** for literal/regex, case sensitivity, malformed regex, match ranges/excerpts, bounded work continuation, oversized logical line, continuation resume without duplicate matches.
-- [ ] **Step 3: Implement HMAC codec** following existing event/structured cursor-key pattern; do not expose output hashes.
-- [ ] **Step 4: Implement line-oriented bounded search** with `regexp.Compile`, hard line/work/match/excerpt caps, frozen-cut continuation.
-- [ ] **Step 5: Run focused/package/race/devctl/diff gates.**
-- [ ] **Step 6: Commit** `feat: search retained output safely`.
+- [x] **Step 1: RED cursor tests** for tampering, wrong session/selector/cut, key generation expiry, token-size bound.
+- [x] **Step 2: RED search tests** for literal/regex, case sensitivity, malformed regex, match ranges/excerpts, bounded work continuation, oversized logical line, continuation resume without duplicate matches.
+- [x] **Step 3: Implement HMAC codec** following existing event/structured cursor-key pattern; do not expose output hashes.
+- [x] **Step 4: Implement line-oriented bounded search** with `regexp.Compile`, hard line/work/match/excerpt caps, frozen-cut continuation.
+- [x] **Step 5: Run focused/package/race/devctl/diff gates.**
+- [x] **Step 6: Commit** `feat: search retained output safely`.
 
 ### Task 5: Daemon, IPC v2, bridge, MCP v2, and schemas
 
@@ -116,12 +116,12 @@
 - Adds `OutputViewActions.ReadOutputView(context.Context, outputview.Request) (outputview.Result, error)`.
 - Adds `RequestV2.Selector`, `RequestV2.Continuation`, `ResponseV2.OutputView` and matching bridge response.
 
-- [ ] **Step 1: RED protocol/schema tests** proving `read_output` is accepted, unknown fields rejected, selector schema closed, malformed requests fail before daemon action, and response validates.
-- [ ] **Step 2: RED IPC/MCP integration tests** proving action reaches outputview service and remains one `local_shell` tool.
-- [ ] **Step 3: Wire daemon composition** with `store.EventCursorKey(ctx)` → `outputview.NewCursorCodec` → service; no worker/goroutine.
-- [ ] **Step 4: Remove `read_output` from deferred lists**, add supported action validation/dispatch/bridge/MCP success mapping.
-- [ ] **Step 5: Run adapter/schema/cmd tests, race, devctl/diff gates.**
-- [ ] **Step 6: Commit** `feat: expose output views through local shell`.
+- [x] **Step 1: RED protocol/schema tests** proving `read_output` is accepted, unknown fields rejected, selector schema closed, malformed requests fail before daemon action, and response validates.
+- [x] **Step 2: RED IPC/MCP integration tests** proving action reaches outputview service and remains one `local_shell` tool.
+- [x] **Step 3: Wire daemon composition** with `store.EventCursorKey(ctx)` → `outputview.NewCursorCodec` → service; no worker/goroutine.
+- [x] **Step 4: Remove `read_output` from deferred lists**, add supported action validation/dispatch/bridge/MCP success mapping.
+- [x] **Step 5: Run adapter/schema/cmd tests, race, devctl/diff gates.**
+- [x] **Step 6: Commit** `feat: expose output views through local shell`.
 
 ### Task 6: Capability promotion, no-tax proof, and A2.3 checkpoint
 
@@ -134,12 +134,12 @@
 **Interfaces:**
 - Final daemon catalog calls `WithOutputViews(...)` with application hard limits.
 
-- [ ] **Step 1: RED end-to-end acceptance**: run a real daemon child producing ANSI/UTF-8/multiple lines, then exercise raw/tail/lines/preview/literal/regex continuation through IPC v2 and MCP-facing schema.
-- [ ] **Step 2: Add no-tax regression** with a counting output-view store/codec seam proving ordinary start/poll does not invoke output-view extent/read/search work.
-- [ ] **Step 3: Promote capability** and assert advertised limits/schema version are exact.
-- [ ] **Step 4: Run acceptance x3**, focused/full relevant `-race`, `go mod verify`, `go run ./tools/devctl test --dirty --base origin/main --json`, `go run ./tools/devctl check`, schema tests, `git diff --check`, anti-goal scan, `.codegraph` status.
-- [ ] **Step 5: Capture exact HEAD/source fingerprint and fresh receipts.**
-- [ ] **Step 6: Commit** `test: verify bounded output views`.
+- [x] **Step 1: RED end-to-end acceptance**: run a real daemon child producing ANSI/UTF-8/multiple lines, then exercise raw/tail/lines/preview/literal/regex continuation through IPC v2 and MCP-facing schema.
+- [x] **Step 2: Add no-tax regression** with a counting output-view store/codec seam proving ordinary start/poll does not invoke output-view extent/read/search work.
+- [x] **Step 3: Promote capability** and assert advertised limits/schema version are exact.
+- [x] **Step 4: Run acceptance x3**, focused/full relevant `-race`, `go mod verify`, `go run ./tools/devctl test --dirty --base origin/main --json`, `go run ./tools/devctl check`, schema tests, `git diff --check`, anti-goal scan, `.codegraph` status.
+- [x] **Step 5: Capture exact HEAD/source fingerprint and fresh receipts.**
+- [x] **Step 6: Commit** `test: verify bounded output views`.
 
 ## Self-review
 

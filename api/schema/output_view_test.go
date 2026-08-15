@@ -1,6 +1,11 @@
 package schema
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+
+	"github.com/maemreyo/shellbeam/internal/core/capability"
+)
 
 func TestOutputViewV2SchemasAcceptClosedBoundedRequestsAndResponses(t *testing.T) {
 	selector := map[string]any{"kind": "search", "mode": "literal", "pattern": "boom", "case_sensitive": true, "max_matches": 10.0}
@@ -61,6 +66,30 @@ func TestOutputViewV2SchemasRejectUnboundedOrCrossActionShapes(t *testing.T) {
 	for _, tc := range invalid {
 		if err := resolvedSchema(t, tc.name).Validate(tc.value); err == nil {
 			t.Errorf("%s accepted invalid output request %#v", tc.name, tc.value)
+		}
+	}
+}
+
+func TestOutputViewCatalogFieldsValidateInV2ServerResponses(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{CommandBytes: 1, ResponseBytes: 1, SessionOutputBytes: 1, RuntimeMS: 1, LiveSessions: 1, ActivityHistory: 1}).WithOutputViews(65536, 1<<20, 512, 128, 4096, 2048)
+	b, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var server map[string]any
+	if err := json.Unmarshal(b, &server); err != nil {
+		t.Fatal(err)
+	}
+	values := []struct {
+		name  Name
+		value map[string]any
+	}{
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.server", "server": server}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "server", "action": "inspect.server", "ok": true, "server": server}},
+	}
+	for _, tc := range values {
+		if err := resolvedSchema(t, tc.name).Validate(tc.value); err != nil {
+			t.Errorf("%s rejected output view catalog: %v", tc.name, err)
 		}
 	}
 }
