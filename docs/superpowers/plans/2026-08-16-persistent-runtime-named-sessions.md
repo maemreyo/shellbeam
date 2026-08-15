@@ -68,17 +68,17 @@ Files: create internal/adapter/store/{persistent_sessions.go,persistent_session_
 
 ### Task 3 - Private supervisor protocol, authentication, private state boundary
 
-Files: create internal/adapter/supervisor/{protocol.go,protocol_test.go,auth.go,auth_test.go,private_state.go,private_state_test.go,socket_unix.go,socket_unix_test.go}.
+Files: create internal/adapter/supervisor/{protocol.go,protocol_test.go,auth.go,auth_test.go,private_state.go,private_state_test.go,terminal.go,terminal_test.go,socket_unix.go,socket_unix_test.go,owner_unix.go,peer_darwin.go,peer_linux.go}.
 
-- [ ] Closed protocol v1 kinds: handshake/status/output/write/signal/wait; reject unknown version/kind/fields.
-- [ ] High-entropy session+generation capability; secret never argv/public env/log/public error.
-- [ ] Challenge/proof via stdlib HMAC-SHA256; constant-time compare.
-- [ ] Generation-bound integrity-protected terminal record.
-- [ ] Runtime dir/socket/file user-only + no-follow/symlink replacement checks.
-- [ ] Private layout under <runtime>/supervisors/<session_id>/.
-- [ ] Tests for wrong session/generation/proof, socket replacement, unsafe permissions, malformed terminal record, secret-sentinel leakage.
-- [ ] go test + -race ./internal/adapter/supervisor.
-- [ ] Commit: feat: define private supervisor protocol
+- [x] Closed protocol v1 kinds: handshake/status/output/write/signal/wait; reject unknown version/kind/fields.
+- [x] High-entropy session+generation capability; secret never argv/public env/log/public error.
+- [x] Challenge/proof via stdlib HMAC-SHA256; constant-time compare.
+- [x] Generation-bound integrity-protected terminal record.
+- [x] Runtime dir/socket/file user-only + no-follow/symlink replacement checks.
+- [x] Private layout under <runtime>/supervisors/<session_id>/.
+- [x] Tests for wrong session/generation/proof, socket replacement, unsafe permissions, malformed terminal record, secret-sentinel leakage.
+- [x] go test + -race ./internal/adapter/supervisor.
+- [x] Commit: feat: define private supervisor protocol
 
 ### Task 4 - Supervisor-owned child runtime, spool, input/kill ledgers, timeout, terminal freeze
 
