@@ -16,6 +16,7 @@ func (r *Repository) initMutationScopeStore() error {
 		filepath.Join(r.root, "mutation-scopes", "mutations"),
 		filepath.Join(r.root, "mutation-scopes", "workspaces"),
 		filepath.Join(r.root, "mutation-scopes", "activities"),
+		filepath.Join(r.root, "mutation-scopes", "observation-proofs"),
 	} {
 		if err := ensurePrivateDir(path); err != nil {
 			return fmt.Errorf("mutation scope store: %w", err)
@@ -36,6 +37,10 @@ func (r *Repository) mutationScopeWorkspacePath(workspaceID string) string {
 func (r *Repository) mutationScopeActivityPath(activityID string) string {
 	return filepath.Join(r.root, "mutation-scopes", "activities", activityID+".json")
 }
+func (r *Repository) mutationScopeObservationProofPath(seq uint64) string {
+	return filepath.Join(r.root, "mutation-scopes", "observation-proofs", fmt.Sprintf("%020d.json", seq))
+}
+
 func (r *Repository) mutationScopePendingPath() string {
 	return filepath.Join(r.root, "mutation-scopes", "pending.json")
 }

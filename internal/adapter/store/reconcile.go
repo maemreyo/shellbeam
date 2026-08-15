@@ -13,6 +13,9 @@ import (
 )
 
 func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation string) error {
+	if result := r.reconcileMutationScopePending(ctx); result.Err != nil {
+		return result.Err
+	}
 	if err := r.reconcilePreparedExecutionObservations(ctx); err != nil {
 		return err
 	}

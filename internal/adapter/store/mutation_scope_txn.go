@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"reflect"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
@@ -156,10 +155,23 @@ func (r *Repository) applyMutationScopePendingLocked(pending mutationScopePendin
 	}
 	result := r.commitMutationScopeClaimLocked(pending)
 	if result.Err != nil {
-		return result
+		return withObservationSeq(result, pending.ObservationSeq)
+	}
+	if proofResult := r.ensureMutationScopeObservationProofLocked(pending); proofResult.Err != nil {
+		return withObservationSeq(proofResult, pending.ObservationSeq)
 	}
 	r.removeMutationScopePendingBestEffort()
-	return result
+	r.finishMutationScopeObservation(pending.ObservationSeq)
+	return withObservationSeq(result, pending.ObservationSeq)
+}
+
+func (r *Repository) reconcileMutationScopePending(ctx context.Context) app.StoreResult {
+	if err := ctx.Err(); err != nil {
+		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
+	r.mutationScopeMu.Lock()
+	defer r.mutationScopeMu.Unlock()
+	return r.reconcileMutationScopePendingLocked(ctx)
 }
 
 func (r *Repository) reconcileMutationScopePendingLocked(_ context.Context) app.StoreResult {
@@ -204,5 +216,3 @@ func validateSetMutation(scopeValue core.Scope, identity core.ScopeIdentity, rec
 func pendingForSet(scopeValue core.Scope, identity core.ScopeIdentity, receipt core.MutationReceipt) mutationScopePending {
 	return mutationScopePending{SchemaVersion: mutationScopeStoreSchema, Kind: "set", ScopeID: scopeValue.ScopeID, Scope: &scopeValue, Identity: &identity, Receipt: receipt}
 }
-
-func sameReceipt(a, b core.MutationReceipt) bool { return reflect.DeepEqual(a, b) }

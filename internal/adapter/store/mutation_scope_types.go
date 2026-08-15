@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	core "github.com/maemreyo/shellbeam/internal/core/mutationscope"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 )
 
 const mutationScopeStoreSchema = 1
@@ -17,12 +18,33 @@ type mutationScopeIndex struct {
 }
 
 type mutationScopePending struct {
-	SchemaVersion int                  `json:"schema_version"`
-	Kind          string               `json:"kind"`
-	ScopeID       string               `json:"scope_id"`
-	Scope         *core.Scope          `json:"scope,omitempty"`
-	Identity      *core.ScopeIdentity  `json:"identity,omitempty"`
-	Receipt       core.MutationReceipt `json:"receipt"`
+	SchemaVersion  int                   `json:"schema_version"`
+	Kind           string                `json:"kind"`
+	ScopeID        string                `json:"scope_id"`
+	Scope          *core.Scope           `json:"scope,omitempty"`
+	Identity       *core.ScopeIdentity   `json:"identity,omitempty"`
+	Receipt        core.MutationReceipt  `json:"receipt"`
+	ObservationSeq observation.ChangeSeq `json:"observation_seq,omitempty"`
+}
+
+type mutationScopeObservationProof struct {
+	SchemaVersion int                   `json:"schema_version"`
+	ChangeSeq     observation.ChangeSeq `json:"change_seq"`
+	MutationID    string                `json:"mutation_id"`
+	ScopeID       string                `json:"scope_id"`
+	ActivityID    string                `json:"activity_id"`
+	WorkspaceID   string                `json:"workspace_id"`
+	Result        core.MutationResult   `json:"result"`
+}
+
+func (p mutationScopeObservationProof) validate() error {
+	if p.SchemaVersion != mutationScopeStoreSchema || p.ChangeSeq == 0 || core.ValidateMutationID(p.MutationID) != nil || core.ValidateScopeID(p.ScopeID) != nil || p.ActivityID == "" || p.WorkspaceID == "" {
+		return fmt.Errorf("invalid mutation scope observation proof")
+	}
+	if p.Result != core.ResultSet && p.Result != core.ResultReleased {
+		return fmt.Errorf("invalid mutation scope observation result")
+	}
+	return nil
 }
 
 type mutationScopeClaim struct {
@@ -41,7 +63,7 @@ func (p mutationScopePending) validate() error {
 	}
 	switch p.Kind {
 	case "set":
-		if p.Scope == nil || p.Identity == nil || p.Scope.ScopeID != p.ScopeID || p.Identity.ScopeID != p.ScopeID || p.Receipt.Result != core.ResultSet {
+		if p.ObservationSeq == 0 || p.Scope == nil || p.Identity == nil || p.Scope.ScopeID != p.ScopeID || p.Identity.ScopeID != p.ScopeID || p.Receipt.Result != core.ResultSet {
 			return fmt.Errorf("invalid mutation scope set pending")
 		}
 		if err := p.Scope.Validate(); err != nil {
@@ -53,6 +75,9 @@ func (p mutationScopePending) validate() error {
 	case "release":
 		if p.Scope != nil || p.Identity != nil || (p.Receipt.Result != core.ResultReleased && p.Receipt.Result != core.ResultAlreadyAbsent) {
 			return fmt.Errorf("invalid mutation scope release pending")
+		}
+		if (p.Receipt.Result == core.ResultReleased && p.ObservationSeq == 0) || (p.Receipt.Result == core.ResultAlreadyAbsent && p.ObservationSeq != 0) {
+			return fmt.Errorf("invalid mutation scope release observation")
 		}
 	default:
 		return fmt.Errorf("invalid mutation scope pending kind")

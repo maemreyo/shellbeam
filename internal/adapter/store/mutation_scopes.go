@@ -45,8 +45,14 @@ func (r *Repository) CommitMutationScopeSet(ctx context.Context, want core.Scope
 		receipt.SetEffect = core.SetEffectReplaced
 	}
 	pending := pendingForSet(want, identity, receipt)
+	seq, prepared := r.prepareMutationScopeObservation(ctx, want.ScopeID, want.ActivityID, string(want.WorkspaceID), "set")
+	if prepared.Err != nil {
+		return prepared
+	}
+	pending.ObservationSeq = seq
 	if result := r.createMutationScopePendingLocked(pending); result.Err != nil {
-		return result
+		r.finishFailedMutationScopePendingObservation(pending, result)
+		return withObservationSeq(result, seq)
 	}
 	return r.applyMutationScopePendingLocked(pending)
 }
@@ -66,7 +72,7 @@ func (r *Repository) CommitMutationScopeRelease(ctx context.Context, scopeID str
 	if _, replayed, result := r.replayMutationScopeClaimLocked(receipt.MutationID, scopeID, receipt.RequestFingerprint); result.Err != nil || replayed {
 		return result
 	}
-	_, active, err := r.loadMutationScopeUnlocked(scopeID)
+	activeScope, active, err := r.loadMutationScopeUnlocked(scopeID)
 	if err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
@@ -75,8 +81,16 @@ func (r *Repository) CommitMutationScopeRelease(ctx context.Context, scopeID str
 		receipt.Result = core.ResultReleased
 	}
 	pending := mutationScopePending{SchemaVersion: mutationScopeStoreSchema, Kind: "release", ScopeID: scopeID, Receipt: receipt}
+	if active {
+		seq, prepared := r.prepareMutationScopeObservation(ctx, scopeID, activeScope.ActivityID, string(activeScope.WorkspaceID), "released")
+		if prepared.Err != nil {
+			return prepared
+		}
+		pending.ObservationSeq = seq
+	}
 	if result := r.createMutationScopePendingLocked(pending); result.Err != nil {
-		return result
+		r.finishFailedMutationScopePendingObservation(pending, result)
+		return withObservationSeq(result, pending.ObservationSeq)
 	}
 	return r.applyMutationScopePendingLocked(pending)
 }

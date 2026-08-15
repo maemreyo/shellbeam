@@ -43,3 +43,25 @@ func TestA4EventKindsAreInClosedVocabulary(t *testing.T) {
 		}
 	}
 }
+
+func TestA26MutationScopeChangedIsInClosedVocabulary(t *testing.T) {
+	seen := 0
+	for _, kind := range InitialEventKinds() {
+		if kind == EventMutationScopeChanged {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("mutation_scope_changed occurrences=%d", seen)
+	}
+	now := time.Unix(100, 0).UTC()
+	obligation := ObservationObligation{
+		SchemaVersion: SchemaVersion, ChangeSeq: 1, Kind: EventMutationScopeChanged,
+		State: ObligationPrepared, PreparedAt: now,
+		Correlation: Correlation{ActivityID: "activity-a", WorkspaceID: "ws_01K00000000000000000000000"},
+		SubjectRef:  "scope-a", Summary: "set",
+	}
+	if err := obligation.Validate(); err != nil {
+		t.Fatalf("mutation scope obligation invalid: %v", err)
+	}
+}

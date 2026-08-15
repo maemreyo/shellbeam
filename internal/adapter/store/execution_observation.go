@@ -212,6 +212,9 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 			if result.Err != nil {
 				return result.Err
 			}
+			if obligation.Kind == observation.EventMutationScopeChanged {
+				r.removeMutationScopeObservationProofBestEffort(obligation.ChangeSeq)
+			}
 		}
 		if len(batch) < MaxObservationListRecords {
 			return nil
@@ -221,7 +224,7 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 
 func reconcilableObservationKind(kind observation.EventKind) bool {
 	switch kind {
-	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved, observation.EventEvidenceValidityChanged:
+	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved, observation.EventEvidenceValidityChanged, observation.EventMutationScopeChanged:
 		return true
 	default:
 		return false
@@ -250,6 +253,8 @@ func (r *Repository) observationSubjectPresent(ctx context.Context, obligation o
 		return r.evidenceArtifactSubjectPresent(ctx, obligation.SubjectRef)
 	case observation.EventEvidenceValidityChanged:
 		return r.evidenceValiditySubjectPresent(ctx, obligation.SubjectRef)
+	case observation.EventMutationScopeChanged:
+		return r.mutationScopeObservationSubjectPresent(obligation)
 	default:
 		return false, nil
 	}

@@ -35,6 +35,7 @@ const (
 	EventCodeDiagnosticsChanged     EventKind = "code_diagnostics_changed"
 	EventTelemetryChanged           EventKind = "telemetry_changed"
 	EventReproRecorded              EventKind = "repro_recorded"
+	EventMutationScopeChanged       EventKind = "mutation_scope_changed"
 
 	ContinuityComplete         Continuity = "complete"
 	ContinuitySnapshotRequired Continuity = "snapshot_required"
@@ -63,7 +64,7 @@ type Event struct {
 }
 
 func InitialEventKinds() []EventKind {
-	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded}
+	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded, EventMutationScopeChanged}
 }
 
 func (e Event) Validate() error {
