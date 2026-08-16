@@ -29,6 +29,20 @@ type codeIntelligenceRuntime struct {
 	providers *appcodeintel.ProviderManager
 }
 
+func composeCodeIntelligenceRuntime(
+	workspaces appcodeintel.WorkspaceLookup,
+	sampler appcodeintel.WorkspaceSampler,
+	activities appcodeintel.ActivitySelector,
+	coherence appcodeintel.CoherenceSource,
+	factory codeProviderFactory,
+	resolver codeProviderResolver,
+) (*codeIntelligenceRuntime, error) {
+	if factory == nil && resolver == nil {
+		return newCodeIntelligenceRuntime(workspaces, sampler, activities, coherence)
+	}
+	return newCodeIntelligenceRuntimeWithProvider(workspaces, sampler, activities, coherence, factory, resolver)
+}
+
 func newCodeIntelligenceRuntime(
 	workspaces appcodeintel.WorkspaceLookup,
 	sampler appcodeintel.WorkspaceSampler,

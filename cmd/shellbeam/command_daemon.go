@@ -13,6 +13,7 @@ import (
 	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
+	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
@@ -24,6 +25,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
+	shellconfig "github.com/maemreyo/shellbeam/internal/config"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
@@ -48,6 +50,10 @@ func runDaemon(ctx context.Context, args []string) error {
 }
 
 func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFactory codeProviderFactory, providerResolver codeProviderResolver) error {
+	return runDaemonWithProviders(ctx, args, providerFactory, providerResolver, nil)
+}
+
+func runDaemonWithProviders(ctx context.Context, args []string, providerFactory codeProviderFactory, providerResolver codeProviderResolver, checkpointFactory checkpointProviderFactory) error {
 	cfg, paths, err := loadCommon("daemon", args)
 	if err != nil {
 		return err
@@ -72,27 +78,15 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		return err
 	}
 	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
-	catalog := daemonCatalog(capability.Limits{
-		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
-		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
-		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
-	})
-	catalog = persistentSessionCatalog(catalog, cfg.MaxConcurrentSessions, cfg.MaxSessionOutputBytes, cfg.MaxQueuedInputSessionBytes)
-	if mutationScopeSvc != nil {
-		catalog = mutationScopeCatalog(catalog)
-	}
+	catalog := composeDaemonCatalog(cfg, mutationScopeSvc != nil)
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
 	coherence := workspaceapp.NewCoherenceTracker(incarnation)
 	deltaSampler := workspaceapp.NewDeltaSampler(store, gitRepo, coherence)
+	checkpointSvc, catalog := composeSafetyCheckpoints(cfg.ExperimentalCheckpoints, paths.StateDir, paths.RuntimeDir, store, newCheckpointWorkspaceSource(workspaceSvc, workspaceObserver, coherence), catalog, checkpointFactory)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
-	var codeRuntime *codeIntelligenceRuntime
-	if providerFactory == nil && providerResolver == nil {
-		codeRuntime, err = newCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence)
-	} else {
-		codeRuntime, err = newCodeIntelligenceRuntimeWithProvider(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
-	}
+	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
 		return err
 	}
@@ -130,8 +124,21 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	)
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
-	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc}
+	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc}
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, cfg.TerminalRetentionHours, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+}
+
+func composeDaemonCatalog(cfg shellconfig.Config, mutationsAvailable bool) capability.Catalog {
+	catalog := daemonCatalog(capability.Limits{
+		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
+		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
+		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
+	})
+	catalog = persistentSessionCatalog(catalog, cfg.MaxConcurrentSessions, cfg.MaxSessionOutputBytes, cfg.MaxQueuedInputSessionBytes)
+	if mutationsAvailable {
+		catalog = mutationScopeCatalog(catalog)
+	}
+	return catalog
 }
 
 func serveDaemonRuntime(
@@ -156,11 +163,7 @@ func serveDaemonRuntime(
 	defer server.Close()
 	startupCtx, cancelStartup := context.WithCancel(ctx)
 	defer cancelStartup()
-	serveDone := make(chan error, 1)
-	go func() {
-		serveDone <- server.Serve()
-		cancelStartup()
-	}()
+	serveDone := startDaemonServer(server, cancelStartup)
 	if err = store.AbandonUnresolved(startupCtx, incarnation); err != nil {
 		select {
 		case serveErr := <-serveDone:
@@ -216,6 +219,15 @@ func serveDaemonRuntime(
 	return <-serveDone
 }
 
+func startDaemonServer(server *ipcadapter.Server, cancelStartup context.CancelFunc) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Serve()
+		cancelStartup()
+	}()
+	return done
+}
+
 func shutdownObservation(runtime *executionObservationRuntime, grace time.Duration) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*grace)
 	defer cancel()
@@ -268,6 +280,7 @@ type daemonActions struct {
 	output         *outputview.Service
 	code           daemonCodeInspector
 	mutationScopes mutationScopeCoordinator
+	checkpoints    *checkpointapp.Service
 }
 
 func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {

@@ -16,6 +16,7 @@ type Config struct {
 	RuntimeDir                 string                         `toml:"runtime_dir" json:"runtime_dir"`
 	StateDir                   string                         `toml:"state_dir" json:"state_dir"`
 	Shell                      string                         `toml:"shell" json:"shell"`
+	ExperimentalCheckpoints    bool                           `toml:"experimental_checkpoints" json:"experimental_checkpoints"`
 	MaxConcurrentSessions      int                            `toml:"max_concurrent_sessions" json:"max_concurrent_sessions"`
 	DefaultYieldMS             int64                          `toml:"default_yield_ms" json:"default_yield_ms"`
 	MaxYieldMS                 int64                          `toml:"max_yield_ms" json:"max_yield_ms"`
@@ -41,7 +42,7 @@ type Config struct {
 }
 
 func Defaults() Config {
-	return Config{SchemaVersion: 1, MaxConcurrentSessions: 4, DefaultYieldMS: 10000, MaxYieldMS: 30000, DefaultMaxOutputBytes: 20000, MaxResponseOutputBytes: 262144, MaxCommandBytes: 32768, MaxStdinCallBytes: 65536, MaxQueuedInputSessionBytes: 262144, MaxQueuedInputTotalBytes: 1048576, MaxSessionOutputBytes: 268435456, MaxTotalStateBytes: 10737418240, MinFreeSpaceBytes: 536870912, ControlReserveSessionBytes: 1048576, TerminalRetentionHours: 168, MaxTimeoutMS: 86400000, DefaultTimeoutMS: 600000, TerminationGraceMS: 5000, FinalizeRetryMinMS: 100, FinalizeRetryMaxMS: 5000}
+	return Config{SchemaVersion: 1, ExperimentalCheckpoints: false, MaxConcurrentSessions: 4, DefaultYieldMS: 10000, MaxYieldMS: 30000, DefaultMaxOutputBytes: 20000, MaxResponseOutputBytes: 262144, MaxCommandBytes: 32768, MaxStdinCallBytes: 65536, MaxQueuedInputSessionBytes: 262144, MaxQueuedInputTotalBytes: 1048576, MaxSessionOutputBytes: 268435456, MaxTotalStateBytes: 10737418240, MinFreeSpaceBytes: 536870912, ControlReserveSessionBytes: 1048576, TerminalRetentionHours: 168, MaxTimeoutMS: 86400000, DefaultTimeoutMS: 600000, TerminationGraceMS: 5000, FinalizeRetryMinMS: 100, FinalizeRetryMaxMS: 5000}
 }
 
 func (c Config) Validate() error {
