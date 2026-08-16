@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
@@ -57,6 +58,23 @@ type Repository struct {
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
 	now                      func() time.Time
+
+	admissionMu sync.Mutex
+	admission   admissionLedger
+	// activeSessions holds the ids currently occupying a capacity slot. It is
+	// bounded by live sessions, not by history.
+	activeSessions map[string]struct{}
+	// reconcileOverlay is non-nil only while a reconciliation scan is in
+	// flight, capturing transitions the scan cannot have observed.
+	reconcileOverlay     map[string]bool
+	admissionPersistedAt time.Time
+	stateBytesScannedAt  time.Time
+	stateBytesDelta      int64
+	stateBytesRefreshing bool
+	stateBytesRefreshWG  sync.WaitGroup
+	// fullScans counts full-tree scans of the state store. Admission must not
+	// increment it; the regression test asserts that.
+	fullScans atomic.Uint64
 }
 
 const (
@@ -146,6 +164,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 		}
 	}
 	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, now: func() time.Time { return time.Now().UTC() }}
+	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
 	if err := repository.initObservationStore(); err != nil {
 		return nil, err
 	}
@@ -168,6 +187,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initPersistentSessionStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initAdmissionLedger(); err != nil {
 		return nil, err
 	}
 	return repository, nil
@@ -223,6 +245,9 @@ func (r *Repository) AppendOutput(ctx context.Context, id operation.SessionID, b
 	n, result := appendOutputBytes(path, b)
 	r.finishOutputObservation(seq, path, start, start+int64(len(b)), result)
 	result.ObservationSeq = uint64(seq)
+	// Session output is the dominant source of state growth, so it is the one
+	// writer the advisory byte total tracks incrementally.
+	r.addStateBytes(int64(n))
 	return n, result
 }
 
@@ -309,12 +334,22 @@ func readStrict(path string, out any) error {
 	return nil
 }
 
-func (r *Repository) usage() (active int, bytes int64, err error) {
-	err = filepath.Walk(r.root, func(path string, info os.FileInfo, e error) error {
+// scanActiveSessions derives the admission index from a full scan of the state
+// store: which sessions still occupy a capacity slot, and how many bytes the
+// store holds.
+//
+// It costs O(history) -- a stat of every file plus a strict decode of every
+// session metadata document -- so it belongs to reconciliation only, never to
+// the admission path. See admission.go.
+func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
+	r.fullScans.Add(1)
+	active := map[string]struct{}{}
+	var bytes int64
+	err := filepath.Walk(r.root, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
 			return e
 		}
-		if info.Mode().IsRegular() {
+		if info.Mode().IsRegular() && !isAdmissionIndex(path) {
 			bytes += info.Size()
 		}
 		if filepath.Base(path) == "metadata.json" {
@@ -323,12 +358,19 @@ func (r *Repository) usage() (active int, bytes int64, err error) {
 				return e
 			}
 			if !s.State.Terminal() {
-				active++
+				active[filepath.Base(filepath.Dir(path))] = struct{}{}
 			}
 		}
 		return nil
 	})
-	return
+	return active, bytes, err
+}
+
+// usage reports the same quantities as counts, for callers that only compare
+// totals.
+func (r *Repository) usage() (int, int64, error) {
+	active, bytes, err := r.scanActiveSessions()
+	return len(active), bytes, err
 }
 
 func (r *Repository) Compact(_ context.Context, id operation.SessionID) app.StoreResult {
@@ -356,5 +398,6 @@ func (r *Repository) Compact(_ context.Context, id operation.SessionID) app.Stor
 	if err := os.Remove(path); err != nil {
 		return app.StoreResult{Durability: app.DurableChange, Err: err}
 	}
+	r.addStateBytes(-info.Size())
 	return app.StoreResult{Durability: app.DurableChange}
 }

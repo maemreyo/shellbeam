@@ -59,7 +59,10 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 			return got.Err
 		}
 	}
-	return nil
+	// Startup recovery is the one moment the store is quiescent, so it is where
+	// the admission index is re-derived from the state store itself. Every
+	// later admission reads the counters instead of rescanning.
+	return r.ReconcileAdmission()
 }
 
 func (r *Repository) repairCommittedOperations(ctx context.Context) error {

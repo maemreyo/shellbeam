@@ -31,7 +31,7 @@ func (r *Repository) ReserveTypedIntent(ctx context.Context, want operation.Type
 	} else if !errors.Is(err, ErrNotFound) {
 		return operation.TypedIntentClaim{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	_, used, err := r.usage()
+	_, used, err := r.admissionCounters()
 	if err != nil {
 		return operation.TypedIntentClaim{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}

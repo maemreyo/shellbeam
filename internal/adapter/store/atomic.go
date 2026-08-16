@@ -10,6 +10,12 @@ import (
 
 type atomicWriter struct {
 	fail func(string) error
+	// onBytes reports the size of each durable JSON write to the admission
+	// index. Replaces report their full size rather than their growth, and
+	// deletions are not reported at all, so the running total is an
+	// overestimate -- the safe direction for a budget guard, and corrected by
+	// the periodic exact re-derive.
+	onBytes func(int64)
 }
 
 func (w atomicWriter) Replace(path string, v any) app.StoreResult {
@@ -70,6 +76,9 @@ func (w atomicWriter) tempJSON(kind, path string, v any) (string, app.StoreResul
 		return "", app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	ok = true
+	if w.onBytes != nil {
+		w.onBytes(int64(len(b) + 1))
+	}
 	return name, app.StoreResult{Durability: app.DurableChange}
 }
 

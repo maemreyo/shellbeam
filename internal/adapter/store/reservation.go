@@ -37,7 +37,7 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	if err := validateReservation(want); err != nil {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	active, used, err := r.usage()
+	active, used, err := r.admissionCounters()
 	if err != nil {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
@@ -190,7 +190,7 @@ func (r *Repository) ensureSessionMetadata(v operation.Reservation) app.StoreRes
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	snap := session.Snapshot{SchemaVersion: 1, OperationID: string(v.OperationID), SessionID: string(v.SessionID), DaemonIncarnation: v.DaemonIncarnation, State: session.Starting, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
-	return r.writer.Replace(path, snap)
+	return r.writeSessionMetadata(string(v.SessionID), snap)
 }
 
 func ensurePrivateDir(path string) error {

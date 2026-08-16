@@ -16,7 +16,7 @@ import (
 )
 
 func (r *Repository) AdvanceSession(_ context.Context, v session.Snapshot) app.StoreResult {
-	return r.writer.Replace(filepath.Join(r.root, "sessions", v.SessionID, "metadata.json"), v)
+	return r.writeSessionMetadata(v.SessionID, v)
 }
 
 func (r *Repository) PublishTerminal(ctx context.Context, v receipt.Receipt) app.StoreResult {
@@ -72,7 +72,7 @@ func (r *Repository) repairTerminalMetadata(v receipt.Receipt) app.StoreResult {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	want := session.Snapshot{SchemaVersion: 1, OperationID: v.OperationID, SessionID: v.SessionID, DaemonIncarnation: v.DaemonIncarnation, State: v.State, Outcome: v.Outcome, OutputBytes: v.OutputBytes, OutputAvailable: true, UpdatedAt: time.Now().UTC()}
-	return r.writer.Replace(path, want)
+	return r.writeSessionMetadata(v.SessionID, want)
 }
 
 func terminalSnapshotMatches(s session.Snapshot, v receipt.Receipt) bool {
