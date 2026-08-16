@@ -118,3 +118,73 @@ func validGeneration(value string) bool {
 	_, err := hex.DecodeString(strings.TrimPrefix(value, "gen_"))
 	return err == nil
 }
+
+type WorkspaceContext struct {
+	WorkspaceID      string `json:"workspace_id"`
+	RepositoryID     string `json:"repository_id"`
+	Root             string `json:"-"`
+	SourceGeneration string `json:"source_generation"`
+}
+
+type WorkspaceSource interface {
+	ResolveFresh(context.Context, string) (WorkspaceContext, error)
+	InvalidateAfterMutation(context.Context, string) error
+}
+
+type CaptureRequest struct {
+	CheckpointID     string
+	WorkspaceID      string
+	RepositoryID     string
+	ActivityID       string
+	Root             string
+	SourceGeneration string
+	Paths            []string
+}
+
+type CaptureResult struct {
+	CapturedPathCount int                 `json:"captured_path_count"`
+	Excluded          []core.PathSummary  `json:"excluded,omitempty"`
+	Unsupported       []core.PathSummary  `json:"unsupported,omitempty"`
+	TotalBytes        int64               `json:"total_bytes"`
+	CaptureQuality    core.CaptureQuality `json:"capture_quality"`
+	OpaqueEntryRefs   []string            `json:"opaque_entry_refs,omitempty"`
+}
+
+type ProviderRestoreRequest struct {
+	RestoreID    string
+	CheckpointID string
+	WorkspaceID  string
+	Root         string
+	Paths        []string
+}
+
+type ProviderRestoreResult struct {
+	Paths []core.RestorePathResult
+}
+
+type ProviderCheckpointStatus struct {
+	CheckpointID   string
+	RetentionState core.RetentionState
+	Available      bool
+}
+
+type SweepRequest struct {
+	Now            time.Time
+	MaxCheckpoints int
+	MaxBytes       int64
+	MaxAge         time.Duration
+}
+
+type SweepResult struct {
+	ExpiredCheckpointIDs []string
+	FreedBytes           int64
+}
+
+type Provider interface {
+	Identity() core.ProviderIdentity
+	ConflictDetection() core.ConflictDetection
+	Capture(context.Context, CaptureRequest) (CaptureResult, error)
+	Restore(context.Context, ProviderRestoreRequest) (ProviderRestoreResult, error)
+	Inspect(context.Context, string) (ProviderCheckpointStatus, error)
+	Sweep(context.Context, SweepRequest) (SweepResult, error)
+}
