@@ -12,6 +12,7 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	persistentapp "github.com/maemreyo/shellbeam/internal/app/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -33,6 +34,19 @@ func TestPersistentStartupReattachesSameSessionAndExposesCurrentPIDOnlyAfterProo
 	}
 	if runtime.ensureCalls.Load() != 0 || runtime.reattachCalls.Load() != 1 {
 		t.Fatalf("ensure=%d reattach=%d", runtime.ensureCalls.Load(), runtime.reattachCalls.Load())
+	}
+	obligations, eventErr := store.ListObservationObligations(context.Background(), 0, 100)
+	if eventErr != nil {
+		t.Fatal(eventErr)
+	}
+	reattachedEvents := 0
+	for _, item := range obligations {
+		if item.Kind == observation.EventPersistentSessionReattached && item.State == observation.ObligationCommitted {
+			reattachedEvents++
+		}
+	}
+	if reattachedEvents != 1 {
+		t.Fatalf("reattached events=%d obligations=%#v", reattachedEvents, obligations)
 	}
 	resolved, err := svc.ResolveProcessSession(context.Background(), binding.SessionID)
 	if err != nil || !resolved.Known || !resolved.Current || resolved.PID != 4343 {

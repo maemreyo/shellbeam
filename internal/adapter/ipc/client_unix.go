@@ -67,7 +67,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -110,6 +110,17 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
 		req.ActivityID = in.ActivityID
+	case "inspect.sessions":
+		req.SessionName = in.SessionInspect.SessionName
+		req.ActivityID = in.SessionInspect.ActivityID
+		req.WorkspaceID = in.SessionInspect.WorkspaceID
+		req.State = in.SessionInspect.State
+		if in.SessionInspect.PersistentOnly != nil {
+			value := *in.SessionInspect.PersistentOnly
+			req.PersistentOnly = &value
+		}
+		req.MaxRecords = in.SessionInspect.Limit
+		req.Continuation = in.SessionInspect.Cursor
 	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		applyMutationScopeV2(&req, in)
 	case "inspect.events":
@@ -181,6 +192,8 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.Evidence = in.Start.Evidence
 	req.CWD = in.Start.CWD
 	req.TTY = in.Start.TTY
+	req.Persistent = in.Start.Persistent
+	req.SessionName = in.Start.SessionName
 	req.TimeoutMS = in.Start.TimeoutMS
 	req.YieldMS = in.Start.YieldMS
 	req.MaxOutputBytes = in.Start.MaxOutputBytes

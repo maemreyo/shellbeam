@@ -124,7 +124,7 @@ func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, bindi
 	spec := persistentExecutionSpec(reservation)
 	live := &liveSession{
 		operationID: string(reservation.OperationID), activityID: reservation.ActivityID, sessionID: binding.SessionID,
-		reservation: reservation, spec: spec, workspace: workspaceObservation{pre: receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled}}, state: session.Running, handle: result.Handle, spawn: result.Spawn, persistent: true,
+		reservation: reservation, spec: spec, workspace: workspaceObservation{pre: receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled}}, state: session.Running, handle: result.Handle, spawn: result.Spawn, persistent: true, persistentReattached: true,
 		input: session.NewInputLedger(s.options.MaxQueuedInputBytes, false), kills: session.NewKillLedger(),
 		changed: make(chan struct{}), done: make(chan struct{}),
 	}
@@ -139,7 +139,7 @@ func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, bindi
 			SchemaVersion: 1, OperationID: string(reservation.OperationID), SessionID: binding.SessionID,
 			DaemonIncarnation: s.options.Incarnation, State: session.Running, OutputAvailable: true, UpdatedAt: time.Now().UTC(),
 		}
-		if stored := s.store.AdvanceSession(ctx, snapshot); stored.Err != nil {
+		if stored := s.advancePersistentReattachedSession(ctx, snapshot); stored.Err != nil {
 			s.remove(binding.SessionID)
 			s.endManagedShell(live)
 			return stored.Err
@@ -210,4 +210,14 @@ func persistentStartupLossReason(err error) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func (s *Service) advancePersistentReattachedSession(ctx context.Context, snapshot session.Snapshot) StoreResult {
+	type reattachStore interface {
+		AdvancePersistentReattachedSession(context.Context, session.Snapshot) StoreResult
+	}
+	if store, ok := s.store.(reattachStore); ok {
+		return store.AdvancePersistentReattachedSession(ctx, snapshot)
+	}
+	return s.store.AdvanceSession(ctx, snapshot)
 }

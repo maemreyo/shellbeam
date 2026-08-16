@@ -21,21 +21,25 @@ type EventKind string
 type Continuity string
 
 const (
-	EventWorkspaceGenerationChanged EventKind = "workspace_generation_changed"
-	EventOperationAdmitted          EventKind = "operation_admitted"
-	EventProcessStarted             EventKind = "process_started"
-	EventOutputAvailable            EventKind = "output_available"
-	EventProcessTerminal            EventKind = "process_terminal"
-	EventEvidenceRecorded           EventKind = "evidence_recorded"
-	EventEvidenceValidityChanged    EventKind = "evidence_validity_changed"
-	EventArtifactObserved           EventKind = "artifact_observed"
-	EventManifestStatusChanged      EventKind = "manifest_status_changed"
-	EventSessionHealthChanged       EventKind = "session_health_changed"
-	EventStructuredChanged          EventKind = "structured_results_changed"
-	EventCodeDiagnosticsChanged     EventKind = "code_diagnostics_changed"
-	EventTelemetryChanged           EventKind = "telemetry_changed"
-	EventReproRecorded              EventKind = "repro_recorded"
-	EventMutationScopeChanged       EventKind = "mutation_scope_changed"
+	EventWorkspaceGenerationChanged  EventKind = "workspace_generation_changed"
+	EventOperationAdmitted           EventKind = "operation_admitted"
+	EventProcessStarted              EventKind = "process_started"
+	EventOutputAvailable             EventKind = "output_available"
+	EventProcessTerminal             EventKind = "process_terminal"
+	EventEvidenceRecorded            EventKind = "evidence_recorded"
+	EventEvidenceValidityChanged     EventKind = "evidence_validity_changed"
+	EventArtifactObserved            EventKind = "artifact_observed"
+	EventManifestStatusChanged       EventKind = "manifest_status_changed"
+	EventSessionHealthChanged        EventKind = "session_health_changed"
+	EventStructuredChanged           EventKind = "structured_results_changed"
+	EventCodeDiagnosticsChanged      EventKind = "code_diagnostics_changed"
+	EventTelemetryChanged            EventKind = "telemetry_changed"
+	EventReproRecorded               EventKind = "repro_recorded"
+	EventMutationScopeChanged        EventKind = "mutation_scope_changed"
+	EventPersistentSessionStarted    EventKind = "persistent_session_started"
+	EventPersistentSessionReattached EventKind = "persistent_session_reattached"
+	EventPersistentSessionTerminal   EventKind = "persistent_session_terminal"
+	EventPersistentSessionLost       EventKind = "persistent_session_lost"
 
 	ContinuityComplete         Continuity = "complete"
 	ContinuitySnapshotRequired Continuity = "snapshot_required"
@@ -64,7 +68,7 @@ type Event struct {
 }
 
 func InitialEventKinds() []EventKind {
-	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded, EventMutationScopeChanged}
+	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded, EventMutationScopeChanged, EventPersistentSessionStarted, EventPersistentSessionReattached, EventPersistentSessionTerminal, EventPersistentSessionLost}
 }
 
 func (e Event) Validate() error {

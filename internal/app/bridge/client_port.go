@@ -19,6 +19,7 @@ import (
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -51,6 +52,7 @@ type Request struct {
 	ReproCreate          reprocore.CreateRequest
 	ReproID              string
 	OutputRead           outputview.Request
+	SessionInspect       persistent.InspectRequest
 }
 type Response struct {
 	View                   daemon.View
@@ -73,6 +75,7 @@ type Response struct {
 	Repro                  *reproapp.InspectResult
 	CodeResult             *codeintel.Result
 	OutputView             *outputview.Result
+	Sessions               *persistent.InspectPage
 	Code                   string
 	Message                string
 	Retryable              bool

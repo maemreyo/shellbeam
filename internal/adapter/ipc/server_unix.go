@@ -17,6 +17,7 @@ import (
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -38,6 +39,10 @@ type Actions interface {
 
 type OutputViewActions interface {
 	ReadOutputView(context.Context, outputview.Request) (outputview.Result, error)
+}
+
+type SessionInspectActions interface {
+	InspectSessions(context.Context, persistent.InspectRequest) (persistent.InspectPage, error)
 }
 
 type EventActions interface {
@@ -245,7 +250,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 	resp := ResponseV2{IPVersion: ipcV2, Kind: "response", RequestID: req.RequestID, Action: req.Action}
 	switch req.Action {
 	case "start":
-		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, Evidence: req.Evidence, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		view, callErr := s.actions.Start(r.Context(), app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, Evidence: req.Evidence, CWD: req.CWD, TTY: req.TTY, Persistent: req.Persistent, SessionName: req.SessionName, TimeoutMS: req.TimeoutMS, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
 		err = callErr
 		if err == nil {
 			result, resultErr := view.StructuredResult()
@@ -298,7 +303,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			resp.Capsule = &capsule
 		}
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
 	resp.OK = err == nil
@@ -315,7 +320,7 @@ func clearResponseV2Payload(resp *ResponseV2) {
 	resp.Environment, resp.Process, resp.Mutation, resp.MutationScopes = nil, nil, nil, nil
 	resp.ActiveMutationScopes, resp.MutationScopeAdvisories = nil, nil
 	resp.MutationScopesTruncated, resp.MutationScopeAdvisoriesTruncated = false, false
-	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView = nil, nil, nil, nil, nil
+	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView, resp.Sessions = nil, nil, nil, nil, nil, nil
 }
 
 func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
@@ -334,6 +339,8 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		return err
 	case "inspect.activity":
 		return s.inspectActivityV2(ctx, req, resp)
+	case "inspect.sessions":
+		return s.inspectSessionsV2(ctx, req, resp)
 	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		return s.mutationScopeV2(ctx, req, resp)
 	case "inspect.project", "inspect.readiness":

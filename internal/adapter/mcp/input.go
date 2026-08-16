@@ -20,6 +20,7 @@ import (
 	mutationcore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
@@ -46,6 +47,8 @@ type input struct {
 	IncludePorts        bool                              `json:"include_ports,omitempty"`
 	CWD                 string                            `json:"cwd,omitempty"`
 	TTY                 bool                              `json:"tty,omitempty"`
+	Persistent          bool                              `json:"persistent,omitempty"`
+	SessionName         string                            `json:"session_name,omitempty"`
 	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
 	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
@@ -64,6 +67,8 @@ type input struct {
 	Severity            structuredcore.Severity           `json:"severity,omitempty"`
 	Path                string                            `json:"path,omitempty"`
 	TestStatus          structuredcore.TestStatus         `json:"test_status,omitempty"`
+	State               string                            `json:"state,omitempty"`
+	PersistentOnly      *bool                             `json:"persistent_only,omitempty"`
 	Continuation        string                            `json:"continuation,omitempty"`
 	MaxRecords          int                               `json:"max_records,omitempty"`
 	EvidenceID          string                            `json:"evidence_id,omitempty"`
@@ -106,6 +111,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 		}
 		return validateV2(v)
 	}
+	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
+		return fmt.Errorf("persistent sessions require modern protocol")
+	}
 	if v.Action == "inspect.server" {
 		if err := validateV2FieldSet(v.Action, raw); err != nil {
 			return err
@@ -127,6 +135,8 @@ func validateV2(v input) error {
 	case "inspect.activity":
 		_, err := activity.ParseID(v.ActivityID)
 		return err
+	case "inspect.sessions":
+		return validateSessionInspectInput(v)
 	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		return validateMutationScopeInput(v)
 	case "inspect.code":
@@ -240,6 +250,17 @@ func validateStartV2(v input) error {
 	}
 	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
 		return fmt.Errorf("invalid structured adapter")
+	}
+	if v.SessionName != "" {
+		if !v.Persistent {
+			return fmt.Errorf("session_name requires persistent")
+		}
+		if err := persistent.ValidateSessionName(v.SessionName); err != nil {
+			return err
+		}
+	}
+	if v.Persistent && v.TTY {
+		return fmt.Errorf("persistent tty unsupported")
 	}
 	return validateNonNegative(v)
 }
@@ -393,7 +414,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":
@@ -408,6 +429,8 @@ func v2ActionFields(action string) []string {
 		return []string{"workspace_id"}
 	case "inspect.activity":
 		return []string{"activity_id"}
+	case "inspect.sessions":
+		return []string{"session_name", "activity_id", "workspace_id", "state", "persistent_only", "continuation", "max_records"}
 	case "mutation_scope.set":
 		return []string{"mutation_id", "scope_id", "activity_id", "workspace_id", "mode", "paths", "ttl_ms"}
 	case "mutation_scope.release":

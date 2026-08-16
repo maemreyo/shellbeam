@@ -64,6 +64,7 @@ type liveSession struct {
 	doneOnce                sync.Once
 	coherenceLease          ManagedShellLease
 	persistent              bool
+	persistentReattached    bool
 	persistentCancel        context.CancelFunc
 	persistentReconcileDone chan struct{}
 }

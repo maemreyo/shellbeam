@@ -139,15 +139,15 @@ Files: modify store reconcile; app persistent reconcile; daemon shutdown/process
 
 Files: create app inspect; modify observation event kinds; store events; IPC/MCP/schema; daemon composition/tests.
 
-- [ ] RED closed-schema tests for modern start fields and inspect.sessions; legacy generations reject/omit B1 additions.
-- [ ] inspect.sessions exact filters: session_name, activity_id, workspace_id, state, persistent_only default true, opaque continuation, max records 25 default/100 max.
-- [ ] Inspect reads canonical metadata + already-established attachment cache only; no handshake/OS/Git/filesystem/network scan.
-- [ ] Direct sessions may appear only when persistent_only=false; never gain names/reattach semantics.
-- [ ] Capability becomes available only after canonical registry + supervisor runtime/auth + startup reconciliation + inspect projection are composed. Advertise exact versions/limits from spec.
-- [ ] Add exactly-once safe events: persistent_session_started, persistent_session_reattached, persistent_session_terminal, persistent_session_lost; no heartbeat/reconnect event.
-- [ ] MCP remains exactly one public tool; guidance says resolve forgotten name via inspect, then control by session_id.
-- [ ] Schema/race/one-tool tests.
-- [ ] Commit: feat: expose persistent session discovery
+- [x] RED closed-schema tests for modern start fields and inspect.sessions; legacy generations reject/omit B1 additions.
+- [x] inspect.sessions exact filters: session_name, activity_id, workspace_id, state, persistent_only default true, opaque continuation, max records 25 default/100 max.
+- [x] Inspect reads canonical metadata + already-established attachment cache only; no handshake/OS/Git/filesystem/network scan.
+- [x] Direct sessions may appear only when persistent_only=false; never gain names/reattach semantics.
+- [x] Capability becomes available only after canonical registry + supervisor runtime/auth + startup reconciliation + inspect projection are composed. Advertise exact versions/limits from spec.
+- [x] Add exactly-once safe events: persistent_session_started, persistent_session_reattached, persistent_session_terminal, persistent_session_lost; no heartbeat/reconnect event.
+- [x] MCP remains exactly one public tool; guidance says resolve forgotten name via inspect, then control by session_id.
+- [x] Schema/race/one-tool tests.
+- [x] Commit: feat: expose persistent session discovery
 
 ### Task 9 - Native crash/restart/privacy/performance acceptance
 

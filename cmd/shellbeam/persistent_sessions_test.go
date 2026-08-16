@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	persistentapp "github.com/maemreyo/shellbeam/internal/app/persistentsession"
@@ -165,3 +166,5 @@ func (r *cmdStartupRuntime) Reattach(context.Context, persistentcore.Binding) (d
 	r.reattachCalls.Add(1)
 	return daemonapp.PersistentReattach{}, r.reattachErr
 }
+
+var _ ipcadapter.SessionInspectActions = (*daemonActions)(nil)

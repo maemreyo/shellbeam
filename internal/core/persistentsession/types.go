@@ -68,7 +68,7 @@ type InspectRequest struct {
 	ActivityID     string `json:"activity_id,omitempty"`
 	WorkspaceID    string `json:"workspace_id,omitempty"`
 	State          string `json:"state,omitempty"`
-	PersistentOnly bool   `json:"persistent_only"`
+	PersistentOnly *bool  `json:"persistent_only,omitempty"`
 	Limit          int    `json:"max_records,omitempty"`
 	Cursor         string `json:"continuation,omitempty"`
 }

@@ -158,7 +158,7 @@ func persistentListingFixture(t *testing.T) (*Repository, string) {
 
 func TestListPersistentBindingsPaginatesDeterministically(t *testing.T) {
 	r, root := persistentListingFixture(t)
-	request := persistent.InspectRequest{PersistentOnly: true, Limit: 2}
+	request := persistent.InspectRequest{PersistentOnly: persistentBool(true), Limit: 2}
 	first, err := r.ListPersistentBindings(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -183,38 +183,38 @@ func TestListPersistentBindingsPaginatesDeterministically(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := reopened.ListPersistentBindings(context.Background(), persistent.InspectRequest{PersistentOnly: true, Limit: 1, Cursor: first.Continuation}); err != nil {
+	if _, err := reopened.ListPersistentBindings(context.Background(), persistent.InspectRequest{PersistentOnly: persistentBool(true), Limit: 1, Cursor: first.Continuation}); err != nil {
 		t.Fatalf("cursor did not survive reopen: %v", err)
 	}
 }
 
 func TestListPersistentBindingsFiltersAndBindsCursor(t *testing.T) {
 	r, _ := persistentListingFixture(t)
-	exact, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{SessionName: "beta", PersistentOnly: true})
+	exact, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{SessionName: "beta", PersistentOnly: persistentBool(true)})
 	if err != nil || !reflect.DeepEqual(bindingIDs(exact), []string{"persistent-session-b"}) {
 		t.Fatalf("exact=%v err=%v", bindingIDs(exact), err)
 	}
-	activity, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{ActivityID: "activity-a", WorkspaceID: "ws_01K00000000000000000000000", PersistentOnly: true})
+	activity, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{ActivityID: "activity-a", WorkspaceID: "ws_01K00000000000000000000000", PersistentOnly: persistentBool(true)})
 	if err != nil || !reflect.DeepEqual(bindingIDs(activity), []string{"persistent-session-a", "persistent-session-b"}) {
 		t.Fatalf("activity=%v err=%v", bindingIDs(activity), err)
 	}
-	lost, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{State: string(persistent.LifecycleLost), PersistentOnly: true})
+	lost, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{State: string(persistent.LifecycleLost), PersistentOnly: persistentBool(true)})
 	if err != nil || !reflect.DeepEqual(bindingIDs(lost), []string{"persistent-session-d"}) {
 		t.Fatalf("lost=%v err=%v", bindingIDs(lost), err)
 	}
-	bound := persistent.InspectRequest{PersistentOnly: true, Limit: 1}
+	bound := persistent.InspectRequest{PersistentOnly: persistentBool(true), Limit: 1}
 	page, err := r.ListPersistentBindings(context.Background(), bound)
 	if err != nil || page.Continuation == "" {
 		t.Fatalf("page=%#v err=%v", page, err)
 	}
-	if _, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{SessionName: "alpha", PersistentOnly: true, Limit: 1, Cursor: page.Continuation}); failure.Public(err).Code != failure.InvalidInput {
+	if _, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{SessionName: "alpha", PersistentOnly: persistentBool(true), Limit: 1, Cursor: page.Continuation}); failure.Public(err).Code != failure.InvalidInput {
 		t.Fatalf("cursor accepted under changed filter: %v", err)
 	}
 	tampered := page.Continuation[:len(page.Continuation)-1] + "x"
-	if _, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{PersistentOnly: true, Limit: 1, Cursor: tampered}); failure.Public(err).Code != failure.InvalidInput {
+	if _, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{PersistentOnly: persistentBool(true), Limit: 1, Cursor: tampered}); failure.Public(err).Code != failure.InvalidInput {
 		t.Fatalf("tampered cursor accepted: %v", err)
 	}
-	if _, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{PersistentOnly: true, Limit: persistent.MaxInspectRows + 1}); failure.Public(err).Code != failure.InvalidInput {
+	if _, err := r.ListPersistentBindings(context.Background(), persistent.InspectRequest{PersistentOnly: persistentBool(true), Limit: persistent.MaxInspectRows + 1}); failure.Public(err).Code != failure.InvalidInput {
 		t.Fatalf("oversized limit accepted: %v", err)
 	}
 }
@@ -290,3 +290,5 @@ func TestAdvancePersistentBindingPreservesIdentityAndLifecycleMonotonicity(t *te
 		t.Fatalf("generation rebound accepted: %#v", got)
 	}
 }
+
+func persistentBool(value bool) *bool { return &value }

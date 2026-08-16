@@ -24,6 +24,7 @@ import (
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -57,6 +58,8 @@ type RequestV2 struct {
 	IncludePorts        bool                              `json:"include_ports,omitempty"`
 	CWD                 string                            `json:"cwd,omitempty"`
 	TTY                 bool                              `json:"tty,omitempty"`
+	Persistent          bool                              `json:"persistent,omitempty"`
+	SessionName         string                            `json:"session_name,omitempty"`
 	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
 	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
@@ -75,6 +78,8 @@ type RequestV2 struct {
 	Severity            structuredcore.Severity           `json:"severity,omitempty"`
 	Path                string                            `json:"path,omitempty"`
 	TestStatus          structuredcore.TestStatus         `json:"test_status,omitempty"`
+	State               string                            `json:"state,omitempty"`
+	PersistentOnly      *bool                             `json:"persistent_only,omitempty"`
 	Continuation        string                            `json:"continuation,omitempty"`
 	MaxRecords          int                               `json:"max_records,omitempty"`
 	EvidenceID          string                            `json:"evidence_id,omitempty"`
@@ -121,6 +126,7 @@ type ResponseV2 struct {
 	Repro                            *reproapp.InspectResult          `json:"repro,omitempty"`
 	Code                             *codeintel.Result                `json:"code,omitempty"`
 	OutputView                       *outputview.Result               `json:"output_view,omitempty"`
+	Sessions                         *persistent.InspectPage          `json:"sessions,omitempty"`
 	Error                            *Error                           `json:"error,omitempty"`
 }
 
@@ -186,7 +192,7 @@ func validateV2FieldSet(data []byte, action string) error {
 func actionFieldsV2(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "timeout_ms", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":
@@ -199,6 +205,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"workspace_id"}
 	case "inspect.activity":
 		return []string{"activity_id"}
+	case "inspect.sessions":
+		return []string{"session_name", "activity_id", "workspace_id", "state", "persistent_only", "continuation", "max_records"}
 	case "mutation_scope.set":
 		return []string{"mutation_id", "scope_id", "activity_id", "workspace_id", "mode", "paths", "ttl_ms"}
 	case "mutation_scope.release":
@@ -267,6 +275,8 @@ func validateRequestV2(v RequestV2) error {
 		if _, err := activity.ParseID(v.ActivityID); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
 		}
+	case "inspect.sessions":
+		return validateSessionInspectV2(v)
 	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		return validateMutationScopeRequestV2(v)
 	case "inspect.structured":
@@ -457,17 +467,6 @@ func validReproIDV2(value string) bool {
 	}
 	return true
 }
-
-func isSupportedV2Action(action string) bool {
-	switch action {
-	case "start", "poll", "write", "kill", "read_output", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
-		return true
-	default:
-		return false
-	}
-}
-
-func isDeferredV2Action(string) bool { return false }
 
 func readBoundedJSON(r io.Reader) ([]byte, error) {
 	limited := io.LimitReader(r, (1<<20)+1)

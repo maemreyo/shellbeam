@@ -28,6 +28,7 @@ import (
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
+	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	projectcore "github.com/maemreyo/shellbeam/internal/core/project"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
@@ -272,6 +273,13 @@ func (a daemonActions) InspectWorkspace(ctx context.Context, workspaceID string)
 
 func (a daemonActions) InspectActivity(ctx context.Context, activityID string) (activitycore.Activity, error) {
 	return a.activity.Inspect(ctx, activityID)
+}
+
+func (a *daemonActions) InspectSessions(ctx context.Context, request persistentcore.InspectRequest) (persistentcore.InspectPage, error) {
+	if a.observation == nil {
+		return persistentcore.InspectPage{}, fmt.Errorf("persistent session inspection unavailable")
+	}
+	return a.observation.InspectSessions(ctx, request)
 }
 
 func (a daemonActions) InspectProject(ctx context.Context, workspaceID string) (projectcore.Inspection, error) {

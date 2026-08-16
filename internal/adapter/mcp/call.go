@@ -15,6 +15,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -70,7 +71,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 	}
 	switch in.Action {
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, MaxOutputBytes: maxOutput}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
 	case "read_output":
@@ -83,6 +84,12 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
 		request.ActivityID = in.ActivityID
+	case "inspect.sessions":
+		request.SessionInspect = persistent.InspectRequest{SessionName: in.SessionName, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, State: in.State, Limit: in.MaxRecords, Cursor: in.Continuation}
+		if in.PersistentOnly != nil {
+			value := *in.PersistentOnly
+			request.SessionInspect.PersistentOnly = &value
+		}
 	case "mutation_scope.set":
 		request.MutationScopeSet = mutationapp.SetRequest{MutationID: in.MutationID, ScopeID: in.ScopeID, ActivityID: in.ActivityID, WorkspaceID: workspacecore.WorkspaceID(in.WorkspaceID), Mode: in.Mode, Paths: append([]string(nil), in.Paths...), TTLMS: in.TTLMS}
 	case "mutation_scope.release":
@@ -210,6 +217,7 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureOutputViews)
 	delete(out.Features, capability.FeatureMutationScopes)
 	out.MutationScopeSchemaVersions = nil
+	stripLegacyPersistentCapabilities(&out)
 	out.Limits.MutationScopeActivePerActivity = 0
 	out.Limits.MutationScopeActivePerWorkspace = 0
 	out.Limits.MutationScopePathsPerScope = 0
@@ -219,6 +227,28 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.Limits.MutationScopeDefaultTTLMS = 0
 	out.Limits.MutationScopeMaxTTLMS = 0
 	return out
+}
+
+func stripLegacyPersistentCapabilities(out *capability.Catalog) {
+	out.PersistentSessionSchemaVersions = nil
+	out.SupervisorProtocolVersions = nil
+	out.PersistentNonTTY = false
+	out.PersistentTTY = false
+	out.PersistentContinuity = ""
+	out.HostRebootContinuity = false
+	delete(out.Features, capability.FeatureNamedSessions)
+	out.Limits.PersistentSessions = 0
+	out.Limits.PersistentSessionNameBytes = 0
+	out.Limits.PersistentSessionInspectRows = 0
+	out.Limits.PersistentSessionInspectDefaultRows = 0
+	out.Limits.PersistentInputRecords = 0
+	out.Limits.PersistentInputRecordMetadataBytes = 0
+	out.Limits.PersistentKillRecords = 0
+	out.Limits.PersistentRecoverySpoolBytes = 0
+	out.Limits.PersistentQueuedInputBytes = 0
+	out.Limits.PersistentReattachHandshakeTimeoutMS = 0
+	out.Limits.PersistentStartupReattachConcurrency = 0
+	out.Limits.PersistentStartupReattachBudgetMS = 0
 }
 
 func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
@@ -240,7 +270,7 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
-	case "inspect.workspace", "inspect.activity", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+	case "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)
 		if failed != nil {
@@ -276,6 +306,8 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 		return "inspect.workspace: " + string(out.Workspace.ID), nil
 	case "inspect.activity":
 		return activitySuccessV2(action, out, body)
+	case "inspect.sessions":
+		return sessionInspectSuccessV2(action, out, body)
 	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		return mutationScopeSuccessV2(action, out, body)
 	case "inspect.project", "inspect.readiness":
@@ -343,6 +375,14 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 	default:
 		return action, nil
 	}
+}
+
+func sessionInspectSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	if out.Sessions == nil {
+		return "", toolErrorV2(action, "invalid_daemon_response", "session inspection missing", false)
+	}
+	body["sessions"] = out.Sessions
+	return fmt.Sprintf("inspect.sessions: %d session(s)", len(out.Sessions.Sessions)), nil
 }
 
 func activitySuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {

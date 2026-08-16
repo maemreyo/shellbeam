@@ -164,16 +164,25 @@ func (r *Repository) AdvancePersistentBinding(ctx context.Context, want persiste
 			return result
 		}
 	}
+	seq, prepared := r.preparePersistentLifecycleObservation(ctx, existing, want)
+	if prepared.Err != nil {
+		return prepared
+	}
 	result := r.writer.Replace(r.persistentBindingPath(sessionID), want)
 	if result.Err != nil {
-		return result
+		r.finishPersistentObservation(seq, result, func() bool {
+			current, loadErr := r.loadPersistentBindingLocked(sessionID)
+			return loadErr == nil && reflect.DeepEqual(current, want)
+		})
+		return withObservationSeq(result, seq)
 	}
+	r.finishPersistentObservation(seq, result, nil)
 	if want.Lifecycle == persistent.LifecycleTerminal || want.Lifecycle == persistent.LifecycleLost {
 		if err := r.removePersistentRecoveryMarkerLocked(sessionID); err != nil {
 			return app.StoreResult{Durability: app.DurableChange, Err: err}
 		}
 	}
-	return result
+	return withObservationSeq(result, seq)
 }
 
 func (r *Repository) LoadPersistentBinding(ctx context.Context, sessionID operation.SessionID) (persistent.Binding, error) {
@@ -435,9 +444,13 @@ func normalizePersistentBindingInspect(request persistent.InspectRequest) (persi
 			return persistentBindingFilter{}, 0, failure.New(failure.InvalidInput, map[string]string{"field": "state", "reason": "invalid_filter"}, nil)
 		}
 	}
+	persistentOnly := true
+	if request.PersistentOnly != nil {
+		persistentOnly = *request.PersistentOnly
+	}
 	return persistentBindingFilter{
 		SessionName: request.SessionName, ActivityID: request.ActivityID, WorkspaceID: request.WorkspaceID,
-		State: request.State, PersistentOnly: request.PersistentOnly,
+		State: request.State, PersistentOnly: persistentOnly,
 	}, limit, nil
 }
 
