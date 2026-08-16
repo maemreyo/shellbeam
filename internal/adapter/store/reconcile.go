@@ -27,6 +27,11 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 		return err
 	}
 	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), gcStagingPrefix) {
+			// A session retention had already withdrawn from view. It is not
+			// state to reconcile; finishing its removal is retention's job.
+			continue
+		}
 		if !entry.IsDir() {
 			return errors.New("unexpected state entry")
 		}

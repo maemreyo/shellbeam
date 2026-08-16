@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -353,6 +354,10 @@ func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 			bytes += info.Size()
 		}
 		if filepath.Base(path) == "metadata.json" {
+			if strings.HasPrefix(filepath.Base(filepath.Dir(path)), gcStagingPrefix) {
+				// Withdrawn from view by retention; it counts for nothing.
+				return nil
+			}
 			var s session.Snapshot
 			if e := readStrict(path, &s); e != nil {
 				return e

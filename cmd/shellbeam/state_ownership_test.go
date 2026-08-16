@@ -78,13 +78,21 @@ type daemonProcess struct {
 
 func launchDaemon(t *testing.T, stateDir, runtimeDir string) *daemonProcess {
 	t.Helper()
+	return launchDaemonWithConfig(t, stateDir, runtimeDir, "")
+}
+
+func launchDaemonWithConfig(t *testing.T, stateDir, runtimeDir, configPath string) *daemonProcess {
+	t.Helper()
 	logPath := filepath.Join(t.TempDir(), "daemon.log")
 	log, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(ownershipBinary(t), "daemon",
-		"--state-dir", stateDir, "--runtime-dir", runtimeDir, "--shell", "/bin/sh")
+	args := []string{"daemon", "--state-dir", stateDir, "--runtime-dir", runtimeDir, "--shell", "/bin/sh"}
+	if configPath != "" {
+		args = append(args, "--config", configPath)
+	}
+	cmd := exec.Command(ownershipBinary(t), args...)
 	cmd.Stdout, cmd.Stderr = log, log
 	if err := cmd.Start(); err != nil {
 		_ = log.Close()

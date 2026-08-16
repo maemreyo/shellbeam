@@ -131,7 +131,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
 	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc}
-	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, cfg.TerminalRetentionHours, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
 func serveDaemonRuntime(
@@ -139,6 +139,7 @@ func serveDaemonRuntime(
 	runtimeDir string,
 	stateLease *ownership.Lease,
 	terminationGrace time.Duration,
+	terminalRetentionHours int,
 	store *storeadapter.Repository,
 	incarnation string,
 	svc *daemonapp.Service,
@@ -209,6 +210,8 @@ func serveDaemonRuntime(
 		return err
 	}
 	server.MarkReady()
+	// Housekeeping starts only once the daemon is already serving.
+	startRetention(ctx, store, terminalRetentionHours)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
 }
