@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
@@ -95,54 +94,24 @@ type Server struct {
 	actions    Actions
 	// lease is this daemon's ownership of the runtime directory. It outlives
 	// the socket pathname deliberately and is surrendered only on Close.
-	lease     *ownership.Lease
+	lease     RuntimeLease
 	ready     chan struct{}
 	readyOnce sync.Once
 	closing   chan struct{}
 	closeOnce sync.Once
 }
 
-func Listen(runtime string, actions Actions) (*Server, error) {
-	return listen(runtime, actions, dialUnixSocket)
+func ListenPendingWithLease(runtime string, actions Actions, lease RuntimeLease) (*Server, error) {
+	return listenWithReadiness(runtime, actions, lease, dialUnixSocket, false)
 }
 
-func ListenPending(runtime string, actions Actions) (*Server, error) {
-	return ListenPendingAs(runtime, "", actions, nil)
-}
-
-// ListenPendingAs is ListenPending with the daemon incarnation recorded on the
-// runtime directory's ownership lease, so diagnostics can tie the process
-// holding the endpoint to the incarnation stamped on its receipts.
-//
-// stateLease is the caller's own lease on its state directory, if it holds one.
-// The runtime and state directories may legitimately be the same directory, and
-// a daemon must not be refused its own endpoint by its own state lock; passing
-// the lease is what lets the two share rather than contend.
-func ListenPendingAs(runtime, incarnation string, actions Actions, stateLease *ownership.Lease) (*Server, error) {
-	return listenWithReadiness(runtime, incarnation, actions, stateLease, dialUnixSocket, false)
-}
-
-func listen(runtime string, actions Actions, dial socketDialer) (*Server, error) {
-	return listenWithReadiness(runtime, "", actions, nil, dial, true)
-}
-
-func listenWithReadiness(runtime, incarnation string, actions Actions, stateLease *ownership.Lease, dial socketDialer, ready bool) (*Server, error) {
+func listenWithReadiness(runtime string, actions Actions, lease RuntimeLease, dial socketDialer, ready bool) (*Server, error) {
+	if lease == nil {
+		return nil, fmt.Errorf("runtime lease required")
+	}
 	if err := prepareRuntime(runtime); err != nil {
 		return nil, err
 	}
-	// The lease, not the socket pathname, decides who owns this runtime
-	// directory. It is taken before anything touches the pathname, so a socket
-	// that someone unlinked cannot be mistaken for an unowned endpoint.
-	lease, err := ownership.AcquireWith(stateLease, runtime, incarnation)
-	if err != nil {
-		return nil, err
-	}
-	released := false
-	defer func() {
-		if !released {
-			_ = lease.Release()
-		}
-	}()
 	lock, err := acquireStartupLock(runtime)
 	if err != nil {
 		return nil, err
@@ -158,7 +127,6 @@ func listenWithReadiness(runtime, incarnation string, actions Actions, stateLeas
 		socket: socket, socketInfo: socketInfo, listener: auth, actions: actions,
 		lease: lease, ready: make(chan struct{}), closing: make(chan struct{}),
 	}
-	released = true
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
 	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
@@ -324,6 +292,8 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 		view, callErr := s.actions.Kill(r.Context(), app.KillRequest{SessionID: req.SessionID, KillID: req.KillID, Signal: req.Signal})
 		err = callErr
 		resp.View = &view
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		err = s.checkpointV2(r.Context(), req, &resp)
 	case "repro.create":
 		actions, ok := s.actions.(ReproActions)
 		if !ok {
@@ -342,21 +312,7 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		err = s.inspectV2(r.Context(), req, &resp)
 	}
-	resp.OK = err == nil
-	if err != nil {
-		clearResponseV2Payload(&resp)
-		resp.Error = errorEnvelope(err)
-	}
-	writeResponseV2(w, resp)
-}
-
-func clearResponseV2Payload(resp *ResponseV2) {
-	resp.View, resp.Result, resp.Server, resp.Project, resp.Readiness = nil, nil, nil, nil, nil
-	resp.Workspace, resp.Activity, resp.Events, resp.Structured, resp.Evidence = nil, nil, nil, nil, nil
-	resp.Environment, resp.Process, resp.Mutation, resp.MutationScopes = nil, nil, nil, nil
-	resp.ActiveMutationScopes, resp.MutationScopeAdvisories = nil, nil
-	resp.MutationScopesTruncated, resp.MutationScopeAdvisoriesTruncated = false, false
-	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView, resp.Sessions = nil, nil, nil, nil, nil, nil
+	writeResponseV2(w, finalizeResponseV2(resp, err))
 }
 
 func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {

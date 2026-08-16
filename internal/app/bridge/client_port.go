@@ -4,6 +4,7 @@ package bridge
 import (
 	"context"
 
+	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	"github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
@@ -16,6 +17,7 @@ import (
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
@@ -40,6 +42,9 @@ type Request struct {
 	Poll                 daemon.PollRequest
 	Write                daemon.WriteRequest
 	Kill                 daemon.KillRequest
+	CheckpointCreate     checkpointcore.CreateRequest
+	CheckpointRestore    checkpointcore.RestoreRequest
+	CheckpointID         string
 	EventInspect         observationapp.InspectRequest
 	EvidenceInspect      evidenceapp.InspectRequest
 	EnvironmentInspect   environmentapp.InspectRequest
@@ -57,6 +62,9 @@ type Request struct {
 type Response struct {
 	View                   daemon.View
 	Result                 *receipt.Result
+	Checkpoint             *checkpointcore.Checkpoint
+	Restore                *checkpointcore.RestoreResult
+	CheckpointInspection   *checkpointapp.CheckpointInspection
 	Server                 *capability.Catalog
 	Project                *project.Inspection
 	Readiness              *project.Readiness

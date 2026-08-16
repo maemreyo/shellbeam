@@ -88,7 +88,7 @@ type Checkpoint struct {
 	CapturedPathCount int              `json:"captured_path_count"`
 	Excluded          []PathSummary    `json:"excluded,omitempty"`
 	Unsupported       []PathSummary    `json:"unsupported,omitempty"`
-	TotalBytes        int64            `jsn:"total_bytes"`
+	TotalBytes        int64            `json:"total_bytes"`
 	CaptureQuality    CaptureQuality   `json:"capture_quality"`
 	RetentionState    RetentionState   `json:"retention_state"`
 	OpaqueEntryRefs   []string         `json:"opaque_entry_refs,omitempty"`

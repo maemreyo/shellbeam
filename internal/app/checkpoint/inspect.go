@@ -8,8 +8,8 @@ import (
 )
 
 type CheckpointInspection struct {
-	Checkpoint core.Checkpoint
-	Provider   ProviderCheckpointStatus
+	Checkpoint core.Checkpoint          `json:"checkpoint"`
+	Provider   ProviderCheckpointStatus `json:"provider"`
 }
 
 func (s *Service) Inspect(ctx context.Context, checkpointID string) (CheckpointInspection, error) {

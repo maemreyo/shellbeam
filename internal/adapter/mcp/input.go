@@ -29,6 +29,9 @@ import (
 
 type input struct {
 	Action              string                            `json:"action"`
+	CheckpointCreateID  string                            `json:"checkpoint_create_id,omitempty"`
+	RestoreID           string                            `json:"restore_id,omitempty"`
+	CheckpointID        string                            `json:"checkpoint_id,omitempty"`
 	OperationID         string                            `json:"operation_id,omitempty"`
 	WorkspaceID         string                            `json:"workspace_id,omitempty"`
 	ActivityID          string                            `json:"activity_id,omitempty"`
@@ -131,6 +134,8 @@ func validateV2(v input) error {
 			return fmt.Errorf("read_output requires selector")
 		}
 		return (outputview.Request{SessionID: v.SessionID, Selector: *v.Selector, Continuation: v.Continuation}).Validate()
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		return validateCheckpointInput(v)
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		_, err := workspace.ParseWorkspaceID(v.WorkspaceID)
 		return err
@@ -425,6 +430,12 @@ func v2ActionFields(action string) []string {
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":
 		return []string{"session_id", "kill_id", "signal"}
+	case "checkpoint_create":
+		return []string{"checkpoint_create_id", "workspace_id", "activity_id", "paths"}
+	case "checkpoint_restore":
+		return []string{"restore_id", "checkpoint_id", "paths"}
+	case "checkpoint_inspect":
+		return []string{"checkpoint_id"}
 	case "inspect.server":
 		return nil
 	case "inspect.project", "inspect.workspace", "inspect.readiness":

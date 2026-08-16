@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
@@ -17,6 +18,7 @@ import (
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -40,6 +42,9 @@ type RequestV2 struct {
 	Kind                string                            `json:"kind"`
 	RequestID           string                            `json:"request_id"`
 	Action              string                            `json:"action"`
+	CheckpointCreateID  string                            `json:"checkpoint_create_id,omitempty"`
+	RestoreID           string                            `json:"restore_id,omitempty"`
+	CheckpointID        string                            `json:"checkpoint_id,omitempty"`
 	OperationID         string                            `json:"operation_id,omitempty"`
 	WorkspaceID         string                            `json:"workspace_id,omitempty"`
 	ActivityID          string                            `json:"activity_id,omitempty"`
@@ -100,36 +105,39 @@ type RequestV2 struct {
 }
 
 type ResponseV2 struct {
-	IPVersion                        int                              `json:"ipc_version"`
-	Kind                             string                           `json:"kind"`
-	RequestID                        string                           `json:"request_id"`
-	Action                           string                           `json:"action"`
-	OK                               bool                             `json:"ok"`
-	View                             *app.View                        `json:"view,omitempty"`
-	Result                           *receipt.Result                  `json:"result,omitempty"`
-	Server                           *capability.Catalog              `json:"server,omitempty"`
-	Project                          *project.Inspection              `json:"project,omitempty"`
-	Readiness                        *project.Readiness               `json:"readiness,omitempty"`
-	Workspace                        *workspace.Workspace             `json:"workspace,omitempty"`
-	Activity                         *activity.Activity               `json:"activity,omitempty"`
-	Events                           *observationapp.InspectResult    `json:"events,omitempty"`
-	Structured                       *structuredapp.InspectResult     `json:"structured,omitempty"`
-	Evidence                         *evidenceapp.InspectResult       `json:"evidence,omitempty"`
-	Environment                      *environmentcore.Snapshot        `json:"environment,omitempty"`
-	Process                          *processcore.Observation         `json:"process,omitempty"`
-	Mutation                         *mutationscopeapp.MutationResult `json:"mutation,omitempty"`
-	MutationScopes                   *mutationscopecore.InspectResult `json:"mutation_scopes,omitempty"`
-	ActiveMutationScopes             []mutationscopecore.Scope        `json:"active_mutation_scopes,omitempty"`
-	MutationScopeAdvisories          []mutationscopecore.Advisory     `json:"mutation_scope_advisories,omitempty"`
-	MutationScopesTruncated          bool                             `json:"mutation_scopes_truncated,omitempty"`
-	MutationScopeAdvisoriesTruncated bool                             `json:"mutation_scope_advisories_truncated,omitempty"`
-	Telemetry                        *telemetryapp.InspectResult      `json:"telemetry,omitempty"`
-	Capsule                          *reprocore.Capsule               `json:"capsule,omitempty"`
-	Repro                            *reproapp.InspectResult          `json:"repro,omitempty"`
-	Code                             *codeintel.Result                `json:"code,omitempty"`
-	OutputView                       *outputview.Result               `json:"output_view,omitempty"`
-	Sessions                         *persistent.InspectPage          `json:"sessions,omitempty"`
-	Error                            *Error                           `json:"error,omitempty"`
+	IPVersion                        int                                 `json:"ipc_version"`
+	Kind                             string                              `json:"kind"`
+	RequestID                        string                              `json:"request_id"`
+	Action                           string                              `json:"action"`
+	OK                               bool                                `json:"ok"`
+	View                             *app.View                           `json:"view,omitempty"`
+	Result                           *receipt.Result                     `json:"result,omitempty"`
+	Checkpoint                       *checkpointcore.Checkpoint          `json:"checkpoint,omitempty"`
+	Restore                          *checkpointcore.RestoreResult       `json:"restore,omitempty"`
+	CheckpointInspection             *checkpointapp.CheckpointInspection `json:"checkpoint_inspection,omitempty"`
+	Server                           *capability.Catalog                 `json:"server,omitempty"`
+	Project                          *project.Inspection                 `json:"project,omitempty"`
+	Readiness                        *project.Readiness                  `json:"readiness,omitempty"`
+	Workspace                        *workspace.Workspace                `json:"workspace,omitempty"`
+	Activity                         *activity.Activity                  `json:"activity,omitempty"`
+	Events                           *observationapp.InspectResult       `json:"events,omitempty"`
+	Structured                       *structuredapp.InspectResult        `json:"structured,omitempty"`
+	Evidence                         *evidenceapp.InspectResult          `json:"evidence,omitempty"`
+	Environment                      *environmentcore.Snapshot           `json:"environment,omitempty"`
+	Process                          *processcore.Observation            `json:"process,omitempty"`
+	Mutation                         *mutationscopeapp.MutationResult    `json:"mutation,omitempty"`
+	MutationScopes                   *mutationscopecore.InspectResult    `json:"mutation_scopes,omitempty"`
+	ActiveMutationScopes             []mutationscopecore.Scope           `json:"active_mutation_scopes,omitempty"`
+	MutationScopeAdvisories          []mutationscopecore.Advisory        `json:"mutation_scope_advisories,omitempty"`
+	MutationScopesTruncated          bool                                `json:"mutation_scopes_truncated,omitempty"`
+	MutationScopeAdvisoriesTruncated bool                                `json:"mutation_scope_advisories_truncated,omitempty"`
+	Telemetry                        *telemetryapp.InspectResult         `json:"telemetry,omitempty"`
+	Capsule                          *reprocore.Capsule                  `json:"capsule,omitempty"`
+	Repro                            *reproapp.InspectResult             `json:"repro,omitempty"`
+	Code                             *codeintel.Result                   `json:"code,omitempty"`
+	OutputView                       *outputview.Result                  `json:"output_view,omitempty"`
+	Sessions                         *persistent.InspectPage             `json:"sessions,omitempty"`
+	Error                            *Error                              `json:"error,omitempty"`
 }
 
 type v2Header struct {
@@ -191,53 +199,6 @@ func validateV2FieldSet(data []byte, action string) error {
 	return nil
 }
 
-func actionFieldsV2(action string) []string {
-	switch action {
-	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "yield_time_ms", "max_output_bytes"}
-	case "poll":
-		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
-	case "read_output":
-		return []string{"session_id", "selector", "continuation"}
-	case "write":
-		return []string{"session_id", "input_offset", "chars", "eof"}
-	case "kill":
-		return []string{"session_id", "kill_id", "signal"}
-	case "inspect.project", "inspect.workspace", "inspect.readiness":
-		return []string{"workspace_id"}
-	case "inspect.activity":
-		return []string{"activity_id"}
-	case "inspect.sessions":
-		return []string{"session_name", "activity_id", "workspace_id", "state", "persistent_only", "continuation", "max_records"}
-	case "mutation_scope.set":
-		return []string{"mutation_id", "scope_id", "activity_id", "workspace_id", "mode", "paths", "ttl_ms"}
-	case "mutation_scope.release":
-		return []string{"mutation_id", "scope_id"}
-	case "inspect.mutation_scopes":
-		return []string{"workspace_id", "activity_id"}
-	case "inspect.events":
-		return []string{"target", "after_event_cursor", "max_events"}
-	case "inspect.structured":
-		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
-	case "inspect.telemetry":
-		return []string{"operation_id", "max_samples"}
-	case "inspect.evidence":
-		return []string{"evidence_id", "operation_id", "workspace_id", "project_command_id", "activity_id", "verification_kind", "result", "revalidate_artifacts", "continuation", "max_records"}
-	case "inspect.environment":
-		return []string{"workspace_id", "freshness", "execution"}
-	case "inspect.process":
-		return []string{"process_target", "include_ports"}
-	case "repro.create":
-		return []string{"repro_create_id", "operation_id", "capture_policy"}
-	case "inspect.repro":
-		return []string{"repro_id"}
-	case "inspect.code":
-		return []string{"workspace_id", "activity_id", "code_query"}
-	default:
-		return nil
-	}
-}
-
 func validateRequestV2(v RequestV2) error {
 	if v.IPVersion != ipcV2 {
 		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "ipc_version", "required_version": "2"}, fmt.Errorf("unsupported ipc version"))
@@ -277,6 +238,8 @@ func validateRequestV2(v RequestV2) error {
 		if _, err := activity.ParseID(v.ActivityID); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
 		}
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		return validateCheckpointRequestV2(v)
 	case "inspect.sessions":
 		return validateSessionInspectV2(v)
 	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":

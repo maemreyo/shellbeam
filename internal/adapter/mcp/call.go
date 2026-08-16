@@ -62,13 +62,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 	if version == 2 || in.Action == "inspect.server" {
 		request.ProtocolVersion = 2
 	}
-	yieldMS, maxOutput := in.YieldMS, in.MaxOutputBytes
-	if !hasField(raw, "yield_time_ms") && in.Action == "start" {
-		yieldMS = 10000
-	}
-	if !hasField(raw, "max_output_bytes") {
-		maxOutput = 20000
-	}
+	yieldMS, maxOutput := requestOutputDefaults(in, raw)
 	switch in.Action {
 	case "start":
 		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: maxOutput}
@@ -78,6 +72,8 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.OutputRead.SessionID = in.SessionID
 		request.OutputRead.Selector = *in.Selector
 		request.OutputRead.Continuation = in.Continuation
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		applyCheckpointInput(&request, in)
 	case "write":
 		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
@@ -216,6 +212,8 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureTypedProjectCommands)
 	delete(out.Features, capability.FeatureOutputViews)
 	delete(out.Features, capability.FeatureMutationScopes)
+	delete(out.Features, capability.FeatureSafetyCheckpoints)
+	out.SafetyCheckpoints = nil
 	out.MutationScopeSchemaVersions = nil
 	stripLegacyPersistentCapabilities(&out)
 	out.Limits.MutationScopeActivePerActivity = 0
@@ -270,6 +268,12 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		var failed *mcpgo.CallToolResult
+		summary, failed = checkpointSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
+		}
 	case "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)

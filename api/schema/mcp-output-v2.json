@@ -5,6 +5,17 @@
   "type": "object",
   "unevaluatedProperties": false,
   "$defs": {
+    "checkpoint_operation_id": {"type":"string","pattern":"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$"},
+    "checkpoint_id": {"type":"string","pattern":"^chk_[0-9A-HJKMNP-TV-Z]{26}$"},
+    "checkpoint_exact_path": {"type":"string","minLength":1,"maxLength":1024,"allOf":[{"not":{"pattern":"^/"}},{"not":{"pattern":"\\\\"}},{"not":{"pattern":"(^|/)\\.\\.?(/|$)"}},{"not":{"pattern":"[*?\\[\\]{}]"}}]},
+    "checkpoint_selector": {"type":"string","minLength":1,"maxLength":1024,"allOf":[{"not":{"pattern":"^/"}},{"not":{"pattern":"\\\\"}},{"not":{"pattern":"(^|/)\\.\\.?(/|$)"}},{"pattern":"^[^/*?\\[\\]{}]+(?:/[^/*?\\[\\]{}]+)*(?:/\\*\\*)?$"}]},
+    "checkpoint_provider_identity": {"type":"object","additionalProperties":false,"properties":{"provider_id":{"type":"string","pattern":"^[a-z][a-z0-9._-]{0,63}$"},"provider_version":{"type":"integer","minimum":1}},"required":["provider_id","provider_version"]},
+    "checkpoint_path_summary": {"type":"object","additionalProperties":false,"properties":{"path":{"$ref":"#/$defs/checkpoint_exact_path"},"reason":{"type":"string","pattern":"^[a-z][a-z0-9._-]{0,127}$"}},"required":["path","reason"]},
+    "checkpoint_metadata": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"checkpoint_id":{"$ref":"#/$defs/checkpoint_id"},"checkpoint_create_id":{"$ref":"#/$defs/checkpoint_operation_id"},"provider":{"$ref":"#/$defs/checkpoint_provider_identity"},"workspace_id":{"type":"string","pattern":"^ws_[0-9A-HJKMNP-TV-Z]{26}$"},"activity_id":{"$ref":"#/$defs/checkpoint_operation_id"},"source_generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"created_at":{"type":"string","format":"date-time"},"captured_path_count":{"type":"integer","minimum":0,"maximum":2048},"excluded":{"type":"array","maxItems":64,"items":{"$ref":"#/$defs/checkpoint_path_summary"}},"unsupported":{"type":"array","maxItems":64,"items":{"$ref":"#/$defs/checkpoint_path_summary"}},"total_bytes":{"type":"integer","minimum":0,"maximum":67108864},"capture_quality":{"const":"complete"},"retention_state":{"enum":["available","partially_compacted","expired"]},"opaque_entry_refs":{"type":"array","maxItems":2048,"uniqueItems":true,"items":{"type":"string","maxLength":128,"pattern":"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"}}},"required":["schema_version","checkpoint_id","checkpoint_create_id","provider","workspace_id","source_generation","created_at","captured_path_count","total_bytes","capture_quality","retention_state"]},
+    "checkpoint_restore_path_result": {"type":"object","additionalProperties":false,"properties":{"path":{"$ref":"#/$defs/checkpoint_exact_path"},"outcome":{"enum":["restored","noop","conflict","unsupported","failed"]},"reason":{"type":"string","pattern":"^[a-z][a-z0-9._-]{0,127}$"}},"required":["path","outcome"]},
+    "checkpoint_restore_result": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"restore_id":{"$ref":"#/$defs/checkpoint_operation_id"},"checkpoint_id":{"$ref":"#/$defs/checkpoint_id"},"paths":{"type":"array","minItems":1,"maxItems":256,"items":{"$ref":"#/$defs/checkpoint_restore_path_result"}},"complete":{"type":"boolean"}},"required":["schema_version","restore_id","checkpoint_id","paths","complete"]},
+    "checkpoint_provider_status": {"type":"object","additionalProperties":false,"properties":{"checkpoint_id":{"$ref":"#/$defs/checkpoint_id"},"retention_state":{"enum":["available","partially_compacted","expired"]},"available":{"type":"boolean"}},"required":["checkpoint_id","retention_state","available"]},
+    "checkpoint_inspection": {"type":"object","additionalProperties":false,"properties":{"checkpoint":{"$ref":"#/$defs/checkpoint_metadata"},"provider":{"$ref":"#/$defs/checkpoint_provider_status"}},"required":["checkpoint","provider"]},
     "mutation_scope_id": {"type":"string","minLength":1,"maxLength":128,"allOf":[{"not":{"enum":[".",".."]}},{"not":{"pattern":"[/\\\\\\s]"}}]},
     "mutation_selector": {"type":"string","minLength":1,"maxLength":256,"allOf":[{"not":{"pattern":"^/"}},{"not":{"pattern":"\\\\"}},{"not":{"pattern":"(^|/)\\.\\.?(/|$)"}}],"oneOf":[{"const":"**"},{"pattern":"^[^/*?\\[\\]{}]+(?:/[^/*?\\[\\]{}]+)*(?:/\\*\\*)?$"}]},
     "mutation_scope": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"scope_id":{"$ref":"#/$defs/mutation_scope_id"},"activity_id":{"$ref":"#/$defs/mutation_scope_id"},"workspace_id":{"type":"string","pattern":"^ws_[0-9A-HJKMNP-TV-Z]{26}$"},"mode":{"enum":["read","mutate"]},"paths":{"type":"array","minItems":1,"maxItems":16,"uniqueItems":true,"items":{"$ref":"#/$defs/mutation_selector"}},"declared_at":{"type":"string","format":"date-time"},"expires_at":{"type":"string","format":"date-time"},"revision_id":{"$ref":"#/$defs/mutation_scope_id"}},"required":["schema_version","scope_id","activity_id","workspace_id","mode","paths","declared_at","expires_at","revision_id"]},
@@ -175,7 +186,7 @@
   "properties": {
     "schema_version": {"const": 2},
     "ok": {"type": "boolean"},
-    "action": {"enum":["","start","poll","write","kill","inspect.server","inspect.workspace","inspect.activity","inspect.sessions","inspect.project","inspect.readiness","inspect.events","inspect.structured","inspect.evidence","inspect.environment","inspect.process","inspect.telemetry","repro.create","inspect.repro","inspect.code","read_output","mutation_scope.set","mutation_scope.release","inspect.mutation_scopes"]},
+    "action": {"enum":["","start","poll","write","kill","inspect.server","inspect.workspace","inspect.activity","inspect.sessions","inspect.project","inspect.readiness","inspect.events","inspect.structured","inspect.evidence","inspect.environment","inspect.process","inspect.telemetry","repro.create","inspect.repro","inspect.code","read_output","mutation_scope.set","mutation_scope.release","inspect.mutation_scopes","checkpoint_create","checkpoint_restore","checkpoint_inspect"]},
     "result": {"$ref": "#/$defs/result"},
     "view": {"$ref": "#/$defs/view"},
     "server": {"$ref": "#/$defs/server"},
@@ -196,6 +207,9 @@
     "sessions":{"$ref":"#/$defs/session_inspect_page"},
     "mutation": {"$ref":"#/$defs/mutation_result"},
     "mutation_scopes": {"$ref":"#/$defs/mutation_inspection"},
+    "checkpoint": {"$ref":"#/$defs/checkpoint_metadata"},
+    "restore": {"$ref":"#/$defs/checkpoint_restore_result"},
+    "checkpoint_inspection": {"$ref":"#/$defs/checkpoint_inspection"},
     "active_mutation_scopes": {"type":"array","maxItems":16,"items":{"$ref":"#/$defs/mutation_scope"}},
     "mutation_scope_advisories": {"type":"array","maxItems":32,"items":{"$ref":"#/$defs/mutation_advisory"}},
     "mutation_scopes_truncated": {"type":"boolean"},
@@ -224,6 +238,9 @@
     {"properties":{"ok":{"const":true},"action":{"enum":["mutation_scope.set","mutation_scope.release"]}},"required":["mutation"]},
     {"properties":{"ok":{"const":true},"action":{"const":"inspect.mutation_scopes"}},"required":["mutation_scopes"]},
     {"properties":{"ok":{"const":true},"action":{"const":"read_output"}},"required":["output_view"]},
+    {"properties":{"ok":{"const":true},"action":{"const":"checkpoint_create"}},"required":["checkpoint"]},
+    {"properties":{"ok":{"const":true},"action":{"const":"checkpoint_restore"}},"required":["restore"]},
+    {"properties":{"ok":{"const":true},"action":{"const":"checkpoint_inspect"}},"required":["checkpoint_inspection"]},
     {"properties":{"ok":{"const":false}},"required":["error"]}
   ]
 }
