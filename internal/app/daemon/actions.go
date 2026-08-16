@@ -81,6 +81,21 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 			v.Receipt = &rec
 			v.Failure = rec.Failure()
 			v.RawOutputBytes = rec.OutputBytes
+		} else if _, sessionErr := s.store.LoadSession(ctx, operation.SessionID(sid)); sessionErr != nil {
+			// The snapshot and the receipt are two separate reads with nothing
+			// synchronizing them, and retention withdraws a session as one
+			// atomic rename -- so a snapshot read moments before the rename and
+			// a receipt read moments after can straddle it. A terminal
+			// snapshot's receipt is always durably published before the
+			// snapshot is ever marked terminal (see waitLoop), so a missing
+			// receipt here is not a session that never had one; it is a
+			// session that vanished mid-read. Confirming with a second read
+			// converges immediately once the rename has actually landed, and
+			// keeps the answer honest instead of a terminal state with no
+			// evidence behind it.
+			return View{}, failure.New(failure.SessionNotFound, map[string]string{
+				"session_id": sid, "reason": "record removed during read",
+			}, nil)
 		}
 	}
 	if v.RawOutputBytes < next {

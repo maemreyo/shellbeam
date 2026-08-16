@@ -93,7 +93,13 @@ func TestSnapshotAheadBehindUsesOnlyConfiguredLocalUpstream(t *testing.T) {
 
 func snapshotRepository(t *testing.T, path string) core.FastSnapshot {
 	t.Helper()
-	adapter := New()
+	// A real git subprocess under the production budget of 150ms -- tuned for
+	// interactive responsiveness, not for a test suite sharing the machine with
+	// everything else running in parallel. That combination is what produced
+	// observation_budget_exceeded here under load: the assertion is about
+	// parsing git's output correctly, not about the budget, so the budget is
+	// generous instead of inherited from New().
+	adapter := newRepository(execRunner{}, SnapshotOptions{Budget: 5 * time.Second})
 	workspace := observedWorkspace(t, adapter, path)
 	got := adapter.Snapshot(context.Background(), workspace)
 	if got.Quality != core.QualityFresh {

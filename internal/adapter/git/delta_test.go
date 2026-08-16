@@ -18,7 +18,7 @@ func TestDeltaTrackedModification(t *testing.T) {
 	root, workspace := newDeltaRepository(t)
 	appendDeltaFile(t, filepath.Join(root, "tracked.txt"), "changed\n")
 
-	sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+	sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 	if sample.Completeness != core.SelectionComplete || sample.Freshness != core.SampleFreshlySampled {
 		t.Fatalf("sample=%#v", sample)
 	}
@@ -32,6 +32,16 @@ func TestDeltaTrackedModification(t *testing.T) {
 	if change.PathTransition != core.PathModified || change.NewPath != "tracked.txt" || change.SourceTransition != core.SourceBytesChanged || change.VCSTransition != core.VCSOther {
 		t.Fatalf("change=%#v", change)
 	}
+}
+
+// generousDeltaLimits leaves MaxPaths and MaxOutputBytes at their defaults but
+// gives SampleDelta's real git subprocess room to finish under load.
+// DefaultDeltaTimeoutMS (150ms) is tuned for interactive responsiveness, not for
+// a test suite sharing the machine with everything else running in parallel --
+// these tests assert on parsing git's output correctly, not on the timeout, so
+// the timeout is generous instead of inherited.
+func generousDeltaLimits() core.DeltaLimits {
+	return core.DeltaLimits{TimeoutMS: core.MaxDeltaTimeoutMS}
 }
 
 func newDeltaRepository(t *testing.T) (string, core.Workspace) {
@@ -75,7 +85,7 @@ func TestDeltaStagedOnlyChange(t *testing.T) {
 	root, workspace := newDeltaRepository(t)
 	appendDeltaFile(t, filepath.Join(root, "tracked.txt"), "staged\n")
 	runDeltaGit(t, root, "add", "tracked.txt")
-	sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+	sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 	change := requireDeltaChange(t, sample, "tracked.txt")
 	if change.PathTransition != core.PathModified || change.VCSTransition != core.VCSStaged {
 		t.Fatalf("change=%#v", change)
@@ -89,7 +99,7 @@ func TestDeltaNestedUntrackedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeDeltaFile(t, path, "new\n")
-	sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+	sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 	change := requireDeltaChange(t, sample, "new/nested/untracked.txt")
 	if change.PathTransition != core.PathAdded || !change.Untracked || change.SourceTransition != core.SourceAvailabilityChanged {
 		t.Fatalf("change=%#v", change)
@@ -101,7 +111,7 @@ func TestDeltaDeletion(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "tracked.txt")); err != nil {
 		t.Fatal(err)
 	}
-	sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+	sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 	change := requireDeltaChange(t, sample, "tracked.txt")
 	if change.PathTransition != core.PathDeleted || change.OldPath != "tracked.txt" || change.NewPath != "" {
 		t.Fatalf("change=%#v", change)
@@ -114,7 +124,7 @@ func TestDeltaRenameIsDeletePlusAdd(t *testing.T) {
 		t.Fatal(err)
 	}
 	runDeltaGit(t, root, "add", "-A")
-	sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+	sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 	if len(sample.Changes) != 2 {
 		t.Fatalf("changes=%#v", sample.Changes)
 	}
@@ -134,7 +144,7 @@ func TestDeltaUnmergedRecord(t *testing.T) {
 	writeDeltaFile(t, filepath.Join(root, "tracked.txt"), "main\n")
 	runDeltaGit(t, root, "commit", "-qam", "main")
 	runDeltaGitFailure(t, root, "merge", "topic")
-	sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+	sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 	change := requireDeltaChange(t, sample, "tracked.txt")
 	if change.PathTransition != core.PathUnmerged {
 		t.Fatalf("change=%#v sample=%#v", change, sample)
@@ -153,7 +163,7 @@ func TestDeltaSubmoduleRemainsOpaque(t *testing.T) {
 	runDeltaGit(t, root, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "sub")
 	runDeltaGit(t, root, "commit", "-qam", "add-submodule")
 	appendDeltaFile(t, filepath.Join(root, "sub", "sub.txt"), "dirty\n")
-	sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+	sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 	change := requireDeltaChange(t, sample, "sub")
 	if !change.Submodule || change.PathTransition != core.PathModified || change.SourceTransition != core.SourceIdentityChanged {
 		t.Fatalf("change=%#v", change)
@@ -164,7 +174,7 @@ func TestDeltaDetachedAndUnbornBranchMetadata(t *testing.T) {
 	t.Run("detached", func(t *testing.T) {
 		root, workspace := newDeltaRepository(t)
 		runDeltaGit(t, root, "checkout", "-q", "--detach", "HEAD")
-		sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+		sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 		if !sample.Detached || sample.Unborn || sample.Ref != "" || sample.Head == "" {
 			t.Fatalf("sample=%#v", sample)
 		}
@@ -175,7 +185,7 @@ func TestDeltaDetachedAndUnbornBranchMetadata(t *testing.T) {
 		runDeltaGit(t, root, "symbolic-ref", "HEAD", "refs/heads/main")
 		writeDeltaFile(t, filepath.Join(root, "new.txt"), "new\n")
 		workspace := deltaWorkspace(root)
-		sample := New().SampleDelta(context.Background(), workspace, core.DeltaLimits{})
+		sample := New().SampleDelta(context.Background(), workspace, generousDeltaLimits())
 		if !sample.Unborn || sample.Detached || sample.Head != "" || sample.Ref != "refs/heads/main" {
 			t.Fatalf("sample=%#v", sample)
 		}
@@ -187,7 +197,10 @@ func TestDeltaPathLimitReturnsPartialPrefix(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		writeDeltaFile(t, filepath.Join(root, fmt.Sprintf("u-%d.txt", i)), "new\n")
 	}
-	limits := core.DeltaLimits{MaxPaths: 3, MaxOutputBytes: 256 << 10, TimeoutMS: 150}
+	// The timeout is generous on purpose: this assertion is about the path
+	// limit, not the timeout, and real git under a 150ms budget flakes when the
+	// suite is under load.
+	limits := core.DeltaLimits{MaxPaths: 3, MaxOutputBytes: 256 << 10, TimeoutMS: core.MaxDeltaTimeoutMS}
 	sample := New().SampleDelta(context.Background(), workspace, limits)
 	if sample.Completeness != core.SelectionPartial || len(sample.Changes) != 3 || sample.RecordsObserved != 5 || sample.DiagnosticCode != "path_limit_exceeded" {
 		t.Fatalf("sample=%#v", sample)

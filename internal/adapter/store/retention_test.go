@@ -238,11 +238,30 @@ func TestInterruptedRemovalIsFinishedByTheNextSweep(t *testing.T) {
 	}
 }
 
-// TestCollectionIsAllOrNothingToReaders. A caller must never see a session with
-// some of its parts missing, so the whole session leaves view in one step.
-func TestCollectionIsAllOrNothingToReaders(t *testing.T) {
+// TestCollectionIsAllOrNothingOnDisk. A caller must never see a session with
+// some of its parts missing, so the whole session leaves view in one step --
+// which is a claim about the directory's own contents, not about two
+// independent calls made without anything synchronizing them.
+//
+// An earlier version of this test made the stronger claim instead: that two
+// separate, unsynchronized calls -- LoadSession, then LoadReceipt -- would
+// always agree about whether a session was gone. They cannot be made to agree
+// in general, because collectSession does real work (sizing the directory,
+// removing the operation record) before the single rename that actually
+// changes visibility, which leaves a real window for a snapshot read to land
+// before that rename and a receipt read moments later to land after it. That
+// is not a torn directory; it is two clocks a caller happened to read at
+// different instants, and it reproduced on every run once measured directly.
+// The genuine on-disk guarantee is checked here by listing the directory's own
+// contents in one call, which a rename can only ever answer wholly one way or
+// the other. The caller-facing half of this -- a poll must not turn that
+// window into a terminal state with no receipt behind it -- is what
+// TestPollDoesNotReturnATerminalStateWithNoReceipt in the daemon package
+// checks; the fix lives at the layer that serves callers, not in the store.
+func TestCollectionIsAllOrNothingOnDisk(t *testing.T) {
 	r := retentionRepository(t)
 	expired := seedTerminal(t, r, 0, 48*time.Hour)
+	sessionDir := filepath.Join(r.root, "sessions", string(expired.SessionID))
 
 	stop := make(chan struct{})
 	inconsistent := make(chan string, 4)
@@ -253,13 +272,22 @@ func TestCollectionIsAllOrNothingToReaders(t *testing.T) {
 				return
 			default:
 			}
-			_, sessionErr := r.LoadSession(context.Background(), expired.SessionID)
-			_, receiptErr := r.LoadReceipt(context.Background(), expired.SessionID)
-			sessionGone := errors.Is(sessionErr, ErrNotFound)
-			receiptGone := errors.Is(receiptErr, ErrNotFound)
-			if sessionGone != receiptGone {
+			entries, err := os.ReadDir(sessionDir)
+			if err != nil {
+				continue // the whole directory is gone: consistent
+			}
+			hasMetadata, hasReceipt := false, false
+			for _, entry := range entries {
+				switch entry.Name() {
+				case "metadata.json":
+					hasMetadata = true
+				case "receipt.json":
+					hasReceipt = true
+				}
+			}
+			if hasMetadata != hasReceipt {
 				select {
-				case inconsistent <- fmt.Sprintf("session gone=%v receipt gone=%v", sessionGone, receiptGone):
+				case inconsistent <- fmt.Sprintf("directory listing had metadata=%v receipt=%v", hasMetadata, hasReceipt):
 				default:
 				}
 				return
@@ -270,7 +298,7 @@ func TestCollectionIsAllOrNothingToReaders(t *testing.T) {
 	close(stop)
 	select {
 	case detail := <-inconsistent:
-		t.Fatalf("a reader saw a partially collected session: %s", detail)
+		t.Fatalf("a directory listing saw a partially collected session: %s", detail)
 	default:
 	}
 }
