@@ -21,6 +21,18 @@ type FreshSnapshotSource interface {
 	SnapshotFresh(context.Context, core.Workspace) core.FastSnapshot
 }
 
+// Discoverer finds the repository a path belongs to.
+//
+// A caller that has not registered anything still knows where it is working,
+// and until now that was not enough: an unregistered directory produced no
+// provenance at all, so an agent had to learn ShellBeam's workspace ids before
+// it could run its first command and get a usable answer. Discovery closes that
+// gap without changing what registration means -- what is discovered is
+// reported, not recorded.
+type Discoverer interface {
+	Inspect(context.Context, string) (GitObservation, error)
+}
+
 type Observer struct {
 	registry Registry
 	source   SnapshotSource
@@ -37,7 +49,9 @@ func (o *Observer) Observe(ctx context.Context, cwd string) core.FastSnapshot {
 }
 
 func (o *Observer) Bind(ctx context.Context, cwd string) core.Binding {
-	workspace, ok, _ := o.resolve(ctx, cwd)
+	// Registry only. A binding is what a session records, and discovery has no
+	// identity to contribute to it.
+	workspace, ok, _ := o.resolve(ctx, cwd, withoutDiscovery)
 	if !ok {
 		return core.Binding{}
 	}
@@ -46,7 +60,10 @@ func (o *Observer) Bind(ctx context.Context, cwd string) core.Binding {
 
 func (o *Observer) ObserveCached(ctx context.Context, cwd string) core.FastSnapshot {
 	now := o.now().UTC()
-	workspace, ok, diagnostic := o.resolve(ctx, cwd)
+	// Registry only: this runs on the ordinary execution path, and asking git
+	// about every directory a command happens to use would be work the caller
+	// never asked for and cannot see.
+	workspace, ok, diagnostic := o.resolve(ctx, cwd, withoutDiscovery)
 	if !ok {
 		return observerUnavailable(now, diagnostic)
 	}
@@ -60,7 +77,9 @@ func (o *Observer) ObserveCached(ctx context.Context, cwd string) core.FastSnaps
 
 func (o *Observer) ObserveFresh(ctx context.Context, cwd string) core.FastSnapshot {
 	now := o.now().UTC()
-	workspace, ok, diagnostic := o.resolve(ctx, cwd)
+	// A fresh observation is something a caller asked for explicitly, so this is
+	// where looking at an unregistered directory is warranted.
+	workspace, ok, diagnostic := o.resolve(ctx, cwd, withDiscovery)
 	if !ok {
 		return observerUnavailable(now, diagnostic)
 	}
@@ -76,7 +95,15 @@ func (o *Observer) ObserveFresh(ctx context.Context, cwd string) core.FastSnapsh
 	return bindSnapshot(got, workspace)
 }
 
-func (o *Observer) resolve(ctx context.Context, cwd string) (core.Workspace, bool, string) {
+// Discovery is available only where a caller asked for a fresh observation.
+// The ordinary execution path resolves from the registry alone, so running a
+// command never shells out to git behind the caller's back.
+const (
+	withDiscovery    = true
+	withoutDiscovery = false
+)
+
+func (o *Observer) resolve(ctx context.Context, cwd string, allowDiscovery bool) (core.Workspace, bool, string) {
 	if o.registry == nil {
 		return core.Workspace{}, false, "workspace_observer_unavailable"
 	}
@@ -84,16 +111,56 @@ func (o *Observer) resolve(ctx context.Context, cwd string) (core.Workspace, boo
 	if err != nil {
 		return core.Workspace{}, false, "workspace_registry_unavailable"
 	}
-	workspace, ok := mostSpecificWorkspace(workspaces, cwd)
-	if !ok {
-		return core.Workspace{}, false, "workspace_unregistered"
+	if workspace, ok := mostSpecificWorkspace(workspaces, cwd); ok {
+		return workspace, true, ""
 	}
-	return workspace, true, ""
+	// Nothing registered covers this directory. Ask git what is actually there
+	// rather than refusing: the repository, worktree and branch are observable
+	// from the path itself, and reporting them costs the caller nothing it has
+	// to undo.
+	if allowDiscovery {
+		if discovered, ok := o.discover(ctx, cwd); ok {
+			return discovered, true, ""
+		}
+	}
+	return core.Workspace{}, false, "workspace_unregistered"
 }
+
+// discover builds an unregistered workspace from what git can see at cwd.
+//
+// It has no identifiers, and that absence is the point: identifiers are what
+// registration confers, and inventing one here would make a directory an agent
+// happened to name indistinguishable from one an operator chose to track. The
+// provenance is real; the registration is not claimed.
+func (o *Observer) discover(ctx context.Context, cwd string) (core.Workspace, bool) {
+	discoverer, ok := o.source.(Discoverer)
+	if !ok || discoverer == nil || cwd == "" {
+		return core.Workspace{}, false
+	}
+	observation, err := discoverer.Inspect(ctx, cwd)
+	if err != nil || observation.Root == "" || observation.GitDir == "" {
+		return core.Workspace{}, false
+	}
+	return core.Workspace{
+		SchemaVersion: core.SchemaVersion,
+		Root:          observation.Root,
+		GitDir:        observation.GitDir,
+		Branch:        observation.Branch,
+	}, true
+}
+
+// registered reports whether a resolved workspace came from the registry.
+func registered(workspace core.Workspace) bool { return workspace.ID != "" }
 
 func bindSnapshot(snapshot core.FastSnapshot, workspace core.Workspace) core.FastSnapshot {
 	snapshot.RepositoryID = workspace.RepositoryID
 	snapshot.WorkspaceID = workspace.ID
+	if !registered(workspace) && snapshot.DiagnosticCode == "" {
+		// The observation is real but nothing here is registered. Saying so
+		// alongside the provenance is different from saying it instead of the
+		// provenance, which is what a caller used to get.
+		snapshot.DiagnosticCode = "workspace_unregistered"
+	}
 	return snapshot
 }
 
