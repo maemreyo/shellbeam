@@ -46,6 +46,36 @@ func TestAbandonUnresolvedPreservesPersistentAndAbandonsDirect(t *testing.T) {
 	}
 }
 
+// A persistent reservation that never got as far as a binding -- the daemon
+// died between committing the reservation and standing up the supervisor --
+// has nothing for persistent recovery to reattach to. AbandonUnresolved must
+// abandon it like any ordinary orphan instead of deferring to a recovery path
+// that will never see it, or its capacity slot leaks for as long as the state
+// directory exists: restarting only re-runs this same reconciliation, and it
+// would keep finding the same unbound Persistent reservation and skipping it
+// again.
+func TestAbandonUnresolvedAbandonsPersistentReservationWithoutBinding(t *testing.T) {
+	r := openRecoveryRepository(t, filepath.Join(t.TempDir(), "state"))
+	now := time.Now().UTC()
+	reservePersistentOperation(t, r, "unbound-persistent-session", "unbound-persistent-op", "never-started", now)
+
+	if err := r.AbandonUnresolved(context.Background(), "new-daemon"); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := r.LoadReceipt(context.Background(), "unbound-persistent-session")
+	if err != nil || rec.State != session.Abandoned || rec.Outcome != session.Ambiguous || rec.OperationID != "unbound-persistent-op" {
+		t.Fatalf("receipt=%#v err=%v", rec, err)
+	}
+	snap, err := r.LoadSession(context.Background(), "unbound-persistent-session")
+	if err != nil || !snap.State.Terminal() {
+		t.Fatalf("snapshot=%#v err=%v", snap, err)
+	}
+	active, _, err := r.admissionCounters()
+	if err != nil || active != 0 {
+		t.Fatalf("active=%d err=%v", active, err)
+	}
+}
+
 func TestPersistentRecoveryCandidatesTrackOnlyProvisioningAndLive(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "state")
 	r := openRecoveryRepository(t, root)

@@ -57,7 +57,18 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 			return loadErr
 		}
 		if loadErr == nil && reservation.Persistent {
-			continue
+			// A persistent reservation only has something to reattach to once a
+			// binding was written; that is what marks the point the supervisor
+			// actually came into being. One that never got that far (the daemon
+			// died between reserving and binding) has nothing for persistent
+			// recovery to find, so skipping it here would strand its capacity
+			// slot forever -- no future restart would ever revisit it, because
+			// this is the only place that reconsiders a non-terminal session.
+			if _, bindingErr := r.LoadPersistentBinding(ctx, operation.SessionID(snap.SessionID)); bindingErr == nil {
+				continue
+			} else if !errors.Is(bindingErr, ErrNotFound) {
+				return bindingErr
+			}
 		}
 		rec := abandonedReceipt(snap, reservation, loadErr == nil, newIncarnation)
 		if got := r.PublishTerminal(ctx, rec); got.Err != nil {

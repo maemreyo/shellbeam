@@ -74,12 +74,26 @@ func TestPersistentStartUsesRuntimeAfterDurableReservationAndRetriesWithoutRelau
 	}
 }
 
+// A persistent launch that fails must not strand its reservation at Starting
+// forever: nothing else will ever revisit it, since restart-time reconciliation
+// defers to persistent recovery for anything marked Persistent, and recovery
+// only finds sessions that got as far as a binding. Before this test's
+// behavior was fixed, a failed persistent launch parked the session at
+// Starting permanently, leaking one of MaxSessions capacity slots per
+// failure until every slot was exhausted and every future start -- persistent
+// or not -- failed with capacity_exceeded no matter how many times the daemon
+// was restarted.
 func TestPersistentLaunchFailureDoesNotPublishRunningOrUseDirectOwner(t *testing.T) {
-	store := openPersistentLaunchStore(t)
+	// A capacity of exactly one makes a leaked slot observable: the second
+	// Start below can only succeed if the failed launch actually released it.
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 1, MaxSessionOutput: 1 << 20, MaxTotalState: 8 << 20, ControlReserve: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
 	owner := &fakeOwner{}
 	runtime := &fakePersistentRuntime{err: failure.New(failure.SupervisorUnavailable, map[string]string{"reason": "readiness"}, nil)}
 	svc := app.NewService(store, owner, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
-	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-fail", Command: "sleep 10", CWD: "/", Persistent: true, SessionName: "dev-server"})
+	_, err = svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-fail", Command: "sleep 10", CWD: "/", Persistent: true, SessionName: "dev-server"})
 	if !errors.Is(err, failure.SupervisorUnavailable) || runtime.calls.Load() != 1 || owner.starts.Load() != 0 {
 		t.Fatalf("err=%v calls=%d direct=%d", err, runtime.calls.Load(), owner.starts.Load())
 	}
@@ -88,9 +102,21 @@ func TestPersistentLaunchFailureDoesNotPublishRunningOrUseDirectOwner(t *testing
 		t.Fatal(err)
 	}
 	snapshot, err := store.LoadSession(context.Background(), reservation.SessionID)
-	if err != nil || snapshot.State != session.Starting {
+	if err != nil || snapshot.State != session.Failed {
 		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
 	}
+	rec, err := store.LoadReceipt(context.Background(), reservation.SessionID)
+	if err != nil || rec.State != session.Failed || rec.Outcome != session.Failure || rec.FailureReason != "persistent_spawn_failed" {
+		t.Fatalf("receipt=%#v err=%v", rec, err)
+	}
+	// The failed launch must not just be reported terminal -- it must have
+	// actually released its slot, or every symptom of the leak this test
+	// guards against would still be present under the covers.
+	second, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "after-persistent-fail", Command: "true", CWD: "/"})
+	if err != nil {
+		t.Fatalf("start after persistent failure did not free capacity: %v", err)
+	}
+	waitForTerminal(t, svc, second.SessionID)
 }
 
 func TestPersistentMissingControlProofFailsClosedAndShutdownDetaches(t *testing.T) {
