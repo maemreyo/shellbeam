@@ -43,8 +43,21 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 	text, consumed, truncated := receipt.VisibleOutput(b, max)
 	next = cursor + int64(consumed)
 	v := View{OperationID: string(res.OperationID), ActivityID: res.ActivityID, WorkspaceID: res.WorkspaceID, SessionID: sid, Output: text, Cursor: cursor, NextCursor: next, Truncated: truncated}
+	if err := s.hydrateWaitViewState(ctx, sid, &v); err != nil {
+		return View{}, err
+	}
+	if err := s.hydrateWaitViewReceipt(ctx, sid, &v); err != nil {
+		return View{}, err
+	}
+	if v.RawOutputBytes < next {
+		v.RawOutputBytes = next
+	}
+	return v, nil
+}
+func (s *Service) hydrateWaitViewState(ctx context.Context, sid string, v *View) error {
 	if l := s.get(sid); l != nil {
 		l.mu.Lock()
+		defer l.mu.Unlock()
 		v.OperationID = l.operationID
 		v.ActivityID = l.activityID
 		v.WorkspaceID = l.reservation.WorkspaceID
@@ -57,52 +70,44 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 			v.NextInputOffset = l.input.NextOffset()
 		}
 		v.RawOutputBytes = l.outputBytes
-		l.mu.Unlock()
-	} else if snap, e := s.store.LoadSession(ctx, operation.SessionID(sid)); e != nil {
-		// Neither live nor durable. Retention may have collected it, or it may
-		// never have existed -- once the record is gone the daemon genuinely
-		// cannot tell, and saying so is better than returning an empty view a
-		// caller has to interpret as either.
-		return View{}, failure.New(failure.SessionNotFound, map[string]string{
-			"session_id": sid, "reason": "no durable session record",
-		}, nil)
-	} else {
-		v.OperationID = snap.OperationID
-		if reservation, loadErr := s.store.LoadOperation(ctx, operation.ID(snap.OperationID)); loadErr == nil {
-			v.ActivityID = reservation.ActivityID
-			v.WorkspaceID = reservation.WorkspaceID
-		}
-		v.State = snap.State
-		v.Outcome = snap.Outcome
-		v.RawOutputBytes = snap.OutputBytes
+		return nil
 	}
-	if v.State.Terminal() {
-		if rec, e := s.store.LoadReceipt(ctx, operation.SessionID(sid)); e == nil {
-			v.Receipt = &rec
-			v.Failure = rec.Failure()
-			v.RawOutputBytes = rec.OutputBytes
-		} else if _, sessionErr := s.store.LoadSession(ctx, operation.SessionID(sid)); sessionErr != nil {
-			// The snapshot and the receipt are two separate reads with nothing
-			// synchronizing them, and retention withdraws a session as one
-			// atomic rename -- so a snapshot read moments before the rename and
-			// a receipt read moments after can straddle it. A terminal
-			// snapshot's receipt is always durably published before the
-			// snapshot is ever marked terminal (see waitLoop), so a missing
-			// receipt here is not a session that never had one; it is a
-			// session that vanished mid-read. Confirming with a second read
-			// converges immediately once the rename has actually landed, and
-			// keeps the answer honest instead of a terminal state with no
-			// evidence behind it.
-			return View{}, failure.New(failure.SessionNotFound, map[string]string{
-				"session_id": sid, "reason": "record removed during read",
-			}, nil)
-		}
+	snap, err := s.store.LoadSession(ctx, operation.SessionID(sid))
+	if err != nil {
+		return failure.New(failure.SessionNotFound, map[string]string{"session_id": sid, "reason": "no durable session record"}, nil)
 	}
-	if v.RawOutputBytes < next {
-		v.RawOutputBytes = next
+	v.OperationID = snap.OperationID
+	if reservation, loadErr := s.store.LoadOperation(ctx, operation.ID(snap.OperationID)); loadErr == nil {
+		v.ActivityID = reservation.ActivityID
+		v.WorkspaceID = reservation.WorkspaceID
 	}
-	return v, nil
+	v.State = snap.State
+	v.Outcome = snap.Outcome
+	v.RawOutputBytes = snap.OutputBytes
+	return nil
 }
+
+func (s *Service) hydrateWaitViewReceipt(ctx context.Context, sid string, v *View) error {
+	if !v.State.Terminal() {
+		return nil
+	}
+	rec, err := s.store.LoadReceipt(ctx, operation.SessionID(sid))
+	if err == nil {
+		v.Receipt = &rec
+		v.Failure = rec.Failure()
+		v.RawOutputBytes = rec.OutputBytes
+		return nil
+	}
+	if _, sessionErr := s.store.LoadSession(ctx, operation.SessionID(sid)); sessionErr == nil {
+		return nil
+	}
+	// Retention can withdraw a terminal session between the snapshot and receipt
+	// reads. The receipt was durably published before terminal state, so a second
+	// missing session read means the record vanished mid-read rather than never
+	// having terminal evidence.
+	return failure.New(failure.SessionNotFound, map[string]string{"session_id": sid, "reason": "record removed during read"}, nil)
+}
+
 func (s *Service) Write(ctx context.Context, req WriteRequest) (View, error) {
 	l := s.get(req.SessionID)
 	if l == nil {
