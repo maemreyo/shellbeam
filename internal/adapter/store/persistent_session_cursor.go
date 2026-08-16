@@ -96,7 +96,7 @@ func (c *persistentSessionCursorCodec) Decode(token string, filter persistentBin
 		return fail("persistent_session_continuation_invalid")
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(parts[0])
-	if err != nil || len(raw) > 1536 {
+	if err != nil || len(raw) > 1536 || base64.RawURLEncoding.EncodeToString(raw) != parts[0] {
 		return fail("persistent_session_continuation_invalid")
 	}
 	var payload persistentCursorPayload
@@ -107,7 +107,7 @@ func (c *persistentSessionCursorCodec) Decode(token string, filter persistentBin
 		return fail("persistent_session_continuation_expired")
 	}
 	sig, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil || !hmac.Equal(sig, c.sign([]byte(parts[0]))) {
+	if err != nil || base64.RawURLEncoding.EncodeToString(sig) != parts[1] || !hmac.Equal(sig, c.sign([]byte(parts[0]))) {
 		return fail("persistent_session_continuation_invalid")
 	}
 	fingerprint, err := persistentBindingFilterFingerprint(filter)
