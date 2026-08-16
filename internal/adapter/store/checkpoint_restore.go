@@ -167,6 +167,9 @@ func (r *Repository) LoadCheckpointRestore(ctx context.Context, restoreID string
 	defer r.checkpointMu.Unlock()
 
 	reservation, err := r.readCheckpointRestoreReservationUnlocked(restoreID)
+	if errors.Is(err, ErrNotFound) {
+		return checkpointapp.RestoreReservation{}, nil, nil, checkpointapp.ErrRestoreNotFound
+	}
 	if err != nil {
 		return checkpointapp.RestoreReservation{}, nil, nil, err
 	}

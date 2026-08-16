@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -15,6 +16,8 @@ import (
 )
 
 const ReservationSchemaVersion = 1
+
+var ErrRestoreNotFound = errors.New("checkpoint restore not found")
 
 var checkpointIDPattern = regexp.MustCompile(`^chk_[0-9A-HJKMNP-TV-Z]{26}$`)
 

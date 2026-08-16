@@ -343,12 +343,19 @@ func readStrict(path string, out any) error {
 // It costs O(history) -- a stat of every file plus a strict decode of every
 // session metadata document -- so it belongs to reconciliation only, never to
 // the admission path. See admission.go.
+func transientAtomicWalkError(path string, err error) bool {
+	return errors.Is(err, os.ErrNotExist) && strings.HasPrefix(filepath.Base(path), ".shellbeam-")
+}
+
 func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 	r.fullScans.Add(1)
 	active := map[string]struct{}{}
 	var bytes int64
 	err := filepath.Walk(r.root, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
+			if transientAtomicWalkError(path, e) {
+				return nil
+			}
 			return e
 		}
 		if info.Mode().IsRegular() && !isAdmissionIndex(path) {

@@ -308,6 +308,9 @@ func (r *Repository) scanStateBytes() (int64, error) {
 	var bytes int64
 	err := filepath.Walk(r.root, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
+			if transientAtomicWalkError(path, e) {
+				return nil
+			}
 			return e
 		}
 		if info.Mode().IsRegular() && !isAdmissionIndex(path) {

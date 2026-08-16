@@ -14,11 +14,13 @@ import (
 const providerSchemaVersion = 1
 
 type Provider struct {
-	stateDir    string
-	runtimeDir  string
-	mu          sync.Mutex
-	newEntryRef func() string
-	afterEntry  func(int) error
+	stateDir              string
+	runtimeDir            string
+	mu                    sync.Mutex
+	newEntryRef           func() string
+	afterEntry            func(int) error
+	beforeRestoreMutation func(string)
+	afterRestorePath      func(int) error
 }
 
 func New(stateDir, runtimeDir string) *Provider {
@@ -65,8 +67,8 @@ func (p *Provider) entryDataPath(checkpointID, ref string) string {
 	return filepath.Join(p.entriesDir(checkpointID), ref+".bin")
 }
 
-func (p *Provider) Restore(context.Context, checkpointapp.ProviderRestoreRequest) (checkpointapp.ProviderRestoreResult, error) {
-	return checkpointapp.ProviderRestoreResult{}, errors.New("checkpoint restore not available")
+func (p *Provider) Restore(ctx context.Context, request checkpointapp.ProviderRestoreRequest) (checkpointapp.ProviderRestoreResult, error) {
+	return p.restore(ctx, request)
 }
 
 func (p *Provider) Inspect(context.Context, string) (checkpointapp.ProviderCheckpointStatus, error) {

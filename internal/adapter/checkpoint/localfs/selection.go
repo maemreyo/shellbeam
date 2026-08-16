@@ -257,52 +257,11 @@ func readlinkAt(parent int, name string) (string, error) {
 }
 
 func (s *selectionState) rejectSubmoduleCrossing(rel string) error {
-	parts := strings.Split(filepath.ToSlash(rel), "/")
-	if len(parts) < 2 {
-		return nil
-	}
-	fd, err := dupFD(s.rootFD)
-	if err != nil {
-		return err
-	}
-	prefix := ""
-	for _, part := range parts[:len(parts)-1] {
-		next, openErr := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-		if openErr != nil {
-			_ = unix.Close(fd)
-			if isNotExist(openErr) {
-				return nil
-			}
-			return checkpointFailure(failure.CheckpointPathUnsupported, map[string]string{"path": rel, "reason": "parent_unavailable"}, openErr)
-		}
-		_ = unix.Close(fd)
-		fd = next
-		if prefix == "" {
-			prefix = part
-		} else {
-			prefix += "/" + part
-		}
-		if err := s.rejectSubmodule(fd, prefix); err != nil {
-			_ = unix.Close(fd)
-			return err
-		}
-	}
-	_ = unix.Close(fd)
-	return nil
+	return rejectSubmoduleCrossing(s.rootFD, rel)
 }
 
 func (s *selectionState) rejectSubmodule(dirFD int, rel string) error {
-	st, err := statAtNoFollow(dirFD, ".git")
-	if err != nil {
-		if isNotExist(err) {
-			return nil
-		}
-		return err
-	}
-	if fileType(st) != unix.S_IFDIR {
-		return checkpointFailure(failure.CheckpointSubmoduleBoundaryUnsupported, map[string]string{"path": rel}, nil)
-	}
-	return nil
+	return rejectSubmoduleAt(dirFD, rel)
 }
 
 func (s *selectionState) excluded(rel string) (bool, string) {
