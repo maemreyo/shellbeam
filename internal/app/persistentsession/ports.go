@@ -103,6 +103,10 @@ type Launcher interface {
 	Ensure(context.Context, LaunchRequest) (Attachment, Status, error)
 }
 
+type Reattacher interface {
+	Reattach(context.Context, core.Binding) (Attachment, Status, error)
+}
+
 type Limits struct {
 	MaxOutputBytes        int64
 	MaxQueuedInputBytes   int

@@ -51,6 +51,9 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 		if loadErr != nil && !errors.Is(loadErr, ErrNotFound) {
 			return loadErr
 		}
+		if loadErr == nil && reservation.Persistent {
+			continue
+		}
 		rec := abandonedReceipt(snap, reservation, loadErr == nil, newIncarnation)
 		if got := r.PublishTerminal(ctx, rec); got.Err != nil {
 			return got.Err

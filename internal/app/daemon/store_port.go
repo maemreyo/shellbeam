@@ -46,6 +46,8 @@ type PersistentSessionStore interface {
 	FindPersistentBinding(context.Context, operation.SessionID) (persistent.Binding, bool, error)
 	FindPersistentBindingByName(context.Context, string) (persistent.Binding, bool, error)
 	ListPersistentBindings(context.Context, persistent.InspectRequest) (persistent.BindingPage, error)
+	ListPersistentRecoveryCandidates(context.Context) ([]persistent.Binding, error)
+	AbandonPersistentSession(context.Context, persistent.Binding, string, string) StoreResult
 }
 
 type processObservationStore interface {

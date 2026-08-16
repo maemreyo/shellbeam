@@ -177,6 +177,9 @@ func serveDaemonRuntime(
 		shutdownTelemetry(telemetryRuntime, terminationGrace)
 		return err
 	}
+	defer shutdownObservation(observationRuntime, terminationGrace)
+	defer shutdownTelemetry(telemetryRuntime, terminationGrace)
+	defer shutdownEvidence(evidenceRuntime, terminationGrace)
 	structuredScheduler.bind(observationRuntime.worker)
 	telemetryScheduler.bind(telemetryRuntime.worker)
 	evidenceScheduler.bind(evidenceRuntime.worker)
@@ -187,10 +190,10 @@ func serveDaemonRuntime(
 	actions.repro = reproapp.New(store)
 	observationRuntime.startMaterialization(ctx)
 	evidenceRuntime.startRecovery(ctx)
+	if err = reconcilePersistentDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
 	server.MarkReady()
-	defer shutdownObservation(observationRuntime, terminationGrace)
-	defer shutdownTelemetry(telemetryRuntime, terminationGrace)
-	defer shutdownEvidence(evidenceRuntime, terminationGrace)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
 }

@@ -2,12 +2,9 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -54,7 +51,7 @@ func (c persistentNameClaim) validate() error {
 }
 
 func (r *Repository) initPersistentSessionStore() error {
-	for _, path := range []string{r.persistentSessionDir(), r.persistentBindingDir(), r.persistentNameDir()} {
+	for _, path := range []string{r.persistentSessionDir(), r.persistentBindingDir(), r.persistentNameDir(), r.persistentRecoveryDir()} {
 		if err := ensurePrivateDir(path); err != nil {
 			return fmt.Errorf("persistent sessions: %w", err)
 		}
@@ -95,6 +92,9 @@ func (r *Repository) ReservePersistentBinding(ctx context.Context, want persiste
 		if result := r.reservePersistentNameLocked(want); result.Err != nil {
 			return persistent.Binding{}, false, result
 		}
+	}
+	if result := r.ensurePersistentRecoveryMarkerLocked(want); result.Err != nil {
+		return persistent.Binding{}, false, result
 	}
 
 	path := r.persistentBindingPath(sessionID)
@@ -149,12 +149,31 @@ func (r *Repository) AdvancePersistentBinding(ctx context.Context, want persiste
 		return app.StoreResult{Durability: app.DurableChange, Err: persistentStateConflict(want, "identity_conflict", nil)}
 	}
 	if reflect.DeepEqual(existing, want) {
+		if want.Lifecycle == persistent.LifecycleTerminal || want.Lifecycle == persistent.LifecycleLost {
+			if err := r.removePersistentRecoveryMarkerLocked(sessionID); err != nil {
+				return app.StoreResult{Durability: app.DurableChange, Err: err}
+			}
+		}
 		return app.StoreResult{Durability: app.DurableChange}
 	}
 	if !want.UpdatedAt.After(existing.UpdatedAt) || !validPersistentLifecycleTransition(existing.Lifecycle, want.Lifecycle) {
 		return app.StoreResult{Durability: app.DurableChange, Err: persistentStateConflict(want, "lifecycle_conflict", nil)}
 	}
-	return r.writer.Replace(r.persistentBindingPath(sessionID), want)
+	if want.Lifecycle == persistent.LifecycleLive {
+		if result := r.ensurePersistentRecoveryMarkerLocked(existing); result.Err != nil {
+			return result
+		}
+	}
+	result := r.writer.Replace(r.persistentBindingPath(sessionID), want)
+	if result.Err != nil {
+		return result
+	}
+	if want.Lifecycle == persistent.LifecycleTerminal || want.Lifecycle == persistent.LifecycleLost {
+		if err := r.removePersistentRecoveryMarkerLocked(sessionID); err != nil {
+			return app.StoreResult{Durability: app.DurableChange, Err: err}
+		}
+	}
+	return result
 }
 
 func (r *Repository) LoadPersistentBinding(ctx context.Context, sessionID operation.SessionID) (persistent.Binding, error) {
@@ -453,41 +472,4 @@ func samePersistentBindingIdentity(a, b persistent.Binding) bool {
 		a.Persistent == b.Persistent && a.Supervision == b.Supervision && a.Continuity == b.Continuity &&
 		a.SupervisorGenerationID == b.SupervisorGenerationID && a.SupervisorEndpointRef == b.SupervisorEndpointRef &&
 		a.CreatedAt.UTC().Equal(b.CreatedAt.UTC())
-}
-
-func validPersistentLifecycleTransition(from, to persistent.Lifecycle) bool {
-	switch from {
-	case persistent.LifecycleProvisioning:
-		return to == persistent.LifecycleLive || to == persistent.LifecycleTerminal || to == persistent.LifecycleLost
-	case persistent.LifecycleLive:
-		return to == persistent.LifecycleTerminal || to == persistent.LifecycleLost
-	default:
-		return false
-	}
-}
-
-func persistentStateConflict(binding persistent.Binding, reason string, cause error) error {
-	details := map[string]string{"session_id": binding.SessionID, "session_name": binding.SessionName, "reason": reason}
-	return failure.New(failure.SupervisorStateConflict, details, cause)
-}
-
-func (r *Repository) persistentSessionDir() string {
-	return filepath.Join(r.root, "persistent-sessions")
-}
-
-func (r *Repository) persistentBindingDir() string {
-	return filepath.Join(r.persistentSessionDir(), "bindings")
-}
-
-func (r *Repository) persistentNameDir() string {
-	return filepath.Join(r.persistentSessionDir(), "names")
-}
-
-func (r *Repository) persistentBindingPath(sessionID operation.SessionID) string {
-	return filepath.Join(r.persistentBindingDir(), string(sessionID)+".json")
-}
-
-func (r *Repository) persistentNamePath(name string) string {
-	sum := sha256.Sum256([]byte(name))
-	return filepath.Join(r.persistentNameDir(), hex.EncodeToString(sum[:])+".json")
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
 type PersistentLaunch struct {
@@ -26,4 +28,16 @@ type PersistentOutputResult struct {
 
 type persistentOutputStore interface {
 	ReconcilePersistentOutput(context.Context, operation.SessionID, int64, []byte) (PersistentOutputResult, StoreResult)
+}
+
+type PersistentReattach struct {
+	Handle  ProcessHandle
+	State   session.State
+	Outcome session.Outcome
+	Spawn   receipt.SpawnEvidence
+	PID     int
+}
+
+type PersistentReattachRuntime interface {
+	Reattach(context.Context, persistent.Binding) (PersistentReattach, error)
 }

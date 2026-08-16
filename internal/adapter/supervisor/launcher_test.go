@@ -206,3 +206,126 @@ func TestLauncherIndependentSessionsLaunchConcurrently(t *testing.T) {
 		}
 	}
 }
+
+func TestLauncherReattachLiveNeverSpawns(t *testing.T) {
+	runtimeRoot := shortLauncherRoot(t)
+	capability, err := NewCapability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := launcherRequest("reattach-live", "reattach-live-op", "generation-reattach-live").Binding
+	layout, err := PreparePrivateState(runtimeRoot, binding.SessionID, binding.SupervisorGenerationID, capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	launcher, err := NewLauncher(LauncherOptions{RuntimeRoot: runtimeRoot, Executable: "/bin/echo", HandshakeTimeout: 50 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spawns atomic.Int32
+	launcher.spawnSupervisor = func(Bootstrap, Capability) error { spawns.Add(1); return nil }
+	attachment := newRuntimeFakeHandle()
+	launcher.attach = func(_ context.Context, got Layout, inherited Capability, sessionID, generationID string) (persistentapp.Attachment, persistentapp.Status, error) {
+		if got.SessionDir != layout.SessionDir || !bytes.Equal(inherited.bytes(), capability.bytes()) {
+			t.Fatal("reattach did not load exact private state")
+		}
+		return attachment, persistentapp.Status{
+			SessionID: sessionID, GenerationID: generationID, State: session.Running, PID: 4242,
+			Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true},
+		}, nil
+	}
+	got, status, err := launcher.Reattach(context.Background(), binding)
+	if err != nil || got == nil || status.State != session.Running || status.PID != 4242 {
+		t.Fatalf("attachment=%v status=%#v err=%v", got, status, err)
+	}
+	if spawns.Load() != 0 {
+		t.Fatalf("reattach spawned supervisor: %d", spawns.Load())
+	}
+}
+
+func TestLauncherReattachUsesVerifiedTerminalRecoveryWithoutSpawn(t *testing.T) {
+	runtimeRoot := shortLauncherRoot(t)
+	capability, err := NewCapability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := launcherRequest("reattach-terminal", "reattach-terminal-op", "generation-reattach-terminal").Binding
+	layout, err := PreparePrivateState(runtimeRoot, binding.SessionID, binding.SupervisorGenerationID, capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spool, err := OpenSpool(layout, 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := spool.AppendRange([]byte("ok")); err != nil {
+		t.Fatal(err)
+	}
+	if err := spool.Close(); err != nil {
+		t.Fatal(err)
+	}
+	code := 0
+	record, err := SealTerminalRecord(capability, TerminalRecord{
+		SchemaVersion: TerminalRecordSchemaVersion, ProtocolVersion: ProtocolVersion,
+		SessionID: binding.SessionID, GenerationID: binding.SupervisorGenerationID,
+		State: session.Completed, Outcome: session.Success,
+		Spawn:       receipt.SpawnEvidence{Attempted: true, Succeeded: true},
+		Exit:        receipt.ExitEvidence{Reaped: true, Code: &code},
+		OutputBytes: 2, OutputComplete: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTerminalRecord(layout, record); err != nil {
+		t.Fatal(err)
+	}
+	launcher, err := NewLauncher(LauncherOptions{RuntimeRoot: runtimeRoot, Executable: "/bin/echo", HandshakeTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spawns atomic.Int32
+	launcher.spawnSupervisor = func(Bootstrap, Capability) error { spawns.Add(1); return nil }
+	launcher.attach = func(context.Context, Layout, Capability, string, string) (persistentapp.Attachment, persistentapp.Status, error) {
+		return nil, persistentapp.Status{}, failure.New(failure.SupervisorUnavailable, map[string]string{"reason": "socket_absent"}, nil)
+	}
+	attachment, status, err := launcher.Reattach(context.Background(), binding)
+	if err != nil || attachment == nil || status.State != session.Completed || status.PID != 0 {
+		t.Fatalf("attachment=%v status=%#v err=%v", attachment, status, err)
+	}
+	recovery, ok := attachment.(persistentapp.RecoveryAttachment)
+	if !ok {
+		t.Fatalf("attachment type=%T lacks recovery", attachment)
+	}
+	terminal, err := recovery.Terminal(context.Background())
+	if err != nil || terminal.State != session.Completed || terminal.OutputBytes != 2 {
+		t.Fatalf("terminal=%#v err=%v", terminal, err)
+	}
+	if spawns.Load() != 0 {
+		t.Fatalf("terminal reattach spawned supervisor: %d", spawns.Load())
+	}
+}
+
+func TestLauncherReattachGenerationMismatchFailsClosedWithoutSpawn(t *testing.T) {
+	runtimeRoot := shortLauncherRoot(t)
+	capability, err := NewCapability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := launcherRequest("reattach-mismatch", "reattach-mismatch-op", "generation-a").Binding
+	if _, err := PreparePrivateState(runtimeRoot, binding.SessionID, binding.SupervisorGenerationID, capability); err != nil {
+		t.Fatal(err)
+	}
+	binding.SupervisorGenerationID = "generation-b"
+	launcher, err := NewLauncher(LauncherOptions{RuntimeRoot: runtimeRoot, Executable: "/bin/echo", HandshakeTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spawns atomic.Int32
+	launcher.spawnSupervisor = func(Bootstrap, Capability) error { spawns.Add(1); return nil }
+	if attachment, _, err := launcher.Reattach(context.Background(), binding); err == nil || attachment != nil {
+		t.Fatalf("mismatched generation reattached attachment=%v err=%v", attachment, err)
+	}
+	if spawns.Load() != 0 {
+		t.Fatalf("generation mismatch spawned supervisor: %d", spawns.Load())
+	}
+}

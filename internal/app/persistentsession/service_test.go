@@ -102,6 +102,40 @@ func TestEnsureRejectsUnreadyWrongIdentityLostAndTTYWithoutAdvancingLive(t *test
 	}
 }
 
+func TestReattachReusesExistingGenerationAndAdvancesOnlyLiveProof(t *testing.T) {
+	now := time.Date(2026, 8, 16, 9, 0, 0, 0, time.UTC)
+	reservation := persistentReservation("persistent-session-r", "persistent-op-r", "dev-r", now)
+	binding := persistentBindingForReservation(reservation, "generation-r", "endpoint-r", now, core.LifecycleProvisioning)
+	store := &fakeBindingStore{binding: binding}
+	launcher := &fakeLauncher{reattachStatus: Status{SessionID: binding.SessionID, GenerationID: binding.SupervisorGenerationID, State: session.Running, PID: 5151, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}}}
+	service := testService(store, launcher, now)
+	result, err := service.Reattach(context.Background(), binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Binding.Lifecycle != core.LifecycleLive || store.binding.Lifecycle != core.LifecycleLive || result.Status.PID != 5151 {
+		t.Fatalf("result=%#v stored=%#v", result, store.binding)
+	}
+	if !reflect.DeepEqual(launcher.actions, []string{"reattach"}) || launcher.bindings[0].SupervisorGenerationID != "generation-r" {
+		t.Fatalf("actions=%v bindings=%#v", launcher.actions, launcher.bindings)
+	}
+}
+
+func TestReattachTerminalProofLeavesProvisioningForTerminalReconciliation(t *testing.T) {
+	now := time.Date(2026, 8, 16, 9, 30, 0, 0, time.UTC)
+	reservation := persistentReservation("persistent-session-terminal-r", "persistent-op-terminal-r", "terminal-r", now)
+	binding := persistentBindingForReservation(reservation, "generation-terminal-r", "endpoint-terminal-r", now, core.LifecycleProvisioning)
+	store := &fakeBindingStore{binding: binding}
+	launcher := &fakeLauncher{reattachStatus: Status{SessionID: binding.SessionID, GenerationID: binding.SupervisorGenerationID, State: session.Completed, Outcome: session.Success}}
+	result, err := testService(store, launcher, now).Reattach(context.Background(), binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status.State != session.Completed || result.Binding.Lifecycle != core.LifecycleProvisioning || store.binding.Lifecycle != core.LifecycleProvisioning {
+		t.Fatalf("result=%#v stored=%#v", result, store.binding)
+	}
+}
+
 func testService(store *fakeBindingStore, launcher *fakeLauncher, now time.Time) *Service {
 	return NewService(store, launcher, Options{
 		Limits: Limits{MaxOutputBytes: 1024, MaxQueuedInputBytes: 128, MaxInputRecords: 16, MaxInputMetadataBytes: 8192, MaxKillRecords: 8, TerminationGrace: time.Millisecond},
@@ -178,6 +212,8 @@ type fakeLauncher struct {
 	bindings        []core.Binding
 	bindingAtEnsure core.Binding
 	err             error
+	reattachStatus  Status
+	reattachErr     error
 }
 
 func (l *fakeLauncher) Ensure(_ context.Context, request LaunchRequest) (Attachment, Status, error) {
@@ -190,4 +226,15 @@ func (l *fakeLauncher) Ensure(_ context.Context, request LaunchRequest) (Attachm
 		return nil, Status{}, l.err
 	}
 	return &fakeAttachment{}, l.status, nil
+}
+
+func (l *fakeLauncher) Reattach(_ context.Context, binding core.Binding) (Attachment, Status, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.actions = append(l.actions, "reattach")
+	l.bindings = append(l.bindings, binding)
+	if l.reattachErr != nil {
+		return nil, Status{}, l.reattachErr
+	}
+	return &fakeAttachment{}, l.reattachStatus, nil
 }

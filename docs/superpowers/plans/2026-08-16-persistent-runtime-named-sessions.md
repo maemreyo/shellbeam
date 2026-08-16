@@ -126,14 +126,14 @@ Files: create internal/adapter/store/{persistent_output.go,persistent_output_tes
 
 Files: modify store reconcile; app persistent reconcile; daemon shutdown/process_inspect; command daemon; add focused tests.
 
-- [ ] RED: direct unresolved restart behavior unchanged.
-- [ ] RED: valid live supervisor => reattached same session; terminal record => canonical terminal; missing/refused/auth/generation/protocol/timeout => lost/ambiguous, no PID signal/relaunch.
-- [ ] Split unresolved canonical sessions into direct vs persistent before abandonment.
-- [ ] Startup bounded reconciliation: per-session 2s, concurrency16, total5s; classify every retained session before ready.
-- [ ] Graceful daemon shutdown detaches persistent attachments only; direct sessions retain current TERM/grace/KILL path.
-- [ ] A2.5 ResolveProcessSession: current PID only while authenticated attachment proof is current; after loss return Known=true, Current=false, PID=0.
-- [ ] Repeat/race restart tests.
-- [ ] Commit: feat: reattach persistent sessions on restart
+- [x] RED: direct unresolved restart behavior unchanged.
+- [x] RED: valid live supervisor => reattached same session; terminal record => canonical terminal; missing/refused/auth/generation/protocol/timeout => lost/ambiguous, no PID signal/relaunch.
+- [x] Split unresolved canonical sessions into direct vs persistent before abandonment.
+- [x] Startup bounded reconciliation: per-session 2s, concurrency16, total5s; classify every retained session before ready.
+- [x] Graceful daemon shutdown detaches persistent attachments only; direct sessions retain current TERM/grace/KILL path.
+- [x] A2.5 ResolveProcessSession: current PID only while authenticated attachment proof is current; after loss return Known=true, Current=false, PID=0.
+- [x] Repeat/race restart tests.
+- [x] Commit: feat: reattach persistent sessions on restart
 
 ### Task 8 - Public modern inspect.sessions, schema/capability, Event Journal integration
 

@@ -43,6 +43,14 @@ func (r daemonPersistentRuntime) Ensure(ctx context.Context, reservation operati
 	return daemonapp.PersistentLaunch{Handle: result.Attachment, Spawn: result.Status.Spawn, PID: result.Status.PID}, nil
 }
 
+func (r daemonPersistentRuntime) Reattach(ctx context.Context, binding persistentcore.Binding) (daemonapp.PersistentReattach, error) {
+	result, err := r.service.Reattach(ctx, binding)
+	if err != nil {
+		return daemonapp.PersistentReattach{}, err
+	}
+	return daemonapp.PersistentReattach{Handle: result.Attachment, State: result.Status.State, Outcome: result.Status.Outcome, Spawn: result.Status.Spawn, PID: result.Status.PID}, nil
+}
+
 func composePersistentSessionRuntime(store daemonapp.PersistentSessionStore, runtimeRoot string, cfg config.Config) (daemonapp.PersistentRuntime, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -68,9 +76,22 @@ func newPersistentSessionRuntime(store daemonapp.PersistentSessionStore, runtime
 	return daemonPersistentRuntime{service: service}, nil
 }
 
+type persistentStartupStore interface {
+	ListPersistentRecoveryCandidates(context.Context) ([]persistentcore.Binding, error)
+}
+
+func reconcilePersistentDaemonStartup(ctx context.Context, store persistentStartupStore, svc *daemonapp.Service) error {
+	candidates, err := store.ListPersistentRecoveryCandidates(ctx)
+	if err != nil {
+		return err
+	}
+	return svc.ReconcilePersistentStartup(ctx, candidates, daemonapp.PersistentStartupOptions{})
+}
+
 func persistentSessionCatalog(base capability.Catalog, maxSessions int, maxSpoolBytes int64, maxQueuedInputBytes int) capability.Catalog {
 	return base.WithNamedSessions(maxSessions, maxSpoolBytes, maxQueuedInputBytes)
 }
 
 var _ persistentapp.BindingStore = persistentBindingStoreAdapter{}
 var _ daemonapp.PersistentRuntime = daemonPersistentRuntime{}
+var _ daemonapp.PersistentReattachRuntime = daemonPersistentRuntime{}
