@@ -40,6 +40,10 @@ const (
 	EventPersistentSessionReattached EventKind = "persistent_session_reattached"
 	EventPersistentSessionTerminal   EventKind = "persistent_session_terminal"
 	EventPersistentSessionLost       EventKind = "persistent_session_lost"
+	EventCheckpointCreated           EventKind = "checkpoint_created"
+	EventCheckpointRestoreStarted    EventKind = "checkpoint_restore_started"
+	EventCheckpointRestoreCompleted  EventKind = "checkpoint_restore_completed"
+	EventCheckpointExpired           EventKind = "checkpoint_expired"
 
 	ContinuityComplete         Continuity = "complete"
 	ContinuitySnapshotRequired Continuity = "snapshot_required"
@@ -68,7 +72,7 @@ type Event struct {
 }
 
 func InitialEventKinds() []EventKind {
-	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded, EventMutationScopeChanged, EventPersistentSessionStarted, EventPersistentSessionReattached, EventPersistentSessionTerminal, EventPersistentSessionLost}
+	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded, EventMutationScopeChanged, EventPersistentSessionStarted, EventPersistentSessionReattached, EventPersistentSessionTerminal, EventPersistentSessionLost, EventCheckpointCreated, EventCheckpointRestoreStarted, EventCheckpointRestoreCompleted, EventCheckpointExpired}
 }
 
 func (e Event) Validate() error {

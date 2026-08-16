@@ -10,6 +10,7 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	core "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 )
 
 var _ checkpointapp.Repository = (*Repository)(nil)
@@ -118,7 +119,17 @@ func (r *Repository) CompleteCheckpointCreate(ctx context.Context, createID stri
 		return core.Checkpoint{}, err
 	}
 
+	r.observationVisibilityMu.Lock()
+	defer r.observationVisibilityMu.Unlock()
+	seq, prepared := r.prepareCheckpointCreatedObservation(ctx, checkpoint)
+	if prepared.Err != nil {
+		return core.Checkpoint{}, prepared.Err
+	}
 	result := r.writer.Create(r.checkpointMetadataPath(checkpoint.CheckpointID), checkpoint)
+	r.finishCheckpointObservation(seq, result, func() bool {
+		canonical, readErr := r.readCheckpointMetadataUnlocked(checkpoint.CheckpointID)
+		return readErr == nil && reflect.DeepEqual(canonical, checkpoint)
+	})
 	if result.Err == nil {
 		return checkpoint, nil
 	}
@@ -201,7 +212,23 @@ func (r *Repository) MarkCheckpointRetention(ctx context.Context, checkpointID s
 	if err := candidate.Validate(); err != nil {
 		return core.Checkpoint{}, err
 	}
+	var seq observation.ChangeSeq
+	if target == core.RetentionExpired {
+		r.observationVisibilityMu.Lock()
+		defer r.observationVisibilityMu.Unlock()
+		preparedSeq, prepared := r.prepareCheckpointExpiredObservation(ctx, candidate)
+		if prepared.Err != nil {
+			return core.Checkpoint{}, prepared.Err
+		}
+		seq = preparedSeq
+	}
 	result := r.writer.Replace(r.checkpointMetadataPath(checkpointID), candidate)
+	if seq != 0 {
+		r.finishCheckpointObservation(seq, result, func() bool {
+			canonical, readErr := r.readCheckpointMetadataUnlocked(checkpointID)
+			return readErr == nil && reflect.DeepEqual(canonical, candidate)
+		})
+	}
 	if result.Err == nil {
 		return candidate, nil
 	}

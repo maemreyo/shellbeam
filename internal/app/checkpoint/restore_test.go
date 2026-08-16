@@ -278,3 +278,26 @@ func cloneRestoreResult(in *core.RestoreResult) *core.RestoreResult {
 }
 
 var _ = errors.Is
+
+func TestCheckpointRestoreConflictAndNoopOnlyDoNotInvalidateWorkspace(t *testing.T) {
+	request := restoreCoreRequest([]string{"a.txt", "b.txt"})
+	_, checkpoint := createCompletedReservation(t, createTestRequest())
+	repo := &restoreTestRepository{createTestRepository: &createTestRepository{checkpoint: &checkpoint}}
+	workspace := &restoreTestWorkspace{context: createWorkspaceContext("/repo", testGeneration)}
+	provider := &restoreTestProvider{
+		createTestProvider: &createTestProvider{identity: checkpoint.Provider},
+		result: ProviderRestoreResult{Paths: []core.RestorePathResult{
+			{Path: "a.txt", Outcome: core.RestoreNoop},
+			{Path: "b.txt", Outcome: core.RestoreConflict, Reason: "current_changed"},
+		}},
+	}
+	svc := New(repo, workspace, provider)
+
+	got, err := svc.Restore(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Complete || workspace.invalidated != 0 {
+		t.Fatalf("conflict/noop restore=%#v invalidated=%d", got, workspace.invalidated)
+	}
+}

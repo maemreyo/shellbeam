@@ -2,9 +2,9 @@ package localfs
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"sync"
+	"time"
 
 	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	core "github.com/maemreyo/shellbeam/internal/core/checkpoint"
@@ -14,13 +14,15 @@ import (
 const providerSchemaVersion = 1
 
 type Provider struct {
-	stateDir              string
-	runtimeDir            string
-	mu                    sync.Mutex
-	newEntryRef           func() string
-	afterEntry            func(int) error
-	beforeRestoreMutation func(string)
-	afterRestorePath      func(int) error
+	stateDir               string
+	runtimeDir             string
+	mu                     sync.Mutex
+	newEntryRef            func() string
+	now                    func() time.Time
+	afterEntry             func(int) error
+	beforeRestoreMutation  func(string)
+	afterRestorePath       func(int) error
+	beforeRetentionCleanup func(string) error
 }
 
 func New(stateDir, runtimeDir string) *Provider {
@@ -28,6 +30,7 @@ func New(stateDir, runtimeDir string) *Provider {
 		stateDir:    filepath.Clean(stateDir),
 		runtimeDir:  filepath.Clean(runtimeDir),
 		newEntryRef: func() string { return "entry_" + ulid.Make().String() },
+		now:         time.Now,
 	}
 }
 
@@ -71,12 +74,12 @@ func (p *Provider) Restore(ctx context.Context, request checkpointapp.ProviderRe
 	return p.restore(ctx, request)
 }
 
-func (p *Provider) Inspect(context.Context, string) (checkpointapp.ProviderCheckpointStatus, error) {
-	return checkpointapp.ProviderCheckpointStatus{}, errors.New("checkpoint inspect not available")
+func (p *Provider) Inspect(ctx context.Context, checkpointID string) (checkpointapp.ProviderCheckpointStatus, error) {
+	return p.inspect(ctx, checkpointID)
 }
 
-func (p *Provider) Sweep(context.Context, checkpointapp.SweepRequest) (checkpointapp.SweepResult, error) {
-	return checkpointapp.SweepResult{}, errors.New("checkpoint sweep not available")
+func (p *Provider) Sweep(ctx context.Context, request checkpointapp.SweepRequest) (checkpointapp.SweepResult, error) {
+	return p.sweep(ctx, request)
 }
 
 var _ checkpointapp.Provider = (*Provider)(nil)

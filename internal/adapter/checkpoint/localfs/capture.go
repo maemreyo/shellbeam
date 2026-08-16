@@ -85,8 +85,9 @@ func (p *Provider) prepareCaptureManifest(layout *privateLayout, request checkpo
 	manifest = privateManifest{
 		SchemaVersion: providerSchemaVersion, CheckpointID: request.CheckpointID, WorkspaceID: request.WorkspaceID,
 		RepositoryID: request.RepositoryID, ActivityID: request.ActivityID, Root: request.Root,
-		SourceGeneration: request.SourceGeneration, Paths: append([]string(nil), request.Paths...),
-		Entries: []privateEntry{}, Excluded: append([]core.PathSummary(nil), selected.Excluded...),
+		SourceGeneration: request.SourceGeneration, CreatedAt: p.now().UTC(), RetentionState: core.RetentionAvailable,
+		Paths: append([]string(nil), request.Paths...), Entries: []privateEntry{},
+		Excluded: append([]core.PathSummary(nil), selected.Excluded...),
 	}
 	if err := writePrivateManifest(layout, manifest); err != nil {
 		return privateManifest{}, err

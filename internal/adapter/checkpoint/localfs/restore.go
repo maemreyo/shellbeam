@@ -77,6 +77,16 @@ func (p *Provider) prepareRestoreRequest(
 	if err != nil {
 		return checkpointapp.ProviderRestoreRequest{}, privateManifest{}, nil, err
 	}
+	if manifest.RetentionState == core.RetentionExpired {
+		return checkpointapp.ProviderRestoreRequest{}, privateManifest{}, nil, failure.New(
+			failure.CheckpointExpired, map[string]string{"checkpoint_id": request.CheckpointID}, nil,
+		)
+	}
+	if manifest.RetentionState != core.RetentionAvailable {
+		return checkpointapp.ProviderRestoreRequest{}, privateManifest{}, nil, failure.New(
+			failure.CheckpointProviderUnavailable, map[string]string{"provider": p.Identity().ID, "reason": "checkpoint_compacted"}, nil,
+		)
+	}
 	if !manifest.Complete || manifest.WorkspaceID != request.WorkspaceID {
 		return checkpointapp.ProviderRestoreRequest{}, privateManifest{}, nil,
 			restoreRequestConflict(request.RestoreID)

@@ -27,13 +27,16 @@ func TestCheckpointStoreAmbiguousAtomicWritesRecoverByCanonicalRead(t *testing.T
 	}
 
 	checkpoint := checkpointMetadata(bound)
-	r.writer = failNthAtomicWriter("create.dir_sync", 1)
+	// checkpoint_created preparation is now the first create.dir_sync; target
+	// the second one so this fault remains on the canonical metadata publish.
+	r.writer = failNthAtomicWriter("create.dir_sync", 2)
 	if got, err := r.CompleteCheckpointCreate(ctx, create.CreateID, checkpoint); err != nil || !reflect.DeepEqual(got, checkpoint) {
 		t.Fatalf("ambiguous metadata publish=%#v err=%v", got, err)
 	}
 
 	restore := checkpointRestoreReservation()
-	r.writer = failNthAtomicWriter("create.dir_sync", 1)
+	// checkpoint_restore_started preparation is the first create.dir_sync.
+	r.writer = failNthAtomicWriter("create.dir_sync", 2)
 	if got, completed, created, err := r.ReserveCheckpointRestore(ctx, restore); err != nil || !created || completed != nil || !reflect.DeepEqual(got, restore) {
 		t.Fatalf("ambiguous restore claim got=%#v completed=%#v created=%v err=%v", got, completed, created, err)
 	}

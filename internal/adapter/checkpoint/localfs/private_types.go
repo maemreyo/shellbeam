@@ -3,6 +3,7 @@ package localfs
 import (
 	"fmt"
 	"sort"
+	"time"
 
 	core "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 )
@@ -28,18 +29,20 @@ type selectedCapture struct {
 }
 
 type privateManifest struct {
-	SchemaVersion    int                `json:"schema_version"`
-	CheckpointID     string             `json:"checkpoint_id"`
-	WorkspaceID      string             `json:"workspace_id"`
-	RepositoryID     string             `json:"repository_id"`
-	ActivityID       string             `json:"activity_id,omitempty"`
-	Root             string             `json:"root"`
-	SourceGeneration string             `json:"source_generation"`
-	Paths            []string           `json:"paths"`
-	Complete         bool               `json:"complete"`
-	Entries          []privateEntry     `json:"entries"`
-	Excluded         []core.PathSummary `json:"excluded,omitempty"`
-	TotalBytes       int64              `json:"total_bytes"`
+	SchemaVersion    int                 `json:"schema_version"`
+	CheckpointID     string              `json:"checkpoint_id"`
+	WorkspaceID      string              `json:"workspace_id"`
+	RepositoryID     string              `json:"repository_id"`
+	ActivityID       string              `json:"activity_id,omitempty"`
+	Root             string              `json:"root"`
+	SourceGeneration string              `json:"source_generation"`
+	CreatedAt        time.Time           `json:"created_at"`
+	RetentionState   core.RetentionState `json:"retention_state"`
+	Paths            []string            `json:"paths"`
+	Complete         bool                `json:"complete"`
+	Entries          []privateEntry      `json:"entries"`
+	Excluded         []core.PathSummary  `json:"excluded,omitempty"`
+	TotalBytes       int64               `json:"total_bytes"`
 }
 
 type privateEntry struct {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	core "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	"github.com/oklog/ulid/v2"
 	"golang.org/x/sys/unix"
 )
@@ -316,8 +317,17 @@ func (p *Provider) loadManifest(checkpointID string) (privateManifest, error) {
 	return manifest, nil
 }
 
+func validPrivateRetentionState(state core.RetentionState) bool {
+	switch state {
+	case core.RetentionAvailable, core.RetentionPartiallyCompacted, core.RetentionExpired:
+		return true
+	default:
+		return false
+	}
+}
+
 func validatePrivateManifest(m privateManifest) error {
-	if m.SchemaVersion != providerSchemaVersion || !safeComponent(m.CheckpointID) || m.WorkspaceID == "" || m.RepositoryID == "" || !filepath.IsAbs(m.Root) || m.SourceGeneration == "" || len(m.Paths) < 1 || len(m.Paths) > 32 || m.TotalBytes < 0 {
+	if m.SchemaVersion != providerSchemaVersion || !safeComponent(m.CheckpointID) || m.WorkspaceID == "" || m.RepositoryID == "" || !filepath.IsAbs(m.Root) || m.SourceGeneration == "" || m.CreatedAt.IsZero() || !validPrivateRetentionState(m.RetentionState) || len(m.Paths) < 1 || len(m.Paths) > 32 || m.TotalBytes < 0 {
 		return fmt.Errorf("invalid private checkpoint manifest")
 	}
 	selectors, err := canonicalSelectors(m.Paths)
