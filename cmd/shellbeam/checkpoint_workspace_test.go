@@ -62,6 +62,33 @@ func TestCheckpointWorkspaceSourceResolvesOnlyFreshBoundGeneration(t *testing.T)
 	}
 }
 
+func TestCheckpointWorkspaceSourceRetriesOneFreshObservationBudgetFailure(t *testing.T) {
+	record := checkpointWorkspaceRecord()
+	budgetExceeded := checkpointFreshSnapshot(record, "e")
+	budgetExceeded.Quality = workspacecore.QualityStale
+	budgetExceeded.DiagnosticCode = "observation_budget_exceeded"
+	observer := &checkpointFreshObserverFake{snapshots: []workspacecore.FastSnapshot{
+		budgetExceeded,
+		checkpointFreshSnapshot(record, "f"),
+	}}
+	source := newCheckpointWorkspaceSource(
+		&checkpointWorkspaceLookupFake{record: record},
+		observer,
+		workspaceapp.NewCoherenceTracker("daemon-test"),
+	)
+
+	got, err := source.ResolveFresh(context.Background(), string(record.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceGeneration != "gen_"+strings.Repeat("f", 64) {
+		t.Fatalf("fresh generation=%q", got.SourceGeneration)
+	}
+	if !reflect.DeepEqual(observer.calls, []string{record.Root, record.Root}) {
+		t.Fatalf("fresh observation calls=%v", observer.calls)
+	}
+}
+
 func TestCheckpointWorkspaceSourceRejectsStaleOrMismatchedObservation(t *testing.T) {
 	record := checkpointWorkspaceRecord()
 	cases := []struct {

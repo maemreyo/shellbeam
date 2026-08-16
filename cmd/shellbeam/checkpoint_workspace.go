@@ -50,6 +50,9 @@ func (s *checkpointWorkspaceSource) ResolveFresh(ctx context.Context, workspaceI
 		return checkpointapp.WorkspaceContext{}, fmt.Errorf("checkpoint workspace binding mismatch")
 	}
 	snapshot := s.observer.ObserveFresh(ctx, record.Root)
+	if snapshot.Quality != workspacecore.QualityFresh && snapshot.DiagnosticCode == "observation_budget_exceeded" && ctx.Err() == nil {
+		snapshot = s.observer.ObserveFresh(ctx, record.Root)
+	}
 	if err := snapshot.Validate(); err != nil {
 		return checkpointapp.WorkspaceContext{}, fmt.Errorf("checkpoint fresh workspace observation invalid: %w", err)
 	}
