@@ -167,14 +167,16 @@ Files: create tests/integration/persistent_runtime_test.go, cmd/shellbeam/persis
 
 ### Task 10 - Exact-source checkpoint and clean handoff
 
-- [ ] Mark Tasks 1-9 complete in this plan; ensure only intended plan bytes remain dirty.
-- [ ] Fresh exact final gates: go mod verify; go test ./... -count=1; relevant full race including core/persistent/supervisor/store/app/daemon/ipc/mcp/cmd/integration; go run ./tools/devctl check --json; go run ./tools/devctl test --dirty --base origin/main --json; fresh B1 acceptance.
-- [ ] Anti-goal scans: focused B1 daemon references only; one MCP AddTool; no hidden exec in core/app orchestration; no PID-only reclaim branch.
-- [ ] Record exact source fingerprint and receipt/checkpoint evidence under ignored .build/b10/.
-- [ ] Stage only final plan, git diff --cached --check, devctl commit-gate --json; commit-gate fingerprint must equal checkpoint fingerprint.
-- [ ] Commit: test: checkpoint persistent runtime named sessions
-- [ ] Postcommit devctl check --json same fingerprint; working tree empty.
-- [ ] Final report includes branch/worktree/HEAD/commit chain/fingerprint/public fields/limits/restart continuity/privacy/no-tax/native-platform status/gates and push=NO, PR=NO, merge=NO.
+- [x] Mark Tasks 1-9 complete in this plan; ensure only intended plan bytes remain dirty.
+- [x] Fresh exact final gates: go mod verify; go test ./... -count=1; relevant full race including core/persistent/supervisor/store/app/daemon/ipc/mcp/cmd/integration; go run ./tools/devctl check --json; go run ./tools/devctl test --dirty --base origin/main --json; fresh B1 acceptance.
+- [x] Anti-goal scans: focused B1 daemon references only; one MCP AddTool; no hidden exec in core/app orchestration; no PID-only reclaim branch.
+- [x] Record exact source fingerprint and receipt/checkpoint evidence under ignored .build/b10/.
+- [x] Stage only final plan, git diff --cached --check, devctl commit-gate --json; commit-gate fingerprint must equal checkpoint fingerprint.
+- [x] Commit: test: checkpoint persistent runtime named sessions
+- [x] Postcommit devctl check --json same fingerprint; working tree empty.
+- [x] Final report includes branch/worktree/HEAD/commit chain/fingerprint/public fields/limits/restart continuity/privacy/no-tax/native-platform status/gates and push=NO, PR=NO, merge=NO.
+
+Checkpoint note: the exact B1.0 source fingerprint is stored only under ignored `.build/b10/final-checkpoint.json` because this tracked plan participates in `sourceFingerprint()`; embedding the digest here would make the proof self-referential.
 
 ## Completion gate
 

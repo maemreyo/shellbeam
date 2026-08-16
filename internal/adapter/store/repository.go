@@ -51,6 +51,7 @@ type Repository struct {
 	structuredMu             sync.Mutex
 	telemetryMu              sync.Mutex
 	reproMu                  sync.Mutex
+	checkpointMu             sync.Mutex
 	mutationScopeMu          sync.Mutex
 	persistentSessionMu      sync.Mutex
 	evidenceMu               sync.Mutex

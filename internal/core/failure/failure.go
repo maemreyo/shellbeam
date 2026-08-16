@@ -94,6 +94,22 @@ const (
 	Internal                          Code = "internal"
 )
 
+const (
+	CheckpointProviderUnavailable          Code = "checkpoint_provider_unavailable"
+	CheckpointCreateConflict               Code = "checkpoint_create_conflict"
+	CheckpointScopeInvalid                 Code = "checkpoint_scope_invalid"
+	CheckpointScopeTooLarge                Code = "checkpoint_scope_too_large"
+	CheckpointPathUnsupported              Code = "checkpoint_path_unsupported"
+	CheckpointSubmoduleBoundaryUnsupported Code = "checkpoint_submodule_boundary_unsupported"
+	CheckpointBudgetExceeded               Code = "checkpoint_budget_exceeded"
+	CheckpointNotFound                     Code = "checkpoint_not_found"
+	CheckpointExpired                      Code = "checkpoint_expired"
+	CheckpointRestoreRequestConflict       Code = "checkpoint_restore_request_conflict"
+	CheckpointRestoreConflict              Code = "checkpoint_restore_conflict"
+	CheckpointRestorePartial               Code = "checkpoint_restore_partial"
+	CheckpointRestoreFailed                Code = "checkpoint_restore_failed"
+)
+
 type Failure struct {
 	Code      Code              `json:"code"`
 	Message   string            `json:"message"`
@@ -189,6 +205,20 @@ var publicSpecs = map[Code]publicSpec{
 	PersistenceUnavailable:            {message: "persistence unavailable", retryable: true},
 	StorageReserveExhausted:           {message: "storage reserve exhausted", retryable: true},
 	Internal:                          {message: "internal error"},
+
+	CheckpointProviderUnavailable:          {message: "checkpoint provider unavailable", retryable: true, details: keys("provider", "reason")},
+	CheckpointCreateConflict:               {message: "checkpoint create request conflicts with existing binding", details: keys("checkpoint_create_id")},
+	CheckpointScopeInvalid:                 {message: "checkpoint scope is invalid", details: keys("field", "reason")},
+	CheckpointScopeTooLarge:                {message: "checkpoint scope exceeds limit", details: keys("field", "reason", "limit")},
+	CheckpointPathUnsupported:              {message: "checkpoint path is unsupported", details: keys("path", "reason")},
+	CheckpointSubmoduleBoundaryUnsupported: {message: "checkpoint submodule boundary is unsupported", details: keys("path")},
+	CheckpointBudgetExceeded:               {message: "checkpoint budget exceeded", details: keys("field", "reason", "limit")},
+	CheckpointNotFound:                     {message: "checkpoint not found", details: keys("checkpoint_id")},
+	CheckpointExpired:                      {message: "checkpoint expired", details: keys("checkpoint_id")},
+	CheckpointRestoreRequestConflict:       {message: "checkpoint restore request conflicts with existing binding", details: keys("restore_id")},
+	CheckpointRestoreConflict:              {message: "checkpoint restore path conflicts with current state", details: keys("restore_id", "checkpoint_id", "path")},
+	CheckpointRestorePartial:               {message: "checkpoint restore is partial", details: keys("restore_id", "checkpoint_id")},
+	CheckpointRestoreFailed:                {message: "checkpoint restore failed", retryable: true, details: keys("restore_id", "checkpoint_id", "reason")},
 }
 
 var legacyCodes = map[string]Code{
