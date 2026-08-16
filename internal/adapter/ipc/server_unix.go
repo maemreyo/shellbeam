@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
@@ -92,10 +93,13 @@ type Server struct {
 	listener   net.Listener
 	http       *http.Server
 	actions    Actions
-	ready      chan struct{}
-	readyOnce  sync.Once
-	closing    chan struct{}
-	closeOnce  sync.Once
+	// lease is this daemon's ownership of the runtime directory. It outlives
+	// the socket pathname deliberately and is surrendered only on Close.
+	lease     *ownership.Lease
+	ready     chan struct{}
+	readyOnce sync.Once
+	closing   chan struct{}
+	closeOnce sync.Once
 }
 
 func Listen(runtime string, actions Actions) (*Server, error) {
@@ -103,17 +107,42 @@ func Listen(runtime string, actions Actions) (*Server, error) {
 }
 
 func ListenPending(runtime string, actions Actions) (*Server, error) {
-	return listenWithReadiness(runtime, actions, dialUnixSocket, false)
+	return ListenPendingAs(runtime, "", actions, nil)
+}
+
+// ListenPendingAs is ListenPending with the daemon incarnation recorded on the
+// runtime directory's ownership lease, so diagnostics can tie the process
+// holding the endpoint to the incarnation stamped on its receipts.
+//
+// stateLease is the caller's own lease on its state directory, if it holds one.
+// The runtime and state directories may legitimately be the same directory, and
+// a daemon must not be refused its own endpoint by its own state lock; passing
+// the lease is what lets the two share rather than contend.
+func ListenPendingAs(runtime, incarnation string, actions Actions, stateLease *ownership.Lease) (*Server, error) {
+	return listenWithReadiness(runtime, incarnation, actions, stateLease, dialUnixSocket, false)
 }
 
 func listen(runtime string, actions Actions, dial socketDialer) (*Server, error) {
-	return listenWithReadiness(runtime, actions, dial, true)
+	return listenWithReadiness(runtime, "", actions, nil, dial, true)
 }
 
-func listenWithReadiness(runtime string, actions Actions, dial socketDialer, ready bool) (*Server, error) {
+func listenWithReadiness(runtime, incarnation string, actions Actions, stateLease *ownership.Lease, dial socketDialer, ready bool) (*Server, error) {
 	if err := prepareRuntime(runtime); err != nil {
 		return nil, err
 	}
+	// The lease, not the socket pathname, decides who owns this runtime
+	// directory. It is taken before anything touches the pathname, so a socket
+	// that someone unlinked cannot be mistaken for an unowned endpoint.
+	lease, err := ownership.AcquireWith(stateLease, runtime, incarnation)
+	if err != nil {
+		return nil, err
+	}
+	released := false
+	defer func() {
+		if !released {
+			_ = lease.Release()
+		}
+	}()
 	lock, err := acquireStartupLock(runtime)
 	if err != nil {
 		return nil, err
@@ -127,8 +156,9 @@ func listenWithReadiness(runtime string, actions Actions, dial socketDialer, rea
 	auth := &authListener{Listener: ln, uid: uint32(os.Getuid())}
 	s := &Server{
 		socket: socket, socketInfo: socketInfo, listener: auth, actions: actions,
-		ready: make(chan struct{}), closing: make(chan struct{}),
+		lease: lease, ready: make(chan struct{}), closing: make(chan struct{}),
 	}
+	released = true
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
 	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
@@ -179,6 +209,12 @@ func (s *Server) Close() error {
 	err := s.http.Shutdown(ctx)
 	if removeErr := s.removeOwnedSocket(); err == nil && removeErr != nil {
 		err = removeErr
+	}
+	// Ownership is surrendered last: until the socket is withdrawn this daemon
+	// is still the endpoint, and a successor must not be able to start while
+	// that is true.
+	if leaseErr := s.lease.Release(); err == nil && leaseErr != nil {
+		err = leaseErr
 	}
 	return err
 }

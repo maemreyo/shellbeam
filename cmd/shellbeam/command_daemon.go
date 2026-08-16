@@ -8,6 +8,7 @@ import (
 	environmentadapter "github.com/maemreyo/shellbeam/internal/adapter/environment"
 	gitadapter "github.com/maemreyo/shellbeam/internal/adapter/git"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
+	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
 	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
@@ -51,11 +52,21 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	if err != nil {
 		return err
 	}
+	incarnation := ulid.Make().String()
+	// The runtime directory's lease protects the endpoint; this one protects
+	// the durable authority. Two daemons pointed at one state directory would
+	// each admit up to the session limit against the same store, so state
+	// ownership has to be claimed before the store is opened -- not inferred
+	// from whoever happens to hold the socket.
+	stateLease, err := ownership.Acquire(paths.StateDir, incarnation)
+	if err != nil {
+		return err
+	}
+	defer stateLease.Release()
 	store, err := openDaemonStore(paths.StateDir, cfg)
 	if err != nil {
 		return err
 	}
-	incarnation := ulid.Make().String()
 	persistentRuntime, err := composePersistentSessionRuntime(store, paths.RuntimeDir, cfg)
 	if err != nil {
 		return err
@@ -118,12 +129,13 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
 	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc}
-	return serveDaemonRuntime(ctx, paths.RuntimeDir, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
 func serveDaemonRuntime(
 	ctx context.Context,
 	runtimeDir string,
+	stateLease *ownership.Lease,
 	terminationGrace time.Duration,
 	store *storeadapter.Repository,
 	incarnation string,
@@ -134,7 +146,7 @@ func serveDaemonRuntime(
 	telemetryScheduler *telemetryWorkerProxy,
 	evidenceScheduler *evidenceWorkerProxy,
 ) error {
-	server, err := ipcadapter.ListenPending(runtimeDir, actions)
+	server, err := ipcadapter.ListenPendingAs(runtimeDir, incarnation, actions, stateLease)
 	if err != nil {
 		return err
 	}
