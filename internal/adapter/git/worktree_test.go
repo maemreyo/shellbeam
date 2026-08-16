@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -155,10 +156,26 @@ func equalArgs(a, b []string) bool {
 	return true
 }
 
+func TestInitRepositoryUsesMainBranchRegardlessOfGitDefault(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(configPath, []byte(`[init]
+	defaultBranch = trunk
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", configPath)
+
+	repo := initRepository(t)
+	branch := strings.TrimSpace(runGitOutput(t, repo, "rev-parse", "--abbrev-ref", "HEAD"))
+	if branch != "main" {
+		t.Fatalf("branch=%q want main", branch)
+	}
+}
+
 func initRepository(t *testing.T) string {
 	t.Helper()
 	repo := filepath.Join(t.TempDir(), "repo")
-	runGit(t, "", "init", repo)
+	runGit(t, "", "init", "-b", "main", repo)
 	runGit(t, repo, "config", "user.email", "shellbeam@example.invalid")
 	runGit(t, repo, "config", "user.name", "ShellBeam Test")
 	if err := os.WriteFile(filepath.Join(repo, "README"), []byte("test\n"), 0o600); err != nil {
