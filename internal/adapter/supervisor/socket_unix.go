@@ -4,7 +4,7 @@ package supervisor
 
 import (
 	"crypto/rand"
-	"encoding/hex"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -99,11 +99,11 @@ func (l *controlListener) Close() error {
 }
 
 func stagedControlSocketPath(dir string) (string, error) {
-	var nonce [8]byte
+	var nonce [6]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, ".control.sock.pending-"+hex.EncodeToString(nonce[:])), nil
+	return filepath.Join(dir, ".s"+base64.RawURLEncoding.EncodeToString(nonce[:])), nil
 }
 
 func socketFailure(reason string) error {

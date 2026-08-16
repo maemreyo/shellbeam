@@ -329,3 +329,29 @@ func TestLauncherReattachGenerationMismatchFailsClosedWithoutSpawn(t *testing.T)
 		t.Fatalf("generation mismatch spawned supervisor: %d", spawns.Load())
 	}
 }
+
+func TestLauncherAttachNormalizesUnavailableTypedNilClient(t *testing.T) {
+	runtimeRoot := filepath.Join(t.TempDir(), "runtime")
+	if err := os.Mkdir(runtimeRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	launcher, err := NewLauncher(LauncherOptions{RuntimeRoot: runtimeRoot, Executable: "/bin/echo", HandshakeTimeout: 20 * time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	capability, err := NewCapability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := PreparePrivateState(runtimeRoot, "typed-nil-session", "typed-nil-generation", capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment, _, err := launcher.attach(context.Background(), layout, capability, "typed-nil-session", "typed-nil-generation")
+	if err == nil {
+		t.Fatal("missing supervisor socket unexpectedly attached")
+	}
+	if attachment != nil {
+		t.Fatalf("unavailable attach returned typed-nil interface: %#v", attachment)
+	}
+}

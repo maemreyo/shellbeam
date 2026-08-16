@@ -89,3 +89,26 @@ func TestListenControlRejectsSocketPathReplacement(t *testing.T) {
 		}
 	}
 }
+
+func TestStagedControlSocketPathNeverExceedsPublishedPathLength(t *testing.T) {
+	base, err := os.MkdirTemp("/tmp", "shellbeam-b1-native-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(base)
+	capability, err := NewCapability()
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := PreparePrivateState(filepath.Join(base, "run"), "01M049SOCKETLENGTH000000000", "generation-socket-length", capability)
+	if err != nil {
+		t.Fatal(err)
+	}
+	staged, err := stagedControlSocketPath(layout.SessionDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(staged) > len(layout.SocketPath) {
+		t.Fatalf("staged socket path=%d exceeds published=%d: staged=%q published=%q", len(staged), len(layout.SocketPath), staged, layout.SocketPath)
+	}
+}

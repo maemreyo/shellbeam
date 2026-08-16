@@ -63,7 +63,11 @@ func NewLauncher(options LauncherOptions) (*Launcher, error) {
 	launcher := &Launcher{options: options, locks: map[string]*launcherSessionLock{}}
 	launcher.spawnSupervisor = launcher.spawn
 	launcher.attach = func(ctx context.Context, layout Layout, capability Capability, sessionID, generationID string) (persistentapp.Attachment, persistentapp.Status, error) {
-		return DialAttachment(ctx, layout, capability, sessionID, generationID)
+		client, status, err := DialAttachment(ctx, layout, capability, sessionID, generationID)
+		if client == nil {
+			return nil, status, err
+		}
+		return client, status, err
 	}
 	return launcher, nil
 }

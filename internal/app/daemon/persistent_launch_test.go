@@ -272,3 +272,27 @@ func (h *persistentControlFakeHandle) WaitStatus(context.Context, uint64, int) (
 func (h *persistentControlFakeHandle) Terminal(context.Context) (persistentapp.TerminalEvidence, error) {
 	return persistentapp.TerminalEvidence{}, nil
 }
+
+type countingPersistentRuntime struct{ calls atomic.Int32 }
+
+func (r *countingPersistentRuntime) Ensure(context.Context, operation.Reservation, operation.ExecutionSpec) (app.PersistentLaunch, error) {
+	r.calls.Add(1)
+	return app.PersistentLaunch{}, errors.New("ordinary path touched persistent runtime")
+}
+
+func TestOrdinaryStartDoesNotTouchPersistentRuntime(t *testing.T) {
+	store := openPersistentLaunchStore(t)
+	runtime := &countingPersistentRuntime{}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "ordinary-zero-tax", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "ordinary-zero-tax-op", Command: "true", CWD: "/tmp", YieldMS: 0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.SessionID == "" {
+		t.Fatalf("ordinary start=%#v", view)
+	}
+	if runtime.calls.Load() != 0 {
+		t.Fatalf("ordinary start persistent runtime calls=%d", runtime.calls.Load())
+	}
+	waitForTerminal(t, svc, view.SessionID)
+}

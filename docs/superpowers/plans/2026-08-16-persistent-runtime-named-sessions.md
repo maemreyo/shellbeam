@@ -153,17 +153,17 @@ Files: create app inspect; modify observation event kinds; store events; IPC/MCP
 
 Files: create tests/integration/persistent_runtime_test.go, cmd/shellbeam/persistent_runtime_acceptance_test.go, supervisor privacy tests; modify test-impact mapping only if proven necessary.
 
-- [ ] Real binary isolated roots: start persistent long-running child + ordinary direct child; hard-kill daemon only.
-- [ ] Restart daemon: persistent reattaches same session/name, direct uses existing abandoned/ambiguous semantics, output cursor byte-exact, write offset and kill-ID semantics continue.
-- [ ] Child exits while daemon absent: supervisor reaps/freezes; restart publishes one canonical terminal receipt and downstream derivations once.
-- [ ] Timeout fires while daemon absent; restart never extends deadline.
-- [ ] Kill/corrupt supervisor/capability/generation/terminal state: classify lost/ambiguous; no PID reclaim/signal.
-- [ ] Privacy sentinels absent from public receipts/bindings/Event Journal/MCP inspect/logs/errors; private secret/socket/bootstrap remain private.
-- [ ] Ordinary compatible start->poll->terminal performs zero B1 registry/supervisor/socket/spool/ledger work and does not weaken existing <=5ms p95 / <=10ms p99 incremental admission gate.
-- [ ] Measure/report persistent-start p50/p95/p99 without inventing threshold.
-- [ ] Fresh focused -count=1, repeat -count=3, relevant -race, devctl test --dirty --base origin/main --json, devctl check --json.
-- [ ] Native macOS B1 process/socket acceptance must pass. Record Linux native PASS only if actually run; otherwise NOT_RUN.
-- [ ] Commit: test: verify persistent runtime continuity
+- [x] Real binary isolated roots: start persistent long-running child + ordinary direct child; hard-kill daemon only.
+- [x] Restart daemon: persistent reattaches same session/name, direct uses existing abandoned/ambiguous semantics, output cursor byte-exact, write offset and kill-ID semantics continue.
+- [x] Child exits while daemon absent: supervisor reaps/freezes; restart publishes one canonical terminal receipt and downstream derivations once.
+- [x] Timeout fires while daemon absent; restart never extends deadline.
+- [x] Kill/corrupt supervisor/capability/generation/terminal state: classify lost/ambiguous; no PID reclaim/signal.
+- [x] Privacy sentinels absent from public receipts/bindings/Event Journal/MCP inspect/logs/errors; private secret/socket/bootstrap remain private.
+- [x] Ordinary compatible start->poll->terminal performs zero B1 registry/supervisor/socket/spool/ledger work and does not weaken existing <=5ms p95 / <=10ms p99 incremental admission gate.
+- [x] Measure/report persistent-start p50/p95/p99 without inventing threshold.
+- [x] Fresh focused -count=1, repeat -count=3, relevant -race, devctl test --dirty --base origin/main --json, devctl check --json.
+- [x] Native macOS B1 process/socket acceptance must pass. Record Linux native PASS only if actually run; otherwise NOT_RUN.
+- [x] Commit: test: verify persistent runtime continuity
 
 ### Task 10 - Exact-source checkpoint and clean handoff
 
