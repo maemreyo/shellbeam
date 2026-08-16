@@ -61,6 +61,11 @@ type Result struct {
 	ContextEvents []workspace.ContextEvent `json:"context_events,omitempty"`
 	Advisories    []workspace.Advisory     `json:"advisories,omitempty"`
 	Receipt       *Receipt                 `json:"receipt,omitempty"`
+	// Failure is the receipt interpreted: which stage failed, what kind of
+	// failure it was, and whether repeating the request could differ. It is
+	// derived from the receipt's evidence rather than stored alongside it, so
+	// receipts written before this vocabulary existed are classified too.
+	Failure *Failure `json:"failure,omitempty"`
 }
 
 type ResultInput struct {
@@ -106,6 +111,7 @@ func NewResult(in ResultInput) (Result, error) {
 		ContextEvents: append([]workspace.ContextEvent(nil), in.ContextEvents...),
 		Advisories:    append([]workspace.Advisory(nil), in.Advisories...),
 		Receipt:       in.Receipt,
+		Failure:       in.Receipt.failureOf(),
 	}
 	if in.Receipt != nil {
 		if in.Receipt.OperationID != in.OperationID || in.Receipt.SessionID != in.SessionID {

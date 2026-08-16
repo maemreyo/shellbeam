@@ -71,6 +71,7 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 	if v.State.Terminal() {
 		if rec, e := s.store.LoadReceipt(ctx, operation.SessionID(sid)); e == nil {
 			v.Receipt = &rec
+			v.Failure = rec.Failure()
 			v.RawOutputBytes = rec.OutputBytes
 		}
 	}

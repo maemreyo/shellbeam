@@ -90,7 +90,7 @@ func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(o
 		_ = stdinW.Close()
 		_ = outR.Close()
 		_ = outW.Close()
-		spawn.ErrorCode = "spawn_failed"
+		spawn.ErrorCode = startErrorCode(spec, err)
 		return nil, spawn, err
 	}
 	_ = stdinR.Close()
@@ -201,4 +201,36 @@ func (h *Handle) Close() error {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
 	return h.endStdin()
+}
+
+// startErrorCode names why a child could not start.
+//
+// The operating system reports a missing working directory and a missing
+// executable the same way, and reporting both as "spawn_failed" left an agent
+// to find out which by running pwd and ls. Every spawn failure in the corpus
+// that prompted this was a working directory that did not exist -- twice a path
+// that had never been created, once a hyphen typed as an underscore -- and
+// naming that turns three tool calls of guessing into one corrected cwd.
+func startErrorCode(spec operation.ExecutionSpec, err error) string {
+	if spec.CWD != "" {
+		if info, statErr := os.Stat(spec.CWD); statErr != nil {
+			if errors.Is(statErr, os.ErrNotExist) {
+				return "cwd_not_found"
+			}
+			if errors.Is(statErr, os.ErrPermission) {
+				return "permission_denied"
+			}
+		} else if !info.IsDir() {
+			return "cwd_not_directory"
+		}
+	}
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "executable_not_found"
+	case errors.Is(err, os.ErrPermission):
+		return "permission_denied"
+	case errors.Is(err, syscall.EMFILE), errors.Is(err, syscall.ENFILE), errors.Is(err, syscall.EAGAIN), errors.Is(err, syscall.ENOMEM):
+		return "resource_exhausted"
+	}
+	return "spawn_failed"
 }

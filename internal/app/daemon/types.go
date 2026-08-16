@@ -101,7 +101,9 @@ type View struct {
 	Signal             string                   `json:"signal,omitempty"`
 	SignalAttempt      receipt.SignalEvidence   `json:"signal_attempt,omitempty"`
 	Receipt            *receipt.Receipt         `json:"receipt,omitempty"`
-	RawOutputBytes     int64                    `json:"-"`
+	// Failure is the receipt's evidence interpreted for the caller.
+	Failure        *receipt.Failure `json:"failure,omitempty"`
+	RawOutputBytes int64            `json:"-"`
 }
 
 type ServerInfo struct {
