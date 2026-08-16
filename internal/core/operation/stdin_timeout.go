@@ -94,11 +94,29 @@ type ResolvedExecutionPolicy struct {
 	StdinClosedByDefault bool
 	// TimeoutFromDefault records the same thing for the bound.
 	TimeoutFromDefault bool
+	// StdinRequested records that the caller named the stdin mode rather than
+	// receiving one from policy.
+	StdinRequested bool
 	// FromLegacy records that these values come from compatibility rules rather
 	// than from anything the caller could have asked for. Without it a receipt
 	// would report a legacy session's unbounded timeout as though the caller
 	// had requested one.
 	FromLegacy bool
+}
+
+// StdinSource names who chose the stdin mode, so a receipt can say whether the
+// caller asked for it or policy supplied it.
+func (r ResolvedExecutionPolicy) StdinSource() string {
+	switch {
+	case r.FromLegacy:
+		return "legacy"
+	case r.StdinClosedByDefault:
+		return "default"
+	case r.StdinRequested:
+		return "requested"
+	default:
+		return "default"
+	}
 }
 
 // Unlimited reports whether the child may run without a time bound.
@@ -126,6 +144,7 @@ func (p ExecutionPolicy) Resolve(limits PolicyLimits) (ResolvedExecutionPolicy, 
 		return ResolvedExecutionPolicy{}, err
 	}
 	resolved.StdinMode, resolved.StdinClosedByDefault = stdin, byDefault
+	resolved.StdinRequested = p.StdinMode != StdinModeUnset
 
 	timeout, fromDefault, err := p.resolveTimeout(limits)
 	if err != nil {

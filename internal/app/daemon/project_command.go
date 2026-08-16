@@ -203,11 +203,11 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	spec.CWD = executionCWD
 	// Resolution is a pure function of the request, so recomputing it here to
 	// label the receipt cannot disagree with the spec that was bound from it.
-	policySource := timeoutSourceUnlimited
+	policySource, stdinSource := timeoutSourceUnlimited, ""
 	if resolved, resolveErr := s.resolveExecutionPolicy(req); resolveErr == nil {
-		policySource = timeoutSourceOf(resolved)
+		policySource, stdinSource = timeoutSourceOf(resolved), resolved.StdinSource()
 	}
-	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, timeoutSource: policySource, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, timeoutSource: policySource, stdinSource: stdinSource, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
 		return View{}, failure.Normalize(processObservation.Err)

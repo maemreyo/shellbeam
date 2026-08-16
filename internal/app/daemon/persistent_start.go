@@ -41,12 +41,13 @@ func (s *Service) spawnPreparedPersistentStart(ctx context.Context, req StartReq
 	}
 	// Resolution is a pure function of the request, so labelling the receipt
 	// here cannot disagree with the spec bound from the same request.
-	persistentSource := timeoutSourceUnlimited
+	persistentSource, persistentStdinSource := timeoutSourceUnlimited, ""
 	if resolvedPolicy, resolveErr := s.resolveExecutionPolicy(req); resolveErr == nil {
-		persistentSource = timeoutSourceOf(resolvedPolicy)
+		persistentSource, persistentStdinSource = timeoutSourceOf(resolvedPolicy), resolvedPolicy.StdinSource()
 	}
 	live := &liveSession{
 		timeoutSource: persistentSource,
+		stdinSource:   persistentStdinSource,
 		operationID:   req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation,
 		state: session.Running, handle: launch.Handle, spawn: launch.Spawn, persistent: true,
 		input: session.NewInputLedger(s.options.MaxQueuedInputBytes, false), kills: session.NewKillLedger(), changed: make(chan struct{}), done: make(chan struct{}),

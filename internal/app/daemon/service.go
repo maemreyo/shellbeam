@@ -48,9 +48,10 @@ const (
 )
 
 type liveSession struct {
-	// timeoutSource records whether the bound in spec came from the caller or
-	// from policy, so the receipt can say so.
+	// timeoutSource and stdinSource record whether the bound and the stdin mode
+	// in spec came from the caller or from policy, so the receipt can say so.
 	timeoutSource           string
+	stdinSource             string
 	mu                      sync.Mutex
 	operationID             string
 	activityID              string
@@ -295,6 +296,8 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.StdinClosed = eof || l.spec.StdinMode == operation.StdinModeClosed
 	rec.StdinMode = string(l.spec.StdinMode)
 	rec.TimeoutSource = l.timeoutSource
+	rec.StdinModeSource = l.stdinSource
+	rec.StdinModeSource = l.stdinSource
 	rec.FailureReason = reason
 	rec.Spawn = l.spawn
 	rec.Exit = exit

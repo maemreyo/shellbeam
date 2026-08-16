@@ -58,7 +58,15 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 		}
 		v.RawOutputBytes = l.outputBytes
 		l.mu.Unlock()
-	} else if snap, e := s.store.LoadSession(ctx, operation.SessionID(sid)); e == nil {
+	} else if snap, e := s.store.LoadSession(ctx, operation.SessionID(sid)); e != nil {
+		// Neither live nor durable. Retention may have collected it, or it may
+		// never have existed -- once the record is gone the daemon genuinely
+		// cannot tell, and saying so is better than returning an empty view a
+		// caller has to interpret as either.
+		return View{}, failure.New(failure.SessionNotFound, map[string]string{
+			"session_id": sid, "reason": "no durable session record",
+		}, nil)
+	} else {
 		v.OperationID = snap.OperationID
 		if reservation, loadErr := s.store.LoadOperation(ctx, operation.ID(snap.OperationID)); loadErr == nil {
 			v.ActivityID = reservation.ActivityID

@@ -88,6 +88,7 @@ const (
 	PersistentKillHistoryExhausted    Code = "persistent_kill_history_exhausted"
 	PersistenceAmbiguous              Code = "persistence_ambiguous"
 	CapacityExceeded                  Code = "capacity_exceeded"
+	SessionNotFound                   Code = "session_not_found"
 	PersistenceUnavailable            Code = "persistence_unavailable"
 	StorageReserveExhausted           Code = "storage_reserve_exhausted"
 	Internal                          Code = "internal"
@@ -183,7 +184,8 @@ var publicSpecs = map[Code]publicSpec{
 	PersistentInputHistoryExhausted:   {message: "persistent input history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistentKillHistoryExhausted:    {message: "persistent kill history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
-	CapacityExceeded:                  {message: "capacity exceeded", retryable: true},
+	CapacityExceeded:                  {message: "capacity exceeded", retryable: true, details: keys("active", "limit", "retry_after_ms")},
+	SessionNotFound:                   {message: "session not found", details: keys("session_id", "reason")},
 	PersistenceUnavailable:            {message: "persistence unavailable", retryable: true},
 	StorageReserveExhausted:           {message: "storage reserve exhausted", retryable: true},
 	Internal:                          {message: "internal error"},
@@ -193,6 +195,7 @@ var legacyCodes = map[string]Code{
 	"operation_conflict":           OperationConflict,
 	"operation_metadata_conflict":  OperationMetadataConflict,
 	"capacity_exceeded":            CapacityExceeded,
+	"session_not_found":            SessionNotFound,
 	"persistence_unavailable":      PersistenceUnavailable,
 	"storage_reserve_exhausted":    StorageReserveExhausted,
 	"invalid operation id":         InvalidInput,

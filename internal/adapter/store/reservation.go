@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
@@ -15,6 +16,12 @@ import (
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
+
+// capacityRetryAfterMS is a hint, not a promise: a slot frees when a session
+// ends, which the daemon cannot predict. It is short because the common case is
+// a burst of work clearing quickly, and the active and limit counts alongside it
+// are what let a caller decide whether waiting is worth it at all.
+const capacityRetryAfterMS = 250
 
 func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
 	unlock := r.lock(want.OperationID)
@@ -42,7 +49,17 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	if active >= r.limits.MaxSessions {
-		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("capacity_exceeded")}
+		// Say what the capacity actually is. A bare capacity_exceeded left an
+		// agent unable to tell a daemon that is genuinely busy from one whose
+		// slots had leaked, so it either retried blindly or concluded ShellBeam
+		// was broken and asked for a restart.
+		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: failure.New(
+			failure.CapacityExceeded,
+			map[string]string{
+				"active":         strconv.Itoa(active),
+				"limit":          strconv.Itoa(r.limits.MaxSessions),
+				"retry_after_ms": strconv.Itoa(capacityRetryAfterMS),
+			}, nil)}
 	}
 	if used+r.limits.ControlReserve > r.limits.MaxTotalState {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: fmt.Errorf("persistence_unavailable")}

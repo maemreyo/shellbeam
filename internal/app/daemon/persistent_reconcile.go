@@ -190,6 +190,7 @@ func (s *Service) persistentTerminalReceipt(live *liveSession, terminal persiste
 	// direct path, so the policy provenance has to be carried on both.
 	rec.StdinMode = string(live.spec.StdinMode)
 	rec.TimeoutSource = live.timeoutSource
+	rec.StdinModeSource = live.stdinSource
 	rec.FailureReason = terminal.FailureReason
 	rec.Spawn = terminal.Spawn
 	rec.Exit = terminal.Exit

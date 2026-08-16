@@ -58,6 +58,7 @@ type Receipt struct {
 	// it off.
 	StdinMode           string                  `json:"stdin_mode,omitempty"`
 	TimeoutSource       string                  `json:"timeout_source,omitempty"`
+	StdinModeSource     string                  `json:"stdin_mode_source,omitempty"`
 	FailureReason       string                  `json:"failure_reason,omitempty"`
 	WorkspaceProvenance *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
 	ProjectCommand      *project.CommandBinding `json:"project_command,omitempty"`
