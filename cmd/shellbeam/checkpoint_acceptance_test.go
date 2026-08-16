@@ -174,7 +174,10 @@ func TestE26EnabledUnusedAdmissionIncrementalP95P99(t *testing.T) {
 		_ = measureE26Admission(t, disabled, fmt.Sprintf("e26-disabled-warm-%d", i), cwd)
 		_ = measureE26Admission(t, enabled, fmt.Sprintf("e26-enabled-warm-%d", i), cwd)
 	}
-	const samples = 40
+	// Independent percentile deltas represent the feature tax we care about;
+	// paired single-call deltas amplify scheduler jitter. Use enough alternating
+	// samples that p95/p99 are not determined by one or two transient calls.
+	const samples = 200
 	disabledDurations := make([]time.Duration, 0, samples)
 	enabledDurations := make([]time.Duration, 0, samples)
 	for i := 0; i < samples; i++ {
