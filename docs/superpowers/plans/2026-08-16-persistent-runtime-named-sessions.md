@@ -97,17 +97,17 @@ Files: create internal/adapter/supervisor/{bootstrap.go,bootstrap_test.go,runtim
 
 ### Task 5 - Daemon-side persistent launch orchestration, exactly-once start, no-tax direct path
 
-Files: create internal/app/persistentsession/{ports.go,service.go,service_test.go}; create supervisor client/launcher; create internal/app/daemon/{persistent.go,persistent_test.go}; modify daemon service/process ports/types and cmd/shellbeam/command_daemon.go.
+Files: create internal/app/persistentsession/{ports.go,service.go,service_test.go}; create internal/adapter/supervisor/{client.go,client_test.go,launcher.go,launcher_test.go,runner_unix_test.go,runtime_ordering_test.go}; create internal/app/daemon/{persistent_port.go,persistent_start.go,persistent_launch_test.go}; create cmd/shellbeam/{persistent_sessions.go,persistent_sessions_test.go,daemon_store.go}; modify supervisor auth/runner/runtime, daemon service/actions/shutdown/types/project routing, and cmd daemon/private-supervisor composition.
 
-- [ ] RED instrumentation proves ordinary start makes zero B1 service/store/launcher/socket/spool calls.
-- [ ] Persistent retry with same operation_id => one reservation, one binding, one supervisor generation, one child, same session.
-- [ ] Route to persistent only after request identity and reservation are frozen; ordinary spawnPreparedStart remains unchanged.
-- [ ] Persistent order: reserve operation/session -> create provisioning binding/name -> private bootstrap -> launch same executable -> authenticated readiness -> mark live/running -> return.
-- [ ] Ambiguous post-launch boundary never allocates replacement generation/child.
-- [ ] Bootstrap secret delivered via inherited descriptor/channel; not argv.
-- [ ] Persistent live session uses authenticated attachment-backed process-handle proxy; direct handle unchanged.
-- [ ] Focused/race/no-tax tests.
-- [ ] Commit: feat: launch opt-in persistent sessions
+- [x] RED instrumentation proves ordinary start makes zero B1 service/store/launcher/socket/spool calls.
+- [x] Persistent retry with same operation_id => one reservation, one binding, one supervisor generation, one child, same session.
+- [x] Route to persistent only after request identity and reservation are frozen; ordinary spawnPreparedStart remains unchanged.
+- [x] Persistent order: reserve operation/session -> create provisioning binding/name -> private bootstrap -> launch same executable -> authenticated readiness -> mark live/running -> return.
+- [x] Ambiguous post-launch boundary never allocates replacement generation/child.
+- [x] Bootstrap secret delivered via inherited descriptor/channel; not argv.
+- [x] Persistent live session uses authenticated attachment-backed process-handle proxy; direct handle unchanged.
+- [x] Focused/race/no-tax tests.
+- [x] Commit: feat: launch opt-in persistent sessions
 
 ### Task 6 - Output canonicalization + persistent write/kill/terminal reconciliation
 

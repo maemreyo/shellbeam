@@ -192,6 +192,9 @@ func (s *Service) waitTypedReservedStart(ctx context.Context, req StartRequest, 
 }
 
 func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stored operation.Reservation, spec operation.ExecutionSpec, sid string) (View, error) {
+	if stored.Persistent {
+		return s.spawnPreparedPersistentStart(ctx, req, stored, spec, sid)
+	}
 	executionCWD := stored.CWD
 	workspaceObservation := s.captureWorkspace(ctx, executionCWD)
 	activityReq := req

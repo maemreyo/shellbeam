@@ -21,6 +21,26 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	if len(live) == 0 {
 		return nil
 	}
+	direct := live[:0]
+	for _, l := range live {
+		l.mu.Lock()
+		persistent := l.persistent
+		handle := l.handle
+		l.mu.Unlock()
+		if persistent {
+			if handle != nil {
+				_ = handle.Close()
+			}
+			s.endManagedShell(l)
+			s.remove(l.sessionID)
+			continue
+		}
+		direct = append(direct, l)
+	}
+	live = direct
+	if len(live) == 0 {
+		return nil
+	}
 	for _, l := range live {
 		l.mu.Lock()
 		if l.state == session.Running {

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -41,6 +42,30 @@ func (c Capability) bytes() []byte {
 	return append([]byte(nil), c.secret[:]...)
 }
 
+func EncodeCapability(writer io.Writer, capability Capability) error {
+	raw := capability.bytes()
+	written := 0
+	for written < len(raw) {
+		n, err := writer.Write(raw[written:])
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		written += n
+	}
+	return nil
+}
+
+func DecodeCapability(reader io.Reader) (Capability, error) {
+	raw, err := io.ReadAll(io.LimitReader(reader, CapabilityBytes+1))
+	if err != nil || len(raw) != CapabilityBytes {
+		return Capability{}, fmt.Errorf("invalid supervisor capability")
+	}
+	return capabilityFromBytes(raw)
+}
+
 func (Capability) String() string { return "[redacted-supervisor-capability]" }
 
 func (Capability) MarshalJSON() ([]byte, error) {
@@ -74,12 +99,7 @@ func VerifyProof(capability Capability, sessionID, generationID, challenge, proo
 	if err != nil {
 		return false
 	}
-	got, err := base64.RawURLEncoding.DecodeString(proof)
-	if err != nil {
-		return false
-	}
-	want, err := base64.RawURLEncoding.DecodeString(expected)
-	return err == nil && hmac.Equal(got, want)
+	return hmac.Equal([]byte(proof), []byte(expected))
 }
 
 func proofPayload(sessionID, generationID, challenge string) ([]byte, error) {

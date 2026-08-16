@@ -50,25 +50,22 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	if err != nil {
 		return err
 	}
-	limits := storeadapter.Limits{
-		MaxSessions: cfg.MaxConcurrentSessions, MaxSessionOutput: cfg.MaxSessionOutputBytes,
-		MaxTotalState: cfg.MaxTotalStateBytes, ControlReserve: cfg.ControlReserveSessionBytes,
-		MaxTelemetrySamples: telemetryMaxSamples, MaxTelemetryBytes: telemetryMetadataBytes,
-		MaxTelemetryKeys: telemetryMaxKeys, MaxTelemetryKeysPerRepository: telemetryMaxKeysPerRepository,
-		MaxTelemetrySamplesPerKey: telemetryMaxSamplesPerKey, MaxTelemetryAge: telemetryRetentionAge,
-		MaxReproCapsules: reproMaxCapsules, MaxReproBytes: int64(reproMetadataBytes), MaxReproAge: reproRetentionAge,
-	}
-	store, err := storeadapter.Open(paths.StateDir, limits)
+	store, err := openDaemonStore(paths.StateDir, cfg)
 	if err != nil {
 		return err
 	}
 	incarnation := ulid.Make().String()
+	persistentRuntime, err := composePersistentSessionRuntime(store, paths.RuntimeDir, cfg)
+	if err != nil {
+		return err
+	}
 	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
 	catalog := daemonCatalog(capability.Limits{
 		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
 		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
 		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
 	})
+	catalog = persistentSessionCatalog(catalog, cfg.MaxConcurrentSessions, cfg.MaxSessionOutputBytes, cfg.MaxQueuedInputSessionBytes)
 	if mutationScopeSvc != nil {
 		catalog = mutationScopeCatalog(catalog)
 	}
@@ -102,6 +99,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		TelemetryWorker:      telemetryScheduler,
 		EvidenceWorker:       evidenceScheduler,
 		ProjectCommandBinder: projectBinder,
+		PersistentRuntime:    persistentRuntime,
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
 	projectSvc := projectapp.NewWithReadiness(

@@ -80,6 +80,9 @@ func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.persistent {
+		return View{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_session_control", "required_version": "2"}, nil)
+	}
 	if l.state != session.Running {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_writable"}, fmt.Errorf("session_not_writable"))
 	}
@@ -108,6 +111,9 @@ func (s *Service) Kill(_ context.Context, req KillRequest) (View, error) {
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.persistent {
+		return View{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_session_control", "required_version": "2"}, nil)
+	}
 	attempt, send, err := l.kills.Admit(req.KillID, req.Signal, l.state.Terminal())
 	if err != nil {
 		return View{}, failure.Normalize(err)

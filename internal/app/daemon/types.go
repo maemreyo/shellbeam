@@ -21,6 +21,7 @@ type Options struct {
 	TelemetryWorker      TelemetryWorker
 	EvidenceWorker       EvidenceWorker
 	ProjectCommandBinder ProjectCommandBinder
+	PersistentRuntime    PersistentRuntime
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`

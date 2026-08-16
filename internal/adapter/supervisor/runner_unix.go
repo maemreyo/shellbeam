@@ -4,14 +4,16 @@ package supervisor
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"net"
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 )
 
-func Run(ctx context.Context, bootstrap Bootstrap, owner app.ProcessOwner) error {
+func Run(ctx context.Context, bootstrap Bootstrap, inherited Capability, owner app.ProcessOwner) error {
 	if err := bootstrap.Validate(); err != nil {
 		return err
 	}
@@ -22,7 +24,7 @@ func Run(ctx context.Context, bootstrap Bootstrap, owner app.ProcessOwner) error
 	if err != nil {
 		return err
 	}
-	capability, err := LoadCapability(layout)
+	capability, err := loadVerifiedCapability(layout, inherited, bootstrap.SessionID)
 	if err != nil {
 		return err
 	}
@@ -89,6 +91,17 @@ func Run(ctx context.Context, bootstrap Bootstrap, owner app.ProcessOwner) error
 		}
 		return fmt.Errorf("supervisor control server failed")
 	}
+}
+
+func loadVerifiedCapability(layout Layout, inherited Capability, sessionID string) (Capability, error) {
+	capability, err := LoadCapability(layout)
+	if err != nil {
+		return Capability{}, err
+	}
+	if subtle.ConstantTimeCompare(capability.secret[:], inherited.secret[:]) != 1 {
+		return Capability{}, failure.New(failure.SupervisorAuthFailed, map[string]string{"session_id": sessionID, "reason": "bootstrap_capability"}, nil)
+	}
+	return capability, nil
 }
 
 func isClosedListenerError(err error) bool {

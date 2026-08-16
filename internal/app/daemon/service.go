@@ -63,6 +63,7 @@ type liveSession struct {
 	done           chan struct{}
 	doneOnce       sync.Once
 	coherenceLease ManagedShellLease
+	persistent     bool
 }
 type inputJob struct {
 	data []byte
@@ -113,6 +114,7 @@ func invalidIntentFailure(err error) error {
 }
 
 func (s *Service) put(v *liveSession) { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
+func (s *Service) remove(id string)   { s.mu.Lock(); delete(s.live, id); s.mu.Unlock() }
 func (l *liveSession) notify()        { close(l.changed); l.changed = make(chan struct{}) }
 
 func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
@@ -129,7 +131,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}
-	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS}
+	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}

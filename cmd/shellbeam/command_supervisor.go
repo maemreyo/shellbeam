@@ -11,7 +11,10 @@ import (
 	supervisor "github.com/maemreyo/shellbeam/internal/adapter/supervisor"
 )
 
-const supervisorBootstrapFD = 3
+const (
+	supervisorBootstrapFD  = 3
+	supervisorCapabilityFD = 4
+)
 
 func runSupervisor(ctx context.Context, args []string) error {
 	if len(args) != 0 {
@@ -26,5 +29,14 @@ func runSupervisor(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return supervisor.Run(ctx, bootstrap, processadapter.FrozenOwner{})
+	capabilityFile := os.NewFile(uintptr(supervisorCapabilityFD), "shellbeam-supervisor-capability")
+	if capabilityFile == nil {
+		return fmt.Errorf("supervisor capability unavailable")
+	}
+	defer capabilityFile.Close()
+	capability, err := supervisor.DecodeCapability(capabilityFile)
+	if err != nil {
+		return err
+	}
+	return supervisor.Run(ctx, bootstrap, capability, processadapter.FrozenOwner{})
 }

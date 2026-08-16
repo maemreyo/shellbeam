@@ -295,6 +295,8 @@ func (r *Runtime) waitLoop() {
 	handle := r.handle
 	r.mu.Unlock()
 	exit := handle.Wait(context.Background())
+	r.controlMu.Lock()
+	defer r.controlMu.Unlock()
 	r.mu.Lock()
 	r.exit = exit
 	r.state = session.Finalizing

@@ -31,11 +31,12 @@ func TestCapabilityChallengeProofBindsSessionGenerationAndChallenge(t *testing.T
 	if !VerifyProof(capability, "persistent-session-a", "generation-a", challenge, proof) {
 		t.Fatal("valid proof rejected")
 	}
+	proofAlias := nonCanonicalBase64Alias(t, proof)
 	for name, changed := range map[string]struct{ session, generation, challenge, proof string }{
 		"session":    {"persistent-session-b", "generation-a", challenge, proof},
 		"generation": {"persistent-session-a", "generation-b", challenge, proof},
 		"challenge":  {"persistent-session-a", "generation-a", challenge + "x", proof},
-		"proof":      {"persistent-session-a", "generation-a", challenge, proof[:len(proof)-1] + "x"},
+		"proof":      {"persistent-session-a", "generation-a", challenge, proofAlias},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if VerifyProof(capability, changed.session, changed.generation, changed.challenge, changed.proof) {
@@ -43,6 +44,16 @@ func TestCapabilityChallengeProofBindsSessionGenerationAndChallenge(t *testing.T
 			}
 		})
 	}
+}
+
+func nonCanonicalBase64Alias(t *testing.T, canonical string) string {
+	t.Helper()
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+	last := strings.IndexByte(alphabet, canonical[len(canonical)-1])
+	if last < 0 || last%4 != 0 || last+1 >= len(alphabet) {
+		t.Fatalf("unexpected canonical base64 proof tail: %q", canonical)
+	}
+	return canonical[:len(canonical)-1] + string(alphabet[last+1])
 }
 
 func TestCapabilityFormattingAndJSONNeverExposeSecret(t *testing.T) {
