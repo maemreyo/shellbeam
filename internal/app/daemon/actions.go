@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	persistentapp "github.com/maemreyo/shellbeam/internal/app/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -49,7 +50,12 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 		v.WorkspaceID = l.reservation.WorkspaceID
 		v.State = l.state
 		v.Outcome = l.outcome
-		v.NextInputOffset = l.input.NextOffset()
+		if l.persistent {
+			v.NextInputOffset = l.accepted
+			v.EOFQueued = l.eof
+		} else {
+			v.NextInputOffset = l.input.NextOffset()
+		}
 		v.RawOutputBytes = l.outputBytes
 		l.mu.Unlock()
 	} else if snap, e := s.store.LoadSession(ctx, operation.SessionID(sid)); e == nil {
@@ -73,16 +79,35 @@ func (s *Service) waitView(ctx context.Context, res operation.Reservation, sid s
 	}
 	return v, nil
 }
-func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
+func (s *Service) Write(ctx context.Context, req WriteRequest) (View, error) {
 	l := s.get(req.SessionID)
 	if l == nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.persistent {
-		return View{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_session_control", "required_version": "2"}, nil)
+		state, handle := l.state, l.handle
+		l.mu.Unlock()
+		if state != session.Running {
+			return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_writable"}, fmt.Errorf("session_not_writable"))
+		}
+		control, ok := handle.(persistentapp.ControlAttachment)
+		if !ok {
+			return View{}, failure.New(failure.SupervisorUnavailable, map[string]string{"session_id": req.SessionID, "reason": "ownership_proof"}, nil)
+		}
+		result, err := control.WriteInput(ctx, req.InputOffset, []byte(req.Chars), req.EOF)
+		if err != nil {
+			return View{}, failure.Normalize(err)
+		}
+		l.mu.Lock()
+		l.accepted = result.NextOffset
+		l.eof = l.eof || result.EOFDelivered
+		l.notify()
+		state = l.state
+		l.mu.Unlock()
+		return View{SessionID: req.SessionID, State: state, AcceptedInputBytes: result.AcceptedBytes, NextInputOffset: result.NextOffset, EOFQueued: result.EOFDelivered}, nil
 	}
+	defer l.mu.Unlock()
 	if l.state != session.Running {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_writable"}, fmt.Errorf("session_not_writable"))
 	}
@@ -104,16 +129,33 @@ func (s *Service) Write(_ context.Context, req WriteRequest) (View, error) {
 	}
 	return View{SessionID: req.SessionID, State: l.state, AcceptedInputBytes: result.AcceptedBytes, NextInputOffset: result.NextOffset, EOFQueued: l.eof}, nil
 }
-func (s *Service) Kill(_ context.Context, req KillRequest) (View, error) {
+
+func (s *Service) Kill(ctx context.Context, req KillRequest) (View, error) {
 	l := s.get(req.SessionID)
 	if l == nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
-	defer l.mu.Unlock()
 	if l.persistent {
-		return View{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_session_control", "required_version": "2"}, nil)
+		state, handle := l.state, l.handle
+		l.mu.Unlock()
+		control, ok := handle.(persistentapp.ControlAttachment)
+		if !ok {
+			return View{}, failure.New(failure.SupervisorUnavailable, map[string]string{"session_id": req.SessionID, "reason": "ownership_proof"}, nil)
+		}
+		attempt, err := control.SignalWithID(ctx, req.KillID, req.Signal)
+		if err != nil {
+			return View{}, failure.Normalize(err)
+		}
+		evidence := receipt.SignalEvidence{Requested: attempt.Signal, Attempted: attempt.Attempted, Succeeded: attempt.Succeeded}
+		l.mu.Lock()
+		l.signal = evidence
+		l.notify()
+		state = l.state
+		l.mu.Unlock()
+		return View{SessionID: req.SessionID, State: state, KillID: attempt.KillID, Signal: attempt.Signal, SignalAttempt: evidence}, nil
 	}
+	defer l.mu.Unlock()
 	attempt, send, err := l.kills.Admit(req.KillID, req.Signal, l.state.Terminal())
 	if err != nil {
 		return View{}, failure.Normalize(err)

@@ -100,6 +100,11 @@ func (s *Server) dispatch(ctx context.Context, request Request) Response {
 			return responseError(request.Kind, s.sessionID, s.generation, err)
 		}
 		base.Output = &OutputResponse{Offset: request.Output.Offset, NextOffset: request.Output.Offset + int64(len(data)), Extent: extent, Data: data}
+	case KindOutputAck:
+		if err := s.runtime.AcknowledgeOutput(request.OutputAck.Offset); err != nil {
+			return responseError(request.Kind, s.sessionID, s.generation, err)
+		}
+		base.OutputAck = &OutputAckResponse{Acknowledged: request.OutputAck.Offset}
 	case KindWrite:
 		admission, err := s.runtime.Write(request.Write.InputOffset, []byte(request.Write.Chars), request.Write.EOF)
 		if err != nil {

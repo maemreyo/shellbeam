@@ -24,6 +24,7 @@ const (
 	KindHandshake Kind = "handshake"
 	KindStatus    Kind = "status"
 	KindOutput    Kind = "output"
+	KindOutputAck Kind = "output_ack"
 	KindWrite     Kind = "write"
 	KindSignal    Kind = "signal"
 	KindWait      Kind = "wait"
@@ -36,6 +37,7 @@ type Request struct {
 	GenerationID    string            `json:"generation_id"`
 	Handshake       *HandshakeRequest `json:"handshake,omitempty"`
 	Output          *OutputRequest    `json:"output,omitempty"`
+	OutputAck       *OutputAckRequest `json:"output_ack,omitempty"`
 	Write           *WriteRequest     `json:"write,omitempty"`
 	Signal          *SignalRequest    `json:"signal,omitempty"`
 	Wait            *WaitRequest      `json:"wait,omitempty"`
@@ -49,6 +51,10 @@ type HandshakeRequest struct {
 type OutputRequest struct {
 	Offset   int64 `json:"offset"`
 	MaxBytes int   `json:"max_bytes"`
+}
+
+type OutputAckRequest struct {
+	Offset int64 `json:"offset"`
 }
 
 type WriteRequest struct {
@@ -96,7 +102,7 @@ func (r Request) Validate() error {
 		return protocolFailure("identity")
 	}
 	payloads := 0
-	for _, present := range []bool{r.Handshake != nil, r.Output != nil, r.Write != nil, r.Signal != nil, r.Wait != nil} {
+	for _, present := range []bool{r.Handshake != nil, r.Output != nil, r.OutputAck != nil, r.Write != nil, r.Signal != nil, r.Wait != nil} {
 		if present {
 			payloads++
 		}
@@ -113,6 +119,10 @@ func (r Request) Validate() error {
 	case KindOutput:
 		if payloads != 1 || r.Output == nil || r.Output.Offset < 0 || r.Output.MaxBytes < 1 || r.Output.MaxBytes > MaxOutputBytes {
 			return protocolFailure("output")
+		}
+	case KindOutputAck:
+		if payloads != 1 || r.OutputAck == nil || r.OutputAck.Offset < 0 {
+			return protocolFailure("output_ack")
 		}
 	case KindWrite:
 		if payloads != 1 || r.Write == nil || r.Write.InputOffset < 0 || (r.Write.Chars == "") == !r.Write.EOF || len(r.Write.Chars) > MaxWriteBytes {

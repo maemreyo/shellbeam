@@ -113,14 +113,14 @@ Files: create internal/app/persistentsession/{ports.go,service.go,service_test.g
 
 Files: create internal/adapter/store/{persistent_output.go,persistent_output_test.go}; extend app persistent service + daemon persistent routing/control tests.
 
-- [ ] RED output matrix: unseen append, exact overlap replay, partial overlap append suffix, mismatch/gap conflict, append-success/ack-lost retry.
-- [ ] Under store lock, compare canonical extent and bytes before append; never duplicate bytes or mark unproven completeness.
-- [ ] Route persistent public write to supervisor ledger using same input-offset semantics; retained duplicates remain replayable after daemon restart.
-- [ ] Route persistent public kill to supervisor kill ledger using existing kill_id; no current proof => no signal.
-- [ ] On supervisor terminal: reconcile all retained output, verify terminal integrity/session/generation, publish existing canonical terminal receipt exactly once, then schedule existing structured/telemetry/evidence derivations once.
-- [ ] Mark persistent binding terminal only from canonical/verified truth; private cleanup happens after canonical acknowledgement.
-- [ ] Focused/race tests.
-- [ ] Commit: feat: reconcile persistent session control
+- [x] RED output matrix: unseen append, exact overlap replay, partial overlap append suffix, mismatch/gap conflict, append-success/ack-lost retry.
+- [x] Under store lock, compare canonical extent and bytes before append; never duplicate bytes or mark unproven completeness.
+- [x] Route persistent public write to supervisor ledger using same input-offset semantics; retained duplicates remain replayable after daemon restart.
+- [x] Route persistent public kill to supervisor kill ledger using existing kill_id; no current proof => no signal.
+- [x] On supervisor terminal: reconcile all retained output, verify terminal integrity/session/generation, publish existing canonical terminal receipt exactly once, then schedule existing structured/telemetry/evidence derivations once.
+- [x] Mark persistent binding terminal only from canonical/verified truth; private cleanup happens after canonical acknowledgement.
+- [x] Focused/race tests.
+- [x] Commit: feat: reconcile persistent session control
 
 ### Task 7 - Startup reattachment, graceful shutdown detach, process-inspection proof
 

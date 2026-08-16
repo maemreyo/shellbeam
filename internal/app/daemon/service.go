@@ -36,34 +36,36 @@ type Service struct {
 	processInspector     ProcessInspector
 }
 type liveSession struct {
-	mu             sync.Mutex
-	operationID    string
-	activityID     string
-	sessionID      string
-	reservation    operation.Reservation
-	spec           operation.ExecutionSpec
-	workspace      workspaceObservation
-	state          session.State
-	outcome        session.Outcome
-	handle         ProcessHandle
-	spawn          receipt.SpawnEvidence
-	exit           receipt.ExitEvidence
-	signal         receipt.SignalEvidence
-	input          *session.InputLedger
-	kills          *session.KillLedger
-	accepted       int64
-	delivered      int64
-	eof            bool
-	captureErr     error
-	terminalTarget session.State
-	outputBytes    int64
-	changed        chan struct{}
-	jobs           chan inputJob
-	writerDone     chan struct{}
-	done           chan struct{}
-	doneOnce       sync.Once
-	coherenceLease ManagedShellLease
-	persistent     bool
+	mu                      sync.Mutex
+	operationID             string
+	activityID              string
+	sessionID               string
+	reservation             operation.Reservation
+	spec                    operation.ExecutionSpec
+	workspace               workspaceObservation
+	state                   session.State
+	outcome                 session.Outcome
+	handle                  ProcessHandle
+	spawn                   receipt.SpawnEvidence
+	exit                    receipt.ExitEvidence
+	signal                  receipt.SignalEvidence
+	input                   *session.InputLedger
+	kills                   *session.KillLedger
+	accepted                int64
+	delivered               int64
+	eof                     bool
+	captureErr              error
+	terminalTarget          session.State
+	outputBytes             int64
+	changed                 chan struct{}
+	jobs                    chan inputJob
+	writerDone              chan struct{}
+	done                    chan struct{}
+	doneOnce                sync.Once
+	coherenceLease          ManagedShellLease
+	persistent              bool
+	persistentCancel        context.CancelFunc
+	persistentReconcileDone chan struct{}
 }
 type inputJob struct {
 	data []byte

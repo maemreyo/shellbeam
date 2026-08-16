@@ -54,6 +54,7 @@ func (s *Service) spawnPreparedPersistentStart(ctx context.Context, req StartReq
 		return View{}, failure.Normalize(got.Err)
 	}
 	s.resolveProcessStartedObservation(processObservation.ObservationSeq, true)
+	s.startPersistentReconciliation(live)
 	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	s.decorateNewStartView(&view, viewErr, stored, workspaceObservation, req.WorkspaceHint)
 	return view, viewErr

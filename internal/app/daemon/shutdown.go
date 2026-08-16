@@ -28,6 +28,19 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		handle := l.handle
 		l.mu.Unlock()
 		if persistent {
+			l.mu.Lock()
+			cancel, reconcileDone := l.persistentCancel, l.persistentReconcileDone
+			l.mu.Unlock()
+			if cancel != nil {
+				cancel()
+			}
+			if reconcileDone != nil {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-reconcileDone:
+				}
+			}
 			if handle != nil {
 				_ = handle.Close()
 			}

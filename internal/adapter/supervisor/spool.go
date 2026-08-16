@@ -20,12 +20,19 @@ type OutputRange struct {
 	End   int64
 }
 
+type outputAckState struct {
+	SchemaVersion int   `json:"schema_version"`
+	Offset        int64 `json:"offset"`
+}
+
 type Spool struct {
-	mu   sync.Mutex
-	file *os.File
-	path string
-	max  int64
-	size int64
+	mu      sync.Mutex
+	file    *os.File
+	path    string
+	ackPath string
+	max     int64
+	size    int64
+	ack     int64
 }
 
 func OpenSpool(layout Layout, maxBytes int64) (*Spool, error) {
@@ -50,7 +57,13 @@ func OpenSpool(layout Layout, maxBytes int64) (*Spool, error) {
 		_ = file.Close()
 		return nil, outputFailure("unsafe_spool")
 	}
-	return &Spool{file: file, path: path, max: maxBytes, size: info.Size()}, nil
+	ackPath := filepath.Join(layout.SessionDir, "output-ack.json")
+	ack, err := loadOutputAck(ackPath, info.Size())
+	if err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return &Spool{file: file, path: path, ackPath: ackPath, max: maxBytes, size: info.Size(), ack: ack}, nil
 }
 
 func (s *Spool) Append(_ context.Context, data []byte) error {
@@ -111,6 +124,44 @@ func (s *Spool) Size() int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.size
+}
+
+func (s *Spool) Acknowledged() int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ack
+}
+
+func (s *Spool) Acknowledge(offset int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.file == nil || offset < s.ack || offset > s.size {
+		return outputFailure("ack_range")
+	}
+	if offset == s.ack {
+		return nil
+	}
+	state := outputAckState{SchemaVersion: 1, Offset: offset}
+	if err := replacePrivateJSON(s.ackPath, state, 1024); err != nil {
+		return outputFailure("ack_write")
+	}
+	s.ack = offset
+	return nil
+}
+
+func loadOutputAck(path string, extent int64) (int64, error) {
+	state := outputAckState{SchemaVersion: 1}
+	err := loadPrivateJSON(path, 1024, &state)
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, io.EOF) {
+		if err := createPrivateJSON(path, state, 1024); err != nil {
+			return 0, outputFailure("ack_create")
+		}
+		return 0, nil
+	}
+	if err != nil || state.SchemaVersion != 1 || state.Offset < 0 || state.Offset > extent {
+		return 0, outputFailure("ack_state")
+	}
+	return state.Offset, nil
 }
 
 func (s *Spool) Close() error {

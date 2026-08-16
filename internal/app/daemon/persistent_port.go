@@ -16,3 +16,14 @@ type PersistentLaunch struct {
 type PersistentRuntime interface {
 	Ensure(context.Context, operation.Reservation, operation.ExecutionSpec) (PersistentLaunch, error)
 }
+
+// PersistentOutputResult is the bounded canonical append outcome for supervisor recovery.
+type PersistentOutputResult struct {
+	CanonicalExtent int64
+	AppendedBytes   int
+	Replay          bool
+}
+
+type persistentOutputStore interface {
+	ReconcilePersistentOutput(context.Context, operation.SessionID, int64, []byte) (PersistentOutputResult, StoreResult)
+}

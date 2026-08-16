@@ -27,19 +27,20 @@ type RuntimeOptions struct {
 }
 
 type RuntimeStatus struct {
-	SessionID     string
-	GenerationID  string
-	State         session.State
-	Outcome       session.Outcome
-	Change        uint64
-	PID           int
-	OutputBytes   int64
-	Input         InputSnapshot
-	Spawn         receipt.SpawnEvidence
-	Exit          receipt.ExitEvidence
-	Signal        receipt.SignalEvidence
-	Terminal      bool
-	FailureReason string
+	SessionID          string
+	GenerationID       string
+	State              session.State
+	Outcome            session.Outcome
+	Change             uint64
+	PID                int
+	OutputBytes        int64
+	OutputAcknowledged int64
+	Input              InputSnapshot
+	Spawn              receipt.SpawnEvidence
+	Exit               receipt.ExitEvidence
+	Signal             receipt.SignalEvidence
+	Terminal           bool
+	FailureReason      string
 }
 
 type Runtime struct {
@@ -237,6 +238,10 @@ func (r *Runtime) Output(offset int64, maxBytes int) ([]byte, int64, error) {
 	return r.spool.ReadRange(offset, maxBytes)
 }
 
+func (r *Runtime) AcknowledgeOutput(offset int64) error {
+	return r.spool.Acknowledge(offset)
+}
+
 func (r *Runtime) Status() RuntimeStatus {
 	r.mu.Lock()
 	status := RuntimeStatus{
@@ -248,6 +253,7 @@ func (r *Runtime) Status() RuntimeStatus {
 	}
 	r.mu.Unlock()
 	status.OutputBytes = r.spool.Size()
+	status.OutputAcknowledged = r.spool.Acknowledged()
 	status.Input = r.input.Snapshot()
 	return status
 }

@@ -10,6 +10,7 @@ import (
 
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	persistentapp "github.com/maemreyo/shellbeam/internal/app/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -92,7 +93,7 @@ func TestPersistentLaunchFailureDoesNotPublishRunningOrUseDirectOwner(t *testing
 	}
 }
 
-func TestPersistentControlsUnavailableUntilSupervisorControlRoutingAndShutdownDetaches(t *testing.T) {
+func TestPersistentMissingControlProofFailsClosedAndShutdownDetaches(t *testing.T) {
 	store := openPersistentLaunchStore(t)
 	handle := &persistentFakeHandle{pid: 4242}
 	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
@@ -101,10 +102,10 @@ func TestPersistentControlsUnavailableUntilSupervisorControlRoutingAndShutdownDe
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Write(context.Background(), app.WriteRequest{SessionID: view.SessionID, InputOffset: 0, Chars: "x"}); !errors.Is(err, failure.FeatureUnavailable) {
+	if _, err := svc.Write(context.Background(), app.WriteRequest{SessionID: view.SessionID, InputOffset: 0, Chars: "x"}); !errors.Is(err, failure.SupervisorUnavailable) {
 		t.Fatalf("persistent write err=%v", err)
 	}
-	if _, err := svc.Kill(context.Background(), app.KillRequest{SessionID: view.SessionID, KillID: "kill-persistent", Signal: "TERM"}); !errors.Is(err, failure.FeatureUnavailable) {
+	if _, err := svc.Kill(context.Background(), app.KillRequest{SessionID: view.SessionID, KillID: "kill-persistent", Signal: "TERM"}); !errors.Is(err, failure.SupervisorUnavailable) {
 		t.Fatalf("persistent kill err=%v", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -198,4 +199,76 @@ func (s *persistentObservationStore) CommitObservationSequence(context.Context, 
 func (s *persistentObservationStore) AbortObservationSequence(context.Context, uint64, string) app.StoreResult {
 	s.aborts.Add(1)
 	return app.StoreResult{Durability: app.DurableChange}
+}
+
+func TestPersistentWriteAndKillPreserveCallerMutationIdentity(t *testing.T) {
+	store := openPersistentLaunchStore(t)
+	handle := &persistentControlFakeHandle{persistentFakeHandle: persistentFakeHandle{pid: 4242}}
+	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-control", Command: "cat", CWD: "/", Persistent: true, SessionName: "control"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	written, err := svc.Write(context.Background(), app.WriteRequest{SessionID: view.SessionID, InputOffset: 7, Chars: "abc"})
+	if err != nil || written.AcceptedInputBytes != 3 || written.NextInputOffset != 10 || handle.lastInputOffset != 7 || handle.lastInput != "abc" {
+		t.Fatalf("written=%#v offset=%d input=%q err=%v", written, handle.lastInputOffset, handle.lastInput, err)
+	}
+	killed, err := svc.Kill(context.Background(), app.KillRequest{SessionID: view.SessionID, KillID: "caller-kill-7", Signal: "TERM"})
+	if err != nil || killed.KillID != "caller-kill-7" || killed.Signal != "TERM" || handle.lastKillID != "caller-kill-7" || handle.lastSignal != "TERM" {
+		t.Fatalf("killed=%#v kill_id=%q signal=%q err=%v", killed, handle.lastKillID, handle.lastSignal, err)
+	}
+}
+
+func TestPersistentControlWithoutAuthenticatedAttachmentNeverFallsBackToGenericHandle(t *testing.T) {
+	store := openPersistentLaunchStore(t)
+	handle := &persistentFakeHandle{pid: 4242}
+	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-no-control-proof", Command: "cat", CWD: "/", Persistent: true, SessionName: "no-control-proof"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Write(context.Background(), app.WriteRequest{SessionID: view.SessionID, InputOffset: 0, Chars: "x"}); !errors.Is(err, failure.SupervisorUnavailable) {
+		t.Fatalf("write without control proof err=%v", err)
+	}
+	if _, err := svc.Kill(context.Background(), app.KillRequest{SessionID: view.SessionID, KillID: "caller-kill", Signal: "TERM"}); !errors.Is(err, failure.SupervisorUnavailable) {
+		t.Fatalf("kill without control proof err=%v", err)
+	}
+	if handle.writes.Load() != 0 || handle.signals.Load() != 0 {
+		t.Fatalf("generic fallback writes=%d signals=%d", handle.writes.Load(), handle.signals.Load())
+	}
+}
+
+type persistentControlFakeHandle struct {
+	persistentFakeHandle
+	lastInputOffset int64
+	lastInput       string
+	lastKillID      string
+	lastSignal      string
+}
+
+func (h *persistentControlFakeHandle) WriteInput(_ context.Context, offset int64, data []byte, eof bool) (persistentapp.InputResult, error) {
+	h.lastInputOffset, h.lastInput = offset, string(data)
+	if eof {
+		return persistentapp.InputResult{NextOffset: offset, EOFDelivered: true}, nil
+	}
+	return persistentapp.InputResult{AcceptedBytes: len(data), NextOffset: offset + int64(len(data))}, nil
+}
+func (h *persistentControlFakeHandle) SignalWithID(_ context.Context, killID, signalName string) (persistentapp.KillResult, error) {
+	h.lastKillID, h.lastSignal = killID, signalName
+	return persistentapp.KillResult{KillID: killID, Signal: signalName, Attempted: true, Succeeded: true, Needed: true}, nil
+}
+func (h *persistentControlFakeHandle) ReadOutput(context.Context, int64, int) ([]byte, int64, int64, error) {
+	return nil, 0, 0, nil
+}
+func (h *persistentControlFakeHandle) AcknowledgeOutput(context.Context, int64) error { return nil }
+func (h *persistentControlFakeHandle) Status(context.Context) (persistentapp.Status, error) {
+	return persistentapp.Status{}, nil
+}
+func (h *persistentControlFakeHandle) WaitStatus(context.Context, uint64, int) (persistentapp.Status, error) {
+	return persistentapp.Status{}, nil
+}
+func (h *persistentControlFakeHandle) Terminal(context.Context) (persistentapp.TerminalEvidence, error) {
+	return persistentapp.TerminalEvidence{}, nil
 }

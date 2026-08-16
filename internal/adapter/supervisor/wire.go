@@ -25,6 +25,7 @@ type StatusResponse struct {
 	Change              uint64                 `json:"change"`
 	PID                 int                    `json:"pid,omitempty"`
 	OutputBytes         int64                  `json:"output_bytes"`
+	OutputAcknowledged  int64                  `json:"output_acknowledged"`
 	InputAcceptedBytes  int64                  `json:"input_accepted_bytes"`
 	InputDeliveredBytes int64                  `json:"input_delivered_bytes"`
 	NextInputOffset     int64                  `json:"next_input_offset"`
@@ -42,6 +43,10 @@ type OutputResponse struct {
 	Data       []byte `json:"data"`
 }
 
+type OutputAckResponse struct {
+	Acknowledged int64 `json:"acknowledged"`
+}
+
 type WriteResponse struct {
 	AcceptedBytes int   `json:"accepted_bytes"`
 	NextOffset    int64 `json:"next_offset"`
@@ -50,17 +55,18 @@ type WriteResponse struct {
 }
 
 type Response struct {
-	ProtocolVersion int             `json:"protocol_version"`
-	Kind            Kind            `json:"kind"`
-	SessionID       string          `json:"session_id"`
-	GenerationID    string          `json:"generation_id"`
-	OK              bool            `json:"ok"`
-	Authenticated   bool            `json:"authenticated,omitempty"`
-	Status          *StatusResponse `json:"status,omitempty"`
-	Output          *OutputResponse `json:"output,omitempty"`
-	Write           *WriteResponse  `json:"write,omitempty"`
-	Signal          *KillRecord     `json:"signal,omitempty"`
-	Error           *ProtocolError  `json:"error,omitempty"`
+	ProtocolVersion int                `json:"protocol_version"`
+	Kind            Kind               `json:"kind"`
+	SessionID       string             `json:"session_id"`
+	GenerationID    string             `json:"generation_id"`
+	OK              bool               `json:"ok"`
+	Authenticated   bool               `json:"authenticated,omitempty"`
+	Status          *StatusResponse    `json:"status,omitempty"`
+	Output          *OutputResponse    `json:"output,omitempty"`
+	OutputAck       *OutputAckResponse `json:"output_ack,omitempty"`
+	Write           *WriteResponse     `json:"write,omitempty"`
+	Signal          *KillRecord        `json:"signal,omitempty"`
+	Error           *ProtocolError     `json:"error,omitempty"`
 }
 
 func EncodeRequest(writer io.Writer, request Request) error {
@@ -169,7 +175,7 @@ func responseError(kind Kind, sessionID, generationID string, err error) Respons
 
 func statusResponse(status RuntimeStatus) *StatusResponse {
 	return &StatusResponse{
-		State: status.State, Outcome: status.Outcome, Change: status.Change, PID: status.PID, OutputBytes: status.OutputBytes,
+		State: status.State, Outcome: status.Outcome, Change: status.Change, PID: status.PID, OutputBytes: status.OutputBytes, OutputAcknowledged: status.OutputAcknowledged,
 		InputAcceptedBytes: status.Input.AcceptedBytes, InputDeliveredBytes: status.Input.DeliveredBytes, NextInputOffset: status.Input.NextOffset,
 		StdinClosed: status.Input.EOFDelivered, Spawn: status.Spawn, Exit: status.Exit, Signal: status.Signal, FailureReason: status.FailureReason,
 	}
