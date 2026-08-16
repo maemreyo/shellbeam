@@ -230,6 +230,12 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	rec.FailureReason = "spawn_failed"
 	rec.Spawn = l.spawn
 	s.endManagedShell(l)
+	// Release the child's descriptors before durability, not after. The process
+	// is already reaped and its output already captured, so nothing here needs
+	// them -- while publishUntilDurable retries a failing store for as long as
+	// it takes, which can be minutes. Holding a dead child's stdin open for
+	// that whole time is what turned a stalled store into a descriptor leak.
+	s.releaseProcessResources(l)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
@@ -240,6 +246,7 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	l.notify()
 	l.doneOnce.Do(func() { close(l.done) })
 	l.mu.Unlock()
+	s.evictTerminated(l)
 }
 
 func (s *Service) waitLoop(l *liveSession) {
@@ -293,6 +300,12 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.Exit = exit
 	rec.Signal = signalEvidence
 	s.endManagedShell(l)
+	// Release the child's descriptors before durability, not after. The process
+	// is already reaped and its output already captured, so nothing here needs
+	// them -- while publishUntilDurable retries a failing store for as long as
+	// it takes, which can be minutes. Holding a dead child's stdin open for
+	// that whole time is what turned a stalled store into a descriptor leak.
+	s.releaseProcessResources(l)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
@@ -304,6 +317,41 @@ func (s *Service) waitLoop(l *liveSession) {
 	l.notify()
 	l.doneOnce.Do(func() { close(l.done) })
 	l.mu.Unlock()
+	// Eviction is the last step, and deliberately after the receipt is durable.
+	// Until then the session is still finalizing, and a poll that fell through
+	// to the store would find a terminal state with no receipt behind it.
+	s.evictTerminated(l)
+}
+
+// releaseProcessResources gives back what the child was holding. Handle.Close
+// is idempotent, so meeting an already-closed handle -- an ordinary command
+// whose input was closed at spawn, or a session shut down concurrently -- is
+// not a special case.
+func (s *Service) releaseProcessResources(l *liveSession) {
+	l.mu.Lock()
+	handle, persistent := l.handle, l.persistent
+	l.mu.Unlock()
+	if handle == nil || persistent {
+		// A persistent session outlives its terminal receipt and is torn down by
+		// its own reconciliation, which owns the handle.
+		return
+	}
+	_ = handle.Close()
+}
+
+// evictTerminated drops a finished session from the live set.
+//
+// Only ordinary managed shells are evicted here. A persistent session stays
+// addressable after a terminal receipt because its lifecycle continues, and
+// reclaiming it belongs to the path that owns that lifecycle.
+func (s *Service) evictTerminated(l *liveSession) {
+	l.mu.Lock()
+	persistent := l.persistent
+	l.mu.Unlock()
+	if persistent {
+		return
+	}
+	s.remove(l.sessionID)
 }
 
 func (s *Service) endManagedShell(l *liveSession) {
