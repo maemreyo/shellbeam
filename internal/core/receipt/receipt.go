@@ -27,36 +27,44 @@ type SignalEvidence struct {
 }
 
 type Receipt struct {
-	SchemaVersion                 int                     `json:"schema_version"`
-	OperationID                   string                  `json:"operation_id"`
-	SessionID                     string                  `json:"session_id"`
-	Fingerprint                   string                  `json:"fingerprint,omitempty"`
-	RequestFingerprint            string                  `json:"request_fingerprint,omitempty"`
-	ExecutionFingerprint          string                  `json:"execution_fingerprint,omitempty"`
-	ObservationBindingFingerprint string                  `json:"observation_binding_fingerprint,omitempty"`
-	DaemonIncarnation             string                  `json:"daemon_incarnation"`
-	ExecutionMode                 string                  `json:"execution_mode,omitempty"`
-	Executable                    string                  `json:"executable,omitempty"`
-	State                         session.State           `json:"state"`
-	Outcome                       session.Outcome         `json:"outcome"`
-	Shell                         string                  `json:"shell,omitempty"`
-	CWD                           string                  `json:"cwd,omitempty"`
-	TTY                           bool                    `json:"tty"`
-	TimeoutMS                     int64                   `json:"timeout_ms"`
-	Persistent                    bool                    `json:"persistent,omitempty"`
-	SessionName                   string                  `json:"session_name,omitempty"`
-	OutputBytes                   int64                   `json:"output_bytes"`
-	OutputComplete                bool                    `json:"output_complete"`
-	InputAcceptedBytes            int64                   `json:"input_accepted_bytes"`
-	InputDeliveredBytes           int64                   `json:"input_delivered_bytes"`
-	StdinClosed                   bool                    `json:"stdin_closed"`
-	FailureReason                 string                  `json:"failure_reason,omitempty"`
-	WorkspaceProvenance           *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
-	ProjectCommand                *project.CommandBinding `json:"project_command,omitempty"`
-	Evidence                      *evidence.Contract      `json:"evidence,omitempty"`
-	Spawn                         SpawnEvidence           `json:"spawn_evidence"`
-	Exit                          ExitEvidence            `json:"exit_evidence"`
-	Signal                        SignalEvidence          `json:"signal_evidence"`
+	SchemaVersion                 int             `json:"schema_version"`
+	OperationID                   string          `json:"operation_id"`
+	SessionID                     string          `json:"session_id"`
+	Fingerprint                   string          `json:"fingerprint,omitempty"`
+	RequestFingerprint            string          `json:"request_fingerprint,omitempty"`
+	ExecutionFingerprint          string          `json:"execution_fingerprint,omitempty"`
+	ObservationBindingFingerprint string          `json:"observation_binding_fingerprint,omitempty"`
+	DaemonIncarnation             string          `json:"daemon_incarnation"`
+	ExecutionMode                 string          `json:"execution_mode,omitempty"`
+	Executable                    string          `json:"executable,omitempty"`
+	State                         session.State   `json:"state"`
+	Outcome                       session.Outcome `json:"outcome"`
+	Shell                         string          `json:"shell,omitempty"`
+	CWD                           string          `json:"cwd,omitempty"`
+	TTY                           bool            `json:"tty"`
+	TimeoutMS                     int64           `json:"timeout_ms"`
+	Persistent                    bool            `json:"persistent,omitempty"`
+	SessionName                   string          `json:"session_name,omitempty"`
+	OutputBytes                   int64           `json:"output_bytes"`
+	OutputComplete                bool            `json:"output_complete"`
+	InputAcceptedBytes            int64           `json:"input_accepted_bytes"`
+	InputDeliveredBytes           int64           `json:"input_delivered_bytes"`
+	StdinClosed                   bool            `json:"stdin_closed"`
+	// StdinMode and TimeoutSource say who decided, not just what happened.
+	// Without them a reader cannot tell a child that closed its own input from
+	// one whose input was never opened, nor an explicitly requested bound from
+	// the one policy supplied -- and an agent that guesses wrong either retries
+	// a command that will never behave differently, or concludes ShellBeam cut
+	// it off.
+	StdinMode           string                  `json:"stdin_mode,omitempty"`
+	TimeoutSource       string                  `json:"timeout_source,omitempty"`
+	FailureReason       string                  `json:"failure_reason,omitempty"`
+	WorkspaceProvenance *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
+	ProjectCommand      *project.CommandBinding `json:"project_command,omitempty"`
+	Evidence            *evidence.Contract      `json:"evidence,omitempty"`
+	Spawn               SpawnEvidence           `json:"spawn_evidence"`
+	Exit                ExitEvidence            `json:"exit_evidence"`
+	Signal              SignalEvidence          `json:"signal_evidence"`
 }
 
 func (r Receipt) Validate() error {

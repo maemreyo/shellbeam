@@ -31,20 +31,24 @@ type Config struct {
 	ControlReserveSessionBytes int64                          `toml:"control_reserve_session_bytes" json:"control_reserve_session_bytes"`
 	TerminalRetentionHours     int                            `toml:"terminal_retention_hours" json:"terminal_retention_hours"`
 	MaxTimeoutMS               int64                          `toml:"max_timeout_ms" json:"max_timeout_ms"`
-	TerminationGraceMS         int64                          `toml:"termination_grace_ms" json:"termination_grace_ms"`
-	FinalizeRetryMinMS         int64                          `toml:"finalize_retry_min_ms" json:"finalize_retry_min_ms"`
-	FinalizeRetryMaxMS         int64                          `toml:"finalize_retry_max_ms" json:"finalize_retry_max_ms"`
+	// DefaultTimeoutMS bounds an ordinary command whose caller named no
+	// timeout. It exists because omission used to mean "run forever", which is
+	// how commands that were only waiting for input held session slots for days.
+	DefaultTimeoutMS   int64 `toml:"default_timeout_ms" json:"default_timeout_ms"`
+	TerminationGraceMS int64 `toml:"termination_grace_ms" json:"termination_grace_ms"`
+	FinalizeRetryMinMS int64 `toml:"finalize_retry_min_ms" json:"finalize_retry_min_ms"`
+	FinalizeRetryMaxMS int64 `toml:"finalize_retry_max_ms" json:"finalize_retry_max_ms"`
 }
 
 func Defaults() Config {
-	return Config{SchemaVersion: 1, MaxConcurrentSessions: 4, DefaultYieldMS: 10000, MaxYieldMS: 30000, DefaultMaxOutputBytes: 20000, MaxResponseOutputBytes: 262144, MaxCommandBytes: 32768, MaxStdinCallBytes: 65536, MaxQueuedInputSessionBytes: 262144, MaxQueuedInputTotalBytes: 1048576, MaxSessionOutputBytes: 268435456, MaxTotalStateBytes: 10737418240, MinFreeSpaceBytes: 536870912, ControlReserveSessionBytes: 1048576, TerminalRetentionHours: 168, MaxTimeoutMS: 86400000, TerminationGraceMS: 5000, FinalizeRetryMinMS: 100, FinalizeRetryMaxMS: 5000}
+	return Config{SchemaVersion: 1, MaxConcurrentSessions: 4, DefaultYieldMS: 10000, MaxYieldMS: 30000, DefaultMaxOutputBytes: 20000, MaxResponseOutputBytes: 262144, MaxCommandBytes: 32768, MaxStdinCallBytes: 65536, MaxQueuedInputSessionBytes: 262144, MaxQueuedInputTotalBytes: 1048576, MaxSessionOutputBytes: 268435456, MaxTotalStateBytes: 10737418240, MinFreeSpaceBytes: 536870912, ControlReserveSessionBytes: 1048576, TerminalRetentionHours: 168, MaxTimeoutMS: 86400000, DefaultTimeoutMS: 600000, TerminationGraceMS: 5000, FinalizeRetryMinMS: 100, FinalizeRetryMaxMS: 5000}
 }
 
 func (c Config) Validate() error {
 	if c.SchemaVersion != 1 || c.MaxConcurrentSessions < 1 {
 		return fmt.Errorf("invalid schema or concurrency")
 	}
-	if c.DefaultYieldMS < 0 || c.DefaultYieldMS > c.MaxYieldMS || c.MaxQueuedInputSessionBytes > c.MaxQueuedInputTotalBytes || c.MaxSessionOutputBytes+c.ControlReserveSessionBytes > c.MaxTotalStateBytes || c.MinFreeSpaceBytes < c.ControlReserveSessionBytes || c.FinalizeRetryMinMS < 1 || c.FinalizeRetryMinMS > c.FinalizeRetryMaxMS {
+	if c.DefaultYieldMS < 0 || c.DefaultYieldMS > c.MaxYieldMS || c.MaxQueuedInputSessionBytes > c.MaxQueuedInputTotalBytes || c.MaxSessionOutputBytes+c.ControlReserveSessionBytes > c.MaxTotalStateBytes || c.MinFreeSpaceBytes < c.ControlReserveSessionBytes || c.FinalizeRetryMinMS < 1 || c.FinalizeRetryMinMS > c.FinalizeRetryMaxMS || c.DefaultTimeoutMS < 0 || (c.DefaultTimeoutMS > 0 && c.MaxTimeoutMS > 0 && c.DefaultTimeoutMS > c.MaxTimeoutMS) {
 		return fmt.Errorf("invalid resource limits")
 	}
 	for _, p := range []string{c.RuntimeDir, c.StateDir, c.Shell} {

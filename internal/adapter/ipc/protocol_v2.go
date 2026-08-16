@@ -61,6 +61,8 @@ type RequestV2 struct {
 	Persistent          bool                              `json:"persistent,omitempty"`
 	SessionName         string                            `json:"session_name,omitempty"`
 	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
+	StdinMode           operation.StdinMode               `json:"stdin_mode,omitempty"`
+	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
 	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
@@ -192,7 +194,7 @@ func validateV2FieldSet(data []byte, action string) error {
 func actionFieldsV2(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":

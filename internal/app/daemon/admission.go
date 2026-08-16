@@ -49,7 +49,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName}
+	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode}
 	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -129,7 +129,12 @@ func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest,
 	if executionCWD == "" {
 		executionCWD = req.CWD
 	}
-	spec := bindExecution(s.owner, operation.ExecutionSpec{Mode: mode, Shell: s.options.Shell, Command: req.Command, Argv: append([]string(nil), req.Argv...), CWD: executionCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS})
+	resolved, err := s.resolveExecutionPolicy(req)
+	if err != nil {
+		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
+	}
+	intent.Resolved, intent.TimeoutSource = &resolved, timeoutSourceOf(resolved)
+	spec := bindExecution(s.owner, operation.ExecutionSpec{Mode: mode, Shell: s.options.Shell, Command: req.Command, Argv: append([]string(nil), req.Argv...), CWD: executionCWD, TTY: req.TTY, TimeoutMS: resolved.TimeoutMS, StdinMode: resolved.StdinMode})
 	reservation, err := s.reservationForStart(req, id, intent, spec)
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)

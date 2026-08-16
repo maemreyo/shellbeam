@@ -51,6 +51,8 @@ type input struct {
 	SessionName         string                            `json:"session_name,omitempty"`
 	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
 	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
+	StdinMode           operation.StdinMode               `json:"stdin_mode,omitempty"`
+	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
 	Selector            *outputview.Selector              `json:"selector,omitempty"`

@@ -59,7 +59,7 @@ func (i Intent) ExecutionMode() (ExecutionMode, error) {
 	return ExecutionModeArgv, nil
 }
 
-func hashArgvIntent(version int, kind string, argv []string, workspaceID, cwd string, tty bool, timeoutMS int64, executable string) (string, error) {
+func hashArgvIntent(version int, kind string, argv []string, workspaceID, cwd string, tty bool, timeoutMS int64, executable string, policy *policyDigest) (string, error) {
 	data, err := json.Marshal(struct {
 		Version     int           `json:"version"`
 		Kind        string        `json:"kind"`
@@ -70,7 +70,8 @@ func hashArgvIntent(version int, kind string, argv []string, workspaceID, cwd st
 		TTY         bool          `json:"tty"`
 		TimeoutMS   int64         `json:"timeout_ms"`
 		Executable  string        `json:"executable,omitempty"`
-	}{version, kind, ExecutionModeArgv, argv, workspaceID, cwd, tty, timeoutMS, executable})
+		Policy      *policyDigest `json:"policy,omitempty"`
+	}{version, kind, ExecutionModeArgv, argv, workspaceID, cwd, tty, timeoutMS, executable, policy})
 	if err != nil {
 		return "", err
 	}

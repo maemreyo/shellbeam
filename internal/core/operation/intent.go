@@ -23,6 +23,15 @@ type Intent struct {
 	SessionName    string   `json:"session_name,omitempty"`
 	YieldMS        int64    `json:"-"`
 	MaxOutputBytes int      `json:"-"`
+	// StdinMode and TimeoutMode are the caller's raw words, kept unresolved so
+	// the request fingerprint can describe the request rather than the policy
+	// version that happened to be in force.
+	StdinMode   StdinMode   `json:"stdin_mode,omitempty"`
+	TimeoutMode TimeoutMode `json:"timeout_mode,omitempty"`
+	// Resolved and TimeoutSource are the contract the daemon settled on; they
+	// belong to the execution fingerprint only.
+	Resolved      *ResolvedExecutionPolicy `json:"-"`
+	TimeoutSource string                   `json:"-"`
 }
 
 func (i Intent) Fingerprint() (string, error) {
@@ -42,7 +51,7 @@ func (i Intent) Fingerprint() (string, error) {
 	if !filepath.IsAbs(i.CWD) {
 		return "", fmt.Errorf("cwd must be absolute")
 	}
-	return hashIntent(1, "request", i.Command, "", i.CWD, i.TTY, i.TimeoutMS, "")
+	return hashIntent(1, "request", i.Command, "", i.CWD, i.TTY, i.TimeoutMS, "", nil)
 }
 
 func (i Intent) RequestFingerprint() (string, error) {
@@ -62,9 +71,9 @@ func (i Intent) RequestFingerprint() (string, error) {
 		return i.persistentRequestFingerprint(mode, logicalCWD)
 	}
 	if mode == ExecutionModeShell {
-		return hashIntent(2, "request", i.Command, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "")
+		return hashIntent(2, "request", i.Command, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
 	}
-	return hashArgvIntent(3, "request", i.Argv, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "")
+	return hashArgvIntent(3, "request", i.Argv, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
 }
 
 func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error) {
@@ -89,9 +98,25 @@ func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error)
 		return i.persistentExecutionFingerprint(mode, cwd, effectiveExecutable)
 	}
 	if mode == ExecutionModeShell {
-		return hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable)
+		return hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
 	}
-	return hashArgvIntent(3, "execution", i.Argv, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable)
+	return hashArgvIntent(3, "execution", i.Argv, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
+}
+
+// requestPolicy carries only what the caller named, so a request that named
+// nothing hashes exactly as it did before these settings existed.
+func (i Intent) requestPolicy() *policyDigest {
+	return RequestPolicyDigest(i.StdinMode, i.TimeoutMode)
+}
+
+// executionPolicy carries the contract that will actually run. It is absent
+// only when nothing resolved it, which is the case for callers on the protocol
+// version that predates these settings.
+func (i Intent) executionPolicy() *policyDigest {
+	if i.Resolved == nil {
+		return nil
+	}
+	return ExecutionPolicyDigest(*i.Resolved, i.TimeoutSource)
 }
 
 func (i Intent) validateCommon() error {
@@ -107,17 +132,18 @@ func (i Intent) validateCommon() error {
 	return nil
 }
 
-func hashIntent(version int, kind, command, workspaceID, cwd string, tty bool, timeoutMS int64, shell string) (string, error) {
+func hashIntent(version int, kind, command, workspaceID, cwd string, tty bool, timeoutMS int64, shell string, policy *policyDigest) (string, error) {
 	b, err := json.Marshal(struct {
-		Version     int    `json:"version"`
-		Kind        string `json:"kind,omitempty"`
-		Command     string `json:"command"`
-		WorkspaceID string `json:"workspace_id,omitempty"`
-		CWD         string `json:"cwd"`
-		TTY         bool   `json:"tty"`
-		TimeoutMS   int64  `json:"timeout_ms"`
-		Shell       string `json:"shell,omitempty"`
-	}{version, kind, command, workspaceID, cwd, tty, timeoutMS, shell})
+		Version     int           `json:"version"`
+		Kind        string        `json:"kind,omitempty"`
+		Command     string        `json:"command"`
+		WorkspaceID string        `json:"workspace_id,omitempty"`
+		CWD         string        `json:"cwd"`
+		TTY         bool          `json:"tty"`
+		TimeoutMS   int64         `json:"timeout_ms"`
+		Shell       string        `json:"shell,omitempty"`
+		Policy      *policyDigest `json:"policy,omitempty"`
+	}{version, kind, command, workspaceID, cwd, tty, timeoutMS, shell, policy})
 	if err != nil {
 		return "", err
 	}

@@ -27,6 +27,22 @@ type Handle struct {
 	wait        chan receipt.ExitEvidence
 	captureDone chan struct{}
 	closeOnce   sync.Once
+	// stdinClosed is guarded by writeMu. Both the policy close at spawn and an
+	// explicit end-of-input go through the same primitive, so the write end is
+	// closed exactly once however input ends.
+	stdinClosed bool
+}
+
+// ErrStdinClosed reports input offered to a child whose standard input has
+// already ended.
+var ErrStdinClosed = errors.New("stdin_closed")
+
+// endStdin closes the write end once, whoever asks.
+func (h *Handle) endStdin() error {
+	var err error
+	h.closeOnce.Do(func() { err = h.stdin.Close() })
+	h.stdinClosed = true
+	return err
 }
 
 func (Owner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
@@ -81,6 +97,14 @@ func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(o
 	_ = outW.Close()
 	spawn.Succeeded = true
 	h := &Handle{cmd: cmd, stdin: stdinW, output: outR, sink: sink, wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{})}
+	if spec.StdinMode == operation.StdinModeClosed {
+		// Deliver EOF now, so a child that reads its input finishes instead of
+		// waiting for a caller who was never going to write. Dropping the write
+		// end here also means this session never holds it open at all.
+		h.writeMu.Lock()
+		_ = h.endStdin()
+		h.writeMu.Unlock()
+	}
 	go h.capture()
 	go h.reap()
 	return h, spawn, nil
@@ -142,6 +166,9 @@ func (h *Handle) Wait(ctx context.Context) receipt.ExitEvidence {
 func (h *Handle) Write(b []byte) error {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
+	if h.stdinClosed {
+		return ErrStdinClosed
+	}
 	for len(b) > 0 {
 		n, err := h.stdin.Write(b)
 		if err != nil {
@@ -157,7 +184,7 @@ func (h *Handle) Write(b []byte) error {
 func (h *Handle) CloseStdin() error {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
-	return h.stdin.Close()
+	return h.endStdin()
 }
 func (h *Handle) Signal(name string) receipt.SignalEvidence {
 	e := receipt.SignalEvidence{Requested: name, Attempted: true}
@@ -171,7 +198,7 @@ func (h *Handle) Signal(name string) receipt.SignalEvidence {
 	return e
 }
 func (h *Handle) Close() error {
-	var err error
-	h.closeOnce.Do(func() { err = h.stdin.Close() })
-	return err
+	h.writeMu.Lock()
+	defer h.writeMu.Unlock()
+	return h.endStdin()
 }

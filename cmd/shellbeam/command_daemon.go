@@ -104,6 +104,8 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
+		DefaultTimeoutMS:     cfg.DefaultTimeoutMS,
+		MaxTimeoutMS:         cfg.MaxTimeoutMS,
 		MaxQueuedInputBytes:  cfg.MaxQueuedInputSessionBytes,
 		TerminationGrace:     time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
 		Capabilities:         catalog,

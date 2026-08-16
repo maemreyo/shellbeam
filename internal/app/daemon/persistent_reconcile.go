@@ -186,6 +186,10 @@ func (s *Service) persistentTerminalReceipt(live *liveSession, terminal persiste
 	rec.InputAcceptedBytes = terminal.InputAcceptedBytes
 	rec.InputDeliveredBytes = terminal.InputDeliveredBytes
 	rec.StdinClosed = terminal.StdinClosed
+	// Persistent sessions build their receipt here rather than through the
+	// direct path, so the policy provenance has to be carried on both.
+	rec.StdinMode = string(live.spec.StdinMode)
+	rec.TimeoutSource = live.timeoutSource
 	rec.FailureReason = terminal.FailureReason
 	rec.Spawn = terminal.Spawn
 	rec.Exit = terminal.Exit

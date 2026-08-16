@@ -16,6 +16,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	observation "github.com/maemreyo/shellbeam/internal/core/observation"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
@@ -371,7 +372,10 @@ func TestExecutionObservationPersistenceDoesNotCopyAmbientOrStdinSecrets(t *test
 	start, err := client.CallV2(context.Background(), ipcadapter.RequestV2{
 		IPVersion: 2, Kind: "request", RequestID: "privacy-start", Action: "start",
 		OperationID: "a22-privacy-stdin", CWD: "/tmp", Argv: []string{"/bin/sh", "-c", "cat >/dev/null"},
-		YieldMS: 25, MaxOutputBytes: 4096,
+		// This session is written to, so it has to say so: an ordinary command
+		// now has its input closed at spawn.
+		StdinMode: operation.StdinModeStream,
+		YieldMS:   25, MaxOutputBytes: 4096,
 	})
 	if err != nil || !start.OK || start.Result == nil || start.Result.Operation.SessionID == "" {
 		t.Fatalf("privacy start=%#v err=%v", start, err)

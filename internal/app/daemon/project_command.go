@@ -201,7 +201,13 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	activityReq.CWD = executionCWD
 	activityID := s.admitActivity(ctx, activityReq, sid, workspaceObservation.binding)
 	spec.CWD = executionCWD
-	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	// Resolution is a pure function of the request, so recomputing it here to
+	// label the receipt cannot disagree with the spec that was bound from it.
+	policySource := timeoutSourceUnlimited
+	if resolved, resolveErr := s.resolveExecutionPolicy(req); resolveErr == nil {
+		policySource = timeoutSourceOf(resolved)
+	}
+	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, timeoutSource: policySource, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
 		return View{}, failure.Normalize(processObservation.Err)
@@ -233,8 +239,11 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	}
 	go s.writeLoop(live)
 	go s.waitLoop(live)
-	if req.TimeoutMS > 0 {
-		go s.timeoutLoop(live, time.Duration(req.TimeoutMS)*time.Millisecond)
+	// The bound comes from the resolved spec: a caller that named nothing has
+	// been given the ordinary default by now, and only work that declared
+	// itself long-running reaches here unbounded.
+	if live.spec.TimeoutMS > 0 {
+		go s.timeoutLoop(live, time.Duration(live.spec.TimeoutMS)*time.Millisecond)
 	}
 	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	s.decorateNewStartView(&view, viewErr, stored, workspaceObservation, req.WorkspaceHint)

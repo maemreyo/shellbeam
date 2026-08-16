@@ -12,6 +12,11 @@ import (
 )
 
 type Options struct {
+	// DefaultTimeoutMS bounds an ordinary command whose caller named no
+	// timeout. Zero leaves such commands unbounded, which is the behaviour that
+	// let stuck sessions hold capacity indefinitely.
+	DefaultTimeoutMS     int64
+	MaxTimeoutMS         int64
 	Incarnation          string
 	Shell                string
 	MaxQueuedInputBytes  int
@@ -35,6 +40,8 @@ type StartRequest struct {
 	CWD               string                    `json:"cwd"`
 	TTY               bool                      `json:"tty"`
 	TimeoutMS         int64                     `json:"timeout_ms"`
+	StdinMode         operation.StdinMode       `json:"stdin_mode,omitempty"`
+	TimeoutMode       operation.TimeoutMode     `json:"timeout_mode,omitempty"`
 	Persistent        bool                      `json:"persistent,omitempty"`
 	SessionName       string                    `json:"session_name,omitempty"`
 	YieldMS           int64                     `json:"yield_time_ms"`

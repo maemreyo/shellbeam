@@ -35,7 +35,22 @@ type Service struct {
 	environmentInspector EnvironmentInspector
 	processInspector     ProcessInspector
 }
+
+// timeoutSource values name who chose the bound a receipt reports.
+const (
+	timeoutSourceRequested = "requested"
+	timeoutSourceDefault   = "default"
+	timeoutSourceUnlimited = "unlimited"
+	// timeoutSourceLegacy is compatibility, not a request: callers on the older
+	// protocol had no way to name a bound, so reporting theirs as "unlimited"
+	// would read as though they had asked for one.
+	timeoutSourceLegacy = "legacy"
+)
+
 type liveSession struct {
+	// timeoutSource records whether the bound in spec came from the caller or
+	// from policy, so the receipt can say so.
+	timeoutSource           string
 	mu                      sync.Mutex
 	operationID             string
 	activityID              string
@@ -270,7 +285,9 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.OutputComplete = captureErr == nil
 	rec.InputAcceptedBytes = accepted
 	rec.InputDeliveredBytes = delivered
-	rec.StdinClosed = eof
+	rec.StdinClosed = eof || l.spec.StdinMode == operation.StdinModeClosed
+	rec.StdinMode = string(l.spec.StdinMode)
+	rec.TimeoutSource = l.timeoutSource
 	rec.FailureReason = reason
 	rec.Spawn = l.spawn
 	rec.Exit = exit
