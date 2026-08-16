@@ -31,6 +31,7 @@ const (
 	FeatureCodeIntelligence       Feature = "code_intelligence"
 	FeatureExecutionTelemetry     Feature = "execution_telemetry"
 	FeatureReproductionCapsules   Feature = "reproduction_capsules"
+	FeatureSafetyCheckpoints      Feature = "safety_checkpoints"
 )
 
 type Limits struct {
@@ -99,6 +100,19 @@ type Limits struct {
 	PersistentReattachHandshakeTimeoutMS int64 `json:"persistent_reattach_handshake_timeout_ms,omitempty"`
 	PersistentStartupReattachConcurrency int   `json:"persistent_startup_reattach_concurrency,omitempty"`
 	PersistentStartupReattachBudgetMS    int64 `json:"persistent_startup_reattach_budget_ms,omitempty"`
+	CheckpointCreateSelectors            int   `json:"checkpoint_create_selectors,omitempty"`
+	CheckpointSelectorBytes              int   `json:"checkpoint_selector_bytes,omitempty"`
+	CheckpointTotalSelectorBytes         int   `json:"checkpoint_total_selector_bytes,omitempty"`
+	CheckpointWalkEntries                int   `json:"checkpoint_walk_entries,omitempty"`
+	CheckpointCapturedEntries            int   `json:"checkpoint_captured_entries,omitempty"`
+	CheckpointRegularFileBytes           int64 `json:"checkpoint_regular_file_bytes,omitempty"`
+	CheckpointBytes                      int64 `json:"checkpoint_bytes,omitempty"`
+	CheckpointRetained                   int   `json:"checkpoint_retained,omitempty"`
+	CheckpointPrivateProviderBytes       int64 `json:"checkpoint_private_provider_bytes,omitempty"`
+	CheckpointRetentionAgeMS             int64 `json:"checkpoint_retention_age_ms,omitempty"`
+	CheckpointRestorePaths               int   `json:"checkpoint_restore_paths,omitempty"`
+	CheckpointPublicEntryRefs            int   `json:"checkpoint_public_entry_refs,omitempty"`
+	CheckpointPublicSummaries            int   `json:"checkpoint_public_summaries,omitempty"`
 }
 
 type Catalog struct {
@@ -135,6 +149,7 @@ type Catalog struct {
 	TypedCommandParameterKinds        []string                    `json:"typed_project_command_parameter_kinds,omitempty"`
 	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
 	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
+	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
 	Features                          map[Feature]Availability    `json:"features"`
 	Limits                            Limits                      `json:"limits"`
 }
@@ -161,6 +176,7 @@ var targetFeatures = []Feature{
 	FeatureCodeIntelligence,
 	FeatureExecutionTelemetry,
 	FeatureReproductionCapsules,
+	FeatureSafetyCheckpoints,
 }
 
 func TargetFeatures() []Feature {
@@ -215,6 +231,11 @@ func (c Catalog) Clone() Catalog {
 	if c.ResourceObservation != nil {
 		resource := *c.ResourceObservation
 		out.ResourceObservation = &resource
+	}
+	if c.SafetyCheckpoints != nil {
+		support := *c.SafetyCheckpoints
+		support.SchemaVersions = append([]int(nil), c.SafetyCheckpoints.SchemaVersions...)
+		out.SafetyCheckpoints = &support
 	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
