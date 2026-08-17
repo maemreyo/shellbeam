@@ -14,7 +14,7 @@ import (
 	"time"
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
-	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
+	"github.com/maemreyo/shellbeam/internal/ownership"
 )
 
 // Daemon ownership is a guarantee between processes: a lease is a lock on an

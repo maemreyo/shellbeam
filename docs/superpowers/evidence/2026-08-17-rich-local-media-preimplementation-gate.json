@@ -1,0 +1,453 @@
+{
+  "execution_base_sha": "a92a52fba7d123c50d84e5b879e65d176bd25444",
+  "parser_toolchain": {
+    "candidate": "go1.26-pinned-json-library-boundary",
+    "checks": [
+      {
+        "id": "error-code-compat",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-race.log",
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-race.log"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "five-rejections",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/strict-tracer-report.json"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "full-tests",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-full-tests.log",
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-full-tests.log"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "legacy-v1",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/strict-tracer-report.json"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "linux-native",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-native.json"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "macos-native",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-native.json"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "mode-consistency",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/matrix-summary.json"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "non-media-json-regression",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-lsp-regression.log",
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-lsp-regression.log"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "ordinary-build",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-native-build.log",
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-native-build.log"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "race",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-race.log",
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-race.log"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "shell-acceptance",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-shell-acceptance.log",
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-shell-acceptance.log"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "valid-v2-semantic",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-library-boundary/strict-tracer-report.json"
+        ],
+        "status": "PASS"
+      }
+    ],
+    "explicit_go126_experiment_acceptance": false,
+    "go127_ga": false,
+    "go_version": "go1.26.5",
+    "goexperiment": "",
+    "mode": "library-boundary",
+    "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+    "native_lanes": {
+      "linux": {
+        "evidence": {
+          "path": "docs/superpowers/evidence/reports/parser-go126-library-boundary/linux-native.json",
+          "sha256": "f9cce0966bf8638f66da73f19745fd895b4605ee9af4011911cf241e84f45f45"
+        },
+        "go_version": "go1.26.5",
+        "goexperiment": "",
+        "mode": "library-boundary",
+        "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+        "status": "PASS"
+      },
+      "macos": {
+        "evidence": {
+          "path": "docs/superpowers/evidence/reports/parser-go126-library-boundary/macos-native.json",
+          "sha256": "7fde5294fe4be08c8ee88be4534feb86b76c9b1a61c7ad95ec73f58a1424fdb4"
+        },
+        "go_version": "go1.26.5",
+        "goexperiment": "",
+        "mode": "library-boundary",
+        "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+        "status": "PASS"
+      }
+    },
+    "parser_toolchain_pass": true,
+    "strict_tracer_report": {
+      "path": "docs/superpowers/evidence/reports/parser-go126-library-boundary/strict-tracer-report.json",
+      "sha256": "f49dfc72fd8fa35317f0ff01751a36d302af04481b4d5aa13eaa2794a8a8ac9f"
+    }
+  },
+  "parser_toolchain_pass": true,
+  "paths": {
+    "parser": "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md",
+    "phase_a": "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+    "plan": "docs/superpowers/plans/2026-08-17-rich-local-media-access.md",
+    "preflight": "docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md",
+    "source": "docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md",
+    "spec": "docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md"
+  },
+  "phase_a": {
+    "checks": [
+      {
+        "fail_trials": 0,
+        "id": "direct-workspace-a",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "direct-workspace-b",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "direct-cwd",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "indirect-image-goal",
+        "not_run_trials": 3,
+        "pass_threshold": 2,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "established-followup",
+        "not_run_trials": 3,
+        "pass_threshold": 2,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "negative-no-media",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "unsupported-pdf",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "sensitive-unestablished",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-64k",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-256k",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-1m",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-4m",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "max-payload-7m",
+        "not_run_trials": 0,
+        "pass_threshold": 3,
+        "pass_trials": 3,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "format-png",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "format-jpeg",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "format-webp",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "address-collision-a",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "address-collision-b",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "disclosure-confirmation",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "production-disclosure",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "annotation-omitted",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "annotation-user-assistant",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "annotation-selection",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "remembered-approval",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "host remembered-approval availability not established; normalized Phase A receipt"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      }
+    ],
+    "host_offers_remembered_approval": null,
+    "phase_a_pass": false,
+    "topology": "one-tool"
+  },
+  "phase_a_pass": false,
+  "schema_version": 1,
+  "sha256": {
+    "parser": "0f5e4a44c870ba30825d0bbe15a9f845d40dcb42a918a192c2c887674d3f363d",
+    "phase_a": "f7327703b50f088e13e913779f7578a021514092a7d348939979fd401d44911f",
+    "plan": "f1bbc3945e809155319636052c1dee17d286f78ef162bd7b532a78622740ab3d",
+    "preflight": "1cf03afe18f094e88aa10cf66bb6fe054633f1269cc7933af13c601eb4730d4e",
+    "source": "7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906",
+    "spec": "e5831e8f2cf3d724598df62e8e3aed7a0c914ec6eb6a5d63746caf37e4c3136b"
+  },
+  "verdict": "NOT_RUN"
+}

@@ -196,7 +196,9 @@ func TestServiceUsesReceiptWorkspaceAuthorityAndOmitsIncompleteBinding(t *testin
 }
 
 func TestServiceRejectsNonAuthoritativeOrChangedTerminalInputs(t *testing.T) {
-	repo := telemetryFixture(time.Now().UTC().Add(-time.Second), time.Now().UTC(), session.Completed, session.Success)
+	terminal := time.Now().UTC()
+	created := terminal.Add(-time.Second)
+	repo := telemetryFixture(created, terminal, session.Completed, session.Success)
 	service, _ := newService(repo, "darwin", "arm64")
 	for name, mutate := range map[string]func(*memoryTelemetryRepository, *receipt.Receipt){
 		"scheduled receipt differs": func(r *memoryTelemetryRepository, scheduled *receipt.Receipt) { scheduled.OutputBytes++ },
@@ -208,11 +210,10 @@ func TestServiceRejectsNonAuthoritativeOrChangedTerminalInputs(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			copyRepo := *repo
-			copyRepo.records = map[string]core.PerformanceRecord{}
+			copyRepo := telemetryFixture(created, terminal, session.Completed, session.Success)
 			scheduled := copyRepo.receipt
-			mutate(&copyRepo, &scheduled)
-			local, _ := newService(&copyRepo, "darwin", "arm64")
+			mutate(copyRepo, &scheduled)
+			local, _ := newService(copyRepo, "darwin", "arm64")
 			if _, err := local.DeriveTerminal(context.Background(), scheduled); err == nil {
 				t.Fatal("non-authoritative terminal input accepted")
 			}

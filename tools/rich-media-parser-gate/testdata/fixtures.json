@@ -1,0 +1,135 @@
+{
+  "legacy_v1": [
+    {
+      "id": "ipc-v1-start",
+      "path": "internal/adapter/ipc/testdata/v1/start.json",
+      "semantic_sha256": "803f9b3ccfaf55874af2b3ca9eb8c944fc2c1d1e4767fbc440280336cea27914"
+    },
+    {
+      "id": "ipc-v1-poll",
+      "path": "internal/adapter/ipc/testdata/v1/poll.json",
+      "semantic_sha256": "b60b27a68f365436e53a5bfbbda2d8a7de4e69edb8c229dd4a76ddd67d10bbc2"
+    },
+    {
+      "id": "ipc-v1-write",
+      "path": "internal/adapter/ipc/testdata/v1/write.json",
+      "semantic_sha256": "631095a6fc068aa546c88bcc24385471253f7c78239aadbc5d1c0c18558fe431"
+    },
+    {
+      "id": "ipc-v1-kill",
+      "path": "internal/adapter/ipc/testdata/v1/kill.json",
+      "semantic_sha256": "ce30e4f0de1da46a5dafe8fcc4132981eb4c3f9de5625887a6d4562aa36a6ac5"
+    }
+  ],
+  "schema_version": 2,
+  "valid_v2": [
+    {
+      "id": "mcp-inspect-server",
+      "json": "{\"action\":\"inspect.server\"}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "2850092e748cacf5d7b018b36e3e0f1c8a586be4caa33e16864e6fbda2bf6415"
+    },
+    {
+      "id": "mcp-start-shell",
+      "json": "{\"action\":\"start\",\"operation_id\":\"o\",\"command\":\"true\",\"cwd\":\"/\"}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "a868b7f7f7082e93cda49679b5cdd45c457a256ba4cbefa4fcdcd6ca5766a71b"
+    },
+    {
+      "id": "mcp-poll",
+      "json": "{\"action\":\"poll\",\"session_id\":\"s_1\"}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "99c3c65ad7ad4132d78f33863fbba8bb0e8186d07bb98cf0961c143ec3aa9eab"
+    },
+    {
+      "id": "mcp-kill",
+      "json": "{\"action\":\"kill\",\"session_id\":\"s_1\",\"kill_id\":\"k_1\"}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "d0839ed13e88c812118953b580a0e9afae96eac01ca574178508273a0485a3d5"
+    },
+    {
+      "id": "mcp-inspect-structured",
+      "json": "{\"action\":\"inspect.structured\",\"operation_id\":\"op-1\",\"record_kind\":\"diagnostic\",\"severity\":\"error\",\"path\":\"internal/a.go\",\"max_records\":10}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "f890ed66bcfde61b3c2cc93ebc52f3f63cb9d24a260e1992ba92a2541f485706"
+    },
+    {
+      "id": "mcp-inspect-telemetry",
+      "json": "{\"action\":\"inspect.telemetry\",\"operation_id\":\"op-1\",\"max_samples\":16}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "693d0992b4a3fb3a61b5d15c689d79cd0db75d74f3a090152bf97d2bc518502a"
+    },
+    {
+      "id": "mcp-repro-create",
+      "json": "{\"action\":\"repro.create\",\"repro_create_id\":\"repro-create-1\",\"operation_id\":\"op-1\"}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "2581c760b4c48c56b5cb334bbde8395cc838fe439abd637b1c1cd6812763f29e"
+    },
+    {
+      "id": "mcp-inspect-sessions",
+      "json": "{\"action\":\"inspect.sessions\",\"session_name\":\"dev-server\",\"state\":\"running\",\"persistent_only\":false,\"max_records\":10}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "f072f74c06d7551c15d149347030c7fb38d09e62055d195af52f3385bff74871"
+    },
+    {
+      "id": "mcp-typed-start",
+      "json": "{\"action\":\"start\",\"operation_id\":\"typed-op\",\"workspace_id\":\"ws_01K00000000000000000000000\",\"project_command_id\":\"test_package\",\"params\":{\"package\":\"./internal/app\",\"count\":\"3\"},\"timeout_ms\":5000}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "b59fd00c0a5e41dc7a44ed48233b5f6c96ff0060764eda7b5ace83f44c0d0549"
+    },
+    {
+      "id": "mcp-inspect-evidence",
+      "json": "{\"action\":\"inspect.evidence\",\"operation_id\":\"op-1\",\"verification_kind\":\"test\",\"result\":\"pass\",\"max_records\":10}",
+      "kind": "mcp-v2",
+      "semantic_sha256": "cf3127716e52e16968459795193061d438cfb43ab74b20b677b8127e37c754cd"
+    },
+    {
+      "id": "ipc-start-request",
+      "json": "{\"ipc_version\":2,\"kind\":\"request\",\"request_id\":\"x\",\"action\":\"start\",\"operation_id\":\"op\",\"command\":\"echo hi\",\"cwd\":\"/tmp\"}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "9d205b0763709ee70037075cf3b46d379739cc700be86cd6bfc176c0a4954c29"
+    },
+    {
+      "id": "ipc-poll-request",
+      "json": "{\"ipc_version\":2,\"kind\":\"request\",\"request_id\":\"x\",\"action\":\"poll\",\"session_id\":\"s\"}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "08d1f0b0735b07ba0e11e11686d07b1cf2ec987587e3c368f6d017c5ec7116d4"
+    },
+    {
+      "id": "ipc-write-request",
+      "json": "{\"ipc_version\":2,\"kind\":\"request\",\"request_id\":\"x\",\"action\":\"write\",\"session_id\":\"s\",\"input_offset\":0,\"chars\":\"hi\"}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "955d3019fd4a63fb9614e33cbed53ecec7e1e71064124ba2c1d85a3c50e89b64"
+    },
+    {
+      "id": "ipc-kill-request",
+      "json": "{\"ipc_version\":2,\"kind\":\"request\",\"request_id\":\"x\",\"action\":\"kill\",\"session_id\":\"s\",\"kill_id\":\"k\",\"signal\":\"TERM\"}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "accaf28ce5564392623b3696cc5d4b6a6990b0acfa4bf749bed10479a2bf11a2"
+    },
+    {
+      "id": "ipc-inspect-server-request",
+      "json": "{\"ipc_version\":2,\"kind\":\"request\",\"request_id\":\"x\",\"action\":\"inspect.server\"}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "53cdbced3f770c18c28a56a42a76f819c5975a1ad6f68ca33e14ab2b01033877"
+    },
+    {
+      "id": "ipc-inspect-server-response",
+      "json": "{\"ipc_version\":2,\"kind\":\"response\",\"request_id\":\"x\",\"action\":\"inspect.server\",\"ok\":true,\"server\":{\"shellbeam_protocol_version\":2,\"receipt_schema_versions\":[1],\"project_manifest_schema_versions\":[],\"features\":{\"argv_mode\":\"unavailable\"},\"limits\":{\"command_bytes\":1,\"response_bytes\":2,\"session_output_bytes\":3,\"runtime_ms\":4,\"live_sessions\":1,\"activity_history\":0}}}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "f78e2ae95dc1c39b1807f10ae421ae4ce888dc65bfd8b277caee1ad95e7e72bc"
+    },
+    {
+      "id": "ipc-start-response",
+      "json": "{\"ipc_version\":2,\"kind\":\"response\",\"request_id\":\"start\",\"action\":\"start\",\"ok\":true,\"result\":{\"schema_version\":2,\"operation\":{\"operation_id\":\"op\",\"session_id\":\"s\",\"state\":\"running\"},\"child\":{\"state\":\"running\",\"timed_out\":false},\"output\":{\"canonical_stream\":\"combined\",\"raw_bytes\":0,\"returned_bytes\":0,\"cursor\":0,\"next_cursor\":0,\"truncated\":false,\"output_complete\":false}}}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "582f5da3696fdb9493768a94a9afd72852b78bda0e7e05aa8f457713aeb9c4b0"
+    },
+    {
+      "id": "ipc-error-response",
+      "json": "{\"ipc_version\":2,\"kind\":\"response\",\"request_id\":\"x\",\"action\":\"inspect.workspace\",\"ok\":false,\"error\":{\"code\":\"feature_unavailable\",\"message\":\"feature unavailable\",\"retryable\":false,\"details\":{\"feature\":\"inspect.workspace\"}}}",
+      "kind": "ipc-v2",
+      "semantic_sha256": "3431b521684b185611d25a634ee04f8f6593f06d9ecd6f201f8f5dc0176d8498"
+    }
+  ]
+}

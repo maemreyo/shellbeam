@@ -1,0 +1,19 @@
+ok  	github.com/maemreyo/shellbeam/internal/app/daemon	15.750s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/process	2.967s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/store	16.834s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/ipc	1.752s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/mcp	2.067s
+ok  	github.com/maemreyo/shellbeam/tests/integration	3.553s
+ok  	github.com/maemreyo/shellbeam/internal/core/receipt	0.007s
+ok  	github.com/maemreyo/shellbeam/internal/core/session	0.002s
+fuzz: elapsed: 0s, gathering baseline coverage: 0/2 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 2/2 completed, now fuzzing with 3 workers
+fuzz: elapsed: 1s, execs: 115564 (104653/sec), new interesting: 101 (total: 103)
+PASS
+ok  	github.com/maemreyo/shellbeam/internal/core/receipt	1.107s
+fuzz: elapsed: 0s, gathering baseline coverage: 0/1 completed
+fuzz: elapsed: 0s, gathering baseline coverage: 1/1 completed, now fuzzing with 3 workers
+fuzz: elapsed: 2s, execs: 86289 (43106/sec), new interesting: 30 (total: 31)
+PASS
+ok  	github.com/maemreyo/shellbeam/internal/core/operation	2.004s
+hardening: PASS (bounded current-host campaign)

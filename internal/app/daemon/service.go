@@ -9,6 +9,7 @@ import (
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/media"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -34,6 +35,10 @@ type Service struct {
 	environmentBindings  CachedEnvironmentBindingProvider
 	environmentInspector EnvironmentInspector
 	processInspector     ProcessInspector
+	mediaSlots           chan struct{}
+	mediaReadBudget      time.Duration
+	mediaAfter           func(time.Duration) <-chan time.Time
+	mediaWorkerDone      chan struct{}
 }
 
 // timeoutSource values name who chose the bound a receipt reports.
@@ -101,7 +106,14 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	} else {
 		options.Capabilities = options.Capabilities.Clone()
 	}
-	return &Service{store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{}}
+	mediaBudget := options.MediaReadBudget
+	if mediaBudget <= 0 {
+		mediaBudget = media.AcquisitionBudget
+	}
+	return &Service{
+		store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{},
+		mediaSlots: make(chan struct{}, media.MaxConcurrentReads), mediaReadBudget: mediaBudget, mediaAfter: time.After,
+	}
 }
 
 func NewServiceWithExecutionContext(store Store, owner ProcessOwner, resolver WorkspaceResolver, observer WorkspaceObserver, tracker ActivityTracker, options Options) *Service {

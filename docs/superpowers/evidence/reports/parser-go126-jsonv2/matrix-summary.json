@@ -1,0 +1,114 @@
+{
+  "accepted_risk": true,
+  "candidate": "go1.26-jsonv2-experiment",
+  "commands": [
+    {
+      "command": "GOEXPERIMENT=jsonv2 go test ./tools/rich-media-parser-gate -count=1",
+      "id": "strict-tracer-test",
+      "status": "PASS"
+    },
+    {
+      "command": "GOEXPERIMENT=jsonv2 go run ./tools/rich-media-parser-gate -fixtures ./tools/rich-media-parser-gate/testdata/fixtures.json -out .build/rich-local-media-parser-gate/report.json",
+      "id": "strict-tracer-run",
+      "status": "PASS"
+    },
+    {
+      "command": "GOEXPERIMENT=jsonv2 go test -race ./internal/adapter/ipc ./internal/adapter/mcp ./tests/contract -count=1",
+      "id": "race",
+      "status": "PASS"
+    },
+    {
+      "command": "GOEXPERIMENT=jsonv2 go test -count=1 ./...",
+      "id": "full-tests",
+      "note": "compile failure observed before wrapper timeout; full-tests.log is durable evidence",
+      "status": "FAIL"
+    },
+    {
+      "command": "GOCACHE=\"$(go env GOCACHE)\" GOEXPERIMENT=jsonv2 ./scripts/test-hardening.sh",
+      "id": "hardening",
+      "note": "tests/integration build failed from same dependency skew",
+      "status": "FAIL"
+    },
+    {
+      "command": "GOEXPERIMENT=jsonv2 ./scripts/test-security.sh",
+      "id": "security",
+      "note": "mandatory checks passed; govulncheck not installed",
+      "status": "PASS"
+    },
+    {
+      "command": "GOEXPERIMENT=jsonv2 go build -trimpath -buildvcs=false -o .build/gates/jsonv2/shellbeam ./cmd/shellbeam",
+      "id": "macos-native-build",
+      "status": "FAIL"
+    },
+    {
+      "command": "go test ./internal/adapter/codeintel/lsp -run ^$ -count=1",
+      "id": "lsp-normal-ab",
+      "status": "PASS"
+    },
+    {
+      "command": "GOEXPERIMENT=jsonv2 go test ./internal/adapter/codeintel/lsp -run ^$ -count=1",
+      "id": "lsp-jsonv2-ab",
+      "status": "FAIL"
+    }
+  ],
+  "files": {
+    "full-tests.log": {
+      "bytes": 1187,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/full-tests.log",
+      "sha256": "cb59c8f2e85e74c56f02fd71cbc5e663ebf1eb80056d593ef79487fa9e8afe94"
+    },
+    "hardening.log": {
+      "bytes": 691,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/hardening.log",
+      "sha256": "b1836716bfbb2a4fbbfb9227ee84fa37623ea259074f20cb527444b23a4abc95"
+    },
+    "lsp-jsonv2.log": {
+      "bytes": 381,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/lsp-jsonv2.log",
+      "sha256": "0adba9e061a7d8985c81d7fb0c4aeb1830f1a9302b1258224c13bed141172628"
+    },
+    "lsp-normal.log": {
+      "bytes": 91,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/lsp-normal.log",
+      "sha256": "b4044a9ea879838b93eba99229451b17cd15a1097e5c8764bb963e5a060407db"
+    },
+    "macos-build.log": {
+      "bytes": 295,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/macos-build.log",
+      "sha256": "253c8ae824ee4a3ca305878a09ea4f1c7b264979784c52ccb69046f1768bfac0"
+    },
+    "race.log": {
+      "bytes": 184,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/race.log",
+      "sha256": "e3c6a3c1681e52f52556f07d72acdc6984eda40c7170733f280020be88fcb660"
+    },
+    "security.log": {
+      "bytes": 488,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/security.log",
+      "sha256": "936fb56aa528c4c9c23a0f6d7c5d01ab1fec4f77f0d65657dca65fa2ff551161"
+    },
+    "strict-tracer-report.json": {
+      "bytes": 2503,
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/strict-tracer-report.json",
+      "sha256": "0284736fa9e54fa738b4c681007b0757bc75c37d3df7fd77f383444b960d0436"
+    }
+  },
+  "host": {
+    "cgo_enabled": "1",
+    "go_version": "go1.26.5",
+    "goarch": "arm64",
+    "goexperiment": "jsonv2",
+    "goos": "darwin"
+  },
+  "root_cause": {
+    "dependency": "github.com/go-json-experiment/json",
+    "dependency_version": "v0.0.0-20260623181947-01eb4420fa68",
+    "diagnostic": "codec_helpers.go expects tok.Int()/tok.Uint() to return (value,error), while GOEXPERIMENT=jsonv2 activates jsontext aliasing to the stdlib API where these calls no longer have that signature.",
+    "experiment_compile": "FAIL",
+    "module": "go.lsp.dev/protocol",
+    "normal_compile": "PASS",
+    "version": "v1.0.1"
+  },
+  "schema_version": 1,
+  "verdict": "FAIL"
+}

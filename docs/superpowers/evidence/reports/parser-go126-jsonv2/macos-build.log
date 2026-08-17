@@ -1,0 +1,3 @@
+# go.lsp.dev/protocol
+../../../../go/pkg/mod/go.lsp.dev/protocol@v1.0.1/codec_helpers.go:183:13: assignment mismatch: 2 variables but tok.Int returns 1 value
+../../../../go/pkg/mod/go.lsp.dev/protocol@v1.0.1/codec_helpers.go:209:13: assignment mismatch: 2 variables but tok.Uint returns 1 value

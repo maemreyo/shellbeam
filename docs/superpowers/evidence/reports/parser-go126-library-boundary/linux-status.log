@@ -1,0 +1,10 @@
+json-mode=0
+tracer-test=0
+tracer-run=0
+race=0
+lsp-regression=0
+full-tests=0
+hardening=0
+security=0
+native-build=0
+shell-acceptance=0

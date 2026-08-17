@@ -1,0 +1,37 @@
+{
+  "arch": "arm64",
+  "cgo_enabled": "1",
+  "checks": {
+    "full-tests": 0,
+    "hardening": 0,
+    "json-mode": 0,
+    "lsp-regression": 0,
+    "native-build": 0,
+    "race": 0,
+    "security": 0,
+    "shell-acceptance": 0,
+    "tracer-run": 0,
+    "tracer-test": 0
+  },
+  "container_runtime": {
+    "image": "golang:1.26.5-bookworm",
+    "image_digest": "sha256:53eeac89074db483fdf0ab3be1df32bf6e47562263d2d0d6baa7f26acb4957dd",
+    "product": "Docker Desktop",
+    "run_uid": 1000,
+    "run_user": "runner",
+    "server_version": "29.4.1"
+  },
+  "cross_build": false,
+  "diagnostic_note": "An initial UID-0 container run was excluded: permission-failure tests are invalid under root and ripgrep was absent. The authoritative non-root lane reran the complete matrix with lsof+ripgrep and passed.",
+  "go_version": "go1.26.5",
+  "goexperiment": "",
+  "kernel": "6.12.76-linuxkit",
+  "mode": "library-boundary",
+  "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+  "native_execution": true,
+  "os": "linux",
+  "schema_version": 1,
+  "shell_acceptance": "shellbeam version",
+  "source_commit": "be54aee89e9c47b95aa15c709ca5d88ed310215f",
+  "status": "PASS"
+}

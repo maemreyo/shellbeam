@@ -126,6 +126,8 @@ func validateForVersion(version int, v input, raw []byte) error {
 
 func validateV2(v input) error {
 	switch v.Action {
+	case "read_media":
+		return validateMediaInput(v)
 	case "read_output":
 		if v.Selector == nil {
 			return fmt.Errorf("read_output requires selector")
@@ -421,6 +423,8 @@ func v2ActionFields(action string) []string {
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":
 		return []string{"session_id", "selector", "continuation"}
+	case "read_media":
+		return []string{"workspace_id", "cwd", "path"}
 	case "write":
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":

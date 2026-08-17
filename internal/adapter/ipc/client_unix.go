@@ -8,7 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/jsonstrict"
+	"github.com/maemreyo/shellbeam/internal/core/media"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
+	"io"
 	"net"
 	"net/http"
 )
@@ -67,7 +71,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions}
+	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -84,85 +88,6 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 		response.Retryable = out.Error.Retryable
 	}
 	return response, nil
-}
-
-func requestV2FromBridge(in bridge.Request) RequestV2 {
-	req := RequestV2{IPVersion: 2, Kind: "request", RequestID: "bridge", Action: in.Action}
-	switch in.Action {
-	case "start":
-		applyStartV2(&req, in)
-	case "poll":
-		req.SessionID = in.Poll.SessionID
-		req.Cursor = in.Poll.Cursor
-		req.YieldMS = in.Poll.YieldMS
-		req.MaxOutputBytes = in.Poll.MaxOutputBytes
-	case "read_output":
-		req.SessionID = in.OutputRead.SessionID
-		selector := in.OutputRead.Selector
-		req.Selector = &selector
-		req.Continuation = in.OutputRead.Continuation
-	case "write":
-		req.SessionID = in.Write.SessionID
-		req.InputOffset = in.Write.InputOffset
-		req.Chars = in.Write.Chars
-		req.EOF = in.Write.EOF
-	case "inspect.project", "inspect.workspace", "inspect.readiness":
-		req.WorkspaceID = in.WorkspaceID
-	case "inspect.activity":
-		req.ActivityID = in.ActivityID
-	case "inspect.sessions":
-		req.SessionName = in.SessionInspect.SessionName
-		req.ActivityID = in.SessionInspect.ActivityID
-		req.WorkspaceID = in.SessionInspect.WorkspaceID
-		req.State = in.SessionInspect.State
-		if in.SessionInspect.PersistentOnly != nil {
-			value := *in.SessionInspect.PersistentOnly
-			req.PersistentOnly = &value
-		}
-		req.MaxRecords = in.SessionInspect.Limit
-		req.Continuation = in.SessionInspect.Cursor
-	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
-		applyMutationScopeV2(&req, in)
-	case "inspect.events":
-		target := in.EventInspect.Target
-		req.Target = &target
-		req.AfterEventCursor = in.EventInspect.AfterEventCursor
-		req.MaxEvents = in.EventInspect.MaxEvents
-	case "inspect.code":
-		req.WorkspaceID = in.WorkspaceID
-		req.ActivityID = in.ActivityID
-		if in.CodeQuery != nil {
-			query := *in.CodeQuery
-			req.CodeQuery = &query
-		}
-	case "inspect.structured":
-		req.OperationID = in.StructuredInspect.OperationID
-		req.RecordKind = in.StructuredInspect.Filter.RecordKind
-		req.Severity = in.StructuredInspect.Filter.Severity
-		req.Path = in.StructuredInspect.Filter.Path
-		req.TestStatus = in.StructuredInspect.Filter.TestStatus
-		req.Continuation = in.StructuredInspect.Continuation
-		req.MaxRecords = in.StructuredInspect.MaxRecords
-	case "inspect.evidence":
-		applyEvidenceInspectV2(&req, in)
-	case "inspect.environment", "inspect.process":
-		applyObservationInspectV2(&req, in)
-	case "inspect.telemetry":
-		req.OperationID = in.TelemetryInspect.OperationID
-		req.MaxSamples = in.TelemetryInspect.MaxSamples
-	case "repro.create":
-		req.ReproCreateID = in.ReproCreate.CreateID
-		req.OperationID = in.ReproCreate.OperationID
-		policy := in.ReproCreate.Policy
-		req.CapturePolicy = &policy
-	case "inspect.repro":
-		req.ReproID = in.ReproID
-	case "kill":
-		req.SessionID = in.Kill.SessionID
-		req.KillID = in.Kill.KillID
-		req.Signal = in.Kill.Signal
-	}
-	return req
 }
 
 func applyMutationScopeV2(req *RequestV2, in bridge.Request) {
@@ -276,6 +201,9 @@ func (c *Client) CallV2(ctx context.Context, req RequestV2) (ResponseV2, error) 
 	if resp.StatusCode != http.StatusOK {
 		return out, fmt.Errorf("ipc status %d", resp.StatusCode)
 	}
+	if req.Action == "read_media" || req.Action == "capabilities.negotiate" {
+		return decodeMediaResponseV2(resp.Body, req)
+	}
 	d := json.NewDecoder(resp.Body)
 	d.DisallowUnknownFields()
 	if err = d.Decode(&out); err != nil {
@@ -283,6 +211,25 @@ func (c *Client) CallV2(ctx context.Context, req RequestV2) (ResponseV2, error) 
 	}
 	if out.IPVersion != ipcV2 || out.Kind != "response" {
 		return out, fmt.Errorf("invalid ipc v2 response")
+	}
+	return out, nil
+}
+
+func decodeMediaResponseV2(body io.Reader, req RequestV2) (ResponseV2, error) {
+	var out ResponseV2
+	limited := io.LimitReader(body, media.MaxOuterResponseBytes+1)
+	raw, readErr := io.ReadAll(limited)
+	if len(raw) > media.MaxOuterResponseBytes {
+		return out, failure.New(failure.InvalidDaemonResponse, nil, fmt.Errorf("media response too large"))
+	}
+	if readErr != nil {
+		return out, failure.New(failure.InvalidDaemonResponse, nil, fmt.Errorf("media response read failed"))
+	}
+	if err := jsonstrict.Decode(raw, &out); err != nil {
+		return ResponseV2{}, failure.New(failure.InvalidDaemonResponse, nil, fmt.Errorf("invalid media response"))
+	}
+	if err := validateMediaResponseEnvelopeV2(req, out); err != nil {
+		return ResponseV2{}, err
 	}
 	return out, nil
 }

@@ -2,32 +2,29 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
-	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
-	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
-	mutationapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
-	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
-	processapp "github.com/maemreyo/shellbeam/internal/app/process"
-	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
-	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
-	"github.com/maemreyo/shellbeam/internal/core/capability"
-	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
-	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
-	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-	in, err := decodeInput(req.Params.Arguments)
 	version := protocolGeneration(req.ProtocolVersion())
+	var in input
+	var err error
+	if version == 2 {
+		in, err = decodeInputV2(req.Params.Arguments)
+	} else {
+		in, err = decodeInput(req.Params.Arguments)
+	}
 	if err != nil {
 		return versionedToolError(version, "", "invalid_request", "invalid request", false), nil
 	}
 	if version == 2 && isDeferredAction(in.Action) {
+		return toolErrorV2(in.Action, "feature_unavailable", "feature unavailable", false), nil
+	}
+	if version == 2 && in.Action == "read_media" && !mediaCatalogAvailable(h.EffectiveCatalog()) {
 		return toolErrorV2(in.Action, "feature_unavailable", "feature unavailable", false), nil
 	}
 	if err := validateForVersion(version, in, req.Params.Arguments); err != nil {
@@ -42,99 +39,12 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		return versionedToolError(version, in.Action, out.Code, out.Message, out.Retryable), nil
 	}
 	if version == 2 {
+		if in.Action == "read_media" {
+			return mediaSuccessV2(in, out), nil
+		}
 		return successV2(in.Action, out), nil
 	}
 	return successV1(in.Action, out), nil
-}
-
-func decodeInput(raw []byte) (input, error) {
-	var in input
-	d := json.NewDecoder(bytesReader(raw))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&in); err != nil {
-		return input{}, err
-	}
-	return in, nil
-}
-
-func requestFromInput(version int, in input, raw []byte) bridge.Request {
-	request := bridge.Request{Action: in.Action}
-	if version == 2 || in.Action == "inspect.server" {
-		request.ProtocolVersion = 2
-	}
-	yieldMS, maxOutput := in.YieldMS, in.MaxOutputBytes
-	if !hasField(raw, "yield_time_ms") && in.Action == "start" {
-		yieldMS = 10000
-	}
-	if !hasField(raw, "max_output_bytes") {
-		maxOutput = 20000
-	}
-	switch in.Action {
-	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: maxOutput}
-	case "poll":
-		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
-	case "read_output":
-		request.OutputRead.SessionID = in.SessionID
-		request.OutputRead.Selector = *in.Selector
-		request.OutputRead.Continuation = in.Continuation
-	case "write":
-		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
-	case "inspect.project", "inspect.workspace", "inspect.readiness":
-		request.WorkspaceID = in.WorkspaceID
-	case "inspect.activity":
-		request.ActivityID = in.ActivityID
-	case "inspect.sessions":
-		request.SessionInspect = persistent.InspectRequest{SessionName: in.SessionName, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, State: in.State, Limit: in.MaxRecords, Cursor: in.Continuation}
-		if in.PersistentOnly != nil {
-			value := *in.PersistentOnly
-			request.SessionInspect.PersistentOnly = &value
-		}
-	case "mutation_scope.set":
-		request.MutationScopeSet = mutationapp.SetRequest{MutationID: in.MutationID, ScopeID: in.ScopeID, ActivityID: in.ActivityID, WorkspaceID: workspacecore.WorkspaceID(in.WorkspaceID), Mode: in.Mode, Paths: append([]string(nil), in.Paths...), TTLMS: in.TTLMS}
-	case "mutation_scope.release":
-		request.MutationScopeRelease = mutationapp.ReleaseRequest{MutationID: in.MutationID, ScopeID: in.ScopeID}
-	case "inspect.mutation_scopes":
-		request.MutationScopeInspect = mutationapp.InspectRequest{WorkspaceID: workspacecore.WorkspaceID(in.WorkspaceID), ActivityID: in.ActivityID}
-	case "inspect.events":
-		request.EventInspect = observationapp.InspectRequest{Target: *in.Target, AfterEventCursor: in.AfterEventCursor, MaxEvents: in.MaxEvents}
-	case "inspect.code":
-		request.WorkspaceID = in.WorkspaceID
-		request.ActivityID = in.ActivityID
-		if in.CodeQuery != nil {
-			query := *in.CodeQuery
-			request.CodeQuery = &query
-		}
-	case "inspect.structured":
-		request.StructuredInspect = structuredapp.InspectRequest{OperationID: in.OperationID, Filter: structuredapp.RecordFilter{RecordKind: in.RecordKind, Severity: in.Severity, Path: in.Path, TestStatus: in.TestStatus}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
-	case "inspect.evidence":
-		request.EvidenceInspect = evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{EvidenceID: in.EvidenceID, OperationID: in.OperationID, WorkspaceID: in.WorkspaceID, ProjectCommandID: in.ProjectCommandID, ActivityID: in.ActivityID, VerificationKind: in.VerificationKind, Result: in.EvidenceResult, RevalidateArtifacts: in.RevalidateArtifacts}, Continuation: in.Continuation, MaxRecords: in.MaxRecords}
-	case "inspect.environment":
-		request.EnvironmentInspect = environmentapp.InspectRequest{WorkspaceID: in.WorkspaceID, Freshness: in.Freshness}
-		if in.Execution != nil {
-			execution := *in.Execution
-			request.EnvironmentInspect.Execution = &execution
-		}
-	case "inspect.process":
-		request.ProcessInspect = processapp.InspectRequest{Target: *in.ProcessTarget, IncludePorts: in.IncludePorts}
-	case "inspect.telemetry":
-		request.TelemetryInspect = telemetryapp.InspectRequest{OperationID: in.OperationID, MaxSamples: in.MaxSamples}
-	case "repro.create":
-		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
-		if in.CapturePolicy != nil {
-			policy = *in.CapturePolicy
-		}
-		request.ReproCreate = reprocore.CreateRequest{CreateID: in.ReproCreateID, OperationID: in.OperationID, Policy: policy}
-	case "inspect.repro":
-		request.ReproID = in.ReproID
-	case "kill":
-		signal := in.Signal
-		if signal == "" {
-			signal = "TERM"
-		}
-		request.Kill = app.KillRequest{SessionID: in.SessionID, KillID: in.KillID, Signal: signal}
-	}
-	return request
 }
 
 func successV1(action string, out bridge.Response) *mcpgo.CallToolResult {
@@ -157,98 +67,6 @@ func successV1(action string, out bridge.Response) *mcpgo.CallToolResult {
 		body["operation_id"] = out.View.OperationID
 	}
 	return toolSuccess(fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State), body)
-}
-
-func legacyCatalogView(c capability.Catalog) capability.Catalog {
-	out := c.Clone()
-	out.EventCursorSchemaVersions = nil
-	out.ResultCursorSchemaVersions = nil
-	out.StructuredAdapterIDs = nil
-	out.StructuredResultKinds = nil
-	out.StructuredLifecycle = false
-	out.TelemetrySchemaVersions = nil
-	out.ReproSchemaVersions = nil
-	out.ReadinessSchemaVersions = nil
-	out.OutputViewSchemaVersions = nil
-	out.ReadinessRequirementKinds = nil
-	out.TypedCommandVersions = nil
-	out.TypedCommandManifestVersion = 0
-	out.TypedCommandParameterKinds = nil
-	out.TypedCommandPackageProviders = nil
-	filteredReceipts := out.ReceiptSchemaVersions[:0]
-	for _, version := range out.ReceiptSchemaVersions {
-		if version <= 2 {
-			filteredReceipts = append(filteredReceipts, version)
-		}
-	}
-	out.ReceiptSchemaVersions = filteredReceipts
-	out.ResourceObservation = nil
-	out.Limits.TelemetryMaxSamples = 0
-	out.Limits.TelemetryMetadataBytes = 0
-	out.Limits.TelemetryMaxKeys = 0
-	out.Limits.TelemetryMaxKeysPerRepository = 0
-	out.Limits.TelemetryMaxSamplesPerKey = 0
-	out.Limits.TelemetryRetentionAgeMS = 0
-	out.Limits.TelemetryInspectSamples = 0
-	out.Limits.ReproMaxCapsules = 0
-	out.Limits.ReproMaxReferences = 0
-	out.Limits.ReproMetadataBytes = 0
-	out.Limits.ReadinessCacheTTLMS = 0
-	out.Limits.ReadinessCacheEntries = 0
-	out.Limits.OutputViewMaxReturnBytes = 0
-	out.Limits.OutputViewMaxWorkBytes = 0
-	out.Limits.OutputViewMaxLines = 0
-	out.Limits.OutputViewMaxMatches = 0
-	out.Limits.OutputViewMaxPatternBytes = 0
-	out.Limits.OutputViewMaxContinuationBytes = 0
-	out.Limits.EventJournalMaxEvents = 0
-	out.Limits.EventCursorBytes = 0
-	out.Limits.EventSnapshotFacts = 0
-	out.Limits.StructuredInspectRecords = 0
-	delete(out.Features, capability.FeatureEventJournal)
-	delete(out.Features, capability.FeatureEventSnapshotRecovery)
-	delete(out.Features, capability.FeatureStructuredResults)
-	delete(out.Features, capability.FeatureStructuredLifecycle)
-	delete(out.Features, capability.FeatureCodeIntelligence)
-	delete(out.Features, capability.FeatureExecutionTelemetry)
-	delete(out.Features, capability.FeatureReproductionCapsules)
-	delete(out.Features, capability.FeatureProjectReadiness)
-	delete(out.Features, capability.FeatureTypedProjectCommands)
-	delete(out.Features, capability.FeatureOutputViews)
-	delete(out.Features, capability.FeatureMutationScopes)
-	out.MutationScopeSchemaVersions = nil
-	stripLegacyPersistentCapabilities(&out)
-	out.Limits.MutationScopeActivePerActivity = 0
-	out.Limits.MutationScopeActivePerWorkspace = 0
-	out.Limits.MutationScopePathsPerScope = 0
-	out.Limits.MutationScopeSelectorBytes = 0
-	out.Limits.MutationScopeAdvisories = 0
-	out.Limits.MutationScopeMinTTLMS = 0
-	out.Limits.MutationScopeDefaultTTLMS = 0
-	out.Limits.MutationScopeMaxTTLMS = 0
-	return out
-}
-
-func stripLegacyPersistentCapabilities(out *capability.Catalog) {
-	out.PersistentSessionSchemaVersions = nil
-	out.SupervisorProtocolVersions = nil
-	out.PersistentNonTTY = false
-	out.PersistentTTY = false
-	out.PersistentContinuity = ""
-	out.HostRebootContinuity = false
-	delete(out.Features, capability.FeatureNamedSessions)
-	out.Limits.PersistentSessions = 0
-	out.Limits.PersistentSessionNameBytes = 0
-	out.Limits.PersistentSessionInspectRows = 0
-	out.Limits.PersistentSessionInspectDefaultRows = 0
-	out.Limits.PersistentInputRecords = 0
-	out.Limits.PersistentInputRecordMetadataBytes = 0
-	out.Limits.PersistentKillRecords = 0
-	out.Limits.PersistentRecoverySpoolBytes = 0
-	out.Limits.PersistentQueuedInputBytes = 0
-	out.Limits.PersistentReattachHandshakeTimeoutMS = 0
-	out.Limits.PersistentStartupReattachConcurrency = 0
-	out.Limits.PersistentStartupReattachBudgetMS = 0
 }
 
 func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {

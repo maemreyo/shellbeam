@@ -1,0 +1,16 @@
+# go.lsp.dev/protocol
+../../../../go/pkg/mod/go.lsp.dev/protocol@v1.0.1/codec_helpers.go:183:13: assignment mismatch: 2 variables but tok.Int returns 1 value
+../../../../go/pkg/mod/go.lsp.dev/protocol@v1.0.1/codec_helpers.go:209:13: assignment mismatch: 2 variables but tok.Uint returns 1 value
+ok  	github.com/maemreyo/shellbeam/api/schema	11.444s
+FAIL	github.com/maemreyo/shellbeam/cmd/shellbeam [build failed]
+FAIL	github.com/maemreyo/shellbeam/internal/adapter/codeintel/gopls [build failed]
+FAIL	github.com/maemreyo/shellbeam/internal/adapter/codeintel/lsp [build failed]
+ok  	github.com/maemreyo/shellbeam/internal/adapter/codeintel/sourcefs	0.522s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/environment	2.857s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/git	42.555s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/ipc	21.320s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/mcp	2.225s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/ownership	2.810s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/process	4.830s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/project	3.718s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/service	3.518s

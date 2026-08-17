@@ -6,6 +6,7 @@ import (
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	mcpadapter "github.com/maemreyo/shellbeam/internal/adapter/mcp"
 	bridgeapp "github.com/maemreyo/shellbeam/internal/app/bridge"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 )
 
 func runMCP(ctx context.Context, args []string) error {
@@ -13,5 +14,9 @@ func runMCP(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	return mcpadapter.Run(ctx, bridgeapp.New(ipcadapter.NewClient(paths.Socket)))
+	handler, err := bridgeapp.NewNegotiated(ctx, ipcadapter.NewClient(paths.Socket), capability.V1MediaSupport())
+	if err != nil {
+		return err
+	}
+	return mcpadapter.Run(ctx, handler)
 }

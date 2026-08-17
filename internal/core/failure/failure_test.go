@@ -250,3 +250,41 @@ func TestA25ObservationFailureCodesAreStableAndSecretSafe(t *testing.T) {
 		}
 	}
 }
+
+func TestMediaFailureCodesAreStableSafeAndRetryableAsSpecified(t *testing.T) {
+	cases := []struct {
+		code      Code
+		retryable bool
+	}{
+		{InvalidDaemonResponse, false},
+		{MediaPathNotFound, false},
+		{MediaPathUnsafe, false},
+		{MediaNotRegular, false},
+		{MediaTooLarge, false},
+		{MediaTypeUnsupported, false},
+		{MediaInvalidImage, false},
+		{MediaDimensionsExceeded, false},
+		{MediaSourceChanged, true},
+		{MediaReadTimeout, false},
+		{MediaReadFailed, false},
+	}
+	for _, tc := range cases {
+		got := Public(New(tc.code, map[string]string{
+			"reason":   "bounded",
+			"path":     "/Users/alice/private.png",
+			"os_error": "permission denied /Users/alice/private.png",
+		}, errors.New("open /Users/alice/private.png: token=secret")))
+		if got.Code != tc.code || got.Message == "" || got.Retryable != tc.retryable {
+			t.Fatalf("code %q public=%#v", tc.code, got)
+		}
+		b, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, secret := range []string{"/Users/alice", "permission denied", "token=secret"} {
+			if strings.Contains(string(b), secret) {
+				t.Fatalf("%q leaked in %s", secret, b)
+			}
+		}
+	}
+}

@@ -8,7 +8,6 @@ import (
 	environmentadapter "github.com/maemreyo/shellbeam/internal/adapter/environment"
 	gitadapter "github.com/maemreyo/shellbeam/internal/adapter/git"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
-	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
 	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
@@ -35,6 +34,7 @@ import (
 	projectcore "github.com/maemreyo/shellbeam/internal/core/project"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
+	"github.com/maemreyo/shellbeam/internal/ownership"
 	"github.com/oklog/ulid/v2"
 )
 
@@ -64,15 +64,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		return err
 	}
 	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
-	catalog := daemonCatalog(capability.Limits{
-		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
-		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
-		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
-	})
-	catalog = persistentSessionCatalog(catalog, cfg.MaxConcurrentSessions, cfg.MaxSessionOutputBytes, cfg.MaxQueuedInputSessionBytes)
-	if mutationScopeSvc != nil {
-		catalog = mutationScopeCatalog(catalog)
-	}
+	catalog := daemonRuntimeCatalog(cfg, mutationScopeSvc != nil)
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
@@ -106,6 +98,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		EvidenceWorker:       evidenceScheduler,
 		ProjectCommandBinder: projectBinder,
 		PersistentRuntime:    persistentRuntime,
+		MediaReader:          daemonMediaReader(),
 		FinalizeRetryMin:     time.Duration(cfg.FinalizeRetryMinMS) * time.Millisecond,
 		FinalizeRetryMax:     time.Duration(cfg.FinalizeRetryMaxMS) * time.Millisecond,
 	})
@@ -181,15 +174,9 @@ func serveDaemonRuntime(
 			return err
 		}
 	}
-	outputKey, err := store.EventCursorKey(startupCtx)
-	if err != nil {
+	if err = bindDaemonOutputView(startupCtx, store, actions); err != nil {
 		return err
 	}
-	outputCodec, err := outputview.NewCursorCodec(outputKey)
-	if err != nil {
-		return err
-	}
-	actions.output = outputview.NewWithCursor(store, outputCodec)
 	telemetryRuntime, err := newExecutionTelemetryRuntime(store)
 	if err != nil {
 		return err
