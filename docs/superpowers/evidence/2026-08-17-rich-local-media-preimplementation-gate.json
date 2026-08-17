@@ -1,0 +1,413 @@
+{
+  "execution_base_sha": "a92a52fba7d123c50d84e5b879e65d176bd25444",
+  "parser_toolchain": {
+    "candidate": "none",
+    "checks": [
+      {
+        "id": "five-rejections",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "valid-v2-semantic",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "legacy-v1",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "error-code-compat",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "ordinary-build",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "full-tests",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "race",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "macos-native",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "linux-native",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "shell-acceptance",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "non-media-json-regression",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      },
+      {
+        "id": "mode-consistency",
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+        ],
+        "status": "NOT_RUN"
+      }
+    ],
+    "explicit_go126_experiment_acceptance": false,
+    "go127_ga": false,
+    "go_version": "go1.26.5",
+    "goexperiment": "",
+    "mode": "none",
+    "parser_toolchain_pass": false
+  },
+  "parser_toolchain_pass": false,
+  "paths": {
+    "parser": "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md",
+    "phase_a": "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+    "plan": "docs/superpowers/plans/2026-08-17-rich-local-media-access.md",
+    "preflight": "docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md",
+    "source": "docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md",
+    "spec": "docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md"
+  },
+  "phase_a": {
+    "checks": [
+      {
+        "fail_trials": 0,
+        "id": "direct-workspace-a",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "direct-workspace-b",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "direct-cwd",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "indirect-image-goal",
+        "not_run_trials": 3,
+        "pass_threshold": 2,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "established-followup",
+        "not_run_trials": 3,
+        "pass_threshold": 2,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "negative-no-media",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "unsupported-pdf",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "sensitive-unestablished",
+        "not_run_trials": 3,
+        "pass_threshold": 3,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-64k",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-256k",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-1m",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "payload-4m",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "max-payload-7m",
+        "not_run_trials": 0,
+        "pass_threshold": 3,
+        "pass_trials": 3,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "format-png",
+        "not_run_trials": 0,
+        "pass_threshold": 1,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "PASS"
+      },
+      {
+        "fail_trials": 0,
+        "id": "format-jpeg",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "format-webp",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "address-collision-a",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "address-collision-b",
+        "not_run_trials": 2,
+        "pass_threshold": 3,
+        "pass_trials": 1,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 3,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "disclosure-confirmation",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "production-disclosure",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "annotation-omitted",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "annotation-user-assistant",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "annotation-selection",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      },
+      {
+        "fail_trials": 0,
+        "id": "remembered-approval",
+        "not_run_trials": 1,
+        "pass_threshold": 1,
+        "pass_trials": 0,
+        "provenance": [
+          "host remembered-approval availability not established; normalized Phase A receipt"
+        ],
+        "required_trials": 1,
+        "status": "NOT_RUN"
+      }
+    ],
+    "host_offers_remembered_approval": null,
+    "phase_a_pass": false,
+    "topology": "one-tool"
+  },
+  "phase_a_pass": false,
+  "schema_version": 1,
+  "sha256": {
+    "parser": "dc40f914ca3b889a541973a16e3ac851691d4ac6e7f97ce004e2dbacd22ecc16",
+    "phase_a": "94c3ed8c6050d7de4091138e2f8b6b4a08051ab86793672a0b1939f7eb82d575",
+    "plan": "875bc14f14fa1a5291bc206df4d01d178c96c22ae9b48758810c8e060bef3c5b",
+    "preflight": "1cf03afe18f094e88aa10cf66bb6fe054633f1269cc7933af13c601eb4730d4e",
+    "source": "7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906",
+    "spec": "4de00e7a29472903e8c5139345684c8f9d2fa93e84f11d3647644493040eb683"
+  },
+  "verdict": "NOT_RUN"
+}

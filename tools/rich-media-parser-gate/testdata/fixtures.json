@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "valid_v2": [
+    {"id": "mcp-inspect-server", "json": "{\"action\":\"inspect.server\"}"},
+    {"id": "mcp-poll", "json": "{\"action\":\"poll\",\"session_id\":\"s_1\"}"},
+    {"id": "mcp-kill", "json": "{\"action\":\"kill\",\"session_id\":\"s_1\",\"kill_id\":\"k_1\"}"},
+    {"id": "ipc-inspect-server", "json": "{\"schema_version\":2,\"request_id\":\"req_1\",\"action\":\"inspect.server\"}"},
+    {"id": "ipc-inspect-activity", "json": "{\"schema_version\":2,\"request_id\":\"req_2\",\"action\":\"inspect.activity\",\"activity_id\":\"activity_1\"}"},
+    {"id": "ipc-poll", "json": "{\"schema_version\":2,\"request_id\":\"req_3\",\"action\":\"poll\",\"session_id\":\"session_1\"}"}
+  ],
+  "legacy_v1_files": [
+    "internal/adapter/ipc/testdata/v1/start.json",
+    "internal/adapter/ipc/testdata/v1/poll.json",
+    "internal/adapter/ipc/testdata/v1/write.json",
+    "internal/adapter/ipc/testdata/v1/kill.json"
+  ]
+}
