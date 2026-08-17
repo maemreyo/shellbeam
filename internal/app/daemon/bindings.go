@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -52,7 +53,10 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		if err != nil {
 			return operation.Reservation{}, err
 		}
-		executionFingerprint, err := intent.ExecutionFingerprint(spec.Executable)
+		executionIntent := intent
+		executionIntent.TraceMode = trace.ModeOff
+		executionIntent.TraceExecutionDigest = ""
+		executionFingerprint, err := executionIntent.ExecutionFingerprint(spec.Executable)
 		if err != nil {
 			return operation.Reservation{}, err
 		}

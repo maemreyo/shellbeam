@@ -192,6 +192,13 @@ func bindTraceRequestFingerprint(base string, mode trace.Mode) (string, error) {
 	return hashTraceEnvelope("request", base, normalized, "")
 }
 
+func BindInputTraceExecutionFingerprint(base string, mode trace.Mode, digest string) (string, error) {
+	if !validTraceExecutionDigest(base) {
+		return "", fmt.Errorf("invalid base execution fingerprint")
+	}
+	return bindTraceExecutionFingerprint(base, mode, digest)
+}
+
 func bindTraceExecutionFingerprint(base string, mode trace.Mode, digest string) (string, error) {
 	normalized, err := trace.NormalizeMode(mode)
 	if err != nil {
