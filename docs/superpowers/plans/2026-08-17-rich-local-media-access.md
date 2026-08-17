@@ -69,7 +69,7 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
 ### Task -1: Bind Current Execution Base and Approved Design Source
 
 **Files:**
-- Create: `docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md`
+- Modify: `docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md`
 - Create: `docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md`
 - Inspect only: `AGENTS.md`
 - Inspect only: `docs/superpowers/plans/2026-08-17-rich-local-media-access.md`
@@ -124,11 +124,20 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
 
   Never reconstruct the source from chat memory, conversational revision labels, or a partial diff. Any missing source or line/byte/SHA mismatch is `FAIL`; continue only to Step 5 branch B to persist the evidence-only record, then stop.
 
-- [ ] **Step 4: Re-trace every declared production touchpoint on the bound base**
+- [ ] **Step 4: Re-trace every declared production touchpoint on the bound base with task-order dependencies**
 
-  Parse every `Create/Modify/Test` path in this plan. Every `Modify`/`Test` path must exist on `EXECUTION_BASE`; every `Create` path must be absent or explicitly reviewed as a deliberate replacement. Re-open the current IPC/MCP/daemon/bridge/capability/failure symbols named by Tasks 1–10 and confirm the Files/Interfaces/test commands still match current code.
+  Parse every `Create/Modify/Test` declaration in task order. Do **not** test each `Modify` independently against `EXECUTION_BASE`; later tasks may legitimately modify a path created by an earlier task, and this docs branch may already own reviewed governance inputs that do not exist on main. Build one deterministic availability state:
 
-  Record the authoring-time drift facts only as historical context; the preflight evidence must contain the fresh path/symbol inventory against `EXECUTION_BASE`. If any mapping is stale, set verdict `FAIL`, continue to Step 5 branch B and commit the honest evidence-only record, then stop. Revise/re-review the plan only after that failed preflight attempt is durably closed; rerun Task -1 from a clean worktree.
+  1. Seed `available` with every path that exists on `EXECUTION_BASE`.
+  2. Add only branch-owned paths under `docs/superpowers/**` that are tracked at the synchronized preflight `HEAD` but absent on `EXECUTION_BASE`. These are reviewed governance/spec/plan/evidence inputs carried by this docs branch. A branch-owned path outside `docs/superpowers/**` that is absent on `EXECUTION_BASE` is **not** a valid seed and is an immediate `FAIL`; Task -1 must not use branch history to smuggle a production touchpoint past base validation.
+  3. Walk declarations from Task -1 through Task 10 in order. For `Create path`, require that `path` is not already available at that task boundary unless the declaration explicitly names an existing branch-owned evidence record that this task is updating; then add it to `available`. For `Modify path` or `Test path`, require that `path` is already available from the base, the reviewed branch-owned docs seed, or a strictly earlier task.
+  4. Record provenance for every non-base resolution as either `branch_owned_docs` or `created_by_task=<N>`. A path first created by the same or a later task cannot satisfy an earlier `Modify/Test`.
+
+  The current Task -1 preflight evidence file is a branch-owned evidence record after the first failed attempt, so its Files declaration is `Modify`; the exact approved v8 source remains `Create` until a PASS attempt persists it. `docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md` is valid only through the `branch_owned_docs` seed. `docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md` is valid for Task 10 only because Task 0 creates it first.
+
+  Re-open the current IPC/MCP/daemon/bridge/capability/failure symbols named by Tasks 1–10 and confirm the Files/Interfaces/test commands still match current code. The path state machine proves only declaration availability; it does not waive semantic symbol/interface re-tracing.
+
+  Record the authoring-time drift facts only as historical context; the preflight evidence must contain the fresh dependency-aware path inventory and symbol inventory against `EXECUTION_BASE`. If any declaration cannot be resolved by the rules above, or any named production symbol/interface has materially changed, set verdict `FAIL`, continue to Step 5 branch B and commit the honest evidence-only record, then stop. Revise/re-review the plan only after that failed preflight attempt is durably closed; rerun Task -1 from a clean worktree.
 
 - [ ] **Step 5: Write and commit the preflight record for PASS, FAIL, or NOT_RUN**
 
