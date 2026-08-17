@@ -30,7 +30,7 @@ func TestE27InputTraceOrdinaryCommandsLeaveExecEnvironmentNil(t *testing.T) {
 	}
 }
 
-func TestE27InputTraceInjectedEnvironmentReplacesTraceKeysAndPreservesInheritedValues(t *testing.T) {
+func TestE27InputTraceInjectedEnvironmentIsPrivateInCapturedOutput(t *testing.T) {
 	t.Setenv("SHELLBEAM_E27_INHERITED", "kept")
 	t.Setenv("SHELLBEAM_TRACE_PROTOCOL", "stale")
 	t.Setenv("SHELLBEAM_E27_ENV_HELPER", "1")
@@ -75,9 +75,18 @@ func TestE27InputTraceInjectedEnvironmentReplacesTraceKeysAndPreservesInheritedV
 	sink.mu.Lock()
 	got := string(sink.b)
 	sink.mu.Unlock()
-	marker := "E27_ENV=kept|trace_01K00000000000000000000000|1|/tmp/e27.sock|" + traceEnv[0].Value
-	if !strings.Contains(got, marker) {
-		t.Fatalf("environment output=%q missing %q", got, marker)
+	if !strings.Contains(got, "E27_ENV=kept|") {
+		t.Fatalf("captured output lost ordinary child output: %q", got)
+	}
+	for _, forbidden := range []string{
+		"DYLD_INSERT_LIBRARIES",
+		"SHELLBEAM_TRACE_SOCKET",
+		traceEnv[0].Value,
+		"/tmp/e27.sock",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("captured output leaked trace-private value %q: %q", forbidden, got)
+		}
 	}
 }
 
