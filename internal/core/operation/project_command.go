@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -31,6 +32,7 @@ type TypedRequestIntent struct {
 	TimeoutMS        int64             `json:"timeout_ms"`
 	Persistent       bool              `json:"persistent,omitempty"`
 	SessionName      string            `json:"session_name,omitempty"`
+	TraceMode        trace.Mode        `json:"trace_mode,omitempty"`
 }
 
 type TypedIntentClaim struct {
@@ -55,6 +57,9 @@ func (i TypedRequestIntent) Validate() error {
 	}
 	if i.TimeoutMS < 0 {
 		return fmt.Errorf("timeout must be non-negative")
+	}
+	if _, err := trace.NormalizeMode(i.TraceMode); err != nil {
+		return err
 	}
 	if !i.Persistent && i.SessionName != "" {
 		return fmt.Errorf("session name requires persistent execution")
@@ -114,7 +119,8 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:]), nil
+	base := hex.EncodeToString(sum[:])
+	return bindTraceRequestFingerprint(base, i.TraceMode)
 }
 
 func (c TypedIntentClaim) Validate() error {

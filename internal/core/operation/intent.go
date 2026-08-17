@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -26,8 +27,10 @@ type Intent struct {
 	// StdinMode and TimeoutMode are the caller's raw words, kept unresolved so
 	// the request fingerprint can describe the request rather than the policy
 	// version that happened to be in force.
-	StdinMode   StdinMode   `json:"stdin_mode,omitempty"`
-	TimeoutMode TimeoutMode `json:"timeout_mode,omitempty"`
+	StdinMode            StdinMode   `json:"stdin_mode,omitempty"`
+	TimeoutMode          TimeoutMode `json:"timeout_mode,omitempty"`
+	TraceMode            trace.Mode  `json:"-"`
+	TraceExecutionDigest string      `json:"-"`
 	// Resolved and TimeoutSource are the contract the daemon settled on; they
 	// belong to the execution fingerprint only.
 	Resolved      *ResolvedExecutionPolicy `json:"-"`
@@ -51,6 +54,13 @@ func (i Intent) Fingerprint() (string, error) {
 	if !filepath.IsAbs(i.CWD) {
 		return "", fmt.Errorf("cwd must be absolute")
 	}
+	traceMode, err := trace.NormalizeMode(i.TraceMode)
+	if err != nil {
+		return "", err
+	}
+	if traceMode != trace.ModeOff {
+		return "", fmt.Errorf("input tracing requires v2")
+	}
 	return hashIntent(1, "request", i.Command, "", i.CWD, i.TTY, i.TimeoutMS, "", nil)
 }
 
@@ -67,13 +77,18 @@ func (i Intent) RequestFingerprint() (string, error) {
 		return "", err
 	}
 	logicalCWD := address.LogicalCWD()
+	var base string
 	if i.Persistent {
-		return i.persistentRequestFingerprint(mode, logicalCWD)
+		base, err = i.persistentRequestFingerprint(mode, logicalCWD)
+	} else if mode == ExecutionModeShell {
+		base, err = hashIntent(2, "request", i.Command, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
+	} else {
+		base, err = hashArgvIntent(3, "request", i.Argv, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
 	}
-	if mode == ExecutionModeShell {
-		return hashIntent(2, "request", i.Command, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
+	if err != nil {
+		return "", err
 	}
-	return hashArgvIntent(3, "request", i.Argv, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
+	return bindTraceRequestFingerprint(base, i.TraceMode)
 }
 
 func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error) {
@@ -94,13 +109,18 @@ func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error)
 	if !filepath.IsAbs(cwd) {
 		return "", fmt.Errorf("resolved cwd must be absolute")
 	}
+	var base string
 	if i.Persistent {
-		return i.persistentExecutionFingerprint(mode, cwd, effectiveExecutable)
+		base, err = i.persistentExecutionFingerprint(mode, cwd, effectiveExecutable)
+	} else if mode == ExecutionModeShell {
+		base, err = hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
+	} else {
+		base, err = hashArgvIntent(3, "execution", i.Argv, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
 	}
-	if mode == ExecutionModeShell {
-		return hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
+	if err != nil {
+		return "", err
 	}
-	return hashArgvIntent(3, "execution", i.Argv, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
+	return bindTraceExecutionFingerprint(base, i.TraceMode, i.TraceExecutionDigest)
 }
 
 // requestPolicy carries only what the caller named, so a request that named
@@ -126,6 +146,16 @@ func (i Intent) validateCommon() error {
 	if i.TimeoutMS < 0 {
 		return fmt.Errorf("timeout must be non-negative")
 	}
+	traceMode, err := trace.NormalizeMode(i.TraceMode)
+	if err != nil {
+		return err
+	}
+	if traceMode == trace.ModeOff && i.TraceExecutionDigest != "" {
+		return fmt.Errorf("trace execution digest requires active trace mode")
+	}
+	if i.TraceExecutionDigest != "" && !validTraceExecutionDigest(i.TraceExecutionDigest) {
+		return fmt.Errorf("invalid trace execution digest")
+	}
 	if err := i.validatePersistent(); err != nil {
 		return err
 	}
@@ -149,6 +179,63 @@ func hashIntent(version int, kind, command, workspaceID, cwd string, tty bool, t
 	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:]), nil
+}
+
+func bindTraceRequestFingerprint(base string, mode trace.Mode) (string, error) {
+	normalized, err := trace.NormalizeMode(mode)
+	if err != nil {
+		return "", err
+	}
+	if normalized == trace.ModeOff {
+		return base, nil
+	}
+	return hashTraceEnvelope("request", base, normalized, "")
+}
+
+func bindTraceExecutionFingerprint(base string, mode trace.Mode, digest string) (string, error) {
+	normalized, err := trace.NormalizeMode(mode)
+	if err != nil {
+		return "", err
+	}
+	if normalized == trace.ModeOff {
+		if digest != "" {
+			return "", fmt.Errorf("trace execution digest requires active trace mode")
+		}
+		return base, nil
+	}
+	if digest == "" {
+		if normalized == trace.ModeBestEffort {
+			return base, nil
+		}
+		return "", fmt.Errorf("required input tracing lacks instrumentation binding")
+	}
+	if !validTraceExecutionDigest(digest) {
+		return "", fmt.Errorf("invalid trace execution digest")
+	}
+	return hashTraceEnvelope("execution", base, normalized, digest)
+}
+
+func hashTraceEnvelope(kind, base string, mode trace.Mode, digest string) (string, error) {
+	encoded, err := json.Marshal(struct {
+		Version               int        `json:"version"`
+		Kind                  string     `json:"kind"`
+		Base                  string     `json:"base_fingerprint"`
+		Mode                  trace.Mode `json:"trace_mode"`
+		InstrumentationDigest string     `json:"instrumentation_digest,omitempty"`
+	}{Version: 1, Kind: kind, Base: base, Mode: mode, InstrumentationDigest: digest})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func validTraceExecutionDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 type ObservationBinding struct {
