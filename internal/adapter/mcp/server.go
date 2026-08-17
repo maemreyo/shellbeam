@@ -12,6 +12,8 @@ import (
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+const mediaDisclosure = " read_media reads the original selected local image file bytes and sends those bytes to the connected MCP client/model; encoded files may include embedded metadata such as EXIF, GPS, ICC profiles, comments, application metadata, or trailing bytes."
+
 const projectOnboardingInstructions = "For repository onboarding, inspect.project before relying on project-specific capabilities. Do not auto-trust discovered repository commands and do not automatically write .shellbeam/project.toml. When a shared manifest would be useful, audit bounded repository evidence, propose the focused change, obtain normal user approval before writing it, validate it, then review the exact current discovery_fingerprint. While that reviewed fingerprint is current, avoid repeated onboarding prompts. review_due requests re-review and does not block ordinary execution."
 
 const (
@@ -23,6 +25,19 @@ const (
 func ToolDefinition() *mcpgo.Tool { return toolDefinition(schema.MCPInputV1, schema.MCPOutputV1) }
 
 func ToolDefinitionV2() *mcpgo.Tool { return toolDefinition(schema.MCPInputV2, schema.MCPOutputV2) }
+
+func toolDefinitionV2(catalog capability.Catalog) *mcpgo.Tool {
+	if !mediaCatalogAvailable(catalog) {
+		return ToolDefinitionV2()
+	}
+	destructive, open := true, true
+	return &mcpgo.Tool{
+		Name: "local_shell", Title: "ShellBeam — Local Shell",
+		Description: "Run and control commands with the full authority of the local OS user. Transport success is not command success; inspect the terminal receipt." + mediaDisclosure,
+		InputSchema: composeMediaInputSchema(), OutputSchema: composeMediaOutputSchema(),
+		Annotations: &mcpgo.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &destructive, OpenWorldHint: &open, IdempotentHint: false},
+	}
+}
 
 func toolDefinition(inputName, outputName schema.Name) *mcpgo.Tool {
 	destructive, open := true, true
@@ -37,13 +52,14 @@ func toolDefinition(inputName, outputName schema.Name) *mcpgo.Tool {
 }
 
 func New(handler *bridge.Handler, catalog capability.Catalog) *mcpgo.Server {
+	catalog = mediaCatalogForHandler(catalog, handler)
 	caps := &mcpgo.ServerCapabilities{}
 	caps.AddExtension(ExtensionName, map[string]any{"schema_version": 1, "catalog": catalog})
 	server := mcpgo.NewServer(
 		&mcpgo.Implementation{Name: "shellbeam", Title: "ShellBeam", Version: "v2"},
 		&mcpgo.ServerOptions{Instructions: Instructions, Capabilities: caps},
 	)
-	v1, v2 := ToolDefinition(), ToolDefinitionV2()
+	v1, v2 := ToolDefinition(), toolDefinitionV2(catalog)
 	server.AddTool(v1, func(ctx context.Context, req *mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
 		return call(ctx, handler, req)
 	})
