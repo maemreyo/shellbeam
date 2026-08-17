@@ -15,12 +15,7 @@ func ListenPending(runtime string, actions Actions) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	server, err := listenWithReadiness(runtime, actions, lease, dialUnixSocket, false)
-	if err != nil {
-		_ = lease.Release()
-		return nil, err
-	}
-	return server, nil
+	return listenWithReadiness(runtime, actions, lease, dialUnixSocket, false)
 }
 
 func listen(runtime string, actions Actions, dial socketDialer) (*Server, error) {
@@ -28,10 +23,5 @@ func listen(runtime string, actions Actions, dial socketDialer) (*Server, error)
 	if err != nil {
 		return nil, err
 	}
-	server, err := listenWithReadiness(runtime, actions, lease, dial, true)
-	if err != nil {
-		_ = lease.Release()
-		return nil, err
-	}
-	return server, nil
+	return listenWithReadiness(runtime, actions, lease, dial, true)
 }

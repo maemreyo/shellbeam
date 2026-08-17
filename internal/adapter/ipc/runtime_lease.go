@@ -17,10 +17,5 @@ func ListenPendingAs(runtime, incarnation string, actions Actions, source daemon
 	if err != nil {
 		return nil, err
 	}
-	server, err := ListenPendingWithLease(runtime, actions, lease)
-	if err != nil {
-		_ = lease.Release()
-		return nil, err
-	}
-	return server, nil
+	return ListenPendingWithLease(runtime, actions, lease)
 }

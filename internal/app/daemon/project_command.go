@@ -219,6 +219,8 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
 		abortPreparedTrace(preparedTrace)
+		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
+		s.finalizeAdmittedStartFailure(live, "process_observation_failed")
 		return View{}, failure.Normalize(processObservation.Err)
 	}
 	s.activateLiveSession(live)

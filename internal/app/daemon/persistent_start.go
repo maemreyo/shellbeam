@@ -7,6 +7,7 @@ import (
 
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -38,6 +39,12 @@ func (s *Service) spawnPreparedPersistentStart(ctx context.Context, req StartReq
 		s.publishPersistentSpawnFailure(stored, activityID, workspaceObservation, launch.Spawn, "persistent_spawn_identity")
 		return View{}, failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": sid, "reason": "process_identity"}, fmt.Errorf("persistent runtime process identity mismatch"))
 	}
+	reconciliationOwner, reconcileErr := s.preparePersistentReconciliation(launch.Handle)
+	if reconcileErr != nil {
+		_ = launch.Handle.Close()
+		s.publishPersistentSpawnFailure(stored, activityID, workspaceObservation, launch.Spawn, "persistent_spawn_recovery_capability")
+		return View{}, failure.Normalize(reconcileErr)
+	}
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
 		_ = launch.Handle.Close()
@@ -68,7 +75,7 @@ func (s *Service) spawnPreparedPersistentStart(ctx context.Context, req StartReq
 		return View{}, failure.Normalize(got.Err)
 	}
 	s.resolveProcessStartedObservation(processObservation.ObservationSeq, true)
-	s.startPersistentReconciliation(live)
+	s.startPersistentReconciliation(live, reconciliationOwner)
 	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	s.decorateNewStartView(&view, viewErr, stored, workspaceObservation, req.WorkspaceHint)
 	return view, viewErr
@@ -92,8 +99,45 @@ func (s *Service) publishPersistentSpawnFailure(reservation operation.Reservatio
 	rec.Spawn = spawn
 	s.attachWorkspaceProvenance(&rec, workspace)
 	s.publishUntilDurable(rec)
+	s.convergeFailedPersistentBinding(reservation.SessionID)
 	s.scheduleStructuredTerminal(rec, reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
 	s.scheduleEvidenceTerminal(rec, reservation)
 	s.scheduleInputTraceTerminal(rec, reservation)
+}
+
+// convergeFailedPersistentBinding closes any persistent recovery ownership that
+// was provisioned before a start failed. The canonical failed receipt is
+// already durable when this runs, so no new child may be launched or signaled;
+// the only legal convergence is away from Provisioning/Live to Lost.
+func (s *Service) convergeFailedPersistentBinding(sessionID operation.SessionID) {
+	store, ok := s.store.(PersistentSessionStore)
+	if !ok {
+		return
+	}
+	delay := 25 * time.Millisecond
+	for {
+		binding, found, err := store.FindPersistentBinding(context.Background(), sessionID)
+		if err == nil {
+			if !found || binding.Lifecycle == persistentcore.LifecycleLost || binding.Lifecycle == persistentcore.LifecycleTerminal {
+				return
+			}
+			lost := binding
+			lost.Lifecycle = persistentcore.LifecycleLost
+			lost.UpdatedAt = time.Now().UTC()
+			if !lost.UpdatedAt.After(binding.UpdatedAt) {
+				lost.UpdatedAt = binding.UpdatedAt.Add(time.Nanosecond)
+			}
+			if result := store.AdvancePersistentBinding(context.Background(), lost); result.Err == nil {
+				return
+			}
+		}
+		time.Sleep(delay)
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
 }

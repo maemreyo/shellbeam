@@ -3,10 +3,10 @@ package daemon
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"time"
 
-	persistentapp "github.com/maemreyo/shellbeam/internal/app/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
@@ -93,6 +93,9 @@ func normalizePersistentStartupOptions(options PersistentStartupOptions) Persist
 }
 
 func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, binding persistentcore.Binding) error {
+	if repaired, err := s.repairCanonicalTerminalPersistentBinding(ctx, binding); repaired || err != nil {
+		return err
+	}
 	runtime, ok := s.options.PersistentRuntime.(PersistentReattachRuntime)
 	if !ok {
 		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions"}, nil)
@@ -110,10 +113,11 @@ func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, bindi
 			_ = result.Handle.Close()
 		}
 	}()
-	control, ok := result.Handle.(persistentapp.RecoveryAttachment)
-	if !ok {
-		return failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": binding.SessionID, "reason": "reattach_control"}, nil)
+	reconciliationOwner, err := s.preparePersistentReconciliation(result.Handle)
+	if err != nil {
+		return err
 	}
+	control := reconciliationOwner.control
 	reservation, err := s.store.LoadOperation(ctx, operation.ID(binding.OperationID))
 	if err != nil {
 		return err
@@ -144,22 +148,77 @@ func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, bindi
 			s.endManagedShell(live)
 			return stored.Err
 		}
-		s.startPersistentReconciliation(live)
+		s.startPersistentReconciliation(live, reconciliationOwner)
 		closeOnError = false
 		return nil
 	}
 	if result.State.Terminal() && result.State != session.Abandoned && result.PID == 0 {
-		outputStore, outputOK := s.store.(persistentOutputStore)
-		bindingStore, bindingOK := s.store.(PersistentSessionStore)
-		if !outputOK || !bindingOK {
-			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions"}, nil)
-		}
-		err := s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore)
+		err := s.reconcilePersistentSession(ctx, live, control, reconciliationOwner.outputStore, reconciliationOwner.bindingStore)
 		closeOnError = false
 		_ = result.Handle.Close()
 		return err
 	}
 	return failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": binding.SessionID, "reason": "reattach_state"}, nil)
+}
+
+// repairCanonicalTerminalPersistentBinding handles the crash boundary where a
+// canonical receipt/session reached terminal durability but the persistent
+// binding update did not. Startup must never reattach such a session: the
+// canonical terminal fact wins, and the stale recovery marker is closed first.
+func (s *Service) repairCanonicalTerminalPersistentBinding(ctx context.Context, binding persistentcore.Binding) (bool, error) {
+	snapshot, err := s.store.LoadSession(ctx, operation.SessionID(binding.SessionID))
+	if err != nil {
+		return false, err
+	}
+	if !snapshot.State.Terminal() {
+		return false, nil
+	}
+	rec, err := s.store.LoadReceipt(ctx, operation.SessionID(binding.SessionID))
+	if err != nil {
+		return true, err
+	}
+	store, ok := s.store.(PersistentSessionStore)
+	if !ok {
+		return true, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions"}, nil)
+	}
+	target := persistentcore.LifecycleTerminal
+	if rec.State == session.Abandoned || strings.HasPrefix(rec.FailureReason, "persistent_spawn_") || rec.FailureReason == "persistent_advance_failed" {
+		target = persistentcore.LifecycleLost
+	}
+	delay := 25 * time.Millisecond
+	for {
+		current, found, loadErr := store.FindPersistentBinding(ctx, operation.SessionID(binding.SessionID))
+		if loadErr != nil {
+			return true, loadErr
+		}
+		if !found || current.Lifecycle == persistentcore.LifecycleTerminal || current.Lifecycle == persistentcore.LifecycleLost {
+			return true, nil
+		}
+		next := current
+		next.Lifecycle = target
+		next.UpdatedAt = time.Now().UTC()
+		if !next.UpdatedAt.After(current.UpdatedAt) {
+			next.UpdatedAt = current.UpdatedAt.Add(time.Nanosecond)
+		}
+		if result := store.AdvancePersistentBinding(ctx, next); result.Err == nil {
+			return true, nil
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return true, ctx.Err()
+		case <-timer.C:
+		}
+		if delay < 250*time.Millisecond {
+			delay *= 2
+			if delay > 250*time.Millisecond {
+				delay = 250 * time.Millisecond
+			}
+		}
+	}
 }
 
 func validatePersistentStartupReservation(binding persistentcore.Binding, reservation operation.Reservation) error {

@@ -261,7 +261,7 @@ func TestE27InputTraceNoTaxRawTypedPersistentOffNeverCallsPreparer(t *testing.T)
 
 	// Persistent path with tracing omitted.
 	persistentStore := openPersistentLaunchStore(t)
-	handle := &persistentFakeHandle{pid: 4242}
+	handle := &persistentControlFakeHandle{persistentFakeHandle: persistentFakeHandle{pid: 4242}}
 	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
 	persistentSvc := app.NewService(persistentStore, &fakeOwner{}, app.Options{Incarnation: "e27-notax-persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime, InputTracePreparer: preparer})
 	if _, err := persistentSvc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "e27-notax-persistent", Command: "sleep 10", CWD: "/", Persistent: true, SessionName: "dev"}); err != nil {

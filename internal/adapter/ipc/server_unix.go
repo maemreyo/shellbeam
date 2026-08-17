@@ -101,17 +101,27 @@ type Server struct {
 	closeOnce sync.Once
 }
 
+// ListenPendingWithLease starts a pending server using an already-acquired
+// runtime-directory lease. The server owns the supplied lease immediately: it
+// releases it on setup failure or, after successful construction, on Close.
 func ListenPendingWithLease(runtime string, actions Actions, lease RuntimeLease) (*Server, error) {
 	return listenWithReadiness(runtime, actions, lease, dialUnixSocket, false)
 }
 
 func listenWithReadiness(runtime string, actions Actions, lease RuntimeLease, dial socketDialer, ready bool) (*Server, error) {
 	if lease == nil {
-		return nil, fmt.Errorf("runtime lease required")
+		return nil, fmt.Errorf("runtime ownership lease required")
 	}
 	if err := prepareRuntime(runtime); err != nil {
+		_ = lease.Release()
 		return nil, err
 	}
+	released := false
+	defer func() {
+		if !released {
+			_ = lease.Release()
+		}
+	}()
 	lock, err := acquireStartupLock(runtime)
 	if err != nil {
 		return nil, err
@@ -127,6 +137,7 @@ func listenWithReadiness(runtime string, actions Actions, lease RuntimeLease, di
 		socket: socket, socketInfo: socketInfo, listener: auth, actions: actions,
 		lease: lease, ready: make(chan struct{}), closing: make(chan struct{}),
 	}
+	released = true
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
 	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
@@ -450,15 +461,4 @@ func (s *Server) inspectProjectV2(ctx context.Context, req RequestV2, resp *Resp
 func writeResponseV2(w http.ResponseWriter, response ResponseV2) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
-}
-
-func cloneStringMapV2(input map[string]string) map[string]string {
-	if input == nil {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }
