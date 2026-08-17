@@ -24,6 +24,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
+	"github.com/maemreyo/shellbeam/internal/config"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
@@ -72,15 +73,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		return err
 	}
 	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
-	catalog := daemonCatalog(capability.Limits{
-		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
-		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
-		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
-	})
-	catalog = persistentSessionCatalog(catalog, cfg.MaxConcurrentSessions, cfg.MaxSessionOutputBytes, cfg.MaxQueuedInputSessionBytes)
-	if mutationScopeSvc != nil {
-		catalog = mutationScopeCatalog(catalog)
-	}
+	catalog := daemonRuntimeCatalog(cfg, mutationScopeSvc != nil)
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
@@ -149,7 +142,7 @@ func serveDaemonRuntime(
 	telemetryScheduler *telemetryWorkerProxy,
 	evidenceScheduler *evidenceWorkerProxy,
 ) error {
-	server, err := ipcadapter.ListenPendingAs(runtimeDir, incarnation, actions, stateLease)
+	server, err := listenDaemonRuntime(runtimeDir, incarnation, actions, stateLease)
 	if err != nil {
 		return err
 	}
@@ -196,14 +189,7 @@ func serveDaemonRuntime(
 	defer shutdownObservation(observationRuntime, terminationGrace)
 	defer shutdownTelemetry(telemetryRuntime, terminationGrace)
 	defer shutdownEvidence(evidenceRuntime, terminationGrace)
-	structuredScheduler.bind(observationRuntime.worker)
-	telemetryScheduler.bind(telemetryRuntime.worker)
-	evidenceScheduler.bind(evidenceRuntime.worker)
-	actions.events = observationRuntime.events
-	actions.structured = observationRuntime.structured
-	actions.telemetry = telemetryRuntime.service
-	actions.evidence = evidenceRuntime.inspector
-	actions.repro = reproapp.New(store)
+	bindDaemonRuntimeServices(store, actions, observationRuntime, telemetryRuntime, evidenceRuntime, structuredScheduler, telemetryScheduler, evidenceScheduler)
 	observationRuntime.startMaterialization(ctx)
 	evidenceRuntime.startRecovery(ctx)
 	if err = reconcilePersistentDaemonStartup(startupCtx, store, svc); err != nil {
@@ -214,6 +200,37 @@ func serveDaemonRuntime(
 	startRetention(ctx, store, terminalRetentionHours)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
+}
+
+func listenDaemonRuntime(runtimeDir, incarnation string, actions ipcadapter.Actions, stateLease *ownership.Lease) (*ipcadapter.Server, error) {
+	if err := ipcadapter.PrepareRuntime(runtimeDir); err != nil {
+		return nil, err
+	}
+	runtimeLease, err := ownership.AcquireWith(stateLease, runtimeDir, incarnation)
+	if err != nil {
+		return nil, err
+	}
+	return ipcadapter.ListenPendingWithLease(runtimeDir, actions, runtimeLease)
+}
+
+func bindDaemonRuntimeServices(
+	store *storeadapter.Repository,
+	actions *daemonActions,
+	observationRuntime *executionObservationRuntime,
+	telemetryRuntime *executionTelemetryRuntime,
+	evidenceRuntime *executionEvidenceRuntime,
+	structuredScheduler *structuredWorkerProxy,
+	telemetryScheduler *telemetryWorkerProxy,
+	evidenceScheduler *evidenceWorkerProxy,
+) {
+	structuredScheduler.bind(observationRuntime.worker)
+	telemetryScheduler.bind(telemetryRuntime.worker)
+	evidenceScheduler.bind(evidenceRuntime.worker)
+	actions.events = observationRuntime.events
+	actions.structured = observationRuntime.structured
+	actions.telemetry = telemetryRuntime.service
+	actions.evidence = evidenceRuntime.inspector
+	actions.repro = reproapp.New(store)
 }
 
 func shutdownObservation(runtime *executionObservationRuntime, grace time.Duration) {
@@ -354,6 +371,19 @@ func (a *daemonActions) InspectRepro(ctx context.Context, reproID string) (repro
 		return reproapp.InspectResult{}, fmt.Errorf("reproduction capsule service unavailable")
 	}
 	return a.repro.Inspect(ctx, reproID)
+}
+
+func daemonRuntimeCatalog(cfg config.Config, mutationScopes bool) capability.Catalog {
+	catalog := daemonCatalog(capability.Limits{
+		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
+		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
+		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
+	})
+	catalog = persistentSessionCatalog(catalog, cfg.MaxConcurrentSessions, cfg.MaxSessionOutputBytes, cfg.MaxQueuedInputSessionBytes)
+	if mutationScopes {
+		catalog = mutationScopeCatalog(catalog)
+	}
+	return catalog
 }
 
 func daemonCatalog(limits capability.Limits) capability.Catalog {

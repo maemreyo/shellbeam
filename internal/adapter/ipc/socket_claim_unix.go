@@ -16,6 +16,10 @@ import (
 
 type socketDialer func(string, time.Duration) (net.Conn, error)
 
+func PrepareRuntime(runtime string) error {
+	return prepareRuntime(runtime)
+}
+
 func prepareRuntime(runtime string) error {
 	if !filepath.IsAbs(runtime) {
 		return fmt.Errorf("runtime path must be absolute")
