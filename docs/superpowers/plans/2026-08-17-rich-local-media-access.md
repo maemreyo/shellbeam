@@ -136,7 +136,7 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
 
   The current Task -1 preflight evidence file is a branch-owned evidence record after the first failed attempt, so its Files declaration is `Modify`; the exact approved v8 source remains `Create` until a PASS attempt persists it. `docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md` is valid only through the `branch_owned_docs` seed. `docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md` is valid for Task 10 only because Task 0 creates it first.
 
-  Re-open the current IPC/MCP/daemon/bridge/capability/failure symbols named by Tasks 1–10 and confirm the Files/Interfaces/test commands still match current code. The path state machine proves only declaration availability; it does not waive semantic symbol/interface re-tracing.
+  Re-open the current IPC/MCP/daemon/bridge/capability/failure symbols named by Tasks 1–10 and confirm the Files/Interfaces/test commands still match current code. The path state machine proves only declaration availability; it does not waive semantic symbol/interface re-tracing. As part of this semantic pass, run the active `devctl` Go-policy rules over every existing Go file that a later task will stage: record current file line count, every function >60 lines, and every interface method count. Any existing hard-cap violation in a planned staged file must have an explicit behavior-preserving structural extraction in the same task **before** feature logic; otherwise Task -1 is `FAIL`. Near-cap files must have enough explicit split/headroom that their task can satisfy the staged policy without relying on grandfathering.
 
   Record the authoring-time drift facts only as historical context; the preflight evidence must contain the fresh dependency-aware path inventory and symbol inventory against `EXECUTION_BASE`. If any declaration cannot be resolved by the rules above, or any named production symbol/interface has materially changed, set verdict `FAIL`, continue to Step 5 branch B and commit the honest evidence-only record, then stop. Revise/re-review the plan only after that failed preflight attempt is durably closed; rerun Task -1 from a clean worktree.
 
@@ -706,7 +706,8 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 - Create: `internal/app/daemon/media_admission_test.go`
 - Modify: `internal/app/daemon/service.go`
 - Modify: `internal/app/daemon/types.go`
-- Modify: `cmd/shellbeam/command_daemon.go`
+- Create: `cmd/shellbeam/command_daemon_composition.go`
+- Modify: `cmd/shellbeam/command_daemon.go` to extract current over-cap composition helpers before media wiring; every changed function must remain <=80 lines
 
 **Interfaces:**
 - Consumes: `MediaReader.Read`, existing `WorkspaceResolver.ResolveAddress`.
@@ -746,9 +747,38 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
   Launch at most one worker per acquired slot. The worker owns the slot until its actual return. Propagate a cancellable context into `MediaReader.Read`; localfs observes it between controllable steps/chunks. The caller waits for result or the 5 s cooperative budget; on budget expiry cancel the worker context and return `media_read_timeout` with `retryable=false`, but do not manufacture a replacement worker or release the token early. A worker blocked inside a kernel call keeps the slot until it returns.
 
-- [ ] **Step 4: Wire localfs only into daemon composition**
+- [ ] **Step 4: Create daemon-composition policy headroom, then wire localfs only in `cmd`**
 
-  `runDaemon` injects `localfs.Reader{}` into daemon options/service construction. No bridge/MCP package imports `localfs`, `os`, or `x/sys/unix`.
+  The bound base has two pre-existing functions in `cmd/shellbeam/command_daemon.go` above the hard 80-line function cap: `runDaemonWithCodeProvider` is 86 lines and `serveDaemonRuntime` is 81. Because this task must stage that file to inject the media reader, first make two behavior-preserving extractions into new `cmd/shellbeam/command_daemon_composition.go`:
+
+  ```go
+  func daemonRuntimeCatalog(cfg config.Config, mutationScopesEnabled bool) capability.Catalog
+  func bindDaemonOutputView(ctx context.Context, store *storeadapter.Repository, actions *daemonActions) error
+  ```
+
+  `daemonRuntimeCatalog` moves only the existing `daemonCatalog(capability.Limits{...})`, `persistentSessionCatalog`, and optional `mutationScopeCatalog` construction. `bindDaemonOutputView` moves only `EventCursorKey -> outputview.NewCursorCodec -> actions.output = outputview.NewWithCursor`. No ordering, limits, lifecycle, or failure semantics change in these moves. Replace the original blocks with calls to the helpers, then require the current daemon tests to stay green and both original functions to be <=80 lines **before** adding media composition:
+
+  ```bash
+  go test ./cmd/shellbeam ./internal/app/daemon -run 'TestDaemon|TestCatalog|TestOutput|TestPersistent|TestMutation' -count=1
+  python3 - <<'PY'
+  from pathlib import Path
+  import re
+  lines = Path("cmd/shellbeam/command_daemon.go").read_text().splitlines()
+  starts = [(i + 1, re.match(r"func (?:\([^)]*\) )?([A-Za-z0-9_]+)", line).group(1))
+            for i, line in enumerate(lines)
+            if re.match(r"func (?:\([^)]*\) )?([A-Za-z0-9_]+)", line)]
+  ends = {name: (starts[n + 1][0] - 1 if n + 1 < len(starts) else len(lines)) for n, (_, name) in enumerate(starts)}
+  begins = {name: line for line, name in starts}
+  for name in ("runDaemonWithCodeProvider", "serveDaemonRuntime"):
+      count = ends[name] - begins[name] + 1
+      assert count <= 80, (name, count)
+  PY
+  test "$(wc -l < cmd/shellbeam/command_daemon.go)" -le 500
+  ```
+
+  The targeted assertion is only the pre-media structural check. The task's staged tracked-hook `devctl commit-gate` remains authoritative and must pass on every changed Go file before commit. Do not run full-repository `devctl check` here merely to rediscover unrelated execution-base debt that Task 6 is explicitly scheduled to split.
+
+  After structural policy is green, inject `localfs.Reader{}` into daemon options/service construction from `cmd/shellbeam`; no bridge/MCP package imports `localfs`, `os`, or `x/sys/unix`. Put any media-only construction helper in `command_daemon_composition.go` rather than growing `runDaemonWithCodeProvider` again.
 
 - [ ] **Step 5: GREEN**
 
@@ -762,7 +792,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   ```bash
   go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
   go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
-  git add internal/app/daemon cmd/shellbeam/command_daemon.go
+  git add internal/app/daemon cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_composition.go
   git diff --cached --check
   git -c core.hooksPath=.githooks commit -m "feat: add bounded daemon media reads"
   ```
@@ -833,14 +863,16 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 **Files:**
 - Modify: `api/schema/ipc-v2.json`
 - Modify: `internal/adapter/ipc/protocol_v2.go`
+- Create: `internal/adapter/ipc/media_protocol_v2.go`
 - Modify: `internal/adapter/ipc/protocol_v2_test.go`
-- Modify: `internal/adapter/ipc/client_unix.go`
+- Create: `internal/adapter/ipc/client_v2_request.go`
+- Modify: `internal/adapter/ipc/client_unix.go` only to move `requestV2FromBridge` out before media mapping; every changed function must remain <=80 lines
 - Create: `internal/adapter/ipc/server_v2_unix.go`
 - Modify: `internal/adapter/ipc/server_unix.go` only to move existing v2 dispatch/helpers into `server_v2_unix.go`; the post-move file must remain <=500 lines
 - Modify: `internal/adapter/ipc/ipc_integration_test.go`
 - Create: `internal/adapter/ipc/media_test.go`
 - Modify: `internal/app/bridge/client_port.go`
-- Modify: `cmd/shellbeam/command_daemon.go`
+- Create: `cmd/shellbeam/media_daemon_actions.go`
 
 **Interfaces:**
 - Consumes: `capability.MediaSupport`, `capability.NegotiatedMedia`, `daemon.MediaRequest`, `media.Result`.
@@ -896,21 +928,26 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   }
   ```
 
-  `capabilities.negotiate` accepts only the bounded consumer declaration. `read_media` carries the same declaration plus the negotiated fingerprint and media request, allowing the daemon to recompute the intersection statelessly before admission. Missing/invalid opt-in returns `feature_unavailable` before filesystem work.
+  `capabilities.negotiate` accepts only the bounded consumer declaration. `read_media` carries the same declaration plus the negotiated fingerprint and media request, allowing the daemon to recompute the intersection statelessly before admission. Missing/invalid opt-in returns `feature_unavailable` before filesystem work. Keep media-only field-set/semantic validation in new `media_protocol_v2.go`; `validateRequestV2` in the shared near-cap file may only delegate to the focused helper so shared protocol code stays below file/function caps.
 
 - [ ] **Step 3: Split the current oversized IPC server before adding media**
 
-  On the bound execution base, `internal/adapter/ipc/server_unix.go` is already 503 lines, so any staged edit to that file fails the repository hard cap. First perform a behavior-preserving same-package split: move `handleV2`, `clearResponseV2Payload`, `inspectV2`, `inspectEnvironmentProcessV2`, `inspectProjectV2`, `writeResponseV2`, and `cloneStringMapV2` into new build-tagged `internal/adapter/ipc/server_v2_unix.go`. Keep listener/socket/v1 handling in `server_unix.go`; `mux.HandleFunc("POST /v2/local-shell", s.handleV2)` continues to bind the moved method transparently.
+  On the bound execution base, `internal/adapter/ipc/server_unix.go` is already 503 lines, `handleV2` is exactly 80 lines, and client `requestV2FromBridge` is 78 lines. Before adding any media branch, perform behavior-preserving same-package moves/refactors:
 
-  Before adding any media branch, require:
+  - Move `handleV2`, `clearResponseV2Payload`, `inspectV2`, `inspectEnvironmentProcessV2`, `inspectProjectV2`, `writeResponseV2`, and `cloneStringMapV2` into new build-tagged `internal/adapter/ipc/server_v2_unix.go`. Keep listener/socket/v1 handling in `server_unix.go`; `mux.HandleFunc("POST /v2/local-shell", s.handleV2)` continues to bind the moved method transparently. Split the current 80-line handler into a small HTTP/decode/readiness coordinator `handleV2` and `dispatchV2(context.Context, RequestV2, *ResponseV2) error` containing the existing action dispatch. The media branches are added to `dispatchV2`, not by growing the old 80-line handler.
+  - Move `requestV2FromBridge` from `client_unix.go` into new `client_v2_request.go`. Split it into a small constructor/default coordinator plus `applyBridgeRequestV2(*RequestV2, bridge.Request)` containing the existing action switch. Media request fields delegate to a focused helper, so neither function approaches 80 lines.
+
+  Before media semantics, require:
 
   ```bash
   go test ./internal/adapter/ipc -run 'TestIPCV2|TestCompatibility|TestBridgeForwardV2InspectServerUsesV2' -count=1
   test "$(wc -l < internal/adapter/ipc/server_unix.go)" -le 500
   test "$(wc -l < internal/adapter/ipc/server_v2_unix.go)" -le 500
+  test "$(wc -l < internal/adapter/ipc/client_unix.go)" -le 500
+  test "$(wc -l < internal/adapter/ipc/client_v2_request.go)" -le 500
   ```
 
-  Then add optional IPC server interfaces instead of widening legacy `Actions`:
+  The tracked hook must prove `handleV2`, `dispatchV2`, `requestV2FromBridge`, `applyBridgeRequestV2`, and every other changed function are <=80 lines. Then add optional IPC server interfaces instead of widening legacy `Actions`:
 
   ```go
   type MediaActions interface {
@@ -919,7 +956,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   }
   ```
 
-  `handleV2` type-asserts `MediaActions` only for the private negotiation/media branches. Existing v1 and ordinary v2 fakes/callers require no media method. Extend `cmd/shellbeam/command_daemon.go`'s `daemonActions` with `ReadMedia` delegating to the daemon service and `MediaSupport` returning `capability.V1MediaSupport()`. Do not add media to `InspectServer`; that projection remains legacy-compatible/no-media.
+  `handleV2` type-asserts `MediaActions` only for the private negotiation/media branches. Existing v1 and ordinary v2 fakes/callers require no media method. Add `ReadMedia` and `MediaSupport` methods for the existing same-package `daemonActions` type in new `cmd/shellbeam/media_daemon_actions.go`; do not grow `command_daemon.go` again after Task 4 brought it under policy. `ReadMedia` delegates to the daemon service and `MediaSupport` returns `capability.V1MediaSupport()`. Do not add media to `InspectServer`; that projection remains legacy-compatible/no-media.
 
 - [ ] **Step 4: Enforce the media outer response ceiling in the client before decode**
 
@@ -946,7 +983,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   go test ./internal/adapter/ipc -count=1
   go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
   go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
-  git add api/schema/ipc-v2.json internal/adapter/ipc internal/app/bridge/client_port.go cmd/shellbeam/command_daemon.go
+  git add api/schema/ipc-v2.json internal/adapter/ipc internal/app/bridge/client_port.go cmd/shellbeam/media_daemon_actions.go
   git diff --cached --check
   git -c core.hooksPath=.githooks commit -m "feat: transport negotiated media over ipc"
   ```
@@ -1034,9 +1071,10 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 **Files:**
 - Modify: `internal/adapter/mcp/server.go`
 - Create: `internal/adapter/mcp/legacy_catalog.go`
+- Create: `internal/adapter/mcp/request.go`
 - Create: `internal/adapter/mcp/media_call.go`
 - Create: `internal/adapter/mcp/media_input.go`
-- Modify: `internal/adapter/mcp/call.go` only to move legacy catalog projection out and add the minimal media dispatch hook; the post-move file must remain <=500 lines
+- Modify: `internal/adapter/mcp/call.go` only to move legacy catalog projection and `requestFromInput` out, then add the minimal media result dispatch hook; the post-move file must remain <=500 lines
 - Modify: `internal/adapter/mcp/input.go` only for the minimal shared input fields/dispatch hook; the post-change file must remain <=500 lines
 - Modify: `internal/adapter/mcp/server_test.go`
 - Modify: `internal/adapter/mcp/discovery_test.go`
@@ -1073,7 +1111,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
 - [ ] **Step 2: Create MCP call/input headroom before adding media behavior**
 
-  The bound base has `internal/adapter/mcp/call.go` at 485 lines and `internal/adapter/mcp/input.go` at 478 lines. Preserve behavior while moving `legacyCatalogView` and `stripLegacyPersistentCapabilities` from `call.go` into new `internal/adapter/mcp/legacy_catalog.go`. Put media-specific request construction/validation helpers in new `media_input.go` and media-specific success/ImageContent rendering in new `media_call.go`; do not grow the near-cap files with full media implementations. `call.go` and `input.go` may contain only the minimal dispatch/shared-field hooks needed to call those focused helpers.
+  The bound base has `internal/adapter/mcp/call.go` at 485 lines and `internal/adapter/mcp/input.go` at 478 lines. Preserve behavior while moving `legacyCatalogView` and `stripLegacyPersistentCapabilities` from `call.go` into new `internal/adapter/mcp/legacy_catalog.go`. Also move the existing 79-line `requestFromInput` into new `internal/adapter/mcp/request.go` and split it into a small defaults/coordinator `requestFromInput` plus `populateRequestFromInput(*bridge.Request, input)` containing the existing action switch. Both functions must be <=80 **before** a media branch is added. Put media-specific request construction/validation helpers in new `media_input.go` and media-specific success/ImageContent rendering in new `media_call.go`; do not grow the near-cap files with full media implementations. `call.go` and `input.go` may contain only the minimal dispatch/shared-field hooks needed to call those focused helpers.
 
   Before media semantics, run current discovery/legacy tests and enforce the hard cap:
 
@@ -1082,7 +1120,10 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   test "$(wc -l < internal/adapter/mcp/call.go)" -le 500
   test "$(wc -l < internal/adapter/mcp/input.go)" -le 500
   test "$(wc -l < internal/adapter/mcp/legacy_catalog.go)" -le 500
+  test "$(wc -l < internal/adapter/mcp/request.go)" -le 500
   ```
+
+  The staged tracked hook must additionally prove `requestFromInput`, `populateRequestFromInput`, and every other changed function are <=80 lines. `input.validateV2` is already 75 lines on the bound base, so the `read_media` branch must delegate to a focused helper in `media_input.go`; do not inline enough validation into `validateV2` to cross the hard cap.
 
 - [ ] **Step 3: Compose media schema only when effective media is available**
 
