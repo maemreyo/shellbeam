@@ -39,7 +39,7 @@ func TestCandidateSourceContract(t *testing.T) {
 		"exit_status",
 		"GoVersionCommand",
 		`output("go", "version")`,
-		`output("go", "env", "GOEXPERIMENT", "GOOS", "GOARCH", "CGO_ENABLED")`,
+		`exec.Command("go", "env", "GOEXPERIMENT", "GOOS", "GOARCH", "CGO_ENABLED")`,
 		"invalid-utf8", "duplicate-names", "unknown-names", "wrong-case", "trailing-json",
 	} {
 		if !strings.Contains(src, want) {

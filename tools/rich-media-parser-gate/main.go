@@ -14,7 +14,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -139,16 +141,68 @@ func loadFixtureManifest(path string) ([]byte, fixtureManifest, error) {
 }
 
 func logicalCommand(fixturesPath, outPath string) string {
-	return "GOEXPERIMENT=jsonv2 go run ./tools/rich-media-parser-gate -fixtures " + fixturesPath + " -out " + outPath
+	prefix := ""
+	if toolchain := os.Getenv("GOTOOLCHAIN"); toolchain != "" && toolchain != "auto" {
+		prefix += "GOTOOLCHAIN=" + toolchain + " "
+	}
+	if experiment := os.Getenv("GOEXPERIMENT"); experiment != "" {
+		prefix += "GOEXPERIMENT=" + experiment + " "
+	}
+	return prefix + "go run ./tools/rich-media-parser-gate -fixtures " + fixturesPath + " -out " + outPath
+}
+
+func goEnvDetails() (string, string, string, string, error) {
+	b, err := exec.Command("go", "env", "GOEXPERIMENT", "GOOS", "GOARCH", "CGO_ENABLED").CombinedOutput()
+	if err != nil {
+		return "", "", "", "", err
+	}
+	text := strings.TrimSuffix(string(b), "\n")
+	lines := strings.Split(text, "\n")
+	if len(lines) != 4 {
+		return "", "", "", "", fmt.Errorf("unexpected go env field count %d", len(lines))
+	}
+	return lines[0], lines[1], lines[2], lines[3], nil
+}
+
+var (
+	stableJSONv2Version  = regexp.MustCompile(`^go1\.([0-9]+)(?:\.[0-9]+)?$`)
+	previewJSONv2Version = regexp.MustCompile(`^go1\.([0-9]+)(?:beta|rc)[0-9]+$`)
+)
+
+func jsonv2Minor(version string, pattern *regexp.Regexp) (int, bool) {
+	match := pattern.FindStringSubmatch(version)
+	if len(match) != 2 {
+		return 0, false
+	}
+	minor, err := strconv.Atoi(match[1])
+	return minor, err == nil
+}
+
+func candidateMode(version, experiment string) (string, bool) {
+	if strings.HasPrefix(version, "go1.26") {
+		if experiment == "jsonv2" {
+			return "go1.26-jsonv2-experiment", true
+		}
+		return "", false
+	}
+	if experiment != "" {
+		return "", false
+	}
+	if minor, ok := jsonv2Minor(version, previewJSONv2Version); ok && minor >= 27 {
+		return "go1.27-jsonv2-preview", true
+	}
+	if minor, ok := jsonv2Minor(version, stableJSONv2Version); ok && minor >= 27 {
+		return "go1.27-stable-jsonv2", true
+	}
+	return "", false
 }
 
 func newCandidateReport(raw []byte, fixturesPath, outPath string) report {
 	goVersionCommand, goVersionErr := output("go", "version")
-	goEnv, goEnvErr := output("go", "env", "GOEXPERIMENT", "GOOS", "GOARCH", "CGO_ENABLED")
-	envLines := strings.Split(goEnv, "\n")
+	goExperiment, goos, goarch, cgoEnabled, goEnvErr := goEnvDetails()
 	rep := report{
 		SchemaVersion:         2,
-		CandidateMode:         "go1.26-jsonv2-experiment",
+		CandidateMode:         "",
 		FixtureManifestSHA256: fileSHA256(raw),
 		GoVersion:             runtime.Version(),
 		GoVersionCommand:      goVersionCommand,
@@ -157,12 +211,10 @@ func newCandidateReport(raw []byte, fixturesPath, outPath string) report {
 		Command:               logicalCommand(fixturesPath, outPath),
 		Verdict:               "PASS",
 	}
-	if len(envLines) == 4 {
-		rep.GoExperiment, rep.GOOS, rep.GOARCH, rep.CGOEnabled = envLines[0], envLines[1], envLines[2], envLines[3]
-	} else {
-		rep.Verdict = "FAIL"
-	}
-	if goVersionErr != nil || goEnvErr != nil || !strings.HasPrefix(rep.GoVersion, "go1.26") || rep.GoExperiment != "jsonv2" {
+	rep.GoExperiment, rep.GOOS, rep.GOARCH, rep.CGOEnabled = goExperiment, goos, goarch, cgoEnabled
+	mode, modeOK := candidateMode(rep.GoVersion, rep.GoExperiment)
+	rep.CandidateMode = mode
+	if goVersionErr != nil || goEnvErr != nil || !modeOK {
 		rep.Verdict = "FAIL"
 	}
 	return rep
