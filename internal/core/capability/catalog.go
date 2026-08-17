@@ -32,6 +32,7 @@ const (
 	FeatureExecutionTelemetry     Feature = "execution_telemetry"
 	FeatureReproductionCapsules   Feature = "reproduction_capsules"
 	FeatureSafetyCheckpoints      Feature = "safety_checkpoints"
+	FeatureInputTracing           Feature = "input_tracing"
 )
 
 type Limits struct {
@@ -113,6 +114,17 @@ type Limits struct {
 	CheckpointRestorePaths               int   `json:"checkpoint_restore_paths,omitempty"`
 	CheckpointPublicEntryRefs            int   `json:"checkpoint_public_entry_refs,omitempty"`
 	CheckpointPublicSummaries            int   `json:"checkpoint_public_summaries,omitempty"`
+	InputTraceRawEvents                  int   `json:"input_trace_raw_events,omitempty"`
+	InputTraceUniqueResources            int   `json:"input_trace_unique_resources,omitempty"`
+	InputTracePublicResources            int   `json:"input_trace_public_resources,omitempty"`
+	InputTraceExternalResources          int   `json:"input_trace_external_resources,omitempty"`
+	InputTraceRawEventBytes              int   `json:"input_trace_raw_event_bytes,omitempty"`
+	InputTracePrivateRawBytes            int   `json:"input_trace_private_raw_bytes,omitempty"`
+	InputTracePublicRecordBytes          int   `json:"input_trace_public_record_bytes,omitempty"`
+	InputTraceRetainedRecords            int   `json:"input_trace_retained_records,omitempty"`
+	InputTraceCaptureDurationMS          int64 `json:"input_trace_capture_duration_ms,omitempty"`
+	InputTraceStartupBudgetMS            int64 `json:"input_trace_startup_budget_ms,omitempty"`
+	InputTraceWorkerQueueDepth           int   `json:"input_trace_worker_queue_depth,omitempty"`
 }
 
 type Catalog struct {
@@ -150,6 +162,7 @@ type Catalog struct {
 	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
 	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
 	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
+	InputTracing                      *InputTracingSupport        `json:"input_tracing,omitempty"`
 	Features                          map[Feature]Availability    `json:"features"`
 	Limits                            Limits                      `json:"limits"`
 }
@@ -177,6 +190,7 @@ var targetFeatures = []Feature{
 	FeatureExecutionTelemetry,
 	FeatureReproductionCapsules,
 	FeatureSafetyCheckpoints,
+	FeatureInputTracing,
 }
 
 func TargetFeatures() []Feature {
@@ -236,6 +250,11 @@ func (c Catalog) Clone() Catalog {
 		support := *c.SafetyCheckpoints
 		support.SchemaVersions = append([]int(nil), c.SafetyCheckpoints.SchemaVersions...)
 		out.SafetyCheckpoints = &support
+	}
+	if c.InputTracing != nil {
+		support := *c.InputTracing
+		support.SchemaVersions = append([]int(nil), c.InputTracing.SchemaVersions...)
+		out.InputTracing = &support
 	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
