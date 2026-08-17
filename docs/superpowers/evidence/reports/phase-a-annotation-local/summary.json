@@ -71,20 +71,20 @@
         "annotation_audience": "omitted",
         "files": {
           "goldens.json": {
-            "bytes": 6157,
-            "sha256": "493b3fc128137b45239c2ac4db37a1cad229ff0b6e3716b77c8205ad26048bcf"
+            "bytes": 6155,
+            "sha256": "e7a6ed10aa4a31a8fc989f295ec776aeca01349beea12edf26b4db68e38a1bd4"
           },
           "manifest.json": {
-            "bytes": 4051,
-            "sha256": "8476104e17549be21524928e3c5e20bee1ccd2c71ae905174d2f5b8ef04279dc"
+            "bytes": 4049,
+            "sha256": "ebd095c24418ef110ca52dfac87fe73d33e1ed0580e4f859bac3f1f5e81db483"
           },
           "run-info.json": {
             "bytes": 314,
             "sha256": "56a5b6829dce2f8505ccaf0c41f69468b1e3f5d93083123eb994571dc1da68d4"
           },
           "scorecard.json": {
-            "bytes": 9876,
-            "sha256": "89415f075cfff3cd2520d5a332d7ebe4e4e6bc5e21bfe89219a5c2aee35fb481"
+            "bytes": 9870,
+            "sha256": "026d6efc22832b6ce385d429571c57b4835ccfaa4a1b30d472ad8a5a4a4ed82f"
           }
         },
         "state": "PREPARED_NOT_RUN",
@@ -165,20 +165,20 @@
         "annotation_audience": "user-assistant",
         "files": {
           "goldens.json": {
-            "bytes": 6158,
-            "sha256": "ad25a615494922f9db50ff34e894ce4ebcc8bbff00ecf05423bdada6a1aafeb0"
+            "bytes": 6159,
+            "sha256": "168d48e70db6e7906e2a1fe28d664451571878d0f3d53bd284792a085e01a479"
           },
           "manifest.json": {
-            "bytes": 4051,
-            "sha256": "0cc09b95d9f6f19526a21c07c2f7e7fb40f53052120926c123404696f4855eb6"
+            "bytes": 4052,
+            "sha256": "87708c56efeb64396ac06fcee650d690d275f7d91f1dd03a5cf773bdb393b2cb"
           },
           "run-info.json": {
             "bytes": 321,
             "sha256": "a74a7e3a9f4c7c90e7c8e4ecf55da87b068450492363bb9e96414858b3b96c36"
           },
           "scorecard.json": {
-            "bytes": 9879,
-            "sha256": "724fe78826fd7eb1835ebaf7be3a4f38703b10e1a169ced0ba91964436ad4894"
+            "bytes": 9882,
+            "sha256": "a08baec01dfdf89ac2cee04ae6ccf4f3c950a2e1ce1f5af6318aee94d245ac69"
           }
         },
         "state": "PREPARED_NOT_RUN",
@@ -194,11 +194,28 @@
   },
   "fresh_chat_trials_recorded": 0,
   "live_tunnel_restarted": false,
+  "local_contracts": {
+    "host_confirmation_timing_semantics": "NOT_RUN",
+    "host_pre_result_action_address_ui": "NOT_RUN",
+    "result_text_before_image_content": "PASS",
+    "structured_action_exact_read_media": "PASS",
+    "structured_complete_display_address_correlation": "PASS",
+    "tool_description_egress_to_connected_client_model": "PASS",
+    "tool_description_embedded_metadata": "PASS",
+    "tool_description_original_file_bytes": "PASS",
+    "wrong_base_correlation_rejected": "PASS"
+  },
   "local_tests": "PASS",
-  "preflight_binary_sha256": "ecb1daf48a32cf6ac38b0c9944d359b408512666d7f0c8891ea6c2d262389c28",
+  "preflight_binary_sha256": "71f2ab9fb5132ab7d7ecb18cbf6ed88c5554865e8cc2f22cfc2c32f3586ba32f",
   "production_authorization": false,
   "real_host_scorecard_status": "NOT_RUN",
   "reason": "local SDK/subprocess/tunnel-profile qualification is not a substitute for the required refreshed fresh-conversation ChatGPT scorecard",
+  "remembered_approval_research": {
+    "machine_row": "NOT_RUN",
+    "observed_policy": "OpenAI documents app permission options including Never ask and permission cards that may offer Always allow; exact availability depends on app/action/account.",
+    "source": "https://help.openai.com/en/articles/11487775-connectors-in-chatgpt",
+    "status": "HOST_CAPABILITY_POSSIBLE_APP_SPECIFIC_AVAILABILITY_NOT_ESTABLISHED"
+  },
   "schema_version": 1,
   "scope": "phase-a-image-content-annotation-local-qualification",
   "tracer_binary_sha256": "47325c17f14ef2e9afa55edff2e78df283d26d082ce930e52a9df288395bf4a8"
