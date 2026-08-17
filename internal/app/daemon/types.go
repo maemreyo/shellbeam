@@ -27,6 +27,8 @@ type Options struct {
 	EvidenceWorker       EvidenceWorker
 	ProjectCommandBinder ProjectCommandBinder
 	PersistentRuntime    PersistentRuntime
+	MediaReader          MediaReader
+	MediaReadBudget      time.Duration
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`

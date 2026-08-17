@@ -72,15 +72,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		return err
 	}
 	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
-	catalog := daemonCatalog(capability.Limits{
-		CommandBytes: cfg.MaxCommandBytes, ResponseBytes: cfg.MaxResponseOutputBytes,
-		SessionOutputBytes: cfg.MaxSessionOutputBytes, RuntimeMS: cfg.MaxTimeoutMS,
-		LiveSessions: cfg.MaxConcurrentSessions, ActivityHistory: activitycore.MaxOperationHistory,
-	})
-	catalog = persistentSessionCatalog(catalog, cfg.MaxConcurrentSessions, cfg.MaxSessionOutputBytes, cfg.MaxQueuedInputSessionBytes)
-	if mutationScopeSvc != nil {
-		catalog = mutationScopeCatalog(catalog)
-	}
+	catalog := daemonRuntimeCatalog(cfg, mutationScopeSvc != nil)
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
@@ -114,6 +106,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		EvidenceWorker:       evidenceScheduler,
 		ProjectCommandBinder: projectBinder,
 		PersistentRuntime:    persistentRuntime,
+		MediaReader:          daemonMediaReader(),
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
 	projectSvc := projectapp.NewWithReadiness(
@@ -169,15 +162,9 @@ func serveDaemonRuntime(
 			return err
 		}
 	}
-	outputKey, err := store.EventCursorKey(startupCtx)
-	if err != nil {
+	if err = bindDaemonOutputView(startupCtx, store, actions); err != nil {
 		return err
 	}
-	outputCodec, err := outputview.NewCursorCodec(outputKey)
-	if err != nil {
-		return err
-	}
-	actions.output = outputview.NewWithCursor(store, outputCodec)
 	telemetryRuntime, err := newExecutionTelemetryRuntime(store)
 	if err != nil {
 		return err
