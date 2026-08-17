@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -32,7 +33,15 @@ func TestE27InputTraceCompositionDisabledDoesZeroProviderWork(t *testing.T) {
 	}
 }
 
+// The healthy path is Darwin's alone: the only tracing provider interposes
+// through dyld, and every other platform answers unsupported_platform by
+// design. Asserting an available capability elsewhere tests the fallback for a
+// promise it never made -- which is what failed on Linux CI. The unavailable
+// path has its own test below.
 func TestE27InputTraceCompositionHealthyDarwinIsTruthfulAndLazy(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skipf("input tracing has no provider on %s", runtime.GOOS)
+	}
 	state := t.TempDir()
 	if err := os.Chmod(state, 0700); err != nil {
 		t.Fatal(err)
