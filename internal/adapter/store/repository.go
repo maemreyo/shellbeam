@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -350,6 +351,9 @@ func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 	var bytes int64
 	err := filepath.Walk(r.root, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
+			if vanishedDuringScan(r.root, path, e) {
+				return nil
+			}
 			return e
 		}
 		if info.Mode().IsRegular() && !isAdmissionIndex(path) {
@@ -371,6 +375,23 @@ func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 		return nil
 	})
 	return active, bytes, err
+}
+
+// vanishedDuringScan reports whether a walk error is simply an entry that
+// stopped existing while the scan was in flight.
+//
+// These scans walk a store that is still being written to. Durable writes land
+// through a temporary file that is renamed into place, so a walk can list a
+// .shellbeam- temporary and then stat it after the rename has already moved it,
+// and retention can collect a record between the same two steps. Both produce
+// ENOENT on a path the scan never needed, and treating that as a scan failure
+// made whole-store reconciliation fail whenever it raced ordinary work -- the
+// busier the store, the likelier the failure.
+//
+// The root itself is excluded: a missing state root is a real fault rather than
+// a concurrent write, and must still be reported.
+func vanishedDuringScan(root, path string, err error) bool {
+	return errors.Is(err, fs.ErrNotExist) && path != root
 }
 
 // usage reports the same quantities as counts, for callers that only compare
