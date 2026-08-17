@@ -349,8 +349,10 @@ experimental_input_tracing = false
 - Modify only: `docs/superpowers/plans/2026-08-17-dynamic-input-tracing.md`
 - Generated evidence: ignored `.build/e27/final-checkpoint.json`
 
-- [ ] **Step 1: Confirm Tasks 1-9 committed.** Final tracked tree contains only intended Task 10 plan checkbox/note bytes; no provider overclaim, no second shipped artifact, no unrelated roadmap implementation.
-- [ ] **Step 2: Freeze final tracked plan bytes** before exact gates. Store source fingerprint only in ignored `.build/e27/final-checkpoint.json`; do not mutate tracked proof bytes after freeze.
+> **Frozen checkpoint note (2026-08-17):** Tasks 1–9 are committed through `17cc97e`; supporting verification/build fixes are `1a1b2a4` and `95a7d72`. Task 10 records all remaining gate receipts and postcommit proof only in ignored `.build/e27/final-checkpoint.json`. No tracked bytes are mutated after this freeze.
+
+- [x] **Step 1: Confirm Tasks 1-9 committed.** Final tracked tree contains only intended Task 10 plan checkbox/note bytes; no provider overclaim, no second shipped artifact, no unrelated roadmap implementation.
+- [x] **Step 2: Freeze final tracked plan bytes** before exact gates. Store source fingerprint only in ignored `.build/e27/final-checkpoint.json`; do not mutate tracked proof bytes after freeze.
 - [ ] **Step 3: Run exact gates on frozen bytes.** `go mod verify`; `go test ./... -count=1`; full targeted E27+store/process/daemon race suite; `go run ./tools/devctl check --json`; `go run ./tools/devctl test --dirty --base origin/main --json`; focused E27 native acceptance; `git diff --check`.
 - [ ] **Step 4: Mechanical anti-goal/privacy scans.** Prove one `AddTool`; one shipped binary/no tracked dylib; no provider work on ordinary start; no `complete_for_owned_tree` advertisement; no `proven_input_scope`; no file/env/network payload fields; no raw external/private paths in public schemas; no process-control expansion; no trace-driven evidence narrowing; no background provider/compiler startup.
 - [ ] **Step 5: Record `.build/e27/final-checkpoint.json`.** Exact source fingerprint, precommit HEAD, gate operation/session receipts, provider/platform matrix, instrumentation effect/fingerprint semantics, off/required/unsupported status, no-tax and explicit trace percentiles, privacy/gap/restart evidence, Darwin native status, Linux compile/native status.
