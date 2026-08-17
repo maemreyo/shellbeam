@@ -278,20 +278,23 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
 - [ ] **Step 5: Run the complete parser/toolchain candidate matrix**
 
-  First re-check official Go status. Stable Go 1.27+ stdlib JSON-v2 is eligible only after official GA. Otherwise the Go 1.26 `GOEXPERIMENT=jsonv2` candidate is eligible only after explicit project acceptance of global experiment risk.
+  First re-check official Go status. Stable Go 1.27+ stdlib JSON-v2 is eligible only after official GA. While GA is unavailable, the approved current fallback is `go1.26-pinned-json-library-boundary`: exact `github.com/go-json-experiment/json@v0.0.0-20260623181947-01eb4420fa68`, global `GOEXPERIMENT` empty, and all modern strict decoding behind the reviewed `jsonstrict.Decode` boundary. The earlier whole-build `go1.26-jsonv2-experiment` candidate is rejected on the current dependency graph and is not eligible under this revision.
 
-  For the Go 1.26 candidate, the local commands include:
+  For the Go 1.26 pinned-library-boundary candidate, the local commands include:
 
   ```bash
-  GOEXPERIMENT=jsonv2 go test ./tools/rich-media-parser-gate -count=1
-  GOEXPERIMENT=jsonv2 go run ./tools/rich-media-parser-gate -fixtures ./tools/rich-media-parser-gate/testdata/fixtures.json -out .build/rich-local-media-parser-gate/report.json
-  GOEXPERIMENT=jsonv2 go test -race ./internal/adapter/ipc ./internal/adapter/mcp ./tests/contract -count=1
-  GOEXPERIMENT=jsonv2 go test -count=1 ./...
-  GOCACHE="$(go env GOCACHE)" GOEXPERIMENT=jsonv2 ./scripts/test-hardening.sh
-  GOEXPERIMENT=jsonv2 ./scripts/test-security.sh
-  GOEXPERIMENT=jsonv2 go build -trimpath -buildvcs=false -o .build/gates/jsonv2/shellbeam ./cmd/shellbeam
+  ./scripts/check-json-mode.sh
+  go test ./tools/rich-media-parser-gate -count=1
+  go run ./tools/rich-media-parser-gate -fixtures ./tools/rich-media-parser-gate/testdata/fixtures.json -out .build/rich-local-media-parser-gate/report.json
+  go test -race ./internal/adapter/ipc ./internal/adapter/mcp ./tests/contract -count=1
+  go test -count=1 ./...
+  GOCACHE="$(go env GOCACHE)" ./scripts/test-hardening.sh
+  ./scripts/test-security.sh
+  go build -trimpath -buildvcs=false -o .build/gates/library-boundary/shellbeam ./cmd/shellbeam
   go version
-  GOEXPERIMENT=jsonv2 go env GOEXPERIMENT GOOS GOARCH CGO_ENABLED
+  go env GOEXPERIMENT GOOS GOARCH CGO_ENABLED
+  go list -m -f '{{.Path}} {{.Version}}' github.com/go-json-experiment/json
+  test -z "$(go env GOEXPERIMENT)"
   ```
 
   Native macOS and Linux release/checkpoint lanes must use the identical selected mode. If remote/native lanes require push/PR or another external action not explicitly authorized, mark the parser candidate `NOT_RUN`; local success/cross-build cannot substitute.
@@ -310,7 +313,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
 - [ ] **Step 7: RED/GREEN the checker itself**
 
-  `scripts/test-rich-media-preimplementation-gate.sh` creates bounded temporary fixtures for: missing row, duplicate row, threshold miss, stale base SHA, stale spec SHA, stale plan SHA, wrong approved-source SHA, missing parser tracer report, missing native lane, mismatched `GOEXPERIMENT`, forged top-level `true`, explicit FAIL, explicit NOT_RUN, and one fully valid fixture.
+  `scripts/test-rich-media-preimplementation-gate.sh` creates bounded temporary fixtures for: missing row, duplicate row, threshold miss, stale base SHA, stale spec SHA, stale plan SHA, wrong approved-source SHA, missing parser tracer report, missing native lane, mismatched parser candidate/module/`GOEXPERIMENT`, forged top-level `true`, explicit FAIL, explicit NOT_RUN, and one fully valid fixture.
 
   Expected exits:
 
@@ -448,7 +451,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
     GOEXPERIMENT: jsonv2
   ```
 
-  For the stable Go 1.27+ mode, the guard requires no `jsonv2` experiment flag.
+  For the approved Go 1.26 pinned-library-boundary mode, the guard requires the exact pinned module version and an empty global `GOEXPERIMENT`. For a future stable Go 1.27+ mode, the guard must be revised and requalified rather than silently reusing the fallback identity.
 
 - [ ] **Step 6: GREEN and regression verification**
 
@@ -1352,7 +1355,7 @@ Additional stop conditions:
 - If PNG does not enter model vision, stop the feature.
 - If only a subset of PNG/JPEG/WebP passes, revise the allowlist before production code.
 - If no parser/toolchain candidate passes the strict tracer + corpus + full/native matrix, checker remains nonzero and Task 1 is forbidden.
-- If Go 1.26 experiment risk has not been explicitly accepted while Go 1.27 remains unavailable as an official GA candidate, record parser gate `NOT_RUN`; do not infer consent.
+- If the exact Go 1.26 pinned-library-boundary candidate cannot pass the strict tracer + full/native matrix while Go 1.27 remains unavailable as an official GA candidate, record parser gate `NOT_RUN` or `FAIL` from evidence; do not fall back to the rejected whole-build experiment without another design amendment.
 - If WebP dependency review fails, revise V1 to PNG/JPEG; do not select another broad decoder framework silently.
 - If the 7 MiB ceiling fails again through the official tunnel in production Phase B, lower the explicit product limit and rerun the affected full matrix; do not ship an undocumented effective limit.
 

@@ -1,12 +1,12 @@
 # ShellBeam Rich Local Media Access Design
 
-**Status:** Core architecture approved; Phase A compatibility tracer is approved to run; implementation planning remains blocked on both Phase A PASS and the Section 8 strict-JSON parser/toolchain gate
+**Status:** Core architecture approved; Phase A compatibility tracer is approved to run; production authorization remains blocked on both Phase A PASS and the Section 8 strict-JSON parser/toolchain gate. Historical implementation commits made before that conjunction PASS are not retroactively authorized and require conformance audit after the checker returns exit `0`.
 **Date:** 2026-08-17
 **Scope:** Bounded local image acquisition and native MCP rich-content delivery through ShellBeam
 **Preferred product surface:** one existing MCP tool, `local_shell`, with a modern `read_media` action
 **Conditional fallback:** one dedicated read-only MCP tool only if the one-tool candidate fails a normative Section 21 scorecard hard gate and the dedicated-tool candidate passes the same full scorecard
 **Depends on:** ShellBeam V1 Design, Agent Execution Layer Design, Workspace/Worktree/Git Identity
-**Implementation plan:** Not yet written; write it only after Phase A passes and one Section 8 parser/toolchain candidate passes the reproducibility/compatibility gate
+**Implementation plan:** `docs/superpowers/plans/2026-08-17-rich-local-media-access.md` exists, but its production Tasks 1–10 remain normatively gated by the machine conjunction. The parser-boundary amendment is tracked in `docs/superpowers/plans/2026-08-17-rich-local-media-parser-boundary-amendment.md`.
 
 ## 1. Decision
 
@@ -305,32 +305,38 @@ The production parser/toolchain mode is selected only after evidence; it is not 
 
 **Preferred stable path:** after Go 1.27 is officially GA, evaluate an ordinary supported Go 1.27+ build using standard-library `encoding/json/v2` / `encoding/json/jsontext` with `RejectUnknownMembers(true)` (or equivalent frozen options). This path wins only if the complete Section 26.1 compatibility matrix passes, including the existing valid-v2 corpus, legacy v1 behavior, full repository tests, and supported release builds.
 
-**Conditional Go 1.26 fallback:** if an official Go 1.27 GA upgrade is unavailable within the implementation window, ShellBeam may use Go 1.26 `encoding/json/v2` only after the project explicitly accepts the experimental compatibility risk and freezes:
+**Approved Go 1.26 library-boundary fallback:** while an official Go 1.27 GA upgrade is unavailable, ShellBeam may use one explicitly pinned JSON-v2 library behind the ShellBeam-owned strict-decoding boundary without enabling the whole-build JSON-v2 experiment. The selected fallback identity is frozen as:
 
 ```text
-GOEXPERIMENT=jsonv2
+candidate = go1.26-pinned-json-library-boundary
+module = github.com/go-json-experiment/json
+version = v0.0.0-20260623181947-01eb4420fa68
+GOEXPERIMENT = <empty>
 ```
 
-as a **global dev/CI/test/release build invariant**. The experiment must be present in every documented build path that produces or verifies a ShellBeam binary; ad-hoc shell state is forbidden. The Section 26.1 full-repository regression/release matrix must pass with the experiment enabled, and release evidence records the exact `go version`, `go env GOEXPERIMENT`, build command, and artifact mode.
+This candidate is eligible only when every modern security-sensitive decode passes through the reviewed `jsonstrict.Decode` boundary, protocol-v1 behavior remains unchanged, the module version is exact, global `GOEXPERIMENT=jsonv2` is absent, and the complete Section 26.1 compatibility matrix passes. Dev, CI, test, packaging, checkpoint, and release paths must run the same guard and exact module identity. The pinned library is a deliberate reviewed dependency, not an undeclared parser substitution.
 
-The Go 1.26 experiment is not automatically preferred merely because it is available sooner. Enabling it changes JSON implementation behavior beyond the new media branch and is outside the Go 1 compatibility promise.
+**Rejected whole-build Go 1.26 experiment on the current dependency graph:** the earlier `go1.26-jsonv2-experiment` candidate was evaluated and failed the mandatory non-media/full-build matrix because enabling `GOEXPERIMENT=jsonv2` changes JSON APIs process-wide and breaks `go.lsp.dev/protocol v1.0.1`. It is therefore not an eligible production candidate under this revision. Reopening it requires another explicit design amendment plus a fresh complete Section 26.1 matrix; a local dependency patch or shell-only experiment flag cannot authorize it.
 
 No V1 fallback may silently introduce:
 
-- `github.com/go-json-experiment/json` or another unstable external JSON-v2 module;
+- an unpinned or unreviewed external JSON implementation;
 - a hand-written duplicate-name/UTF-8 JSON tokenizer;
-- a build where local development, CI, tests, and release artifacts use different parser modes.
+- a global JSON experiment hidden in shell state;
+- a build where local development, CI, tests, packaging, checkpoint, and release artifacts use different parser modes.
 
 If migrating the complete existing v2 semantic decoder would change a documented valid payload, the selected approved parser/toolchain mode may be used as a strict syntactic preflight while preserving existing semantic decoding for unaffected non-media branches. The exact split must preserve all five normative rejection properties for media/public-v2 inputs and must pass the frozen valid-payload corpus.
 
 ### 8.2 Planning gate
 
-Phase A is intentionally independent of this parser decision and may run now. **No production implementation plan may be written until both are true:**
+Phase A is intentionally independent of this parser decision and may run now. **No production implementation plan or production implementation task is authorized until both are true.** A plan and several implementation commits now exist historically before this conjunction was satisfied; that history does not weaken the gate. Those commits may be retained only after the conjunction checker returns exit `0` and a retroactive conformance audit proves them against the approved plan.
+
+The authorization conditions are:
 
 1. Phase A passes its complete Section 21 scorecard; and
 2. one parser/toolchain candidate in Section 8.1 passes the Section 26.1 gate and is frozen as the reproducible production build contract.
 
-If neither the stable Go 1.27+ candidate nor the explicitly approved Go 1.26 experiment candidate passes, rich-local-media remains unadvertised and production planning stops.
+If neither the stable Go 1.27+ candidate nor the approved Go 1.26 pinned-library-boundary candidate passes, rich-local-media remains unadvertised and production planning stops.
 
 ## 9. Preferred public tool surface and conditional fallback
 
@@ -1237,7 +1243,7 @@ Use native `mcp.ImageContent`. No second MCP SDK and no custom media wire model.
 Strict JSON behavior is governed by Section 8 and Section 26.1, not by an unconditional dependency claim. The selected production build uses exactly one reviewed mode:
 
 - preferred: official Go 1.27+ GA standard-library `encoding/json/v2` / `encoding/json/jsontext`, after compatibility PASS; or
-- conditional fallback: Go 1.26 with globally frozen `GOEXPERIMENT=jsonv2`, after explicit project acceptance and full regression/release PASS.
+- approved fallback: Go 1.26 with exact pinned `github.com/go-json-experiment/json@v0.0.0-20260623181947-01eb4420fa68` behind `jsonstrict.Decode`, global `GOEXPERIMENT` empty, after full regression/release PASS.
 
 An ordinary documented build must not depend on hidden shell state. CI and release gates SHALL fail if the active parser/toolchain mode differs from the frozen project mode.
 
@@ -1346,13 +1352,14 @@ After Phase A PASS and **before implementation planning**, run a narrow strict-d
 Preferred candidate procedure:
 
 1. wait for an official Go 1.27 GA toolchain rather than treating draft release notes as production evidence;
+2. while Go 1.27 is unavailable, prefer the approved pinned-library-boundary fallback over a whole-build experiment because its blast radius is limited to the reviewed strict-decoding boundary;
 2. run the matrix with standard-library JSON v2 available by default;
 3. if all gates pass, freeze the exact minimum supported toolchain/build mode.
 
 Conditional Go 1.26 procedure:
 
-1. use it only when Go 1.27 GA migration is unavailable within the implementation window and the project explicitly accepts the experiment;
-2. set `GOEXPERIMENT=jsonv2` explicitly in developer bootstrap, CI, test, packaging, and release commands/configuration;
+1. treat the whole-build Go 1.26 `GOEXPERIMENT=jsonv2` candidate as rejected for the current dependency graph;
+2. do not enable it in developer bootstrap, CI, test, packaging, checkpoint, or release commands without another design amendment and complete requalification;
 3. prove that a build missing or contradicting the frozen experiment mode fails a reproducibility guard instead of silently producing a different binary;
 4. run the complete matrix above with the experiment enabled.
 
@@ -1537,7 +1544,7 @@ The feature is production-ready only when all are true:
 2. The preferred one-tool topology passes every normative Section 21 scorecard hard gate, or it is replaced only by a dedicated-tool candidate that passes the same full scorecard.
 3. Production image audience annotations follow the deterministic Section 21 rule: exactly one passing candidate wins; if both pass, annotations omitted wins; if neither passes, stop/revise.
 4. Strict v2 JSON rejects invalid UTF-8, duplicate names, unknown members, wrong-case members, and trailing JSON under one frozen reproducible parser/toolchain contract.
-5. The Section 8/26.1 parser gate is closed before implementation planning: either official Go 1.27+ GA standard-library JSON v2 passes the full repository/release matrix, or the explicitly approved Go 1.26 `GOEXPERIMENT=jsonv2` fallback passes the same matrix with identical dev/CI/test/release configuration. Exact `go version`, `GOEXPERIMENT`, and build commands are recorded; hidden or divergent modes fail.
+5. The Section 8/26.1 parser gate is closed before implementation planning: either official Go 1.27+ GA standard-library JSON v2 passes the full repository/release matrix, or the approved Go 1.26 pinned-library-boundary candidate passes the same matrix with exact module identity and global `GOEXPERIMENT` empty across dev/CI/test/packaging/checkpoint/release. Exact `go version`, module version, `GOEXPERIMENT`, and build commands are recorded; hidden or divergent modes fail.
 6. Exact path grammar and 1024-byte `path`/`cwd` limits are enforced.
 7. Component-wise no-follow traversal rejects intermediate/final symlinks.
 8. Final nonblocking open plus `fstat` rejects FIFO/socket/device/directory before content read.
@@ -1658,6 +1665,6 @@ Final pre-tracer review:
 
 Independent v6 review:
 
-15. strict JSON semantics are separated from parser implementation; Go 1.26 JSON v2 is recognized as an experimental whole-build mode requiring explicit `GOEXPERIMENT=jsonv2`, official Go 1.27 GA is the preferred stable candidate only after repository compatibility PASS, and implementation planning is blocked until one reproducible parser/toolchain mode passes the full dev/CI/test/release gate.
+15. strict JSON semantics are separated from parser implementation; official Go 1.27 GA remains the preferred stable candidate, the approved Go 1.26 fallback is an exact pinned JSON-v2 library behind the ShellBeam-owned strict boundary with global `GOEXPERIMENT` empty, the whole-build Go 1.26 experiment is rejected on the current dependency graph, and implementation planning is blocked until one reproducible parser/toolchain mode passes the full dev/CI/test/packaging/checkpoint/release gate.
 
 The former 8 MiB raw image ceiling is **rejected-candidate evidence** because the live Secure MCP Tunnel path returned HTTP 413 at the observed 10,485,760-byte body ceiling. The current 7 MiB ceiling passed the real-host maximum-payload trial 3/3 but remains a product candidate until the remaining Phase A, memory/native, and Phase B gates pass. The original 5 s wording remains a cooperative acquisition budget, not a hard syscall interruption guarantee.
