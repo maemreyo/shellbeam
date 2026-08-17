@@ -12,6 +12,7 @@ import (
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -95,16 +96,21 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 		return existing, false, withObservationSeq(result, seq)
 	}
 	r.commitObservationBestEffort(seq)
-	metadata := withObservationSeq(r.ensureSessionMetadata(want), seq)
-	if metadata.Err != nil {
-		if metadata.Durability == app.AmbiguousChange {
-			if compensationErr := r.finalizeAmbiguousAdmission(want); compensationErr != nil {
-				metadata.Err = errors.Join(metadata.Err, compensationErr)
-			}
-		}
-		return want, false, metadata
+	created, metadata := r.finalizeReservationMetadata(want, seq)
+	return want, created, metadata
+}
+
+func (r *Repository) finalizeReservationMetadata(want operation.Reservation, observationSeq observation.ChangeSeq) (bool, app.StoreResult) {
+	metadata := withObservationSeq(r.ensureSessionMetadata(want), observationSeq)
+	if metadata.Err == nil {
+		return true, metadata
 	}
-	return want, true, metadata
+	if metadata.Durability == app.AmbiguousChange {
+		if compensationErr := r.finalizeAmbiguousAdmission(want); compensationErr != nil {
+			metadata.Err = errors.Join(metadata.Err, compensationErr)
+		}
+	}
+	return false, metadata
 }
 
 // finalizeAmbiguousAdmission closes the ownership gap created when session
