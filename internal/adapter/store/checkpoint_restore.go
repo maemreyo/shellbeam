@@ -53,7 +53,17 @@ func (r *Repository) ReserveCheckpointRestore(ctx context.Context, reservation c
 		return checkpointapp.RestoreReservation{}, nil, false, err
 	}
 
+	r.observationVisibilityMu.Lock()
+	defer r.observationVisibilityMu.Unlock()
+	seq, prepared := r.prepareCheckpointRestoreStartedObservation(ctx, checkpoint, reservation)
+	if prepared.Err != nil {
+		return checkpointapp.RestoreReservation{}, nil, false, prepared.Err
+	}
 	result := r.writer.Create(r.checkpointRestoreReservationPath(reservation.RestoreID), reservation)
+	r.finishCheckpointObservation(seq, result, func() bool {
+		canonical, readErr := r.readCheckpointRestoreReservationUnlocked(reservation.RestoreID)
+		return readErr == nil && reflect.DeepEqual(canonical, reservation)
+	})
 	if result.Err == nil {
 		return reservation, nil, true, nil
 	}
@@ -145,7 +155,21 @@ func (r *Repository) CompleteCheckpointRestore(ctx context.Context, restoreID st
 			"restore_id": restoreID, "checkpoint_id": reservation.CheckpointID,
 		}, nil)
 	}
+	checkpoint, err := r.readCheckpointMetadataUnlocked(reservation.CheckpointID)
+	if err != nil {
+		return core.RestoreResult{}, err
+	}
+	r.observationVisibilityMu.Lock()
+	defer r.observationVisibilityMu.Unlock()
+	seq, prepared := r.prepareCheckpointRestoreCompletedObservation(ctx, checkpoint, result)
+	if prepared.Err != nil {
+		return core.RestoreResult{}, prepared.Err
+	}
 	write := r.writer.Replace(r.checkpointRestoreResultPath(restoreID), result)
+	r.finishCheckpointObservation(seq, write, func() bool {
+		canonical, readErr := r.readCheckpointRestoreResultUnlocked(restoreID)
+		return readErr == nil && reflect.DeepEqual(canonical, result)
+	})
 	if write.Err == nil {
 		return result, nil
 	}
@@ -167,6 +191,9 @@ func (r *Repository) LoadCheckpointRestore(ctx context.Context, restoreID string
 	defer r.checkpointMu.Unlock()
 
 	reservation, err := r.readCheckpointRestoreReservationUnlocked(restoreID)
+	if errors.Is(err, ErrNotFound) {
+		return checkpointapp.RestoreReservation{}, nil, nil, checkpointapp.ErrRestoreNotFound
+	}
 	if err != nil {
 		return checkpointapp.RestoreReservation{}, nil, nil, err
 	}

@@ -28,6 +28,8 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		selector := in.OutputRead.Selector
 		req.Selector = &selector
 		req.Continuation = in.OutputRead.Continuation
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		applyCheckpointBridgeRequestV2(req, in)
 	case "write":
 		req.SessionID = in.Write.SessionID
 		req.InputOffset = in.Write.InputOffset
@@ -90,4 +92,20 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		req.Signal = in.Kill.Signal
 	}
 
+}
+
+func applyCheckpointBridgeRequestV2(req *RequestV2, in bridge.Request) {
+	switch in.Action {
+	case "checkpoint_create":
+		req.CheckpointCreateID = in.CheckpointCreate.CreateID
+		req.WorkspaceID = in.CheckpointCreate.WorkspaceID
+		req.ActivityID = in.CheckpointCreate.ActivityID
+		req.Paths = append([]string(nil), in.CheckpointCreate.Paths...)
+	case "checkpoint_restore":
+		req.RestoreID = in.CheckpointRestore.RestoreID
+		req.CheckpointID = in.CheckpointRestore.CheckpointID
+		req.Paths = append([]string(nil), in.CheckpointRestore.Paths...)
+	case "checkpoint_inspect":
+		req.CheckpointID = in.CheckpointID
+	}
 }

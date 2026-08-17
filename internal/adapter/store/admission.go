@@ -308,7 +308,7 @@ func (r *Repository) scanStateBytes() (int64, error) {
 	var bytes int64
 	err := filepath.Walk(r.root, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
-			if vanishedDuringScan(r.root, path, e) {
+			if transientAtomicWalkError(r.root, path, e) {
 				return nil
 			}
 			return e

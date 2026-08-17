@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	corecheckpoint "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
@@ -78,6 +79,20 @@ func TestEventInspectBridgePreservesTypedRequestAndResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	if client.request.Action != "inspect.events" || client.request.EventInspect.Target.OperationID != "op-1" || client.request.EventInspect.MaxEvents != 64 || got.Events != &result {
+		t.Fatalf("request=%#v response=%#v", client.request, got)
+	}
+}
+
+func TestCheckpointBridgePreservesTypedRequestAndResponse(t *testing.T) {
+	checkpoint := corecheckpoint.Checkpoint{CheckpointID: "chk_01K00000000000000000000000"}
+	client := &recordingClient{response: Response{Checkpoint: &checkpoint}}
+	h := New(client)
+	request := Request{ProtocolVersion: 2, Action: "checkpoint_create", CheckpointCreate: corecheckpoint.CreateRequest{CreateID: "cp-create-1", WorkspaceID: "ws_01K00000000000000000000000", Paths: []string{"src/**"}}}
+	got, err := h.Handle(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if client.request.CheckpointCreate.CreateID != "cp-create-1" || got.Checkpoint != &checkpoint {
 		t.Fatalf("request=%#v response=%#v", client.request, got)
 	}
 }

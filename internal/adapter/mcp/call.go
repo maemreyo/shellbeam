@@ -42,7 +42,7 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		if in.Action == "read_media" {
 			return mediaSuccessV2(in, out), nil
 		}
-		return successV2(in.Action, out), nil
+		return successV2(in, out), nil
 	}
 	return successV1(in.Action, out), nil
 }
@@ -69,13 +69,14 @@ func successV1(action string, out bridge.Response) *mcpgo.CallToolResult {
 	return toolSuccess(fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State), body)
 }
 
-func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
+func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
+	action := in.Action
 	body := map[string]any{"schema_version": 2, "ok": true, "action": action}
 	summary := action
 	switch action {
 	case "start", "poll":
 		var failed *mcpgo.CallToolResult
-		summary, failed = executionSuccessV2(action, out, body)
+		summary, failed = executionSuccessV2(in, out, body)
 		if failed != nil {
 			return failed
 		}
@@ -88,7 +89,13 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)
-	case "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		var failed *mcpgo.CallToolResult
+		summary, failed = checkpointSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
+		}
+	case "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)
 		if failed != nil {
@@ -98,12 +105,18 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	return toolSuccess(summary, body)
 }
 
-func executionSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+func executionSuccessV2(in input, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	action := in.Action
 	if out.Result == nil {
 		return "", toolErrorV2(action, "invalid_daemon_response", "structured result missing", false)
 	}
 	body["result"] = out.Result
-	return fmt.Sprintf("%s session %s: %s", action, out.Result.Operation.SessionID, out.Result.Operation.State), nil
+	summary := fmt.Sprintf("%s session %s: %s", action, out.Result.Operation.SessionID, out.Result.Operation.State)
+	if action == "start" && out.InputTrace != nil {
+		body["input_trace"] = startInputTraceStatus(in.TraceMode, *out.InputTrace)
+		summary += fmt.Sprintf("; trace %s/%s", in.TraceMode, out.InputTrace.Status)
+	}
+	return summary, nil
 }
 
 func outputViewSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
@@ -112,6 +125,26 @@ func outputViewSuccessV2(action string, out bridge.Response, body map[string]any
 	}
 	body["output_view"] = out.OutputView
 	return "read_output: " + string(out.OutputView.SelectorKind), nil
+}
+
+// journalInspectionSuccessV2 summarises the two inspections that read the
+// daemon's own record of itself rather than a session's work.
+func journalInspectionSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	switch action {
+	case "inspect.events":
+		if out.Events == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "event inspection missing", false)
+		}
+		body["events"] = out.Events
+		return fmt.Sprintf("inspect.events: %d event(s)", len(out.Events.Events)), nil
+	case "inspect.server":
+		if out.Server == nil {
+			return "", toolErrorV2(action, "invalid_daemon_response", "server catalog missing", false)
+		}
+		body["server"] = out.Server
+		return "inspect.server: capabilities", nil
+	}
+	return action, nil
 }
 
 func inspectionSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
@@ -160,6 +193,8 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 		}
 		body["evidence"] = out.Evidence
 		return "inspect.evidence: " + string(out.Evidence.Status), nil
+	case "inspect.trace":
+		return inputTraceSuccessV2(action, out, body)
 	case "inspect.telemetry":
 		if out.Telemetry == nil {
 			return "", toolErrorV2(action, "invalid_daemon_response", "telemetry inspection missing", false)
@@ -178,18 +213,8 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 		}
 		body["repro"] = out.Repro
 		return "inspect.repro: " + out.Repro.Capsule.ReproID, nil
-	case "inspect.events":
-		if out.Events == nil {
-			return "", toolErrorV2(action, "invalid_daemon_response", "event inspection missing", false)
-		}
-		body["events"] = out.Events
-		return fmt.Sprintf("inspect.events: %d event(s)", len(out.Events.Events)), nil
-	case "inspect.server":
-		if out.Server == nil {
-			return "", toolErrorV2(action, "invalid_daemon_response", "server catalog missing", false)
-		}
-		body["server"] = out.Server
-		return "inspect.server: capabilities", nil
+	case "inspect.events", "inspect.server":
+		return journalInspectionSuccessV2(action, out, body)
 	default:
 		return action, nil
 	}
@@ -289,15 +314,4 @@ func toolError(code, message string, retryable bool) *mcpgo.CallToolResult {
 func toolErrorV2(action, code, message string, retryable bool) *mcpgo.CallToolResult {
 	body := map[string]any{"schema_version": 2, "ok": false, "action": action, "error": map[string]any{"code": code, "message": message, "retryable": retryable}}
 	return &mcpgo.CallToolResult{IsError: true, Content: []mcpgo.Content{&mcpgo.TextContent{Text: code + ": " + message}}, StructuredContent: body}
-}
-
-func cloneMCPStringMap(input map[string]string) map[string]string {
-	if input == nil {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }

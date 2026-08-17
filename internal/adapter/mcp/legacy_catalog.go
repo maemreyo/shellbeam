@@ -59,6 +59,10 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	delete(out.Features, capability.FeatureTypedProjectCommands)
 	delete(out.Features, capability.FeatureOutputViews)
 	delete(out.Features, capability.FeatureMutationScopes)
+	delete(out.Features, capability.FeatureSafetyCheckpoints)
+	out.SafetyCheckpoints = nil
+	delete(out.Features, capability.FeatureInputTracing)
+	out.InputTracing = nil
 	out.MutationScopeSchemaVersions = nil
 	stripLegacyPersistentCapabilities(&out)
 	out.Limits.MutationScopeActivePerActivity = 0

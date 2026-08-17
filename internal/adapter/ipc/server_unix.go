@@ -20,7 +20,6 @@ import (
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
-	"github.com/maemreyo/shellbeam/internal/ownership"
 	"net"
 	"net/http"
 	"os"
@@ -94,46 +93,26 @@ type Server struct {
 	actions    Actions
 	// lease is this daemon's ownership of the runtime directory. It outlives
 	// the socket pathname deliberately and is surrendered only on Close.
-	lease     *ownership.Lease
+	lease     RuntimeLease
 	ready     chan struct{}
 	readyOnce sync.Once
 	closing   chan struct{}
 	closeOnce sync.Once
 }
 
-func Listen(runtime string, actions Actions) (*Server, error) {
-	return listen(runtime, actions, dialUnixSocket)
+// ListenPendingWithLease starts a pending server using an already-acquired
+// runtime-directory lease. The server owns the supplied lease immediately: it
+// releases it on setup failure or, after successful construction, on Close.
+func ListenPendingWithLease(runtime string, actions Actions, lease RuntimeLease) (*Server, error) {
+	return listenWithReadiness(runtime, actions, lease, dialUnixSocket, false)
 }
 
-func ListenPending(runtime string, actions Actions) (*Server, error) {
-	return ListenPendingAs(runtime, "", actions, nil)
-}
-
-// ListenPendingAs is ListenPending with the daemon incarnation recorded on the
-// runtime directory's ownership lease, so diagnostics can tie the process
-// holding the endpoint to the incarnation stamped on its receipts.
-//
-// stateLease is the caller's own lease on its state directory, if it holds one.
-// The runtime and state directories may legitimately be the same directory, and
-// a daemon must not be refused its own endpoint by its own state lock; passing
-// the lease is what lets the two share rather than contend.
-func ListenPendingAs(runtime, incarnation string, actions Actions, stateLease *ownership.Lease) (*Server, error) {
-	return listenWithReadiness(runtime, incarnation, actions, stateLease, dialUnixSocket, false)
-}
-
-func listen(runtime string, actions Actions, dial socketDialer) (*Server, error) {
-	return listenWithReadiness(runtime, "", actions, nil, dial, true)
-}
-
-func listenWithReadiness(runtime, incarnation string, actions Actions, stateLease *ownership.Lease, dial socketDialer, ready bool) (*Server, error) {
-	if err := prepareRuntime(runtime); err != nil {
-		return nil, err
+func listenWithReadiness(runtime string, actions Actions, lease RuntimeLease, dial socketDialer, ready bool) (*Server, error) {
+	if lease == nil {
+		return nil, fmt.Errorf("runtime ownership lease required")
 	}
-	// The lease, not the socket pathname, decides who owns this runtime
-	// directory. It is taken before anything touches the pathname, so a socket
-	// that someone unlinked cannot be mistaken for an unowned endpoint.
-	lease, err := ownership.AcquireWith(stateLease, runtime, incarnation)
-	if err != nil {
+	if err := prepareRuntime(runtime); err != nil {
+		_ = lease.Release()
 		return nil, err
 	}
 	released := false

@@ -137,3 +137,16 @@ func TestTypedProjectCommandDescriptorIsBoundedAndValidated(t *testing.T) {
 		t.Fatal("typed command descriptor accepted without manifest digest")
 	}
 }
+
+func TestE27InputTraceDoesNotAddRawProviderOrNegativeAuthorityToReproCapsule(t *testing.T) {
+	for _, typ := range []reflect.Type{reflect.TypeOf(Capsule{}), reflect.TypeOf(InputDescriptor{}), reflect.TypeOf(ReferenceDescriptor{})} {
+		for i := 0; i < typ.NumField(); i++ {
+			name := strings.ToLower(typ.Field(i).Name)
+			for _, forbidden := range []string{"rawtrace", "providerpath", "socketpath", "environmentvalue", "networkpayload", "proveninput", "negativeobservation"} {
+				if strings.Contains(name, forbidden) {
+					t.Fatalf("%s exposed forbidden E27 field %s", typ.Name(), typ.Field(i).Name)
+				}
+			}
+		}
+	}
+}

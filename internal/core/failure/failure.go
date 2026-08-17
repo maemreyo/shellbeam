@@ -119,6 +119,16 @@ const (
 	CheckpointRestoreConflict              Code = "checkpoint_restore_conflict"
 	CheckpointRestorePartial               Code = "checkpoint_restore_partial"
 	CheckpointRestoreFailed                Code = "checkpoint_restore_failed"
+
+	InputTraceProviderUnavailable   Code = "input_trace_provider_unavailable"
+	InputTraceRequiredUnavailable   Code = "input_trace_required_unavailable"
+	InputTraceStartupBudgetExceeded Code = "input_trace_startup_budget_exceeded"
+	InputTraceUnsupported           Code = "input_trace_unsupported"
+	InputTracePartial               Code = "input_trace_partial"
+	InputTraceBudgetExceeded        Code = "input_trace_budget_exceeded"
+	InputTraceLateAttach            Code = "input_trace_late_attach"
+	InputTraceOwnershipLost         Code = "input_trace_ownership_lost"
+	InputTraceNotFound              Code = "input_trace_not_found"
 )
 
 type Failure struct {
@@ -241,6 +251,16 @@ var publicSpecs = map[Code]publicSpec{
 	CheckpointRestoreConflict:              {message: "checkpoint restore path conflicts with current state", details: keys("restore_id", "checkpoint_id", "path")},
 	CheckpointRestorePartial:               {message: "checkpoint restore is partial", details: keys("restore_id", "checkpoint_id")},
 	CheckpointRestoreFailed:                {message: "checkpoint restore failed", retryable: true, details: keys("restore_id", "checkpoint_id", "reason")},
+
+	InputTraceProviderUnavailable:   {message: "input trace provider unavailable", retryable: true, details: keys("provider", "platform", "reason")},
+	InputTraceRequiredUnavailable:   {message: "required input tracing unavailable", details: keys("provider", "platform", "reason")},
+	InputTraceStartupBudgetExceeded: {message: "input trace startup budget exceeded", retryable: true, details: keys("provider", "limit_ms", "reason")},
+	InputTraceUnsupported:           {message: "input tracing unsupported", details: keys("provider", "platform", "reason")},
+	InputTracePartial:               {message: "input trace partial", details: keys("trace_id", "reason")},
+	InputTraceBudgetExceeded:        {message: "input trace budget exceeded", details: keys("trace_id", "limit", "reason")},
+	InputTraceLateAttach:            {message: "input trace attached late", details: keys("trace_id", "reason")},
+	InputTraceOwnershipLost:         {message: "input trace ownership lost", details: keys("trace_id", "reason")},
+	InputTraceNotFound:              {message: "input trace not found", details: keys("operation_id", "trace_id")},
 }
 
 var legacyCodes = map[string]Code{

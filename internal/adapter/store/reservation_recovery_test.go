@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -96,6 +97,47 @@ func openRecoveryRepository(t *testing.T, root string) *Repository {
 
 func mkdirPrivate(path string) error {
 	return os.Mkdir(path, 0700)
+}
+
+func TestAmbiguousSessionMetadataAdmissionFailureFinalizesAndFreesCapacity(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	r, err := Open(root, Limits{MaxSessions: 1, MaxSessionOutput: 1024, MaxTotalState: 1 << 20, ControlReserve: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := operation.Reservation{
+		SchemaVersion: 1, OperationID: "metadata-ambiguous", SessionID: "metadata-ambiguous-session",
+		Fingerprint: "fingerprint-1", Command: "true", CWD: "/", Shell: "/bin/sh", DaemonIncarnation: "daemon-a",
+	}
+	r.writer = failAtomicWriterNth("replace.dir_sync", 2)
+	_, created, got := r.ReserveOperation(context.Background(), first)
+	if got.Err == nil || created || got.Durability != app.AmbiguousChange {
+		t.Fatalf("created=%v result=%#v", created, got)
+	}
+	snap, err := r.LoadSession(context.Background(), first.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.State != session.Abandoned || snap.Outcome != session.Ambiguous {
+		t.Fatalf("ambiguous admission snapshot=%#v", snap)
+	}
+	rec, err := r.LoadReceipt(context.Background(), first.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.State != session.Abandoned || rec.Outcome != session.Ambiguous || rec.FailureReason != "admission_metadata_ambiguous" {
+		t.Fatalf("ambiguous admission receipt=%#v", rec)
+	}
+
+	r.writer = atomicWriter{}
+	second := operation.Reservation{
+		SchemaVersion: 1, OperationID: "metadata-after-ambiguous", SessionID: "metadata-after-ambiguous-session",
+		Fingerprint: "fingerprint-2", Command: "true", CWD: "/", Shell: "/bin/sh", DaemonIncarnation: "daemon-a",
+	}
+	_, created, got = r.ReserveOperation(context.Background(), second)
+	if got.Err != nil || !created {
+		t.Fatalf("capacity remained occupied after ambiguous metadata failure: created=%v result=%#v", created, got)
+	}
 }
 
 func TestObservationCanonicalAdmissionFailureAbortsThenRetryUsesNewSequence(t *testing.T) {

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,6 +50,7 @@ type Repository struct {
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
 	telemetryMu              sync.Mutex
+	inputTraceMu             sync.Mutex
 	reproMu                  sync.Mutex
 	checkpointMu             sync.Mutex
 	mutationScopeMu          sync.Mutex
@@ -179,6 +179,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initTelemetryStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initInputTraceStore(); err != nil {
 		return nil, err
 	}
 	if err := repository.initReproStore(); err != nil {
@@ -345,13 +348,17 @@ func readStrict(path string, out any) error {
 // It costs O(history) -- a stat of every file plus a strict decode of every
 // session metadata document -- so it belongs to reconciliation only, never to
 // the admission path. See admission.go.
+func transientAtomicWalkError(root, path string, err error) bool {
+	return errors.Is(err, os.ErrNotExist) && path != root
+}
+
 func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 	r.fullScans.Add(1)
 	active := map[string]struct{}{}
 	var bytes int64
 	err := filepath.Walk(r.root, func(path string, info os.FileInfo, e error) error {
 		if e != nil {
-			if vanishedDuringScan(r.root, path, e) {
+			if transientAtomicWalkError(r.root, path, e) {
 				return nil
 			}
 			return e
@@ -375,23 +382,6 @@ func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 		return nil
 	})
 	return active, bytes, err
-}
-
-// vanishedDuringScan reports whether a walk error is simply an entry that
-// stopped existing while the scan was in flight.
-//
-// These scans walk a store that is still being written to. Durable writes land
-// through a temporary file that is renamed into place, so a walk can list a
-// .shellbeam- temporary and then stat it after the rename has already moved it,
-// and retention can collect a record between the same two steps. Both produce
-// ENOENT on a path the scan never needed, and treating that as a scan failure
-// made whole-store reconciliation fail whenever it raced ordinary work -- the
-// busier the store, the likelier the failure.
-//
-// The root itself is excluded: a missing state root is a real fault rather than
-// a concurrent write, and must still be reported.
-func vanishedDuringScan(root, path string, err error) bool {
-	return errors.Is(err, fs.ErrNotExist) && path != root
 }
 
 // usage reports the same quantities as counts, for callers that only compare

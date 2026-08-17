@@ -12,6 +12,8 @@ import (
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -95,11 +97,56 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 		return existing, false, withObservationSeq(result, seq)
 	}
 	r.commitObservationBestEffort(seq)
-	metadata := withObservationSeq(r.ensureSessionMetadata(want), seq)
-	if metadata.Err != nil {
-		return want, false, metadata
+	created, metadata := r.finalizeReservationMetadata(want, seq)
+	return want, created, metadata
+}
+
+func (r *Repository) finalizeReservationMetadata(want operation.Reservation, observationSeq observation.ChangeSeq) (bool, app.StoreResult) {
+	metadata := withObservationSeq(r.ensureSessionMetadata(want), observationSeq)
+	if metadata.Err == nil {
+		return true, metadata
 	}
-	return want, true, metadata
+	if metadata.Durability == app.AmbiguousChange {
+		if compensationErr := r.finalizeAmbiguousAdmission(want); compensationErr != nil {
+			metadata.Err = errors.Join(metadata.Err, compensationErr)
+		}
+	}
+	return false, metadata
+}
+
+// finalizeAmbiguousAdmission closes the ownership gap created when session
+// metadata was renamed into place but its parent directory sync failed. The
+// operation reservation is already durable at this point, but Start must not
+// be authorized because metadata durability is ambiguous. Since no runtime
+// owner has been created yet, the only safe same-process outcome is canonical
+// Abandoned/Ambiguous terminal state before returning the original error.
+func (r *Repository) finalizeAmbiguousAdmission(want operation.Reservation) error {
+	snap, err := r.LoadSession(context.Background(), want.SessionID)
+	if err != nil {
+		return fmt.Errorf("load ambiguous admission metadata: %w", err)
+	}
+	if snap.OperationID != string(want.OperationID) || snap.SessionID != string(want.SessionID) {
+		return fmt.Errorf("ambiguous admission metadata identity mismatch")
+	}
+	if snap.State.Terminal() {
+		return nil
+	}
+	rec := abandonedReceipt(snap, want, true, want.DaemonIncarnation)
+	rec.FailureReason = "admission_metadata_ambiguous"
+	delay := 25 * time.Millisecond
+	for {
+		result := r.PublishTerminal(context.Background(), rec)
+		if result.Err == nil {
+			return nil
+		}
+		time.Sleep(delay)
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
 }
 
 func (r *Repository) replayReservation(want, existing operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
@@ -108,6 +155,9 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 	}
 	if existing.ObservationBindingFingerprint != want.ObservationBindingFingerprint {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
+	}
+	if !sameTraceBinding(existing.Trace, want.Trace) {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "input_trace"}, nil)}
 	}
 	if existing.SchemaVersion == 3 || want.SchemaVersion == 3 || existing.ProjectCommand != nil || want.ProjectCommand != nil {
 		if existing.ProjectCommand == nil || want.ProjectCommand == nil {
@@ -125,13 +175,22 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 	return existing, false, r.ensureSessionMetadata(existing)
 }
 
+func sameTraceBinding(a, b *inputtrace.InstrumentationBinding) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	aDigest, aErr := a.Digest()
+	bDigest, bErr := b.Digest()
+	return aErr == nil && bErr == nil && aDigest == bDigest
+}
+
 func validateReservation(v operation.Reservation) error {
 	if v.OperationID == "" || v.SessionID == "" {
 		return fmt.Errorf("invalid reservation")
 	}
 	switch v.SchemaVersion {
 	case 1:
-		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil {
+		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil {
 			return fmt.Errorf("invalid reservation")
 		}
 	case 2:
@@ -186,6 +245,11 @@ func validateReservation(v operation.Reservation) error {
 	if v.EnvironmentBinding != nil {
 		if err := v.EnvironmentBinding.Validate(); err != nil {
 			return fmt.Errorf("invalid reservation environment binding: %w", err)
+		}
+	}
+	if v.Trace != nil {
+		if err := v.Trace.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation input trace binding: %w", err)
 		}
 	}
 	return nil

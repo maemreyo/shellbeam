@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
+	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -29,10 +31,8 @@ type Options struct {
 	PersistentRuntime    PersistentRuntime
 	MediaReader          MediaReader
 	MediaReadBudget      time.Duration
-	// FinalizeRetryMin and FinalizeRetryMax bound how fast a failed persistent
-	// reconciliation is retried. Zero selects the package defaults.
-	FinalizeRetryMin time.Duration
-	FinalizeRetryMax time.Duration
+	InputTracePreparer   traceapp.Preparer
+	InputTraceWorker     InputTraceWorker
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`
@@ -48,6 +48,7 @@ type StartRequest struct {
 	TimeoutMS         int64                     `json:"timeout_ms"`
 	StdinMode         operation.StdinMode       `json:"stdin_mode,omitempty"`
 	TimeoutMode       operation.TimeoutMode     `json:"timeout_mode,omitempty"`
+	TraceMode         trace.Mode                `json:"trace_mode,omitempty"`
 	Persistent        bool                      `json:"persistent,omitempty"`
 	SessionName       string                    `json:"session_name,omitempty"`
 	YieldMS           int64                     `json:"yield_time_ms"`
@@ -70,6 +71,10 @@ type EvidenceWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to evidence derivation.
 	ScheduleTerminal(context.Context, receipt.Receipt) error
 }
+type InputTraceWorker interface {
+	ScheduleTerminal(context.Context, receipt.Receipt) error
+}
+
 type PollRequest struct {
 	SessionID      string `json:"session_id"`
 	Cursor         int64  `json:"cursor"`

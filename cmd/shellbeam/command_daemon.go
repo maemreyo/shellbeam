@@ -12,9 +12,11 @@ import (
 	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
+	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
@@ -49,6 +51,13 @@ func runDaemon(ctx context.Context, args []string) error {
 }
 
 func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFactory codeProviderFactory, providerResolver codeProviderResolver) error {
+	return runDaemonWithProviders(ctx, args, providerFactory, providerResolver, nil)
+}
+
+// State ownership must be claimed before opening the store: the runtime lease
+// protects only the endpoint, while two daemons sharing durable state could
+// otherwise each admit up to the session limit.
+func runDaemonWithProviders(ctx context.Context, args []string, providerFactory codeProviderFactory, providerResolver codeProviderResolver, checkpointFactory checkpointProviderFactory) error {
 	cfg, paths, err := loadCommon("daemon", args)
 	if err != nil {
 		return err
@@ -70,13 +79,15 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
 	coherence := workspaceapp.NewCoherenceTracker(incarnation)
 	deltaSampler := workspaceapp.NewDeltaSampler(store, gitRepo, coherence)
-	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
-	var codeRuntime *codeIntelligenceRuntime
-	if providerFactory == nil && providerResolver == nil {
-		codeRuntime, err = newCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence)
-	} else {
-		codeRuntime, err = newCodeIntelligenceRuntimeWithProvider(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
+	checkpointSvc, catalog := composeSafetyCheckpoints(cfg.ExperimentalCheckpoints, paths.StateDir, paths.RuntimeDir, store, newCheckpointWorkspaceSource(workspaceSvc, workspaceObserver, coherence), catalog, checkpointFactory)
+	inputTraceRuntime, err := composeInputTracing(ctx, cfg.ExperimentalInputTracing, paths.StateDir, store, catalog)
+	if err != nil {
+		return err
 	}
+	defer inputTraceRuntime.Close(context.Background())
+	catalog = inputTraceRuntime.Catalog
+	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
+	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
 		return err
 	}
@@ -99,8 +110,8 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		ProjectCommandBinder: projectBinder,
 		PersistentRuntime:    persistentRuntime,
 		MediaReader:          daemonMediaReader(),
-		FinalizeRetryMin:     time.Duration(cfg.FinalizeRetryMinMS) * time.Millisecond,
-		FinalizeRetryMax:     time.Duration(cfg.FinalizeRetryMaxMS) * time.Millisecond,
+		InputTracePreparer:   inputTraceRuntime.Preparer,
+		InputTraceWorker:     inputTraceRuntime.Worker,
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
 	projectSvc := projectapp.NewWithReadiness(
@@ -117,7 +128,7 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	)
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
-	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc}
+	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector}
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
@@ -161,11 +172,7 @@ func serveDaemonRuntime(
 	defer server.Close()
 	startupCtx, cancelStartup := context.WithCancel(ctx)
 	defer cancelStartup()
-	serveDone := make(chan error, 1)
-	go func() {
-		serveDone <- server.Serve()
-		cancelStartup()
-	}()
+	serveDone := startDaemonServer(server, cancelStartup)
 	if err = store.AbandonUnresolved(startupCtx, incarnation); err != nil {
 		select {
 		case serveErr := <-serveDone:
@@ -212,6 +219,15 @@ func serveDaemonRuntime(
 	startHousekeeping(ctx, store, keep)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
+}
+
+func startDaemonServer(server *ipcadapter.Server, cancelStartup context.CancelFunc) <-chan error {
+	done := make(chan error, 1)
+	go func() {
+		done <- server.Serve()
+		cancelStartup()
+	}()
+	return done
 }
 
 func shutdownObservation(runtime *executionObservationRuntime, grace time.Duration) {
@@ -266,6 +282,8 @@ type daemonActions struct {
 	output         *outputview.Service
 	code           daemonCodeInspector
 	mutationScopes mutationScopeCoordinator
+	checkpoints    *checkpointapp.Service
+	inputTrace     *inputtraceapp.Inspector
 }
 
 func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {

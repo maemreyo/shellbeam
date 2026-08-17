@@ -294,6 +294,57 @@ func TestObservationProcessStartedSequencePrecedesEagerOutput(t *testing.T) {
 	}
 }
 
+type failOnceProcessObservationStore struct {
+	*storeadapter.Repository
+	failed atomic.Bool
+}
+
+func (s *failOnceProcessObservationStore) PrepareProcessStartedObservation(ctx context.Context, operationID, sessionID string) app.StoreResult {
+	if s.failed.CompareAndSwap(false, true) {
+		return app.StoreResult{Durability: app.NoDurableChange, Err: errors.New("injected process observation failure")}
+	}
+	return s.Repository.PrepareProcessStartedObservation(ctx, operationID, sessionID)
+}
+
+func TestProcessObservationPrepareFailureFinalizesAdmittedSessionAndFreesCapacity(t *testing.T) {
+	base, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 1, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := &failOnceProcessObservationStore{Repository: base}
+	owner := &fakeOwner{}
+	svc := app.NewService(store, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+
+	_, err = svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "obs-prepare-fail", Command: "true", CWD: "/", YieldMS: 0})
+	if err == nil {
+		t.Fatal("process observation failure was accepted")
+	}
+	if owner.starts.Load() != 0 {
+		t.Fatalf("process owner starts=%d", owner.starts.Load())
+	}
+	reservation, err := base.LoadOperation(context.Background(), "obs-prepare-fail")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := base.LoadSession(context.Background(), reservation.SessionID)
+	if err != nil || snapshot.State != session.Failed {
+		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
+	}
+	rec, err := base.LoadReceipt(context.Background(), reservation.SessionID)
+	if err != nil || rec.State != session.Failed || rec.Outcome != session.Failure {
+		t.Fatalf("receipt=%#v err=%v", rec, err)
+	}
+
+	second, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "after-obs-prepare-fail", Command: "true", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatalf("capacity remained occupied after observation failure: %v", err)
+	}
+	_ = waitForTerminal(t, svc, second.SessionID)
+	if owner.starts.Load() != 1 {
+		t.Fatalf("process owner starts=%d", owner.starts.Load())
+	}
+}
+
 type observationSpawnFailureOwner struct{}
 
 func (observationSpawnFailureOwner) Start(context.Context, operation.ExecutionSpec, app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {

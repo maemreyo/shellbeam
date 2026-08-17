@@ -83,6 +83,7 @@ type liveSession struct {
 	writerDone              chan struct{}
 	done                    chan struct{}
 	doneOnce                sync.Once
+	persistentTerminalOnce  sync.Once
 	coherenceLease          ManagedShellLease
 	persistent              bool
 	persistentReattached    bool
@@ -162,7 +163,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}
-	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName}
+	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}
@@ -235,12 +236,21 @@ func (sink sessionSink) CaptureFailed(err error) {
 }
 
 func (s *Service) finishSpawnFailure(l *liveSession) {
+	s.finalizeAdmittedStartFailure(l, "spawn_failed")
+}
+
+// finalizeAdmittedStartFailure closes an already-durable reservation after a
+// start path has crossed admission but cannot establish a runtime owner. It is
+// safe both before and after insertion into Service.live and before a process
+// handle exists. The durable terminal receipt is what releases admission
+// capacity; live eviction is idempotent when the session was never activated.
+func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	l.mu.Lock()
 	l.state = session.Finalizing
 	l.outcome = session.Failure
 	l.mu.Unlock()
 	rec := s.receiptFor(l, session.Failed, session.Failure)
-	rec.FailureReason = "spawn_failed"
+	rec.FailureReason = reason
 	rec.Spawn = l.spawn
 	s.endManagedShell(l)
 	// Release the child's descriptors before durability, not after. The process
@@ -254,6 +264,7 @@ func (s *Service) finishSpawnFailure(l *liveSession) {
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
+	s.scheduleInputTraceTerminal(rec, l.reservation)
 	l.mu.Lock()
 	l.state = session.Failed
 	l.notify()
@@ -326,6 +337,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
+	s.scheduleInputTraceTerminal(rec, l.reservation)
 	l.mu.Lock()
 	l.state = state
 	l.outcome = outcome

@@ -39,6 +39,7 @@ import (
 	"syscall"
 	"time"
 
+	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"golang.org/x/sys/unix"
 )
 
@@ -162,6 +163,15 @@ func AcquireWith(existing *Lease, dir, incarnation string) (*Lease, error) {
 
 // covers reports whether this lease's directory is the same directory as dir,
 // compared by identity rather than by spelling.
+// AcquireRuntimeLease implements the daemon consumer-owned ownership port.
+// It deliberately delegates to AcquireWith so state/runtime paths that name
+// the same directory share the existing kernel-held ownership reference.
+func (l *Lease) AcquireRuntimeLease(dir, incarnation string) (daemonapp.RuntimeLease, error) {
+	return AcquireWith(l, dir, incarnation)
+}
+
+var _ daemonapp.RuntimeLeaseSource = (*Lease)(nil)
+
 func (l *Lease) covers(dir string) (bool, error) {
 	fd, err := openDirectory(dir)
 	if err != nil {

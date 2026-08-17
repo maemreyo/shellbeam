@@ -5,6 +5,7 @@
   "type": "object",
   "additionalProperties": false,
   "$defs": {
+    "input_trace_binding": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"trace_id":{"type":"string","pattern":"^trace_[0-9A-HJKMNP-TV-Z]{26}$"},"mode":{"enum":["best_effort","required"]},"status":{"const":"active"},"provider":{"type":"object","additionalProperties":false,"properties":{"provider_id":{"type":"string","pattern":"^[a-z][a-z0-9-]{0,63}$"},"provider_version":{"type":"integer","minimum":1},"capability_version":{"type":"integer","minimum":1}},"required":["provider_id","provider_version","capability_version"]},"platform":{"type":"string","minLength":1,"maxLength":64},"instrumentation_fingerprint":{"type":"string","pattern":"^[0-9a-f]{64}$"},"instrumentation_effect":{"enum":["none","non_invasive","environment_affecting"]},"pre_exec_coverage_established":{"type":"boolean"},"coverage":{"type":"object","additionalProperties":false,"properties":{"filesystem_reads":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"filesystem_metadata_queries":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"directory_enumerations":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"filesystem_writes":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"executed_binaries":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"loaded_libraries":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"environment_names_observed":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"network_attempts":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]},"child_processes":{"enum":["unsupported","unknown","partial","complete_for_owned_tree"]}},"required":["filesystem_reads","filesystem_metadata_queries","directory_enumerations","filesystem_writes","executed_binaries","loaded_libraries","environment_names_observed","network_attempts","child_processes"]}},"required":["schema_version","trace_id","mode","status","provider","platform","instrumentation_fingerprint","instrumentation_effect","pre_exec_coverage_established","coverage"]},
     "project_parameter_binding": {
       "type": "object",
       "additionalProperties": false,
@@ -145,6 +146,7 @@
       "type": "string",
       "minLength": 1
     },
+    "input_trace": {"$ref":"#/$defs/input_trace_binding"},
     "structured_adapter": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"

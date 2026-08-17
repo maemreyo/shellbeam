@@ -6,6 +6,7 @@ import (
 
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -49,7 +50,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode}
+	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode}
 	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -74,6 +75,21 @@ func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (ope
 }
 
 func validateStartMetadata(req StartRequest) error {
+	traceMode, err := trace.NormalizeMode(req.TraceMode)
+	if err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "trace_mode"}, err)
+	}
+	if traceMode != trace.ModeOff {
+		if req.ProtocolVersion != 2 {
+			return failure.New(failure.InputTraceUnsupported, map[string]string{"reason": "protocol_v2_required"}, nil)
+		}
+		if req.TTY {
+			return failure.New(failure.InputTraceUnsupported, map[string]string{"reason": "tty"}, nil)
+		}
+		if req.Persistent {
+			return failure.New(failure.InputTraceUnsupported, map[string]string{"reason": "persistent"}, nil)
+		}
+	}
 	if (req.Persistent || req.SessionName != "") && req.ProtocolVersion != 2 {
 		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions", "required_version": "2"}, nil)
 	}

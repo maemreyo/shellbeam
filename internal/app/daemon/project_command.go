@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -72,7 +73,7 @@ func typedRequestIntent(req StartRequest) (operation.TypedRequestIntent, string,
 	}
 	intent := operation.TypedRequestIntent{
 		WorkspaceID: req.WorkspaceID, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMap(req.Params),
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName,
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode,
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
@@ -163,6 +164,10 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 }
 
 func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, reservation operation.Reservation, spec operation.ExecutionSpec, commit reservationCommitter, typedReplay bool) (View, error) {
+	reservation, spec, preparedTrace, err := s.prepareInputTrace(ctx, req, reservation, spec)
+	if err != nil {
+		return View{}, err
+	}
 	sid := newSessionID()
 	reservation.SessionID = operation.SessionID(sid)
 	reservation.CreatedAt = time.Now().UTC()
@@ -171,16 +176,18 @@ func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, rese
 	}
 	stored, created, result := commit(ctx, reservation)
 	if result.Err != nil {
+		abortPreparedTrace(preparedTrace)
 		return View{}, failure.Normalize(result.Err)
 	}
 	sid = string(stored.SessionID)
 	if !created {
+		abortPreparedTrace(preparedTrace)
 		if typedReplay {
 			return s.waitTypedReservedStart(ctx, req, stored, sid)
 		}
 		return s.waitReservedStart(ctx, req, stored, sid)
 	}
-	return s.spawnPreparedStart(ctx, req, stored, spec, sid)
+	return s.spawnPreparedStart(ctx, req, stored, spec, sid, preparedTrace)
 }
 
 func (s *Service) waitTypedReservedStart(ctx context.Context, req StartRequest, stored operation.Reservation, sessionID string) (View, error) {
@@ -191,8 +198,9 @@ func (s *Service) waitTypedReservedStart(ctx context.Context, req StartRequest, 
 	return view, err
 }
 
-func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stored operation.Reservation, spec operation.ExecutionSpec, sid string) (View, error) {
+func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stored operation.Reservation, spec operation.ExecutionSpec, sid string, preparedTrace inputtraceapp.Prepared) (View, error) {
 	if stored.Persistent {
+		abortPreparedTrace(preparedTrace)
 		return s.spawnPreparedPersistentStart(ctx, req, stored, spec, sid)
 	}
 	executionCWD := stored.CWD
@@ -210,6 +218,9 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, timeoutSource: policySource, stdinSource: stdinSource, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
+		abortPreparedTrace(preparedTrace)
+		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
+		s.finalizeAdmittedStartFailure(live, "process_observation_failed")
 		return View{}, failure.Normalize(processObservation.Err)
 	}
 	s.activateLiveSession(live)
@@ -223,6 +234,7 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	live.notify()
 	live.mu.Unlock()
 	if spawnErr != nil {
+		abortPreparedTrace(preparedTrace)
 		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
 		s.finishSpawnFailure(live)
 		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)

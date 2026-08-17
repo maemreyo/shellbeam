@@ -14,76 +14,33 @@ import (
 
 const persistentReconcileChunkBytes = 32 * 1024
 
-// Reconciliation is the only path that moves a persistent session's terminal
-// transition into durable state, so it may not be allowed to run exactly once.
-//
-// Every error return in reconcilePersistentSession used to end the goroutine
-// that owned it, and the caller discarded the error, so one unlucky supervisor
-// round trip stranded a session as live for the rest of the daemon's life: poll
-// kept reporting it running long after the child had exited. That is
-// indistinguishable from a hung command, and on a loaded host it happened often
-// enough to fail CI while being far too rare to reproduce on demand.
-//
-// The retry is bounded by the session's own lifetime rather than by an attempt
-// count. Its context is cancelled when the session is evicted or the daemon
-// stops, and until then a live session with an unresolved terminal is exactly
-// the thing worth continuing to chase.
-const (
-	defaultFinalizeRetryMin = 100 * time.Millisecond
-	defaultFinalizeRetryMax = 5 * time.Second
-)
-
-func (s *Service) finalizeRetryBounds() (time.Duration, time.Duration) {
-	minimum, maximum := s.options.FinalizeRetryMin, s.options.FinalizeRetryMax
-	if minimum <= 0 {
-		minimum = defaultFinalizeRetryMin
-	}
-	if maximum < minimum {
-		maximum = defaultFinalizeRetryMax
-	}
-	if maximum < minimum {
-		maximum = minimum
-	}
-	return minimum, maximum
+type persistentReconciliationOwner struct {
+	control      persistentapp.RecoveryAttachment
+	outputStore  persistentOutputStore
+	bindingStore PersistentSessionStore
 }
 
-// reconcilePersistentSessionUntilResolved retries reconciliation, backing off,
-// until the session resolves or its context is cancelled.
-func (s *Service) reconcilePersistentSessionUntilResolved(ctx context.Context, live *liveSession, control persistentapp.RecoveryAttachment, outputStore persistentOutputStore, bindingStore PersistentSessionStore) {
-	delay, maximum := s.finalizeRetryBounds()
-	for {
-		if err := s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore); err == nil {
-			return
-		}
-		if ctx.Err() != nil {
-			return
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return
-		case <-timer.C:
-		}
-		if delay *= 2; delay > maximum {
-			delay = maximum
-		}
-	}
-}
-
-func (s *Service) startPersistentReconciliation(live *liveSession) {
-	control, ok := live.handle.(persistentapp.RecoveryAttachment)
+// preparePersistentReconciliation proves that a persistent Running session can
+// have a lifecycle owner before Running is ever published. This prevents a
+// successful launch from becoming ownerless merely because a handle or store
+// lacks the recovery surface the reconciler needs.
+func (s *Service) preparePersistentReconciliation(handle ProcessHandle) (persistentReconciliationOwner, error) {
+	control, ok := handle.(persistentapp.RecoveryAttachment)
 	if !ok {
-		return
+		return persistentReconciliationOwner{}, failure.New(failure.SupervisorStateConflict, map[string]string{"reason": "recovery_attachment"}, nil)
 	}
 	outputStore, ok := s.store.(persistentOutputStore)
 	if !ok {
-		return
+		return persistentReconciliationOwner{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_output_reconciliation"}, nil)
 	}
 	bindingStore, ok := s.store.(PersistentSessionStore)
 	if !ok {
-		return
+		return persistentReconciliationOwner{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_binding_reconciliation"}, nil)
 	}
+	return persistentReconciliationOwner{control: control, outputStore: outputStore, bindingStore: bindingStore}, nil
+}
+
+func (s *Service) startPersistentReconciliation(live *liveSession, owner persistentReconciliationOwner) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	live.mu.Lock()
@@ -92,8 +49,132 @@ func (s *Service) startPersistentReconciliation(live *liveSession) {
 	live.mu.Unlock()
 	go func() {
 		defer close(done)
-		s.reconcilePersistentSessionUntilResolved(ctx, live, control, outputStore, bindingStore)
+		s.runPersistentReconciliation(ctx, live, owner.control, owner.outputStore, owner.bindingStore)
 	}()
+}
+
+// runPersistentReconciliation is the lifecycle owner for a live persistent
+// session. It may exit only after deliberate cancellation/detach, canonical
+// terminal convergence, or durable loss classification. A transient error is
+// never allowed to silently orphan a Live binding.
+func (s *Service) runPersistentReconciliation(ctx context.Context, live *liveSession, control persistentapp.RecoveryAttachment, outputStore persistentOutputStore, bindingStore PersistentSessionStore) {
+	delay := 25 * time.Millisecond
+	for {
+		err := s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore)
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+
+		// If a canonical terminal receipt already won the race, never downgrade it
+		// to Lost. The remaining error belongs to post-terminal convergence (for
+		// example a binding update) and is retried through the same owner.
+		snapshot, snapshotErr := s.store.LoadSession(ctx, operation.SessionID(live.sessionID))
+		if snapshotErr == nil && !snapshot.State.Terminal() {
+			if reason, lost := persistentStartupLossReason(err); lost {
+				if s.finalizePersistentRuntimeLoss(ctx, live, bindingStore, reason) == nil {
+					return
+				}
+				if ctx.Err() != nil {
+					return
+				}
+			}
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
+}
+
+// finalizePersistentRuntimeLoss converts an unrecoverable ownership/control
+// failure into canonical Abandoned/Ambiguous + Lost state. It never signals or
+// cleans up the child: after ownership proof is lost, only the local attachment
+// may be closed.
+func (s *Service) finalizePersistentRuntimeLoss(ctx context.Context, live *liveSession, bindingStore PersistentSessionStore, reason string) error {
+	delay := 25 * time.Millisecond
+	for {
+		binding, err := bindingStore.LoadPersistentBinding(ctx, operation.SessionID(live.sessionID))
+		if err == nil {
+			result := bindingStore.AbandonPersistentSession(ctx, binding, s.options.Incarnation, reason)
+			if result.Err == nil {
+				break
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
+
+	var rec receipt.Receipt
+	for {
+		loaded, err := s.store.LoadReceipt(ctx, operation.SessionID(live.sessionID))
+		if err == nil {
+			rec = loaded
+			break
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	s.endManagedShell(live)
+	if live.handle != nil {
+		_ = live.handle.Close()
+	}
+	s.projectPersistentTerminalLive(live, rec)
+	return nil
+}
+
+func (s *Service) projectPersistentTerminalLive(live *liveSession, rec receipt.Receipt) {
+	live.mu.Lock()
+	live.state = rec.State
+	live.outcome = rec.Outcome
+	live.spawn = rec.Spawn
+	live.exit = rec.Exit
+	live.signal = rec.Signal
+	live.accepted = rec.InputAcceptedBytes
+	live.delivered = rec.InputDeliveredBytes
+	live.eof = rec.StdinClosed
+	live.outputBytes = rec.OutputBytes
+	live.notify()
+	live.doneOnce.Do(func() { close(live.done) })
+	live.mu.Unlock()
 }
 
 func (s *Service) reconcilePersistentSession(ctx context.Context, live *liveSession, control persistentapp.RecoveryAttachment, outputStore persistentOutputStore, bindingStore PersistentSessionStore) error {
@@ -199,9 +280,7 @@ func (s *Service) finishPersistentTerminal(ctx context.Context, live *liveSessio
 	if err := s.publishPersistentTerminal(ctx, rec); err != nil {
 		return err
 	}
-	s.scheduleStructuredTerminal(rec, live.reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
-	s.scheduleEvidenceTerminal(rec, live.reservation)
+	s.projectAndSchedulePersistentTerminal(live, rec)
 	previousUpdate := binding.UpdatedAt
 	binding.Lifecycle = persistentcore.LifecycleTerminal
 	binding.UpdatedAt = time.Now().UTC()
@@ -213,19 +292,17 @@ func (s *Service) finishPersistentTerminal(ctx context.Context, live *liveSessio
 	}
 	s.endManagedShell(live)
 	_ = control.Cleanup(ctx)
-	live.mu.Lock()
-	live.state = terminal.State
-	live.outcome = terminal.Outcome
-	live.exit = terminal.Exit
-	live.signal = terminal.Signal
-	live.accepted = terminal.InputAcceptedBytes
-	live.delivered = terminal.InputDeliveredBytes
-	live.eof = terminal.StdinClosed
-	live.outputBytes = terminal.OutputBytes
-	live.notify()
-	live.doneOnce.Do(func() { close(live.done) })
-	live.mu.Unlock()
 	return nil
+}
+
+func (s *Service) projectAndSchedulePersistentTerminal(live *liveSession, rec receipt.Receipt) {
+	live.persistentTerminalOnce.Do(func() {
+		s.projectPersistentTerminalLive(live, rec)
+		s.scheduleStructuredTerminal(rec, live.reservation.StructuredAdapter)
+		s.scheduleTelemetryTerminal(rec)
+		s.scheduleEvidenceTerminal(rec, live.reservation)
+		s.scheduleInputTraceTerminal(rec, live.reservation)
+	})
 }
 
 func (s *Service) persistentTerminalReceipt(live *liveSession, terminal persistentapp.TerminalEvidence) receipt.Receipt {

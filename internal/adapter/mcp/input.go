@@ -17,6 +17,7 @@ import (
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	mutationcore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -29,6 +30,9 @@ import (
 
 type input struct {
 	Action              string                            `json:"action"`
+	CheckpointCreateID  string                            `json:"checkpoint_create_id,omitempty"`
+	RestoreID           string                            `json:"restore_id,omitempty"`
+	CheckpointID        string                            `json:"checkpoint_id,omitempty"`
 	OperationID         string                            `json:"operation_id,omitempty"`
 	WorkspaceID         string                            `json:"workspace_id,omitempty"`
 	ActivityID          string                            `json:"activity_id,omitempty"`
@@ -53,6 +57,7 @@ type input struct {
 	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
 	StdinMode           operation.StdinMode               `json:"stdin_mode,omitempty"`
 	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
+	TraceMode           trace.Mode                        `json:"trace_mode,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
 	Selector            *outputview.Selector              `json:"selector,omitempty"`
@@ -78,6 +83,7 @@ type input struct {
 	EvidenceResult      coreevidence.Result               `json:"result,omitempty"`
 	RevalidateArtifacts bool                              `json:"revalidate_artifacts,omitempty"`
 	MaxSamples          int                               `json:"max_samples,omitempty"`
+	MaxResources        int                               `json:"max_resources,omitempty"`
 	ReproCreateID       string                            `json:"repro_create_id,omitempty"`
 	CapturePolicy       *reprocore.CapturePolicy          `json:"capture_policy,omitempty"`
 	ReproID             string                            `json:"repro_id,omitempty"`
@@ -113,6 +119,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 		}
 		return validateV2(v)
 	}
+	if v.Action == "inspect.trace" || hasField(raw, "trace_mode") || hasField(raw, "max_resources") {
+		return fmt.Errorf("input tracing requires modern protocol")
+	}
 	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
 		return fmt.Errorf("persistent sessions require modern protocol")
 	}
@@ -133,6 +142,8 @@ func validateV2(v input) error {
 			return fmt.Errorf("read_output requires selector")
 		}
 		return (outputview.Request{SessionID: v.SessionID, Selector: *v.Selector, Continuation: v.Continuation}).Validate()
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		return validateCheckpointInput(v)
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		_, err := workspace.ParseWorkspaceID(v.WorkspaceID)
 		return err
@@ -181,20 +192,10 @@ func validateV2(v input) error {
 		return (structuredapp.InspectRequest{OperationID: v.OperationID, Filter: structuredapp.RecordFilter{RecordKind: v.RecordKind, Severity: v.Severity, Path: v.Path, TestStatus: v.TestStatus}, Continuation: v.Continuation, MaxRecords: v.MaxRecords}).Validate()
 	case "inspect.telemetry", "repro.create", "inspect.repro":
 		return validateA4Input(v)
+	case "inspect.trace":
+		return validateInputTrace(v)
 	case "inspect.events":
-		if v.Target == nil {
-			return fmt.Errorf("inspect.events requires target")
-		}
-		if err := v.Target.Validate(); err != nil {
-			return err
-		}
-		if v.MaxEvents < 1 || v.MaxEvents > observationapp.MaxInspectEvents {
-			return fmt.Errorf("invalid max_events")
-		}
-		if v.AfterEventCursor != "" && (!strings.HasPrefix(v.AfterEventCursor, observationapp.EventCursorPrefix) || len(v.AfterEventCursor) > observationapp.MaxEventCursorBytes) {
-			return fmt.Errorf("invalid event cursor")
-		}
-		return nil
+		return validateEventInspectInput(v)
 	}
 	if v.Action != "start" {
 		return validateV1(v)
@@ -265,6 +266,9 @@ func validateStartV2(v input) error {
 	}
 	if v.Persistent && v.TTY {
 		return fmt.Errorf("persistent tty unsupported")
+	}
+	if err := validateInputTrace(v); err != nil {
+		return err
 	}
 	return validateNonNegative(v)
 }
@@ -398,6 +402,24 @@ func validateNonNegative(v input) error {
 	return nil
 }
 
+// validateEventInspectInput follows the same shape as the other per-action
+// validators: the switch names the action, a helper owns its rules.
+func validateEventInspectInput(v input) error {
+	if v.Target == nil {
+		return fmt.Errorf("inspect.events requires target")
+	}
+	if err := v.Target.Validate(); err != nil {
+		return err
+	}
+	if v.MaxEvents < 1 || v.MaxEvents > observationapp.MaxInspectEvents {
+		return fmt.Errorf("invalid max_events")
+	}
+	if v.AfterEventCursor != "" && (!strings.HasPrefix(v.AfterEventCursor, observationapp.EventCursorPrefix) || len(v.AfterEventCursor) > observationapp.MaxEventCursorBytes) {
+		return fmt.Errorf("invalid event cursor")
+	}
+	return nil
+}
+
 func validateV2FieldSet(action string, raw []byte) error {
 	allowed := map[string]bool{"action": true}
 	for _, field := range v2ActionFields(action) {
@@ -418,7 +440,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "trace_mode", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":
@@ -429,6 +451,12 @@ func v2ActionFields(action string) []string {
 		return []string{"session_id", "input_offset", "chars", "eof"}
 	case "kill":
 		return []string{"session_id", "kill_id", "signal"}
+	case "checkpoint_create":
+		return []string{"checkpoint_create_id", "workspace_id", "activity_id", "paths"}
+	case "checkpoint_restore":
+		return []string{"restore_id", "checkpoint_id", "paths"}
+	case "checkpoint_inspect":
+		return []string{"checkpoint_id"}
 	case "inspect.server":
 		return nil
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
@@ -449,6 +477,8 @@ func v2ActionFields(action string) []string {
 		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
 	case "inspect.telemetry":
 		return []string{"operation_id", "max_samples"}
+	case "inspect.trace":
+		return []string{"operation_id", "max_resources"}
 	case "inspect.evidence":
 		return []string{"evidence_id", "operation_id", "workspace_id", "project_command_id", "activity_id", "verification_kind", "result", "revalidate_artifacts", "continuation", "max_records"}
 	case "inspect.environment":
@@ -464,19 +494,6 @@ func v2ActionFields(action string) []string {
 	default:
 		return nil
 	}
-}
-
-func validReproIDInput(value string) bool {
-	if len(value) != 32 || !strings.HasPrefix(value, "repro_") {
-		return false
-	}
-	for _, r := range value[6:] {
-		if strings.ContainsRune("0123456789ABCDEFGHJKMNPQRSTVWXYZ", r) {
-			continue
-		}
-		return false
-	}
-	return true
 }
 
 func isDeferredAction(string) bool { return false }

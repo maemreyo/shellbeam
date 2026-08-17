@@ -19,6 +19,49 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
+func TestPersistentStartupRepairsCanonicalSpawnFailureBeforeReattach(t *testing.T) {
+	store := openPersistentLaunchStore(t)
+	binding := reserveStartupPersistent(t, store, "startup-stale-terminal", persistentcore.LifecycleProvisioning)
+	reservation, err := store.LoadOperation(context.Background(), operation.ID(binding.OperationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := receipt.Receipt{
+		SchemaVersion: 4, OperationID: string(reservation.OperationID), SessionID: string(reservation.SessionID),
+		RequestFingerprint: reservation.RequestFingerprint, ExecutionFingerprint: reservation.ExecutionFingerprint, ObservationBindingFingerprint: reservation.ObservationBindingFingerprint,
+		DaemonIncarnation: reservation.DaemonIncarnation, ExecutionMode: string(reservation.ExecutionMode), Executable: reservation.Executable,
+		State: session.Failed, Outcome: session.Failure, Shell: reservation.Shell, CWD: reservation.CWD, TimeoutMS: reservation.TimeoutMS,
+		Persistent: true, SessionName: reservation.SessionName, FailureReason: "persistent_spawn_failed",
+	}
+	if result := store.PublishTerminal(context.Background(), rec); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+
+	runtime := &startupPersistentRuntime{reattachErr: errors.New("reattach must not run for canonical terminal session")}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{
+		Incarnation: "new-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime,
+	})
+	if err := svc.ReconcilePersistentStartup(context.Background(), []persistentcore.Binding{binding}, app.PersistentStartupOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.reattachCalls.Load() != 0 || runtime.ensureCalls.Load() != 0 {
+		t.Fatalf("reattach=%d ensure=%d", runtime.reattachCalls.Load(), runtime.ensureCalls.Load())
+	}
+	stored, err := store.LoadPersistentBinding(context.Background(), operation.SessionID(binding.SessionID))
+	if err != nil || stored.Lifecycle != persistentcore.LifecycleLost {
+		t.Fatalf("binding=%#v err=%v", stored, err)
+	}
+	candidates, err := store.ListPersistentRecoveryCandidates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range candidates {
+		if candidate.SessionID == binding.SessionID {
+			t.Fatalf("terminal session remained recovery candidate: %#v", candidate)
+		}
+	}
+}
+
 func TestPersistentStartupReattachesSameSessionAndExposesCurrentPIDOnlyAfterProof(t *testing.T) {
 	store := openPersistentLaunchStore(t)
 	binding := reserveStartupPersistent(t, store, "startup-live", persistentcore.LifecycleLive)

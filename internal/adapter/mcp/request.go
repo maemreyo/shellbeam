@@ -35,7 +35,7 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 	case "read_media":
 		request.Media = mediaRequestFromInput(in)
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: in.YieldMS, MaxOutputBytes: in.MaxOutputBytes}
 	case "read_output":
@@ -81,6 +81,11 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 		}
 	case "inspect.process":
 		request.ProcessInspect = processapp.InspectRequest{Target: *in.ProcessTarget, IncludePorts: in.IncludePorts}
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		applyCheckpointInput(request, in)
+	case "inspect.trace":
+		request.InputTraceInspect.OperationID = in.OperationID
+		request.InputTraceInspect.MaxResources = in.MaxResources
 	case "inspect.telemetry":
 		request.TelemetryInspect = telemetryapp.InspectRequest{OperationID: in.OperationID, MaxSamples: in.MaxSamples}
 	case "repro.create":

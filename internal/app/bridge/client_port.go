@@ -4,9 +4,11 @@ package bridge
 import (
 	"context"
 
+	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	"github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
@@ -16,6 +18,7 @@ import (
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	"github.com/maemreyo/shellbeam/internal/core/media"
@@ -57,10 +60,17 @@ type Request struct {
 	ConsumerMedia            *capability.MediaSupport
 	MediaContractFingerprint string
 	Media                    *daemon.MediaRequest
+	CheckpointCreate         checkpointcore.CreateRequest
+	CheckpointRestore        checkpointcore.RestoreRequest
+	CheckpointID             string
+	InputTraceInspect        inputtraceapp.InspectRequest
 }
 type Response struct {
 	View                   daemon.View
 	Result                 *receipt.Result
+	Checkpoint             *checkpointcore.Checkpoint
+	Restore                *checkpointcore.RestoreResult
+	CheckpointInspection   *checkpointapp.CheckpointInspection
 	Server                 *capability.Catalog
 	Project                *project.Inspection
 	Readiness              *project.Readiness
@@ -75,6 +85,7 @@ type Response struct {
 	ActivityMutationScopes *mutationscopecore.InspectResult
 	Structured             *structuredapp.InspectResult
 	Telemetry              *telemetryapp.InspectResult
+	InputTrace             *inputtraceapp.InspectResult
 	Capsule                *reprocore.Capsule
 	Repro                  *reproapp.InspectResult
 	CodeResult             *codeintel.Result

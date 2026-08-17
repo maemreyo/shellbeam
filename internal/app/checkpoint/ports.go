@@ -3,6 +3,7 @@ package checkpoint
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -15,6 +16,8 @@ import (
 )
 
 const ReservationSchemaVersion = 1
+
+var ErrRestoreNotFound = errors.New("checkpoint restore not found")
 
 var checkpointIDPattern = regexp.MustCompile(`^chk_[0-9A-HJKMNP-TV-Z]{26}$`)
 
@@ -163,9 +166,9 @@ type ProviderRestoreResult struct {
 }
 
 type ProviderCheckpointStatus struct {
-	CheckpointID   string
-	RetentionState core.RetentionState
-	Available      bool
+	CheckpointID   string              `json:"checkpoint_id"`
+	RetentionState core.RetentionState `json:"retention_state"`
+	Available      bool                `json:"available"`
 }
 
 type SweepRequest struct {

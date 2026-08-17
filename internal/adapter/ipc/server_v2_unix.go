@@ -45,7 +45,7 @@ func (s *Server) dispatchV2(ctx context.Context, req RequestV2, resp *ResponseV2
 	var err error
 	switch req.Action {
 	case "start":
-		view, callErr := s.actions.Start(ctx, app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, Evidence: req.Evidence, CWD: req.CWD, TTY: req.TTY, Persistent: req.Persistent, SessionName: req.SessionName, TimeoutMS: req.TimeoutMS, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
+		view, callErr := s.actions.Start(ctx, app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, Evidence: req.Evidence, CWD: req.CWD, TTY: req.TTY, Persistent: req.Persistent, SessionName: req.SessionName, TimeoutMS: req.TimeoutMS, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes, TraceMode: req.TraceMode})
 		err = callErr
 		if err == nil {
 			result, resultErr := view.StructuredResult()
@@ -54,6 +54,11 @@ func (s *Server) dispatchV2(ctx context.Context, req RequestV2, resp *ResponseV2
 				resp.Result = &result
 			}
 		}
+		if err == nil {
+			_ = s.decorateStartInputTraceV2(ctx, req, resp)
+		}
+	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
+		err = s.checkpointV2(ctx, req, resp)
 	case "poll":
 		view, callErr := s.actions.Poll(ctx, app.PollRequest{SessionID: req.SessionID, Cursor: req.Cursor, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes})
 		err = callErr
@@ -100,20 +105,10 @@ func (s *Server) dispatchV2(ctx context.Context, req RequestV2, resp *ResponseV2
 		}
 	case "capabilities.negotiate", "read_media":
 		err = dispatchMediaV2(ctx, req, resp, s.actions)
-	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		err = s.inspectV2(ctx, req, resp)
 	}
 	return err
-}
-
-func clearResponseV2Payload(resp *ResponseV2) {
-	resp.View, resp.Result, resp.Server, resp.Project, resp.Readiness = nil, nil, nil, nil, nil
-	resp.Workspace, resp.Activity, resp.Events, resp.Structured, resp.Evidence = nil, nil, nil, nil, nil
-	resp.Environment, resp.Process, resp.Mutation, resp.MutationScopes = nil, nil, nil, nil
-	resp.ActiveMutationScopes, resp.MutationScopeAdvisories = nil, nil
-	resp.MutationScopesTruncated, resp.MutationScopeAdvisoriesTruncated = false, false
-	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView, resp.Sessions = nil, nil, nil, nil, nil, nil
-	resp.NegotiatedMedia, resp.Media = nil, nil
 }
 
 func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
@@ -147,6 +142,8 @@ func (s *Server) inspectV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 		result, err := actions.InspectStructured(ctx, request)
 		resp.Structured = &result
 		return err
+	case "inspect.trace":
+		return s.inspectInputTraceV2(ctx, req, resp)
 	case "inspect.environment", "inspect.process":
 		return s.inspectEnvironmentProcessV2(ctx, req, resp)
 	case "inspect.evidence":
@@ -246,15 +243,4 @@ func (s *Server) inspectProjectV2(ctx context.Context, req RequestV2, resp *Resp
 func writeResponseV2(w http.ResponseWriter, response ResponseV2) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(response)
-}
-
-func cloneStringMapV2(input map[string]string) map[string]string {
-	if input == nil {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }
