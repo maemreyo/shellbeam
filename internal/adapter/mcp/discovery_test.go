@@ -406,3 +406,20 @@ func TestStructuredCapabilityDiscoveryV2AndLegacyCatalogCompatibility(t *testing
 		}
 	}
 }
+
+func TestDecodeInputV2RejectsAmbiguousJSON(t *testing.T) {
+	cases := map[string][]byte{
+		"duplicate":    []byte(`{"action":"start","action":"poll"}`),
+		"wrong-case":   []byte(`{"Action":"start"}`),
+		"unknown":      []byte(`{"action":"start","unknown":1}`),
+		"invalid-utf8": append([]byte(`{"action":"`), append([]byte{0xff}, []byte(`"}`)...)...),
+		"trailing":     []byte(`{"action":"start"} {}`),
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeInputV2(raw); err == nil {
+				t.Fatalf("accepted %q", raw)
+			}
+		})
+	}
+}

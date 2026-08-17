@@ -1,7 +1,6 @@
 package ipc
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -468,29 +467,4 @@ func validReproIDV2(value string) bool {
 		return false
 	}
 	return true
-}
-
-func readBoundedJSON(r io.Reader) ([]byte, error) {
-	limited := io.LimitReader(r, (1<<20)+1)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > 1<<20 {
-		return nil, fmt.Errorf("request too large")
-	}
-	return data, nil
-}
-
-func strictDecodeV2(data []byte, out any) error {
-	d := json.NewDecoder(bytes.NewReader(data))
-	d.DisallowUnknownFields()
-	if err := d.Decode(out); err != nil {
-		return err
-	}
-	var extra any
-	if d.Decode(&extra) != io.EOF {
-		return fmt.Errorf("trailing json")
-	}
-	return nil
 }

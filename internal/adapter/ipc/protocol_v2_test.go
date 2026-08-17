@@ -201,3 +201,24 @@ func TestIPCV2CodeInspectClosedContract(t *testing.T) {
 		}
 	}
 }
+
+func TestStrictDecodeV2RejectsAmbiguousJSON(t *testing.T) {
+	type payload struct {
+		Action string `json:"action"`
+	}
+	cases := map[string][]byte{
+		"duplicate":    []byte(`{"action":"start","action":"poll"}`),
+		"wrong-case":   []byte(`{"Action":"start"}`),
+		"unknown":      []byte(`{"action":"start","unknown":1}`),
+		"invalid-utf8": append([]byte(`{"action":"`), append([]byte{0xff}, []byte(`"}`)...)...),
+		"trailing":     []byte(`{"action":"start"} {}`),
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			var got payload
+			if err := strictDecodeV2(raw, &got); err == nil {
+				t.Fatalf("accepted %q", raw)
+			}
+		})
+	}
+}

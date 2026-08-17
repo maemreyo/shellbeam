@@ -13,9 +13,11 @@ help: ## List available targets
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sort | awk 'BEGIN{FS=":.*## "}{printf "  %-16s %s\n", $$1, $$2}'
 
 build: ## Build the shellbeam binary at repo root
+	@./scripts/check-json-mode.sh
 	go build -trimpath -buildvcs=false -o $(BIN) $(PKG)
 
 test: ## Run the full test suite
+	@./scripts/check-json-mode.sh
 	go test -count=1 ./...
 
 vet: ## Run go vet
@@ -74,9 +76,11 @@ run-mcp: build ## Build then run the MCP stdio server (Ctrl-C to stop)
 	./$(BIN) mcp
 
 hardening: build ## Race suite + bounded fuzz campaigns (scripts/test-hardening.sh)
+	@./scripts/check-json-mode.sh
 	GOCACHE="$$(go env GOCACHE)" scripts/test-hardening.sh
 
 security: ## Module verify, forbidden-pattern scan, log-redaction checks, govulncheck if present
+	@./scripts/check-json-mode.sh
 	scripts/test-security.sh
 
 mcp-local: ## MCP SDK in-memory conformance test
@@ -90,6 +94,7 @@ devctl-check: ## devctl repository check (writes a receipt under .build/receipts
 	go run ./tools/devctl check
 
 devctl-verify: ## devctl check + test (writes a receipt under .build/receipts/)
+	@./scripts/check-json-mode.sh
 	go run ./tools/devctl verify
 
 commit-gate: ## Run selective staged-change checks used by the tracked pre-commit hook

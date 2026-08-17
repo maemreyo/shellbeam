@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
@@ -22,8 +21,14 @@ import (
 )
 
 func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*mcpgo.CallToolResult, error) {
-	in, err := decodeInput(req.Params.Arguments)
 	version := protocolGeneration(req.ProtocolVersion())
+	var in input
+	var err error
+	if version == 2 {
+		in, err = decodeInputV2(req.Params.Arguments)
+	} else {
+		in, err = decodeInput(req.Params.Arguments)
+	}
 	if err != nil {
 		return versionedToolError(version, "", "invalid_request", "invalid request", false), nil
 	}
@@ -45,16 +50,6 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		return successV2(in.Action, out), nil
 	}
 	return successV1(in.Action, out), nil
-}
-
-func decodeInput(raw []byte) (input, error) {
-	var in input
-	d := json.NewDecoder(bytesReader(raw))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&in); err != nil {
-		return input{}, err
-	}
-	return in, nil
 }
 
 func requestFromInput(version int, in input, raw []byte) bridge.Request {

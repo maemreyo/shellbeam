@@ -16,4 +16,5 @@ jobs:
         with:
           go-version: 1.26.5
           cache: true
+      - run: ./scripts/check-json-mode.sh
       - run: ./scripts/test-hardening.sh
