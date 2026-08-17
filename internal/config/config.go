@@ -17,6 +17,7 @@ type Config struct {
 	StateDir                   string                         `toml:"state_dir" json:"state_dir"`
 	Shell                      string                         `toml:"shell" json:"shell"`
 	ExperimentalCheckpoints    bool                           `toml:"experimental_checkpoints" json:"experimental_checkpoints"`
+	ExperimentalInputTracing   bool                           `toml:"experimental_input_tracing" json:"experimental_input_tracing"`
 	MaxConcurrentSessions      int                            `toml:"max_concurrent_sessions" json:"max_concurrent_sessions"`
 	DefaultYieldMS             int64                          `toml:"default_yield_ms" json:"default_yield_ms"`
 	MaxYieldMS                 int64                          `toml:"max_yield_ms" json:"max_yield_ms"`

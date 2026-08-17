@@ -3,7 +3,7 @@ package ipc
 func actionFieldsV2(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":
@@ -36,6 +36,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
 	case "inspect.telemetry":
 		return []string{"operation_id", "max_samples"}
+	case "inspect.trace":
+		return []string{"operation_id", "max_resources"}
 	case "inspect.evidence":
 		return []string{"evidence_id", "operation_id", "workspace_id", "project_command_id", "activity_id", "verification_kind", "result", "revalidate_artifacts", "continuation", "max_records"}
 	case "inspect.environment":

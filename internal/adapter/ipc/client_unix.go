@@ -67,7 +67,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions}
+	response := bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, InputTrace: out.InputTrace, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -165,9 +165,8 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		applyEvidenceInspectV2(&req, in)
 	case "inspect.environment", "inspect.process":
 		applyObservationInspectV2(&req, in)
-	case "inspect.telemetry":
-		req.OperationID = in.TelemetryInspect.OperationID
-		req.MaxSamples = in.TelemetryInspect.MaxSamples
+	case "inspect.telemetry", "inspect.trace":
+		applyBoundedOperationInspectV2(&req, in)
 	case "repro.create":
 		req.ReproCreateID = in.ReproCreate.CreateID
 		req.OperationID = in.ReproCreate.OperationID
@@ -181,6 +180,14 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 		req.Signal = in.Kill.Signal
 	}
 	return req
+}
+
+func applyBoundedOperationInspectV2(req *RequestV2, in bridge.Request) {
+	if in.Action == "inspect.trace" {
+		req.OperationID, req.MaxResources = in.InputTraceInspect.OperationID, in.InputTraceInspect.MaxResources
+		return
+	}
+	req.OperationID, req.MaxSamples = in.TelemetryInspect.OperationID, in.TelemetryInspect.MaxSamples
 }
 
 func applyMutationScopeV2(req *RequestV2, in bridge.Request) {
@@ -213,6 +220,7 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.Persistent = in.Start.Persistent
 	req.SessionName = in.Start.SessionName
 	req.TimeoutMS = in.Start.TimeoutMS
+	req.TraceMode = in.Start.TraceMode
 	req.YieldMS = in.Start.YieldMS
 	req.MaxOutputBytes = in.Start.MaxOutputBytes
 }

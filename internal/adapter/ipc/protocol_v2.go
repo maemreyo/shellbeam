@@ -10,6 +10,7 @@ import (
 	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
@@ -23,6 +24,7 @@ import (
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -68,6 +70,7 @@ type RequestV2 struct {
 	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
 	StdinMode           operation.StdinMode               `json:"stdin_mode,omitempty"`
 	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
+	TraceMode           trace.Mode                        `json:"trace_mode,omitempty"`
 	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
@@ -94,6 +97,7 @@ type RequestV2 struct {
 	EvidenceResult      coreevidence.Result               `json:"result,omitempty"`
 	RevalidateArtifacts bool                              `json:"revalidate_artifacts,omitempty"`
 	MaxSamples          int                               `json:"max_samples,omitempty"`
+	MaxResources        int                               `json:"max_resources,omitempty"`
 	ReproCreateID       string                            `json:"repro_create_id,omitempty"`
 	CapturePolicy       *reprocore.CapturePolicy          `json:"capture_policy,omitempty"`
 	ReproID             string                            `json:"repro_id,omitempty"`
@@ -132,6 +136,7 @@ type ResponseV2 struct {
 	MutationScopesTruncated          bool                                `json:"mutation_scopes_truncated,omitempty"`
 	MutationScopeAdvisoriesTruncated bool                                `json:"mutation_scope_advisories_truncated,omitempty"`
 	Telemetry                        *telemetryapp.InspectResult         `json:"telemetry,omitempty"`
+	InputTrace                       *inputtraceapp.InspectResult        `json:"input_trace,omitempty"`
 	Capsule                          *reprocore.Capsule                  `json:"capsule,omitempty"`
 	Repro                            *reproapp.InspectResult             `json:"repro,omitempty"`
 	Code                             *codeintel.Result                   `json:"code,omitempty"`
@@ -254,6 +259,8 @@ func validateRequestV2(v RequestV2) error {
 		return validateProcessInspectV2(v)
 	case "inspect.telemetry", "repro.create", "inspect.repro":
 		return validateA4RequestV2(v)
+	case "inspect.trace":
+		return validateInputTraceRequestV2(v)
 	case "inspect.code":
 		return validateCodeInspectV2(v)
 	case "inspect.events":
@@ -319,6 +326,9 @@ func validateStartRequestV2(v RequestV2) error {
 	}
 	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
+	}
+	if _, err := trace.NormalizeMode(v.TraceMode); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "trace_mode"}, err)
 	}
 	return nil
 }

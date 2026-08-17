@@ -42,7 +42,7 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		return versionedToolError(version, in.Action, out.Code, out.Message, out.Retryable), nil
 	}
 	if version == 2 {
-		return successV2(in.Action, out), nil
+		return successV2(in, out), nil
 	}
 	return successV1(in.Action, out), nil
 }
@@ -65,7 +65,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 	yieldMS, maxOutput := requestOutputDefaults(in, raw)
 	switch in.Action {
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: maxOutput}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: yieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: maxOutput, TraceMode: in.TraceMode}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: yieldMS, MaxOutputBytes: maxOutput}
 	case "read_output":
@@ -115,6 +115,9 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 		request.ProcessInspect = processapp.InspectRequest{Target: *in.ProcessTarget, IncludePorts: in.IncludePorts}
 	case "inspect.telemetry":
 		request.TelemetryInspect = telemetryapp.InspectRequest{OperationID: in.OperationID, MaxSamples: in.MaxSamples}
+	case "inspect.trace":
+		request.InputTraceInspect.OperationID = in.OperationID
+		request.InputTraceInspect.MaxResources = in.MaxResources
 	case "repro.create":
 		policy := reprocore.CapturePolicy{DependentDerivations: reprocore.CaptureCurrent}
 		if in.CapturePolicy != nil {
@@ -249,13 +252,14 @@ func stripLegacyPersistentCapabilities(out *capability.Catalog) {
 	out.Limits.PersistentStartupReattachBudgetMS = 0
 }
 
-func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
+func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
+	action := in.Action
 	body := map[string]any{"schema_version": 2, "ok": true, "action": action}
 	summary := action
 	switch action {
 	case "start", "poll":
 		var failed *mcpgo.CallToolResult
-		summary, failed = executionSuccessV2(action, out, body)
+		summary, failed = executionSuccessV2(in, out, body)
 		if failed != nil {
 			return failed
 		}
@@ -274,7 +278,7 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 		if failed != nil {
 			return failed
 		}
-	case "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
+	case "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)
 		if failed != nil {
@@ -284,12 +288,18 @@ func successV2(action string, out bridge.Response) *mcpgo.CallToolResult {
 	return toolSuccess(summary, body)
 }
 
-func executionSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+func executionSuccessV2(in input, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
+	action := in.Action
 	if out.Result == nil {
 		return "", toolErrorV2(action, "invalid_daemon_response", "structured result missing", false)
 	}
 	body["result"] = out.Result
-	return fmt.Sprintf("%s session %s: %s", action, out.Result.Operation.SessionID, out.Result.Operation.State), nil
+	summary := fmt.Sprintf("%s session %s: %s", action, out.Result.Operation.SessionID, out.Result.Operation.State)
+	if action == "start" && out.InputTrace != nil {
+		body["input_trace"] = startInputTraceStatus(in.TraceMode, *out.InputTrace)
+		summary += fmt.Sprintf("; trace %s/%s", in.TraceMode, out.InputTrace.Status)
+	}
+	return summary, nil
 }
 
 func outputViewSuccessV2(action string, out bridge.Response, body map[string]any) (string, *mcpgo.CallToolResult) {
@@ -328,24 +338,16 @@ func inspectionSuccessV2(action string, out bridge.Response, body map[string]any
 		}
 		body["structured"] = out.Structured
 		return "inspect.structured: " + string(out.Structured.Status), nil
-	case "inspect.environment":
-		if out.Environment == nil {
-			return "", toolErrorV2(action, "invalid_daemon_response", "environment inspection missing", false)
-		}
-		body["environment"] = out.Environment
-		return "inspect.environment: " + string(out.Environment.Quality), nil
-	case "inspect.process":
-		if out.Process == nil {
-			return "", toolErrorV2(action, "invalid_daemon_response", "process inspection missing", false)
-		}
-		body["process"] = out.Process
-		return "inspect.process: " + string(out.Process.Quality), nil
+	case "inspect.environment", "inspect.process":
+		return observationInspectionSuccessV2(action, out, body)
 	case "inspect.evidence":
 		if out.Evidence == nil {
 			return "", toolErrorV2(action, "invalid_daemon_response", "evidence inspection missing", false)
 		}
 		body["evidence"] = out.Evidence
 		return "inspect.evidence: " + string(out.Evidence.Status), nil
+	case "inspect.trace":
+		return inputTraceSuccessV2(action, out, body)
 	case "inspect.telemetry":
 		if out.Telemetry == nil {
 			return "", toolErrorV2(action, "invalid_daemon_response", "telemetry inspection missing", false)
@@ -475,15 +477,4 @@ func toolError(code, message string, retryable bool) *mcpgo.CallToolResult {
 func toolErrorV2(action, code, message string, retryable bool) *mcpgo.CallToolResult {
 	body := map[string]any{"schema_version": 2, "ok": false, "action": action, "error": map[string]any{"code": code, "message": message, "retryable": retryable}}
 	return &mcpgo.CallToolResult{IsError: true, Content: []mcpgo.Content{&mcpgo.TextContent{Text: code + ": " + message}}, StructuredContent: body}
-}
-
-func cloneMCPStringMap(input map[string]string) map[string]string {
-	if input == nil {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }

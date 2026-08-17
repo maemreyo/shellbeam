@@ -18,17 +18,17 @@ const (
 )
 
 type InspectRequest struct {
-	OperationID  string
-	MaxResources int
+	OperationID  string `json:"operation_id"`
+	MaxResources int    `json:"max_resources"`
 }
 type InspectResult struct {
-	SchemaVersion      int
-	Status             InspectStatus
-	OperationID        string
-	TraceID            string
-	Record             *core.Record
-	ResourcesReturned  int
-	ResourcesAvailable int
+	SchemaVersion      int           `json:"schema_version"`
+	Status             InspectStatus `json:"status"`
+	OperationID        string        `json:"operation_id"`
+	TraceID            string        `json:"trace_id,omitempty"`
+	Record             *core.Record  `json:"record,omitempty"`
+	ResourcesReturned  int           `json:"resources_returned,omitempty"`
+	ResourcesAvailable int           `json:"resources_available,omitempty"`
 }
 
 type InspectionRepository interface {

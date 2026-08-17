@@ -10,3 +10,14 @@ func requestOutputDefaults(in input, raw []byte) (int64, int) {
 	}
 	return yieldMS, maxOutput
 }
+
+func cloneMCPStringMap(input map[string]string) map[string]string {
+	if input == nil {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
+}

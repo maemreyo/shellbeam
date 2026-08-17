@@ -7,7 +7,7 @@ func clearResponseV2Payload(resp *ResponseV2) {
 	resp.Environment, resp.Process, resp.Mutation, resp.MutationScopes = nil, nil, nil, nil
 	resp.ActiveMutationScopes, resp.MutationScopeAdvisories = nil, nil
 	resp.MutationScopesTruncated, resp.MutationScopeAdvisoriesTruncated = false, false
-	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView, resp.Sessions = nil, nil, nil, nil, nil, nil
+	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView, resp.Sessions, resp.InputTrace = nil, nil, nil, nil, nil, nil, nil
 }
 
 func finalizeResponseV2(resp ResponseV2, err error) ResponseV2 {

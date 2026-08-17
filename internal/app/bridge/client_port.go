@@ -8,6 +8,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
@@ -54,6 +55,7 @@ type Request struct {
 	MutationScopeInspect mutationscopeapp.InspectRequest
 	StructuredInspect    structuredapp.InspectRequest
 	TelemetryInspect     telemetryapp.InspectRequest
+	InputTraceInspect    inputtraceapp.InspectRequest
 	ReproCreate          reprocore.CreateRequest
 	ReproID              string
 	OutputRead           outputview.Request
@@ -79,6 +81,7 @@ type Response struct {
 	ActivityMutationScopes *mutationscopecore.InspectResult
 	Structured             *structuredapp.InspectResult
 	Telemetry              *telemetryapp.InspectResult
+	InputTrace             *inputtraceapp.InspectResult
 	Capsule                *reprocore.Capsule
 	Repro                  *reproapp.InspectResult
 	CodeResult             *codeintel.Result
