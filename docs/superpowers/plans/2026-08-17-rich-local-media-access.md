@@ -82,18 +82,21 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
 - [ ] **Step 1: Require a clean isolated docs worktree and fetch the intended base**
 
   ```bash
-  test -z "$(git status --porcelain)"
+  if [ -n "$(git status --porcelain)" ]; then
+    printf '%s\n' 'rich-media Task -1: NOT_RUN: worktree is dirty; repository/index left unchanged' >&2
+    exit 3
+  fi
   git fetch origin
   EXECUTION_BASE="$(git rev-parse origin/main)"
   test -n "$EXECUTION_BASE"
   git merge-base --is-ancestor "$(git merge-base HEAD "$EXECUTION_BASE")" HEAD
   ```
 
-  If the worktree is dirty, do not stash/reset it; record `NOT_RUN` and stop. `origin/main` is only the discovery ref; all later commands use the recorded full SHA.
+  If the worktree is dirty, this is a **pre-mutation `NOT_RUN`**. Report it only in the executor response/stdout and stop immediately: do not create/update the preflight file, materialize the approved source, fetch, rebase, stage, commit, stash, reset, or otherwise mutate repository/index state. The dirty-tree path intentionally has no repository evidence commit because preserving unrelated work takes precedence. A dry-run check for this branch compares the pre-call `git status --porcelain=v1` and index/tree identities with the post-call values and requires them to be byte-for-byte unchanged. `origin/main` is only the discovery ref; all later commands use the recorded full SHA.
 
 - [ ] **Step 2: Synchronize the docs branch only with explicit user authorization**
 
-  Before rewriting local branch history, require the current execution instruction to authorize synchronizing this worktree. If authorization is absent, record `NOT_RUN` and stop. When authorized:
+  Before rewriting local branch history, require the current execution instruction to authorize synchronizing this worktree. If authorization is absent after the clean Step-1 check, do not rebase; set `NOT_RUN`, continue only to Step 5 branch B to persist the evidence-only record, then stop. When authorized:
 
   ```bash
   git rebase "$EXECUTION_BASE"
@@ -119,13 +122,13 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
   test "$(shasum -a 256 docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md | awk '{print $1}')" = 7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906
   ```
 
-  Never reconstruct the source from chat memory, conversational revision labels, or a partial diff.
+  Never reconstruct the source from chat memory, conversational revision labels, or a partial diff. Any missing source or line/byte/SHA mismatch is `FAIL`; continue only to Step 5 branch B to persist the evidence-only record, then stop.
 
 - [ ] **Step 4: Re-trace every declared production touchpoint on the bound base**
 
   Parse every `Create/Modify/Test` path in this plan. Every `Modify`/`Test` path must exist on `EXECUTION_BASE`; every `Create` path must be absent or explicitly reviewed as a deliberate replacement. Re-open the current IPC/MCP/daemon/bridge/capability/failure symbols named by Tasks 1–10 and confirm the Files/Interfaces/test commands still match current code.
 
-  Record the authoring-time drift facts only as historical context; the preflight evidence must contain the fresh path/symbol inventory against `EXECUTION_BASE`. If any mapping is stale, set verdict `FAIL`, revise/re-review the plan, and rerun Task -1.
+  Record the authoring-time drift facts only as historical context; the preflight evidence must contain the fresh path/symbol inventory against `EXECUTION_BASE`. If any mapping is stale, set verdict `FAIL`, continue to Step 5 branch B and commit the honest evidence-only record, then stop. Revise/re-review the plan only after that failed preflight attempt is durably closed; rerun Task -1 from a clean worktree.
 
 - [ ] **Step 5: Write and commit the preflight record for PASS, FAIL, or NOT_RUN**
 
@@ -144,7 +147,26 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
   touchpoint_inventory = PASS | FAIL
   ```
 
-  Always preserve an honest non-PASS record; do not delete failed evidence. For a PASS:
+  Persistence is explicitly split by when the attempt stops:
+
+  **A. Dirty at Step 1 -> `NOT_RUN`, zero repository mutation.** The executor reports the verdict/reason outside the worktree (response/stdout) and exits. Do not write, stage, or commit any Task -1 file. This is the only non-PASS branch without a repository evidence commit.
+
+  **B. The worktree passed the Step-1 dirty check, then any later preflight operation (including fetch/base discovery inside Step 1) ends `FAIL` or `NOT_RUN`.** Write an honest `docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md` with the identities that were actually observed plus the exact failure/NOT_RUN reason. Never claim unavailable fields were verified. Before this evidence-only commit, finish or abort any in-progress rebase so the repository is again clean except for Task -1-owned evidence/source files; if that cannot be done without touching unrelated work, fall back to the same zero-mutation external `NOT_RUN` reporting rule as branch A. Commit only the durable preflight evidence through the repository workflow. `VERIFY_BASE` uses the discovered immutable base when available, otherwise the unchanged clean authoring HEAD, so an early fetch/base-discovery failure does not require an unset variable:
+
+  ```bash
+  VERIFY_BASE="${EXECUTION_BASE:-$(git rev-parse HEAD)}"
+  git diff --check
+  go run ./tools/devctl test --dirty --base "$VERIFY_BASE" --json
+  go run ./tools/devctl build --dirty --base "$VERIFY_BASE" --json
+  git add docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md
+  git diff --cached --check
+  test "$(git diff --cached --name-only)" = "docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md"
+  git -c core.hooksPath=.githooks commit -m "docs: record rich media preflight failure"
+  ```
+
+  If this clean attempt materialized `docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md` before later failing, record its observed identity in the preflight evidence, but do not stage it on a non-PASS verdict. After the evidence commit, remove that source file **only if this Task -1 attempt created it from an initially absent path**; never remove or overwrite a file that pre-existed the attempt. The resulting worktree must return to the same clean state it had at Step 1.
+
+  **C. PASS.** Preserve the existing PASS workflow and bind both the preflight record and the exact approved source:
 
   ```bash
   git diff --check
@@ -152,10 +174,12 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
   go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md
   git diff --cached --check
+  test "$(git diff --cached --name-only)" = "docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md
+docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md"
   git -c core.hooksPath=.githooks commit -m "docs: bind rich media execution inputs"
   ```
 
-  Task 0 may start only from `verdict=PASS` with all recorded identities still matching.
+  Static acceptance for Task -1 requires all three branches above to have explicit persistence behavior: dirty Step 1 = zero mutation; clean later FAIL/NOT_RUN = evidence-only tracked-hook commit; PASS = evidence + exact approved-source tracked-hook commit. Task 0 may start only from `verdict=PASS` with all recorded identities still matching.
 
 ### Task 0: Close the Machine-Verifiable Conjunction Gate and Promote the Runtime Limit
 
