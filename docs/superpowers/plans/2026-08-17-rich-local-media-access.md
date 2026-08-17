@@ -31,6 +31,7 @@
 - No streaming, FD passing, public temp file server, generic binary transfer, transform/resize/OCR framework, cache, durable artifact database, or media resource URI in V1.
 - Ordinary `start`/`poll`/`write`/`kill`/inspection hot paths perform zero media filesystem/decoder/admission work when media is unused.
 - Use TDD for every production behavior: RED test, minimal GREEN, focused verification, then commit. Preserve existing dirty work; no push or PR unless explicitly requested.
+- Every task that touches an existing near-cap Go file must first create structural headroom with a behavior-preserving same-package move. Before staging, every changed production Go file must be <=500 lines, every changed test Go file <=800 lines, and no changed function may exceed 80 lines; never rely on grandfathering because `devctl commit-gate` checks every staged Go file.
 
 ## Global Execution Contract
 
@@ -342,9 +343,12 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 - Create: `internal/adapter/jsonstrict/decode_test.go`
 - Create: `internal/adapter/jsonstrict/decode_fuzz_test.go`
 - Create: `scripts/check-json-mode.sh`
+- Create: `internal/adapter/mcp/decode.go`
+- Modify: `internal/adapter/mcp/call.go` only to move `decodeInput` out; the post-move file must remain <=500 lines
 - Modify: `internal/adapter/mcp/input.go`
 - Modify: `internal/adapter/mcp/discovery_test.go`
-- Modify: `internal/adapter/ipc/protocol_v2.go`
+- Create: `internal/adapter/ipc/protocol_v2_decode.go`
+- Modify: `internal/adapter/ipc/protocol_v2.go` only to move `readBoundedJSON`/`strictDecodeV2` out; the post-move file must remain <=500 lines
 - Modify: `internal/adapter/ipc/protocol_v2_test.go`
 - Modify: `Makefile`
 - Modify: `.github/workflows/checkpoint.yml`
@@ -412,9 +416,21 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
   JSON-v2 defaults reject invalid UTF-8, duplicate names, and case-insensitive member matching; `RejectUnknownMembers(true)` closes unknown members, and `Unmarshal` consumes one complete JSON value. Do not enable `AllowInvalidUTF8`, `AllowDuplicateNames`, or case-insensitive matching. Preserve protocol-v1 decoding unchanged.
 
-- [ ] **Step 4: Route modern MCP/IPC-v2 decode through the one boundary**
+- [ ] **Step 4: Create structural headroom before wiring the strict decoder**
 
-  Change `mcp.decodeInput`/modern validation and `ipc.strictDecodeV2` to call `jsonstrict.Decode`. Retain branch-specific field-set validation where it communicates cross-action errors, but do not maintain a second permissive JSON parser for media/v2 security decisions.
+  The execution base has `internal/adapter/mcp/call.go` at 485 lines and `internal/adapter/ipc/protocol_v2.go` at 496 lines. The contributor contract hard-fails any staged production Go file above 500 lines, so do a behavior-preserving move before adding strict-JSON logic:
+
+  - Move `decodeInput` from `internal/adapter/mcp/call.go` into new `internal/adapter/mcp/decode.go` in the same package. Keep its signature exactly `func decodeInput(raw []byte) (input, error)` and make no semantic change in the move commit content.
+  - Move `readBoundedJSON` and `strictDecodeV2` from `internal/adapter/ipc/protocol_v2.go` into new `internal/adapter/ipc/protocol_v2_decode.go`, preserving signatures and the existing 1 MiB ordinary-v2 request bound.
+  - Run the existing MCP/IPC compatibility tests immediately after the move and before changing decoder semantics.
+
+  ```bash
+  go test ./internal/adapter/mcp ./internal/adapter/ipc -run 'TestCompatibilityV1Fixtures|TestDiscoveryCurrentClientGetsV2ToolAndCatalog|TestIPCV2' -count=1
+  test "$(wc -l < internal/adapter/mcp/call.go)" -le 500
+  test "$(wc -l < internal/adapter/ipc/protocol_v2.go)" -le 500
+  ```
+
+  Then change the moved `mcp.decodeInput` modern path and moved `ipc.strictDecodeV2` to call `jsonstrict.Decode`. Retain branch-specific field-set validation where it communicates cross-action errors, but do not maintain a second permissive JSON parser for media/v2 security decisions. Protocol-v1 decoding remains unchanged.
 
 - [ ] **Step 5: Add the whole-build reproducibility guard**
 
@@ -441,7 +457,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   ```bash
   go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
   go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
-  git add internal/adapter/jsonstrict internal/adapter/mcp/input.go internal/adapter/mcp/discovery_test.go internal/adapter/ipc/protocol_v2.go internal/adapter/ipc/protocol_v2_test.go scripts/check-json-mode.sh Makefile .github/workflows/checkpoint.yml .github/workflows/nightly.yml .github/workflows/release.yml
+  git add internal/adapter/jsonstrict internal/adapter/mcp/decode.go internal/adapter/mcp/call.go internal/adapter/mcp/input.go internal/adapter/mcp/discovery_test.go internal/adapter/ipc/protocol_v2_decode.go internal/adapter/ipc/protocol_v2.go internal/adapter/ipc/protocol_v2_test.go scripts/check-json-mode.sh Makefile .github/workflows/checkpoint.yml .github/workflows/nightly.yml .github/workflows/release.yml
   git diff --cached --check
   git -c core.hooksPath=.githooks commit -m "build: freeze strict json mode"
   ```
@@ -819,7 +835,8 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 - Modify: `internal/adapter/ipc/protocol_v2.go`
 - Modify: `internal/adapter/ipc/protocol_v2_test.go`
 - Modify: `internal/adapter/ipc/client_unix.go`
-- Modify: `internal/adapter/ipc/server_unix.go`
+- Create: `internal/adapter/ipc/server_v2_unix.go`
+- Modify: `internal/adapter/ipc/server_unix.go` only to move existing v2 dispatch/helpers into `server_v2_unix.go`; the post-move file must remain <=500 lines
 - Modify: `internal/adapter/ipc/ipc_integration_test.go`
 - Create: `internal/adapter/ipc/media_test.go`
 - Modify: `internal/app/bridge/client_port.go`
@@ -881,7 +898,19 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
   `capabilities.negotiate` accepts only the bounded consumer declaration. `read_media` carries the same declaration plus the negotiated fingerprint and media request, allowing the daemon to recompute the intersection statelessly before admission. Missing/invalid opt-in returns `feature_unavailable` before filesystem work.
 
-- [ ] **Step 3: Add optional IPC server interfaces instead of widening legacy `Actions`**
+- [ ] **Step 3: Split the current oversized IPC server before adding media**
+
+  On the bound execution base, `internal/adapter/ipc/server_unix.go` is already 503 lines, so any staged edit to that file fails the repository hard cap. First perform a behavior-preserving same-package split: move `handleV2`, `clearResponseV2Payload`, `inspectV2`, `inspectEnvironmentProcessV2`, `inspectProjectV2`, `writeResponseV2`, and `cloneStringMapV2` into new build-tagged `internal/adapter/ipc/server_v2_unix.go`. Keep listener/socket/v1 handling in `server_unix.go`; `mux.HandleFunc("POST /v2/local-shell", s.handleV2)` continues to bind the moved method transparently.
+
+  Before adding any media branch, require:
+
+  ```bash
+  go test ./internal/adapter/ipc -run 'TestIPCV2|TestCompatibility|TestBridgeForwardV2InspectServerUsesV2' -count=1
+  test "$(wc -l < internal/adapter/ipc/server_unix.go)" -le 500
+  test "$(wc -l < internal/adapter/ipc/server_v2_unix.go)" -le 500
+  ```
+
+  Then add optional IPC server interfaces instead of widening legacy `Actions`:
 
   ```go
   type MediaActions interface {
@@ -1004,8 +1033,11 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
 **Files:**
 - Modify: `internal/adapter/mcp/server.go`
-- Modify: `internal/adapter/mcp/call.go`
-- Modify: `internal/adapter/mcp/input.go`
+- Create: `internal/adapter/mcp/legacy_catalog.go`
+- Create: `internal/adapter/mcp/media_call.go`
+- Create: `internal/adapter/mcp/media_input.go`
+- Modify: `internal/adapter/mcp/call.go` only to move legacy catalog projection out and add the minimal media dispatch hook; the post-move file must remain <=500 lines
+- Modify: `internal/adapter/mcp/input.go` only for the minimal shared input fields/dispatch hook; the post-change file must remain <=500 lines
 - Modify: `internal/adapter/mcp/server_test.go`
 - Modify: `internal/adapter/mcp/discovery_test.go`
 - Create: `internal/adapter/mcp/media_test.go`
@@ -1039,11 +1071,24 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   invalid bridge response returns error text/structured content only
   ```
 
-- [ ] **Step 2: Compose media schema only when effective media is available**
+- [ ] **Step 2: Create MCP call/input headroom before adding media behavior**
+
+  The bound base has `internal/adapter/mcp/call.go` at 485 lines and `internal/adapter/mcp/input.go` at 478 lines. Preserve behavior while moving `legacyCatalogView` and `stripLegacyPersistentCapabilities` from `call.go` into new `internal/adapter/mcp/legacy_catalog.go`. Put media-specific request construction/validation helpers in new `media_input.go` and media-specific success/ImageContent rendering in new `media_call.go`; do not grow the near-cap files with full media implementations. `call.go` and `input.go` may contain only the minimal dispatch/shared-field hooks needed to call those focused helpers.
+
+  Before media semantics, run current discovery/legacy tests and enforce the hard cap:
+
+  ```bash
+  go test ./internal/adapter/mcp -run 'TestDiscovery|TestCompatibility|TestMCPV2Bridge' -count=1
+  test "$(wc -l < internal/adapter/mcp/call.go)" -le 500
+  test "$(wc -l < internal/adapter/mcp/input.go)" -le 500
+  test "$(wc -l < internal/adapter/mcp/legacy_catalog.go)" -le 500
+  ```
+
+- [ ] **Step 3: Compose media schema only when effective media is available**
 
   Keep embedded base v2 schema unchanged. Build a fresh copy of its `oneOf` and append `mcp-read-media-input-v1.json` only when `catalog.Features[FeatureRichLocalMedia]==Available` and `catalog.Media!=nil`. Compose the media output branch similarly. Never mutate the embedded/raw shared slice in place.
 
-- [ ] **Step 3: Add conditional disclosure without weakening shell annotations**
+- [ ] **Step 4: Add conditional disclosure without weakening shell annotations**
 
   When media is available, append to the tool description/instructions a concise normative disclosure equivalent to:
 
@@ -1053,11 +1098,11 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
   Preserve production-like `local_shell` tool annotations (`readOnly=false`, `destructive=true`, `openWorld=true`, `idempotent=false`) unless Task-0 Phase A evidence explicitly selects a different approved configuration.
 
-- [ ] **Step 4: Decode/forward the media public action**
+- [ ] **Step 5: Decode/forward the media public action**
 
   Extend the MCP input struct with `Path` and the mutually exclusive workspace/CWD fields already used by the address contract. `requestFromInput` builds the bridge media request without normalization.
 
-- [ ] **Step 5: Render native image content only after bridge validation**
+- [ ] **Step 6: Render native image content only after bridge validation**
 
   Task 0 must freeze exactly one of the two already-scored annotation policies: `omitted` or `user_assistant`. Do **not** add a runtime user setting for this. Implement only the frozen branch:
 
@@ -1072,14 +1117,14 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
 
   When Task 0 froze `omitted`, delete the annotation assignment and leave `Annotations=nil`. Tests must assert the selected production policy exactly. Structured content contains only safe metadata and exact `display_address`.
 
-- [ ] **Step 6: GREEN through the official SDK transport**
+- [ ] **Step 7: GREEN through the official SDK transport**
 
   ```bash
   go test ./internal/adapter/mcp ./internal/app/bridge -run 'Test.*Media|TestMetadata|TestInMemoryConformance|TestDiscovery' -count=1
   ./scripts/test-mcp-local.sh
   ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
   ```bash
   go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
