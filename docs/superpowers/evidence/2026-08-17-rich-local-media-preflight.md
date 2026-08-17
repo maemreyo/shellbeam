@@ -1,21 +1,20 @@
 # Rich Local Media Task -1 Preflight Evidence
 
-## Current verdict
+## Verdict
 
 ```text
-verdict = FAIL
-reason = exact_source_whitespace_policy_conflict
-attempt = 4
+verdict = PASS
+attempt = 5
 ```
 
-Task 0 is not authorized by this receipt. No production media implementation was performed.
+Task 0 may start only while all recorded identities still match. This receipt does not authorize Tasks 1–10.
 
 ## Bound identities
 
 ```text
 execution_base_sha = a92a52fba7d123c50d84e5b879e65d176bd25444
-branch_head_sha = 2a55ec4dba238dd918e4577501e722e1f3644e10
-plan_sha256 = 3b614cfe97ca4d238433bc512b62f3032a1908019dfb5fc34fa8d4dc173e6213
+branch_head_sha = 134363ea3d886b926f8b971df58679466c118a6d
+plan_sha256 = 875bc14f14fa1a5291bc206df4d01d178c96c22ae9b48758810c8e060bef3c5b
 approved_source_path = docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md
 approved_source_sha256 = 7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906
 approved_source_lines = 1657
@@ -24,53 +23,88 @@ contributor_contract_sha256 = f7938af79f22a90d50ccf3dd267ba823e0704b5241fa82aa12
 touchpoint_inventory = PASS
 semantic_seam_inventory = PASS
 contributor_policy_mapping = PASS
-pass_commit_hygiene = FAIL
+exact_source_whitespace_scope = PASS
 ```
 
-## Attempt 4 results before PASS commit
+## Synchronization and source identity
 
-- Clean gate, fresh fetch/rebase/ancestry: PASS on `a92a52fba7d123c50d84e5b879e65d176bd25444`.
-- Exact approved v8 source: PASS, 1,657 lines / 79,933 bytes / SHA-256 `7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906`.
-- Dependency-aware path inventory: PASS, 97 declaration occurrences, zero path problems.
-- Exact seam anchors: PASS.
-- Current hard policy debt: exactly three known items (503-line IPC server plus daemon functions 86/81), all mapped to explicit behavior-preserving structural remedies in the plan.
-- Near-function headroom and interface scan: PASS; no hard interface violation remained unmapped.
+- Clean Step-1 gate: PASS.
+- Fresh `git fetch origin`: PASS.
+- Frozen execution base: `a92a52fba7d123c50d84e5b879e65d176bd25444`.
+- Rebase/ancestry: PASS; current branch was already based on the frozen base.
+- Pre-evidence synchronized HEAD: `134363ea3d886b926f8b971df58679466c118a6d`.
+- Branch distance before this evidence commit: behind 0.
+- Verified compressed source stream: 35,792 base64 bytes, SHA-256 `f97eeafe67ba7a765bcf8bea6f8ebcb235b21825e62c9b2372b755446c7c1496`.
+- Decoded approved source: 1,657 lines / 79,933 bytes / SHA-256 `7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906`.
 
-## PASS-commit blocker
+The source was reconstructed only from the exact verified compressed byte stream, not conversational prose.
 
-The exact approved source itself contains one trailing ASCII space at line 328. Because the source is immutable by SHA, trimming that byte would violate approved-source identity. Branch C requires staging the exact source, while both the plan and tracked hook require raw `git diff --cached --check`.
+## Immutable-source whitespace scope
 
-Fresh staged check failed exactly at:
-
-```text
-docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md:328: trailing whitespace.
-```
-
-The tracked hook implementation at `tools/devctl/commit_gate.go` also invokes raw `git diff --cached --check`, so this cannot be bypassed by changing only the outer commit command.
-
-A separate temporary Git repository verified a narrow durable mechanism: a `.gitattributes` rule
+The approved bytes contain one trailing ASCII space at source line 328. The tracked repository rule is exactly:
 
 ```gitattributes
 docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md -whitespace
 ```
 
-causes `git diff --cached --check` to ignore whitespace diagnostics only for that exact immutable evidence path while still rejecting trailing whitespace in ordinary files. The current approved Task -1 does not authorize creating/staging `.gitattributes` in Branch C, so attempt 4 must FAIL rather than add the exception ad hoc.
+Verification:
 
-Required correction: add a Task -1 provenance/hygiene step that creates or updates tracked `.gitattributes` with the exact-path `-whitespace` exception, verifies no wildcard/broader scope, stages it together with PASS evidence + exact v8 source, and records why the exception exists. The exception must apply only to this immutable approved artifact and must not weaken Go/docs whitespace checks elsewhere.
+```text
+exact rule count = 1
+all repository whitespace-exception rule count = 1
+git check-attr result = whitespace: unset for the exact approved-source path
+wildcard/broader whitespace exception = absent
+```
+
+This exception preserves the approved SHA and does not weaken staged whitespace checking for any other path.
+
+## Dependency-aware path inventory
+
+```text
+declaration_occurrences = 97
+path_problems = 0
+spec provenance = branch_owned_docs
+phase-a evidence at Task 10 = created_by_task=0
+preflight receipt = branch_owned_docs
+path_inventory = PASS
+```
+
+No non-doc branch-owned path absent from the execution base was used as a production touchpoint seed.
+
+## Semantic seam and contributor-policy re-trace
+
+Twelve required current anchors were re-resolved on the bound base, including IPC `RequestV2`/`ResponseV2`/`strictDecodeV2`, daemon `WorkspaceResolver.ResolveAddress`/`CapabilityCatalog` and `NewServiceWithExecutionContextAndCoherence`, bridge `DaemonClient`, MCP `decodeInput`/`runMCP`, and daemon `runDaemon`.
+
+A fresh Go-AST scan over every existing Go file later declared Modify/Test found exactly the known current hard set:
+
+```text
+HARD_FILE 503 internal/adapter/ipc/server_unix.go
+HARD_FUNC 86 cmd/shellbeam/command_daemon.go runDaemonWithCodeProvider
+HARD_FUNC 81 cmd/shellbeam/command_daemon.go serveDaemonRuntime
+hard_interface_count = 0
+```
+
+Each hard item has an explicit same-task behavior-preserving structural remedy before feature logic. Feature-relevant near-function hotspots were also checked and mapped: `handleV2=80`, `requestV2FromBridge=78`, `requestFromInput=79`, `validateV2=75`, and `validateRequestV2=64`. The plan uses focused same-package files/delegation rather than grandfathering staged policy violations.
+
+```text
+semantic_seam_inventory = PASS
+contributor_policy_mapping = PASS
+```
 
 ## Attempt history
 
-- Attempt 1: FAIL / base-only path inventory; closed by `8decbc5eae48f7034b5bb9f2b871458ac96d593c`.
-- Attempt 2: FAIL / staged file-cap mapping; closed by `e7b80afe9e88815ec857283d9e3aee1fb8f0ff2f`.
-- Attempt 3: FAIL / daemon function-cap mapping; closed by `a693736d644777744d638f9ff78400e1ad62282b`.
-- Attempt 4: current FAIL / exact-source whitespace policy conflict after all semantic/path checks passed.
+- Attempt 1: FAIL / base-only path rule; evidence commit `8decbc5eae48f7034b5bb9f2b871458ac96d593c`.
+- Attempt 2: FAIL / staged file-cap mapping; evidence commit `e7b80afe9e88815ec857283d9e3aee1fb8f0ff2f`.
+- Attempt 3: FAIL / daemon function-cap mapping; evidence commit `a693736d644777744d638f9ff78400e1ad62282b`.
+- Attempt 4: FAIL / exact-source staged whitespace conflict; evidence commit `8561f93eec73c51cdc7febe9f9c918e96a1b5a4c`; corrected by tracked exact-path `.gitattributes` commit `134363ea3d886b926f8b971df58679466c118a6d`.
+- Attempt 5: PASS.
 
-## Stop condition
+## Authorization boundary
 
 ```text
-Task -1 verdict = FAIL
-Task 0 authorization = BLOCKED
-Tasks 1-10 authorization = BLOCKED
+Task -1 verdict = PASS
+Task 0 authorization = OPEN while identities match
+Tasks 1-10 authorization = BLOCKED until Task 0 machine checker exits 0
 ```
 
 No push or PR was performed.
