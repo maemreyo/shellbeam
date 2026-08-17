@@ -23,6 +23,7 @@ type Handle struct {
 	stdin       *os.File
 	output      *os.File
 	sink        app.OutputSink
+	redactor    *traceOutputRedactor
 	writeMu     sync.Mutex
 	wait        chan receipt.ExitEvidence
 	captureDone chan struct{}
@@ -100,7 +101,7 @@ func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(o
 	_ = stdinR.Close()
 	_ = outW.Close()
 	spawn.Succeeded = true
-	h := &Handle{cmd: cmd, stdin: stdinW, output: outR, sink: sink, wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{})}
+	h := &Handle{cmd: cmd, stdin: stdinW, output: outR, sink: sink, redactor: newTraceOutputRedactor(spec.EnvironmentAdditions), wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{})}
 	if spec.StdinMode == operation.StdinModeClosed {
 		// Deliver EOF now, so a child that reads its input finishes instead of
 		// waiting for a caller who was never going to write. Dropping the write
@@ -127,18 +128,42 @@ func (h *Handle) capture() {
 	for {
 		n, err := h.output.Read(b)
 		if n > 0 {
-			if e := h.sink.Append(context.Background(), append([]byte(nil), b[:n]...)); e != nil {
-				h.sink.CaptureFailed(e)
-			}
+			h.appendCaptured(h.redactOutput(b[:n]))
 		}
 		if err != nil {
-			if !errors.Is(err, io.EOF) {
+			if errors.Is(err, io.EOF) {
+				h.appendCaptured(h.flushRedactedOutput())
+			} else {
 				h.sink.CaptureFailed(err)
 			}
 			return
 		}
 	}
 }
+
+func (h *Handle) redactOutput(b []byte) []byte {
+	if h.redactor == nil {
+		return append([]byte(nil), b...)
+	}
+	return h.redactor.Push(b)
+}
+
+func (h *Handle) flushRedactedOutput() []byte {
+	if h.redactor == nil {
+		return nil
+	}
+	return h.redactor.Flush()
+}
+
+func (h *Handle) appendCaptured(b []byte) {
+	if len(b) == 0 {
+		return
+	}
+	if err := h.sink.Append(context.Background(), b); err != nil {
+		h.sink.CaptureFailed(err)
+	}
+}
+
 func (h *Handle) reap() {
 	err := h.cmd.Wait()
 	<-h.captureDone
