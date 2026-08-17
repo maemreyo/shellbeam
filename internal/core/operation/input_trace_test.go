@@ -130,8 +130,8 @@ func TestE27TypedTraceModeBindsCallerRequest(t *testing.T) {
 }
 
 func TestE27ExecutionEnvironmentAdditionsAreEphemeralControl(t *testing.T) {
-	spec := ExecutionSpec{EnvironmentAdditions: []EnvironmentEntry{{Name: "SHELLBEAM_TRACE_ID", Value: "trace_01K00000000000000000000000"}}}
-	if len(spec.EnvironmentAdditions) != 1 || spec.EnvironmentAdditions[0].Name != "SHELLBEAM_TRACE_ID" {
+	spec := ExecutionSpec{EnvironmentAdditions: []EnvironmentEntry{{Key: "SHELLBEAM_TRACE_ID", Value: "trace_01K00000000000000000000000"}}}
+	if len(spec.EnvironmentAdditions) != 1 || spec.EnvironmentAdditions[0].Key != "SHELLBEAM_TRACE_ID" {
 		t.Fatalf("environment additions=%#v", spec.EnvironmentAdditions)
 	}
 }

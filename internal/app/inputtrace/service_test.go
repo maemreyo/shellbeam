@@ -54,7 +54,7 @@ func TestE27InputTraceServiceMissingProviderIsTypedUnavailable(t *testing.T) {
 }
 
 func TestE27InputTraceServiceFreezesValidatedPreparedFacts(t *testing.T) {
-	prepared := &serviceFakePrepared{binding: serviceTraceBinding(), env: []operation.EnvironmentEntry{{Name: "SHELLBEAM_TRACE_ID", Value: "trace_01K00000000000000000000000"}}}
+	prepared := &serviceFakePrepared{binding: serviceTraceBinding(), env: []operation.EnvironmentEntry{{Key: "SHELLBEAM_TRACE_ID", Value: "trace_01K00000000000000000000000"}}}
 	preparer := &serviceFakePreparer{prepared: prepared}
 	got, err := New(preparer).Prepare(context.Background(), PrepareRequest{Mode: core.ModeBestEffort, OperationID: "active", ExecutionMode: operation.ExecutionModeShell, Executable: "/bin/sh", CWD: "/tmp"})
 	if err != nil {

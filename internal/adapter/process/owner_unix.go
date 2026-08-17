@@ -69,6 +69,10 @@ func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(o
 		return nil, spawn, err
 	}
 	cmd.Dir = spec.CWD
+	if err := applyEnvironmentAdditions(cmd, spec.EnvironmentAdditions); err != nil {
+		spawn.ErrorCode = "invalid_execution_spec"
+		return nil, spawn, err
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {

@@ -28,6 +28,10 @@ type ptyHandle struct {
 
 func startPTY(spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
 	spawn := receipt.SpawnEvidence{Attempted: true}
+	if len(spec.EnvironmentAdditions) != 0 {
+		spawn.ErrorCode = "trace_environment_unsupported"
+		return nil, spawn, fmt.Errorf("trace_environment_unsupported")
+	}
 	cmd, code, err := commandFor(spec)
 	if err != nil {
 		spawn.ErrorCode = code

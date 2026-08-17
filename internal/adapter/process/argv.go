@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -114,4 +115,48 @@ func commandForFrozen(spec operation.ExecutionSpec) (*exec.Cmd, string, error) {
 	default:
 		return nil, "invalid_execution_spec", fmt.Errorf("invalid frozen execution mode")
 	}
+}
+
+var traceEnvironmentKeys = map[string]struct{}{
+	"DYLD_INSERT_LIBRARIES":    {},
+	"SHELLBEAM_TRACE_SOCKET":   {},
+	"SHELLBEAM_TRACE_PROTOCOL": {},
+	"SHELLBEAM_TRACE_ID":       {},
+}
+
+func applyEnvironmentAdditions(cmd *exec.Cmd, additions []operation.EnvironmentEntry) error {
+	if len(additions) == 0 {
+		return nil
+	}
+	if cmd == nil {
+		return fmt.Errorf("invalid trace environment")
+	}
+	values := make(map[string]string, len(os.Environ())+len(additions))
+	for _, entry := range os.Environ() {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && key != "" {
+			values[key] = value
+		}
+	}
+	seen := make(map[string]struct{}, len(additions))
+	for _, addition := range additions {
+		if _, allowed := traceEnvironmentKeys[addition.Key]; !allowed || addition.Value == "" || strings.IndexByte(addition.Value, 0) >= 0 {
+			return fmt.Errorf("invalid trace environment")
+		}
+		if _, duplicate := seen[addition.Key]; duplicate {
+			return fmt.Errorf("duplicate trace environment key")
+		}
+		seen[addition.Key] = struct{}{}
+		values[addition.Key] = addition.Value
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	cmd.Env = make([]string, 0, len(keys))
+	for _, key := range keys {
+		cmd.Env = append(cmd.Env, key+"="+values[key])
+	}
+	return nil
 }

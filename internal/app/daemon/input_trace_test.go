@@ -180,7 +180,7 @@ func TestE27InputTraceActiveFreezesBindingAndEnvironmentBeforeSpawn(t *testing.T
 		t.Fatal(err)
 	}
 	spec := owner.lastSpec()
-	if stored.Trace == nil || stored.Trace.TraceID != prepared.binding.TraceID || len(spec.EnvironmentAdditions) != 2 || spec.EnvironmentAdditions[0].Name != "SHELLBEAM_TRACE_ID" {
+	if stored.Trace == nil || stored.Trace.TraceID != prepared.binding.TraceID || len(spec.EnvironmentAdditions) != 2 || spec.EnvironmentAdditions[0].Key != "SHELLBEAM_TRACE_ID" {
 		t.Fatalf("stored=%#v spec=%#v", stored.Trace, spec)
 	}
 	plainStore := openE27DaemonStore(t)
@@ -294,7 +294,7 @@ func e27DaemonPrepared() *daemonTracePrepared {
 			InstrumentationFingerprint: strings.Repeat("a", 64), InstrumentationEffect: trace.EffectEnvironmentAffecting,
 			Coverage: trace.CoverageMatrix{FilesystemReads: trace.CoveragePartial, FilesystemMetadataQueries: trace.CoveragePartial, DirectoryEnumerations: trace.CoveragePartial, FilesystemWrites: trace.CoveragePartial, ExecutedBinaries: trace.CoveragePartial, LoadedLibraries: trace.CoveragePartial, EnvironmentNamesObserved: trace.CoverageUnsupported, NetworkAttempts: trace.CoverageUnsupported, ChildProcesses: trace.CoveragePartial},
 		},
-		env: []operation.EnvironmentEntry{{Name: "SHELLBEAM_TRACE_ID", Value: "trace_01K00000000000000000000000"}, {Name: "DYLD_INSERT_LIBRARIES", Value: "/private/provider/instrumentation.dylib"}},
+		env: []operation.EnvironmentEntry{{Key: "SHELLBEAM_TRACE_ID", Value: "trace_01K00000000000000000000000"}, {Key: "DYLD_INSERT_LIBRARIES", Value: "/private/provider/instrumentation.dylib"}},
 	}
 }
 

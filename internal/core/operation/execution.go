@@ -1,7 +1,7 @@
 package operation
 
 type EnvironmentEntry struct {
-	Name  string
+	Key   string
 	Value string
 }
 
