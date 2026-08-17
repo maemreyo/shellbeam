@@ -17,6 +17,7 @@ import (
 	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
 
 func TestE27NativeDynamicInputTraceAcceptance(t *testing.T) {
@@ -143,16 +144,39 @@ func assertE27NativeNoTax(t *testing.T, disabled, enabled *b1NativeDaemon, cwd, 
 	}
 }
 
+func TestE27NoTaxAdmissionProbeStaysLiveAcrossTimedStart(t *testing.T) {
+	req := e27NoTaxAdmissionProbe("e27-probe-shape", "/tmp")
+	if len(req.Argv) != 1 || req.Argv[0] != "/bin/cat" || req.StdinMode != operation.StdinModeStream || req.YieldMS != 0 {
+		t.Fatalf("probe request=%#v", req)
+	}
+}
+
+func e27NoTaxAdmissionProbe(operationID, cwd string) ipcadapter.RequestV2 {
+	return e27Request(ipcadapter.RequestV2{
+		Action: "start", OperationID: operationID, CWD: cwd, Argv: []string{"/bin/cat"},
+		StdinMode: operation.StdinModeStream, YieldMS: 0, MaxOutputBytes: 1024,
+	})
+}
+
 func measureE27NativeAdmission(t *testing.T, client *ipcadapter.Client, operationID, cwd string) time.Duration {
 	t.Helper()
-	req := e27Request(ipcadapter.RequestV2{Action: "start", OperationID: operationID, CWD: cwd, Argv: []string{"/usr/bin/true"}, MaxOutputBytes: 1024})
 	startedAt := time.Now()
-	response, err := client.CallV2(context.Background(), req)
+	response, err := client.CallV2(context.Background(), e27NoTaxAdmissionProbe(operationID, cwd))
 	elapsed := time.Since(startedAt)
 	if err != nil || !response.OK || response.Result == nil || response.Result.Operation.SessionID == "" {
 		t.Fatalf("ordinary start %s response=%#v err=%v", operationID, response, err)
 	}
-	waitB1NativeTerminal(t, client, response.Result.Operation.SessionID)
+	if response.Result.Operation.State == "terminal" {
+		t.Fatalf("ordinary start %s terminalized inside timed admission: %#v", operationID, response.Result.Operation)
+	}
+	sessionID := response.Result.Operation.SessionID
+	eof, err := client.CallV2(context.Background(), e27Request(ipcadapter.RequestV2{
+		Action: "write", SessionID: sessionID, InputOffset: 0, EOF: true,
+	}))
+	if err != nil || !eof.OK {
+		t.Fatalf("ordinary cleanup %s response=%#v err=%v", operationID, eof, err)
+	}
+	waitB1NativeTerminal(t, client, sessionID)
 	return elapsed
 }
 

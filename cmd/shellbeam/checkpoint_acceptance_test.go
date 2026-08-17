@@ -28,6 +28,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
@@ -185,6 +186,64 @@ func TestE26BatchedNoTaxEstimatorRejectsPersistentTaxAndIgnoresOneNoisyWindow(t 
 	}
 }
 
+func TestE26BatchedNoTaxEstimatorP99IgnoresBatchPlacementOfSameTailNoise(t *testing.T) {
+	const (
+		samples   = 200
+		batchSize = 20
+	)
+	disabled := make([]time.Duration, samples)
+	enabled := make([]time.Duration, samples)
+	for i := range disabled {
+		disabled[i] = 10 * time.Millisecond
+		enabled[i] = 10 * time.Millisecond
+	}
+	// Both populations contain the same ten 100ms scheduler stalls. The only
+	// difference is where those stalls land in the local 20-sample batches.
+	// A no-tax estimator must be invariant to that batch placement.
+	for batch := 0; batch < 10; batch++ {
+		enabled[batch*batchSize] = 100 * time.Millisecond
+	}
+	for batch, count := range []int{3, 3, 2, 2} {
+		for offset := 0; offset < count; offset++ {
+			disabled[batch*batchSize+offset] = 100 * time.Millisecond
+		}
+	}
+	p95, p99, ok := e26BatchedIncrementPercentiles(disabled, enabled, batchSize)
+	if !ok || p95 != 0 || p99 != 0 {
+		t.Fatalf("same-tail-noise estimator p95=%s p99=%s ok=%v", p95, p99, ok)
+	}
+}
+
+func TestE26BatchedNoTaxEstimatorP95IgnoresBatchPlacementOfSameTailNoise(t *testing.T) {
+	const (
+		samples   = 200
+		batchSize = 20
+	)
+	disabled := make([]time.Duration, samples)
+	enabled := make([]time.Duration, samples)
+	for i := range disabled {
+		disabled[i] = 10 * time.Millisecond
+		enabled[i] = 10 * time.Millisecond
+	}
+	// Both populations contain the same twenty 100ms scheduler stalls. Spread
+	// them uniformly across enabled batches but concentrate them in four
+	// disabled batches. Local 20-sample p95s differ even though the aggregate
+	// tail noise is identical.
+	for batch := 0; batch < 10; batch++ {
+		enabled[batch*batchSize] = 100 * time.Millisecond
+		enabled[batch*batchSize+1] = 100 * time.Millisecond
+	}
+	for batch := 0; batch < 4; batch++ {
+		for offset := 0; offset < 5; offset++ {
+			disabled[batch*batchSize+offset] = 100 * time.Millisecond
+		}
+	}
+	p95, p99, ok := e26BatchedIncrementPercentiles(disabled, enabled, batchSize)
+	if !ok || p95 != 0 || p99 != 0 {
+		t.Fatalf("same-tail-noise estimator p95=%s p99=%s ok=%v", p95, p99, ok)
+	}
+}
+
 type e26NoTaxMeasurement struct {
 	disabledP95 time.Duration
 	disabledP99 time.Duration
@@ -198,12 +257,24 @@ func e26BatchedIncrementPercentiles(disabled, enabled []time.Duration, batchSize
 	if len(disabled) != len(enabled) || batchSize < 2 || len(disabled) < batchSize || len(disabled)%batchSize != 0 {
 		return 0, 0, false
 	}
-	p95Deltas := make([]time.Duration, 0, len(disabled)/batchSize)
-	p99Deltas := make([]time.Duration, 0, len(disabled)/batchSize)
-	for start := 0; start < len(disabled); start += batchSize {
-		end := start + batchSize
+
+	// Nearest-rank tail percentiles over tiny windows are dominated by one or
+	// two scheduler stalls. When the production sample set permits it, estimate
+	// both p95 and p99 from overlapping 100-sample windows while retaining the
+	// local batch stride used to reject longer scheduler-regime drift.
+	windowSize := batchSize
+	if len(disabled) >= 100 && windowSize < 100 {
+		windowSize = 100
+	}
+	p95Deltas := make([]time.Duration, 0, 1+(len(disabled)-windowSize)/batchSize)
+	p99Deltas := make([]time.Duration, 0, cap(p95Deltas))
+	for start := 0; start+windowSize <= len(disabled); start += batchSize {
+		end := start + windowSize
 		p95Deltas = append(p95Deltas, e26Percentile(enabled[start:end], 95)-e26Percentile(disabled[start:end], 95))
 		p99Deltas = append(p99Deltas, e26Percentile(enabled[start:end], 99)-e26Percentile(disabled[start:end], 99))
+	}
+	if len(p95Deltas) == 0 || len(p99Deltas) == 0 {
+		return 0, 0, false
 	}
 	return e26Percentile(p95Deltas, 50), e26Percentile(p99Deltas, 50), true
 }
@@ -540,13 +611,39 @@ func callE26Raw(t *testing.T, client *ipcadapter.Client, request ipcadapter.Requ
 	return response
 }
 
+func TestE26NoTaxAdmissionProbeStaysLiveAcrossTimedStart(t *testing.T) {
+	req := e26NoTaxAdmissionProbe("e26-probe-shape", "/tmp")
+	if req.Command != "cat" || req.StdinMode != operation.StdinModeStream || req.YieldMS != 0 || req.MaxOutputBytes != 64 {
+		t.Fatalf("probe request=%#v", req)
+	}
+}
+
+func e26NoTaxAdmissionProbe(operationID, cwd string) ipcadapter.RequestV2 {
+	return ipcadapter.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: operationID, Action: "start",
+		OperationID: operationID, CWD: cwd, Command: "cat",
+		StdinMode: operation.StdinModeStream, YieldMS: 0, MaxOutputBytes: 64,
+	}
+}
+
 func measureE26Admission(t *testing.T, client *ipcadapter.Client, operationID, cwd string) time.Duration {
 	t.Helper()
 	started := time.Now()
-	response, err := client.CallV2(context.Background(), ipcadapter.RequestV2{IPVersion: 2, Kind: "request", RequestID: operationID, Action: "start", OperationID: operationID, CWD: cwd, Command: "true", YieldMS: 1, MaxOutputBytes: 64})
+	response, err := client.CallV2(context.Background(), e26NoTaxAdmissionProbe(operationID, cwd))
 	elapsed := time.Since(started)
 	if err != nil || !response.OK || response.Result == nil {
 		t.Fatalf("admission %s response=%#v err=%v", operationID, response, err)
+	}
+	if response.Result.Operation.State == "terminal" {
+		t.Fatalf("admission %s terminalized inside timed start: %#v", operationID, response.Result.Operation)
+	}
+	sessionID := response.Result.Operation.SessionID
+	eof, err := client.CallV2(context.Background(), ipcadapter.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: operationID + "-eof", Action: "write",
+		SessionID: sessionID, InputOffset: 0, EOF: true,
+	})
+	if err != nil || !eof.OK {
+		t.Fatalf("admission cleanup %s response=%#v err=%v", operationID, eof, err)
 	}
 	waitE26Terminal(t, client, operationID, *response.Result)
 	return elapsed
