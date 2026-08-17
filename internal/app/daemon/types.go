@@ -27,6 +27,10 @@ type Options struct {
 	EvidenceWorker       EvidenceWorker
 	ProjectCommandBinder ProjectCommandBinder
 	PersistentRuntime    PersistentRuntime
+	// FinalizeRetryMin and FinalizeRetryMax bound how fast a failed persistent
+	// reconciliation is retried. Zero selects the package defaults.
+	FinalizeRetryMin time.Duration
+	FinalizeRetryMax time.Duration
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`

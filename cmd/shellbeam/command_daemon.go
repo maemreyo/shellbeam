@@ -106,6 +106,8 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		EvidenceWorker:       evidenceScheduler,
 		ProjectCommandBinder: projectBinder,
 		PersistentRuntime:    persistentRuntime,
+		FinalizeRetryMin:     time.Duration(cfg.FinalizeRetryMinMS) * time.Millisecond,
+		FinalizeRetryMax:     time.Duration(cfg.FinalizeRetryMaxMS) * time.Millisecond,
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
 	projectSvc := projectapp.NewWithReadiness(

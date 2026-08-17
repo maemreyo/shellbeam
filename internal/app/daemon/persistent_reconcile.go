@@ -14,6 +14,63 @@ import (
 
 const persistentReconcileChunkBytes = 32 * 1024
 
+// Reconciliation is the only path that moves a persistent session's terminal
+// transition into durable state, so it may not be allowed to run exactly once.
+//
+// Every error return in reconcilePersistentSession used to end the goroutine
+// that owned it, and the caller discarded the error, so one unlucky supervisor
+// round trip stranded a session as live for the rest of the daemon's life: poll
+// kept reporting it running long after the child had exited. That is
+// indistinguishable from a hung command, and on a loaded host it happened often
+// enough to fail CI while being far too rare to reproduce on demand.
+//
+// The retry is bounded by the session's own lifetime rather than by an attempt
+// count. Its context is cancelled when the session is evicted or the daemon
+// stops, and until then a live session with an unresolved terminal is exactly
+// the thing worth continuing to chase.
+const (
+	defaultFinalizeRetryMin = 100 * time.Millisecond
+	defaultFinalizeRetryMax = 5 * time.Second
+)
+
+func (s *Service) finalizeRetryBounds() (time.Duration, time.Duration) {
+	minimum, maximum := s.options.FinalizeRetryMin, s.options.FinalizeRetryMax
+	if minimum <= 0 {
+		minimum = defaultFinalizeRetryMin
+	}
+	if maximum < minimum {
+		maximum = defaultFinalizeRetryMax
+	}
+	if maximum < minimum {
+		maximum = minimum
+	}
+	return minimum, maximum
+}
+
+// reconcilePersistentSessionUntilResolved retries reconciliation, backing off,
+// until the session resolves or its context is cancelled.
+func (s *Service) reconcilePersistentSessionUntilResolved(ctx context.Context, live *liveSession, control persistentapp.RecoveryAttachment, outputStore persistentOutputStore, bindingStore PersistentSessionStore) {
+	delay, maximum := s.finalizeRetryBounds()
+	for {
+		if err := s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore); err == nil {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		if delay *= 2; delay > maximum {
+			delay = maximum
+		}
+	}
+}
+
 func (s *Service) startPersistentReconciliation(live *liveSession) {
 	control, ok := live.handle.(persistentapp.RecoveryAttachment)
 	if !ok {
@@ -35,7 +92,7 @@ func (s *Service) startPersistentReconciliation(live *liveSession) {
 	live.mu.Unlock()
 	go func() {
 		defer close(done)
-		_ = s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore)
+		s.reconcilePersistentSessionUntilResolved(ctx, live, control, outputStore, bindingStore)
 	}()
 }
 
