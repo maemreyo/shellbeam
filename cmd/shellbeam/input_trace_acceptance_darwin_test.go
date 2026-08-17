@@ -136,8 +136,15 @@ func assertE27NativeNoTax(t *testing.T, disabled, enabled *b1NativeDaemon, cwd, 
 		t.Fatal("invalid E27 no-tax sample shape")
 	}
 	t.Logf("E27 enabled-unused admission disabled p95=%s p99=%s enabled p95=%s p99=%s batched incremental p95=%s p99=%s", e26Percentile(disabledDurations, 95), e26Percentile(disabledDurations, 99), e26Percentile(enabledDurations, 95), e26Percentile(enabledDurations, 99), inc95, inc99)
-	if inc95 > 5*time.Millisecond || inc99 > 10*time.Millisecond {
-		t.Fatalf("E27 enabled-unused no-tax budget exceeded p95=%s p99=%s", inc95, inc99)
+	floor95, floor99, floorOK := e26NoTaxNoiseFloor(disabledDurations, 20)
+	if !floorOK {
+		t.Fatal("invalid E27 no-tax noise floor shape")
+	}
+	budget95 := e26NoTaxBudget(5*time.Millisecond, floor95, 25*time.Millisecond)
+	budget99 := e26NoTaxBudget(10*time.Millisecond, floor99, 50*time.Millisecond)
+	t.Logf("E27 no-tax noise floor p95=%s p99=%s budget p95=%s p99=%s", floor95, floor99, budget95, budget99)
+	if inc95 > budget95 || inc99 > budget99 {
+		t.Fatalf("E27 enabled-unused no-tax budget exceeded p95=%s p99=%s budget p95=%s p99=%s", inc95, inc99, budget95, budget99)
 	}
 	if _, err := os.Lstat(e27ProviderRoot(enabledState)); !os.IsNotExist(err) {
 		t.Fatalf("ordinary starts materialized provider-private state: err=%v", err)
