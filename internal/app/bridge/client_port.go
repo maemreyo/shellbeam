@@ -18,6 +18,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
+	"github.com/maemreyo/shellbeam/internal/core/media"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
@@ -31,28 +32,31 @@ type DaemonClient interface {
 	Forward(context.Context, Request) (Response, error)
 }
 type Request struct {
-	ProtocolVersion      int
-	Action               string
-	WorkspaceID          string
-	ActivityID           string
-	CodeQuery            *codeintel.Query
-	Start                daemon.StartRequest
-	Poll                 daemon.PollRequest
-	Write                daemon.WriteRequest
-	Kill                 daemon.KillRequest
-	EventInspect         observationapp.InspectRequest
-	EvidenceInspect      evidenceapp.InspectRequest
-	EnvironmentInspect   environmentapp.InspectRequest
-	ProcessInspect       processapp.InspectRequest
-	MutationScopeSet     mutationscopeapp.SetRequest
-	MutationScopeRelease mutationscopeapp.ReleaseRequest
-	MutationScopeInspect mutationscopeapp.InspectRequest
-	StructuredInspect    structuredapp.InspectRequest
-	TelemetryInspect     telemetryapp.InspectRequest
-	ReproCreate          reprocore.CreateRequest
-	ReproID              string
-	OutputRead           outputview.Request
-	SessionInspect       persistent.InspectRequest
+	ProtocolVersion          int
+	Action                   string
+	WorkspaceID              string
+	ActivityID               string
+	CodeQuery                *codeintel.Query
+	Start                    daemon.StartRequest
+	Poll                     daemon.PollRequest
+	Write                    daemon.WriteRequest
+	Kill                     daemon.KillRequest
+	EventInspect             observationapp.InspectRequest
+	EvidenceInspect          evidenceapp.InspectRequest
+	EnvironmentInspect       environmentapp.InspectRequest
+	ProcessInspect           processapp.InspectRequest
+	MutationScopeSet         mutationscopeapp.SetRequest
+	MutationScopeRelease     mutationscopeapp.ReleaseRequest
+	MutationScopeInspect     mutationscopeapp.InspectRequest
+	StructuredInspect        structuredapp.InspectRequest
+	TelemetryInspect         telemetryapp.InspectRequest
+	ReproCreate              reprocore.CreateRequest
+	ReproID                  string
+	OutputRead               outputview.Request
+	SessionInspect           persistent.InspectRequest
+	ConsumerMedia            *capability.MediaSupport
+	MediaContractFingerprint string
+	Media                    *daemon.MediaRequest
 }
 type Response struct {
 	View                   daemon.View
@@ -76,6 +80,8 @@ type Response struct {
 	CodeResult             *codeintel.Result
 	OutputView             *outputview.Result
 	Sessions               *persistent.InspectPage
+	NegotiatedMedia        *capability.NegotiatedMedia
+	Media                  *media.Result
 	Code                   string
 	Message                string
 	Retryable              bool

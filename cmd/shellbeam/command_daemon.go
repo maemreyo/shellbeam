@@ -8,7 +8,6 @@ import (
 	environmentadapter "github.com/maemreyo/shellbeam/internal/adapter/environment"
 	gitadapter "github.com/maemreyo/shellbeam/internal/adapter/git"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
-	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
 	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
@@ -34,6 +33,7 @@ import (
 	projectcore "github.com/maemreyo/shellbeam/internal/core/project"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
+	"github.com/maemreyo/shellbeam/internal/ownership"
 	"github.com/oklog/ulid/v2"
 )
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
+	"github.com/maemreyo/shellbeam/internal/ownership"
 )
 
 func runtimeDir(t *testing.T) string {
