@@ -338,8 +338,11 @@ Results:
 - `go mod verify` PASS.
 - `go vet ./internal/app/daemon ./internal/adapter/store` PASS.
 - `make hardening` PASS, including build, broader race coverage, repeated core tests, and bounded fuzz campaigns.
-- Global `go vet ./...` is blocked by a pre-existing `copylocks` finding in `internal/app/telemetry/service_test.go:211`; exact failure reproduced on base `main@c1961ed`.
-- `make devctl-verify` is blocked by a pre-existing 86-line `runDaemonWithCodeProvider` hard-cap violation (limit 80); exact failure reproduced on base `main@c1961ed`.
+- The first global `go vet ./...` exposed a pre-existing `copylocks` finding in `internal/app/telemetry/service_test.go:211`, reproduced on base `main@c1961ed`; follow-up commit `6f294ee` removes the mutex value-copy and final `go vet ./...` PASSes.
+- The first `devctl verify` exposed a pre-existing function hard-cap violation, also reproduced on base. Clearing its first-failure chain additionally exposed file-size, adapter dependency, and branch-introduced lifecycle complexity caps. Follow-up commits `2d15266` and `fce72ec` restore all repository architecture checks without changing lifecycle semantics.
+- Final `go run ./tools/devctl check` PASS (`20260817T044856.905143000Z-check.json`).
+- Final `go run ./tools/devctl verify` PASS across the repository (`20260817T045302.228975000Z-verify.json`).
+- Final post-refactor `make hardening` PASS, including race and bounded fuzz campaigns.
 
 - [x] **Step 5: Inspect final diff/status**
 
@@ -348,3 +351,18 @@ git status --short --branch
 git log --oneline --decorate -8
 git diff main...HEAD --check
 ```
+
+### Post-plan repository gate cleanup
+
+After the lifecycle plan itself was complete, the final repository-wide gates exposed previously masked structural debt. The cleanup remained on the same branch and was kept separate from lifecycle behavior changes:
+
+- `6f294ee test: avoid copying telemetry mutex fixture` — removes the `go vet` copylocks violation by reconstructing the test repository instead of copying a struct containing `sync.Mutex`.
+- `2d15266 refactor: bound lifecycle orchestration paths` — extracts admission metadata finalization and terminal view hydration so `ReserveOperation` and `waitView` remain under the repository function-size cap with unchanged behavior.
+- `fce72ec refactor: compose ipc runtime ownership at daemon root` — moves `ownership.AcquireWith` to the daemon composition root, gives IPC an already-acquired `RuntimeLease`, splits the oversized server helper, and leaves ownership-specific convenience helpers test-only. This removes the production sibling-adapter dependency while preserving split-brain ownership semantics.
+
+Post-cleanup evidence:
+- affected package tests (`internal/adapter/ipc`, `internal/adapter/store`, `internal/app/daemon`, `cmd/shellbeam`) PASS;
+- `go vet ./...` PASS;
+- `go run ./tools/devctl verify` PASS;
+- `make hardening` PASS;
+- `git diff --check` PASS.
