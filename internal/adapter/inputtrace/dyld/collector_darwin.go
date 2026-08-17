@@ -43,6 +43,7 @@ type collector struct {
 	privateBytes int64
 	resources    map[string]traceapp.ProviderResource
 	wg           sync.WaitGroup
+	finalizeMu   sync.Mutex
 }
 
 func newCollector(traceDir, socketDir, traceID string, limits collectorLimits) (*collector, error) {
@@ -84,6 +85,9 @@ func (c *collector) readLoop() {
 	for {
 		n, _, err := c.conn.ReadFromUnix(buf)
 		if err != nil {
+			return
+		}
+		if n == 1 && buf[0] == 0 {
 			return
 		}
 		c.ingest(append([]byte(nil), buf[:n]...))
@@ -154,23 +158,50 @@ func (c *collector) snapshotLocked(end time.Time) traceapp.ProviderSnapshot {
 }
 
 func (c *collector) finalize() traceapp.ProviderSnapshot {
+	c.finalizeMu.Lock()
+	defer c.finalizeMu.Unlock()
 	c.mu.Lock()
 	if c.closed {
 		snapshot := c.snapshotLocked(time.Now().UTC())
 		c.mu.Unlock()
 		return snapshot
 	}
-	c.closed = true
 	conn := c.conn
+	socketPath := c.socketPath
 	c.mu.Unlock()
-	_ = conn.Close()
+	if err := signalCollectorStop(socketPath); err != nil {
+		c.mu.Lock()
+		c.truncated = true
+		c.mu.Unlock()
+		_ = conn.Close()
+	}
 	c.wg.Wait()
+	_ = conn.Close()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.closed = true
 	_ = c.raw.Sync()
 	_ = c.raw.Close()
 	_ = os.Remove(c.socketPath)
 	return c.snapshotLocked(time.Now().UTC())
+}
+
+func signalCollectorStop(socketPath string) error {
+	conn, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: socketPath, Net: "unixgram"})
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	deadline := time.Now().Add(100 * time.Millisecond)
+	for {
+		if _, err = conn.Write([]byte{0}); err == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 
 func (c *collector) abort() {

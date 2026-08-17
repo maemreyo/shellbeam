@@ -3,6 +3,7 @@
 package dyld
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,40 @@ import (
 
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 )
+
+func TestE27CollectorFinalizeDrainsAcceptedSocketDatagrams(t *testing.T) {
+	root := filepath.Join(e27PrivateState(t), "trace")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	limits := collectorLimits{maxEvents: 1024, maxUnique: 8, maxPrivateBytes: 1 << 20, maxDuration: time.Minute}
+	collector, err := newCollector(root, e27TestSocketRoot(t), "trace_01K00000000000000000000000", limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender, err := net.DialUnix("unixgram", nil, &net.UnixAddr{Name: collector.socketPath, Net: "unixgram"})
+	if err != nil {
+		collector.abort()
+		t.Fatal(err)
+	}
+	const accepted = 32
+	raw := encodeEvent(eventExecutedBinary, 10, "/usr/bin/true")
+	for i := 0; i < accepted; i++ {
+		if _, err := sender.Write(raw); err != nil {
+			_ = sender.Close()
+			collector.abort()
+			t.Fatalf("send %d: %v", i, err)
+		}
+	}
+	if err := sender.Close(); err != nil {
+		collector.abort()
+		t.Fatal(err)
+	}
+	snapshot := collector.finalize()
+	if snapshot.RawEventCount != accepted {
+		t.Fatalf("finalize dropped accepted datagrams: got=%d want=%d", snapshot.RawEventCount, accepted)
+	}
+}
 
 func TestE27CollectorProtocolPrivacyAndBudgets(t *testing.T) {
 	root := filepath.Join(e27PrivateState(t), "trace")
