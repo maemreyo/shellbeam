@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -448,6 +449,15 @@ func readStateTree(t *testing.T, root string) []byte {
 	var out []byte
 	if err := filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
+			// The daemon is still writing while this walks. Durable writes land
+			// through a .shellbeam- temporary that is renamed into place, and
+			// retention collects records on its own schedule, so an entry can
+			// stop existing between being listed and being read. A file that is
+			// gone holds no secret to find, and failing the scan on it turns a
+			// leak assertion into a race.
+			if errors.Is(err, fs.ErrNotExist) && path != root {
+				return nil
+			}
 			return err
 		}
 		if !entry.Type().IsRegular() {
@@ -455,6 +465,9 @@ func readStateTree(t *testing.T, root string) []byte {
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
 			return err
 		}
 		out = append(out, data...)
