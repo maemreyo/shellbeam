@@ -1,0 +1,205 @@
+{
+  "candidates": {
+    "omitted": {
+      "doctor": {
+        "checks": [
+          {
+            "id": "config_source",
+            "status": "PASS"
+          },
+          {
+            "id": "profile_load",
+            "status": "PASS"
+          },
+          {
+            "id": "tunnel_id",
+            "status": "PASS"
+          },
+          {
+            "id": "control_plane_api_key",
+            "status": "PASS"
+          },
+          {
+            "id": "tunnels_management_url",
+            "status": "PASS"
+          },
+          {
+            "id": "runtime_api_keys_url",
+            "status": "PASS"
+          },
+          {
+            "id": "admin_api_keys_url",
+            "status": "PASS"
+          },
+          {
+            "id": "chatgpt_connector_settings_url",
+            "status": "PASS"
+          },
+          {
+            "id": "mcp_target",
+            "status": "PASS"
+          },
+          {
+            "id": "mcp_command_executable",
+            "status": "PASS"
+          },
+          {
+            "id": "mcp_server_reachable",
+            "status": "SKIP"
+          },
+          {
+            "id": "oauth_metadata",
+            "status": "SKIP"
+          },
+          {
+            "id": "health_listener",
+            "status": "PASS"
+          },
+          {
+            "id": "ui",
+            "status": "PASS"
+          },
+          {
+            "id": "codex_plugin",
+            "status": "SKIP"
+          }
+        ],
+        "document_sha256": "d23d57fdbfa1e9d1de324ea3aff0aeaf3247de107fa94354fd8ae92bb3aac5d5",
+        "result": "ok"
+      },
+      "evidence": {
+        "annotation_audience": "omitted",
+        "files": {
+          "goldens.json": {
+            "bytes": 6157,
+            "sha256": "493b3fc128137b45239c2ac4db37a1cad229ff0b6e3716b77c8205ad26048bcf"
+          },
+          "manifest.json": {
+            "bytes": 4051,
+            "sha256": "8476104e17549be21524928e3c5e20bee1ccd2c71ae905174d2f5b8ef04279dc"
+          },
+          "run-info.json": {
+            "bytes": 314,
+            "sha256": "56a5b6829dce2f8505ccaf0c41f69468b1e3f5d93083123eb994571dc1da68d4"
+          },
+          "scorecard.json": {
+            "bytes": 9876,
+            "sha256": "89415f075cfff3cd2520d5a332d7ebe4e4e6bc5e21bfe89219a5c2aee35fb481"
+          }
+        },
+        "state": "PREPARED_NOT_RUN",
+        "tool_schema_sha256": "de3a1baf2ad89f3cb4fe08008a38299e138d62b2c096c2ef856c63b31cb3ed72"
+      },
+      "image_annotations": "omitted",
+      "max_payload_bytes": 7340032,
+      "subprocess_transport": "PASS"
+    },
+    "user-assistant": {
+      "doctor": {
+        "checks": [
+          {
+            "id": "config_source",
+            "status": "PASS"
+          },
+          {
+            "id": "profile_load",
+            "status": "PASS"
+          },
+          {
+            "id": "tunnel_id",
+            "status": "PASS"
+          },
+          {
+            "id": "control_plane_api_key",
+            "status": "PASS"
+          },
+          {
+            "id": "tunnels_management_url",
+            "status": "PASS"
+          },
+          {
+            "id": "runtime_api_keys_url",
+            "status": "PASS"
+          },
+          {
+            "id": "admin_api_keys_url",
+            "status": "PASS"
+          },
+          {
+            "id": "chatgpt_connector_settings_url",
+            "status": "PASS"
+          },
+          {
+            "id": "mcp_target",
+            "status": "PASS"
+          },
+          {
+            "id": "mcp_command_executable",
+            "status": "PASS"
+          },
+          {
+            "id": "mcp_server_reachable",
+            "status": "SKIP"
+          },
+          {
+            "id": "oauth_metadata",
+            "status": "SKIP"
+          },
+          {
+            "id": "health_listener",
+            "status": "PASS"
+          },
+          {
+            "id": "ui",
+            "status": "PASS"
+          },
+          {
+            "id": "codex_plugin",
+            "status": "SKIP"
+          }
+        ],
+        "document_sha256": "aacc536e4069929977902273e8cdb13e9db50fb9a8178219f69ebc4374424c78",
+        "result": "ok"
+      },
+      "evidence": {
+        "annotation_audience": "user-assistant",
+        "files": {
+          "goldens.json": {
+            "bytes": 6158,
+            "sha256": "ad25a615494922f9db50ff34e894ce4ebcc8bbff00ecf05423bdada6a1aafeb0"
+          },
+          "manifest.json": {
+            "bytes": 4051,
+            "sha256": "0cc09b95d9f6f19526a21c07c2f7e7fb40f53052120926c123404696f4855eb6"
+          },
+          "run-info.json": {
+            "bytes": 321,
+            "sha256": "a74a7e3a9f4c7c90e7c8e4ecf55da87b068450492363bb9e96414858b3b96c36"
+          },
+          "scorecard.json": {
+            "bytes": 9879,
+            "sha256": "724fe78826fd7eb1835ebaf7be3a4f38703b10e1a169ced0ba91964436ad4894"
+          }
+        },
+        "state": "PREPARED_NOT_RUN",
+        "tool_schema_sha256": "de3a1baf2ad89f3cb4fe08008a38299e138d62b2c096c2ef856c63b31cb3ed72"
+      },
+      "image_annotations": [
+        "user",
+        "assistant"
+      ],
+      "max_payload_bytes": 7340032,
+      "subprocess_transport": "PASS"
+    }
+  },
+  "fresh_chat_trials_recorded": 0,
+  "live_tunnel_restarted": false,
+  "local_tests": "PASS",
+  "preflight_binary_sha256": "ecb1daf48a32cf6ac38b0c9944d359b408512666d7f0c8891ea6c2d262389c28",
+  "production_authorization": false,
+  "real_host_scorecard_status": "NOT_RUN",
+  "reason": "local SDK/subprocess/tunnel-profile qualification is not a substitute for the required refreshed fresh-conversation ChatGPT scorecard",
+  "schema_version": 1,
+  "scope": "phase-a-image-content-annotation-local-qualification",
+  "tracer_binary_sha256": "47325c17f14ef2e9afa55edff2e78df283d26d082ce930e52a9df288395bf4a8"
+}

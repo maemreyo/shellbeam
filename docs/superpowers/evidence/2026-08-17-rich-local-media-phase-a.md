@@ -19,6 +19,7 @@ This receipt normalizes only evidence actually observed. Archived tracer scoreca
 - 7 MiB maximum-payload visible-token result: PASS 3/3 in fresh ChatGPT trials, privately matched against the current-run manifest without recording token values here.
 - Direct workspace A visible-token result: one observed PASS trial, privately matched against the run-1 manifest.
 - Direct workspace B visible-token result: one observed PASS trial, privately matched against the run-1 manifest.
+- Image-content annotation harness is now locally qualified for both `omitted` and `audience=["user","assistant"]`: unit/in-memory SDK + subprocess/stdin MCP transport + 7 MiB all pass, and separate tunnel profiles pass `tunnel-client doctor`. This is supplemental preparation only; the live tunnel was not restarted and no fresh-conversation host trials were counted. Durable non-secret summary: `docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json`.
 - Current-session native `ImageContent` vision probes independently passed PNG (`formats/probe.png`), JPEG (`formats/probe.jpg`), and WebP (`formats/probe.webp`); each visible code, exact `display_address`, byte count, and MIME privately matched the current 7 MiB manifest.
 - Current-session payload probes at 64 KiB, 256 KiB, 1 MiB, and 4 MiB each passed visible-code vision with exact bytes/MIME privately matched to the current manifest. Section 21.4 requires three fresh conversations only for the maximum case, so these four 1/1 payload rows are complete.
 - Current-session CWD-form PNG (`cwd=/phase-a/synthetic`, `path=artifacts/cwd-settings.png`) also passed exact visible-code/address/bytes/MIME correlation, but it is recorded only as supplemental evidence because the `direct-cwd` prompt-class row requires three fresh conversations and this conversation is not fresh.
@@ -70,9 +71,9 @@ This receipt normalizes only evidence actually observed. Archived tracer scoreca
 | address-collision-b | 3 / 3 | 1 | 0 | 2 | NOT_RUN | workspace B one exact private token match |
 | disclosure-confirmation | 1 / 1 | 0 | 0 | 1 | NOT_RUN | confirmation UI/address display not recorded |
 | production-disclosure | 1 / 1 | 0 | 0 | 1 | NOT_RUN | production disclosure timing not run |
-| annotation-omitted | 1 / 1 | 0 | 0 | 1 | NOT_RUN | audience variant matrix not run |
-| annotation-user-assistant | 1 / 1 | 0 | 0 | 1 | NOT_RUN | audience variant matrix not run |
-| annotation-selection | 1 / 1 | 0 | 0 | 1 | NOT_RUN | neither complete variant matrix is available |
+| annotation-omitted | 1 / 1 | 0 | 0 | 1 | NOT_RUN | local SDK/subprocess/tunnel-profile candidate PASS; refreshed fresh-conversation host matrix not run |
+| annotation-user-assistant | 1 / 1 | 0 | 0 | 1 | NOT_RUN | local SDK/subprocess/tunnel-profile candidate PASS; refreshed fresh-conversation host matrix not run |
+| annotation-selection | 1 / 1 | 0 | 0 | 1 | NOT_RUN | both local candidates prepared; neither complete refreshed real-host variant matrix is available |
 | remembered-approval | 1 / 1 | 0 | 0 | 1 | NOT_RUN | host remembered-approval availability not established |
 
 ## Historical rejected maximum candidate

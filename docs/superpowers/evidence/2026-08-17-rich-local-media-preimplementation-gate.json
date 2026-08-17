@@ -376,7 +376,8 @@
         "pass_threshold": 1,
         "pass_trials": 0,
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
         ],
         "required_trials": 1,
         "status": "NOT_RUN"
@@ -388,7 +389,8 @@
         "pass_threshold": 1,
         "pass_trials": 0,
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
         ],
         "required_trials": 1,
         "status": "NOT_RUN"
@@ -400,7 +402,8 @@
         "pass_threshold": 1,
         "pass_trials": 0,
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
+          "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md",
+          "docs/superpowers/evidence/reports/phase-a-annotation-local/summary.json"
         ],
         "required_trials": 1,
         "status": "NOT_RUN"
@@ -426,7 +429,7 @@
   "schema_version": 1,
   "sha256": {
     "parser": "54d0a42f0a8f9ebf04f4e89967efdc2dbd5a19e9c23c6d1516f82993bb2c31ba",
-    "phase_a": "1d95a6895a6b5dc71f6023e64c4936d0dbfd9610caf06fb8d5bc9644653e7a17",
+    "phase_a": "931464ed259a607c6ec0dab077e598775819bc27c489f0a2ece748b3bf4bd97c",
     "plan": "875bc14f14fa1a5291bc206df4d01d178c96c22ae9b48758810c8e060bef3c5b",
     "preflight": "1cf03afe18f094e88aa10cf66bb6fe054633f1269cc7933af13c601eb4730d4e",
     "source": "7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906",
