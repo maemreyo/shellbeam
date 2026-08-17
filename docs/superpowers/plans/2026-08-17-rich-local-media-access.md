@@ -2,7 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. This project is **main-agent-only**; do not dispatch subagents.
 
-**Status:** DRAFT-GATED. The user authorized opening the plan before the frozen pre-plan conjunction gate is fully normalized in repository evidence. **Do not execute production Tasks 1–10 until Task 0 proves `phase_a_pass && parser_toolchain_pass`.**
+**Status:** DRAFT-GATED / PREFLIGHT-UNBOUND. **Do not execute Task 0 until Task -1 binds a current execution-base SHA and the exact approved design source. Do not execute production Tasks 1–10 unless the machine gate exits 0 after deriving `phase_a_pass && parser_toolchain_pass`.**
+
+**Known reviewed design source identity:** `revised-rich-local-media-access-design-v8.md`, 1,657 lines, 79,933 bytes, SHA-256 `7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906`. This identity was verified from the user-provided review artifact in the authoring session, but the bytes are **not yet repository-bound**. Task -1 must materialize an artifact with this exact identity into the repository evidence source path or stop.
+
+**Authoring-time drift snapshot (informational only):** after `git fetch origin` on 2026-08-17, this docs branch was ahead 2 / behind 128 relative to `origin/main`; `origin/main` resolved to `a92a52fba7d123c50d84e5b879e65d176bd25444`, and 22 of 67 declared plan touchpoints differed from the branch base. Task -1 must recompute these facts; this snapshot is never an execution base.
 
 **Goal:** Add one bounded `read_media` image action to ShellBeam so ChatGPT Web can read one explicitly addressed local PNG/JPEG/WebP through the existing `local_shell` MCP tool, with exact address correlation, fail-closed bridge/daemon negotiation, safe daemon-owned filesystem acquisition, and no durable media state.
 
@@ -28,68 +32,219 @@
 - Ordinary `start`/`poll`/`write`/`kill`/inspection hot paths perform zero media filesystem/decoder/admission work when media is unused.
 - Use TDD for every production behavior: RED test, minimal GREEN, focused verification, then commit. Preserve existing dirty work; no push or PR unless explicitly requested.
 
+## Global Execution Contract
+
+Task -1 records the immutable full SHA as `EXECUTION_BASE`. Every later task uses that SHA, never a moving branch name, for dirty/affected selection and provenance.
+
+For **every production Task 1–10**, the first command is:
+
+```bash
+./scripts/check-rich-media-preimplementation-gate.sh
+```
+
+Expected: exit `0`. Exit `3` means honest `NOT_RUN`/incomplete evidence; exit `4` means FAIL or invalid/stale provenance. Either non-zero exit stops the task before editing production code.
+
+After the checker exits 0, reload the immutable base from the gate manifest in each fresh shell/session:
+
+```bash
+EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+test -n "$EXECUTION_BASE"
+```
+
+After each task's focused GREEN command and before staging, run:
+
+```bash
+go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
+```
+
+If the task changes documentation/test data only and `devctl build --dirty` returns an empty legitimate source selection, preserve that empty result; never broaden it silently. Full fresh repository/release suites belong only to Task 0's parser gate and Task 10's release checkpoint.
+
+Every local commit stages only the intended task scope, checks the staged diff, and invokes the tracked worktree-safe hook with the **exact task-specific commit message written in that task's Commit step**. There is no generic commit-message placeholder in this plan.
+
+Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work; do not push or open a PR unless explicitly requested.
+
 ---
 
-### Task 0: Close the Conjunction Gate and Promote the Runtime Limit
+### Task -1: Bind Current Execution Base and Approved Design Source
+
+**Files:**
+- Create: `docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md`
+- Create: `docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md`
+- Inspect only: `AGENTS.md`
+- Inspect only: `docs/superpowers/plans/2026-08-17-rich-local-media-access.md`
+- Inspect only: `docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md`
+
+**Interfaces:**
+- Consumes: a user-supplied artifact whose exact required identity is SHA-256 `7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906`, 1,657 lines, 79,933 bytes.
+- Produces: immutable `EXECUTION_BASE`, repository-bound approved-source bytes/SHA, fresh plan SHA-256, current contributor-contract digest, and a preflight verdict `PASS|FAIL|NOT_RUN`.
+
+- [ ] **Step 1: Require a clean isolated docs worktree and fetch the intended base**
+
+  ```bash
+  test -z "$(git status --porcelain)"
+  git fetch origin
+  EXECUTION_BASE="$(git rev-parse origin/main)"
+  test -n "$EXECUTION_BASE"
+  git merge-base --is-ancestor "$(git merge-base HEAD "$EXECUTION_BASE")" HEAD
+  ```
+
+  If the worktree is dirty, do not stash/reset it; record `NOT_RUN` and stop. `origin/main` is only the discovery ref; all later commands use the recorded full SHA.
+
+- [ ] **Step 2: Synchronize the docs branch only with explicit user authorization**
+
+  Before rewriting local branch history, require the current execution instruction to authorize synchronizing this worktree. If authorization is absent, record `NOT_RUN` and stop. When authorized:
+
+  ```bash
+  git rebase "$EXECUTION_BASE"
+  git merge-base --is-ancestor "$EXECUTION_BASE" HEAD
+  test "$(git rev-list --count HEAD.."$EXECUTION_BASE")" -eq 0
+  ```
+
+  On conflict, resolve only this branch's docs changes against current repository reality; never reset unrelated work. If any production ownership boundary changes materially, abort Task -1 and revise/re-review the plan before Task 0.
+
+- [ ] **Step 3: Materialize and verify the exact approved v8 source**
+
+  Place the supplied bytes at:
+
+  ```text
+  docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md
+  ```
+
+  Then require:
+
+  ```bash
+  test "$(wc -l < docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md | tr -d ' ')" = 1657
+  test "$(wc -c < docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md | tr -d ' ')" = 79933
+  test "$(shasum -a 256 docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md | awk '{print $1}')" = 7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906
+  ```
+
+  Never reconstruct the source from chat memory, conversational revision labels, or a partial diff.
+
+- [ ] **Step 4: Re-trace every declared production touchpoint on the bound base**
+
+  Parse every `Create/Modify/Test` path in this plan. Every `Modify`/`Test` path must exist on `EXECUTION_BASE`; every `Create` path must be absent or explicitly reviewed as a deliberate replacement. Re-open the current IPC/MCP/daemon/bridge/capability/failure symbols named by Tasks 1–10 and confirm the Files/Interfaces/test commands still match current code.
+
+  Record the authoring-time drift facts only as historical context; the preflight evidence must contain the fresh path/symbol inventory against `EXECUTION_BASE`. If any mapping is stale, set verdict `FAIL`, revise/re-review the plan, and rerun Task -1.
+
+- [ ] **Step 5: Write and commit the preflight record for PASS, FAIL, or NOT_RUN**
+
+  `docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md` records at minimum:
+
+  ```text
+  verdict = PASS | FAIL | NOT_RUN
+  execution_base_sha = exact lowercase 40-hex output of `git rev-parse origin/main` captured before rebase
+  branch_head_sha = exact lowercase 40-hex `HEAD` after successful synchronization
+  plan_sha256 = exact 64-hex SHA-256 of this plan after synchronization
+  approved_source_path = docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md
+  approved_source_sha256 = 7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906
+  approved_source_lines = 1657
+  approved_source_bytes = 79933
+  contributor_contract_sha256 = exact 64-hex SHA-256 of the active root `AGENTS.md`
+  touchpoint_inventory = PASS | FAIL
+  ```
+
+  Always preserve an honest non-PASS record; do not delete failed evidence. For a PASS:
+
+  ```bash
+  git diff --check
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
+  git add docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "docs: bind rich media execution inputs"
+  ```
+
+  Task 0 may start only from `verdict=PASS` with all recorded identities still matching.
+
+### Task 0: Close the Machine-Verifiable Conjunction Gate and Promote the Runtime Limit
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md`
 - Create: `docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md`
 - Create: `docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md`
-- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host*/manifest.json`
-- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host*/goldens.json`
-- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host*/scorecard.json`
+- Create: `docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json`
+- Create: `docs/superpowers/evidence/schemas/rich-local-media-preimplementation-gate-v1.schema.json`
+- Create: `scripts/check-rich-media-preimplementation-gate.sh`
+- Create: `scripts/test-rich-media-preimplementation-gate.sh`
+- Create: `tools/rich-media-parser-gate/main.go`
+- Create: `tools/rich-media-parser-gate/main_test.go`
+- Create: `tools/rich-media-parser-gate/testdata/fixtures.json`
+- Inspect only: `docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-local-preflight/manifest.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-local-preflight/goldens.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-local-preflight/scorecard.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host-run1/manifest.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host-run1/goldens.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host-run1/scorecard.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host-run2-413/manifest.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host-run2-413/goldens.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host-run2-413/scorecard.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host/manifest.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host/goldens.json`
+- Inspect only: `.build/rich-local-media-phase-a/evidence-real-host/scorecard.json`
 - Inspect only: `.build/rich-local-media-phase-a/phase-a-tunnel.log`
 
 **Interfaces:**
-- Consumes: reviewed design v8 plus Phase A runtime evidence from the isolated tracer.
-- Produces: an approved repository spec with the 7 MiB limit; immutable human-readable Phase A and parser/toolchain receipts; predicate `can_execute_production_tasks = phase_a_pass && parser_toolchain_pass`.
+- Consumes: Task -1 PASS record, exact repository-bound approved v8 source, and provenance-bearing Phase A runtime evidence.
+- Produces: canonical tracked spec with measured 7 MiB delta; durable PASS/FAIL/NOT_RUN evidence; a versioned gate manifest; `scripts/check-rich-media-preimplementation-gate.sh` whose exit `0` is the **only** authorization for Tasks 1–10.
 
-- [ ] **Step 1: Promote reviewed v8 into the repository and apply the measured 7 MiB delta**
+- [ ] **Step 1: Re-verify Task -1 identities before touching gate evidence**
 
-  Replace the stale host spec with the reviewed v8 text, then change every 8 MiB production/payload/memory/native boundary to 7 MiB. Freeze these exact transport numbers in Sections 11/19/21/23/25/26/28:
+  Read `EXECUTION_BASE` and recorded SHA values from the preflight record. Require the current plan, approved source, contributor contract and base ancestry to match exactly. A stale/missing identity records Task 0 `NOT_RUN` and stops before evidence normalization.
+
+- [ ] **Step 2: Promote the exact approved source and apply only the measured 7 MiB delta**
+
+  Copy from the repository-bound source, never from chat memory:
+
+  ```bash
+  cp docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md
+  ```
+
+  Then change the former 8 MiB candidate to the measured 7 MiB candidate everywhere that controls production/payload/memory/native behavior. Freeze:
 
   ```text
   raw_image_bytes = 7,340,032
-  base64_bytes     = 9,786,712
-  envelope_budget  = 65,536
-  maxOuter         = 9,852,248
+  base64_bytes = 9,786,712
+  envelope_budget = 65,536
+  maxOuter = 9,852,248
   tunnel_body_cap_observed = 10,485,760
   ```
 
-  Record the 8 MiB Phase A result as a **real rejected candidate**, not a transient failure: the tunnel log returned HTTP 413 because the request/response body exceeded 10,485,760 bytes. Record 7 MiB as the replacement candidate only because the real-host max case returned the correct runtime-random token in three fresh trials.
+  Preserve the historical 8 MiB failure only where explicitly labeled rejected-candidate evidence. The later live-tunnel attempt is a real `FAIL/transport-ceiling`; the earlier timed-out/stale-prompt attempts remain `NOT_RUN`. The replacement 7 MiB max case is evidence input `PASS 3/3`, not proof of overall Phase A.
 
-- [ ] **Step 2: Normalize Phase A evidence without inventing PASS rows**
+- [ ] **Step 3: Normalize the complete Phase A matrix with provenance**
 
-  Write `docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md` with an explicit table for every Section 21 golden class and annotation configuration. Import only evidence actually observed from archived manifests/logs and user-reported fresh-conversation results. Preserve the run distinction: the timed-out tunnel attempt and stale 8 MiB prompt are `NOT_RUN`; the later live-tunnel 8 MiB attempt is `FAIL/transport-ceiling`; the replacement 7 MiB max-payload case is `PASS 3/3`.
+  Write one row for every frozen Section 21 golden class and annotation configuration. Each row records exact prompt/golden ID, complete `display_address`, expected call count, observed call count, expected/observed byte count, confirmation/disclosure facts, fresh-conversation identifier, manifest/token provenance and verdict.
 
-  Completion must prove the full Section 21 hard gates, including:
+  The required matrix includes PNG/JPEG/WebP vision, direct explicit, indirect positive, established-address follow-up, negative zero-call/zero-byte, unsupported zero-call/zero-byte, sensitive/unestablished zero-call/zero-byte, collision A 3/3, collision B 3/3, max 7 MiB 3/3, annotation policy, and remembered-approval case or explicit `not_applicable` allowed by the frozen scorecard.
+
+  Missing evidence is `NOT_RUN`, never inferred PASS. Archived scorecards that still say 27/27 `NOT_RUN` remain historical inputs and are not edited to manufacture results.
+
+- [ ] **Step 4: Build the narrow strict-decode parser tracer before any production decoder exists**
+
+  `tools/rich-media-parser-gate` is test-only and imports the exact candidate API/options. `fixtures.json` freezes:
 
   ```text
-  PNG/JPEG/WebP visible-token matrix
-  direct explicit: required threshold
-  indirect positive: required threshold
-  established-address follow-up: required threshold
-  negative: 0 calls / 0 bytes
-  unsupported: 0 calls / 0 bytes
-  sensitive/unestablished: 0 calls / 0 bytes
-  address collision A: 3/3
-  address collision B: 3/3
-  max payload 7 MiB: 3/3
-  confirmation/disclosure timing and complete display_address
-  annotation candidate rule
-  remembered-approval case or explicit not_applicable
+  five negative classes: invalid UTF-8, duplicate names, unknown members, wrong-case names, trailing JSON
+  all documented valid modern MCP-v2 payload fixtures
+  all documented valid IPC-v2 payload fixtures
+  representative legacy v1 fixtures
+  expected semantic JSON digests after canonical test-only normalization
   ```
 
-  If any hard gate is not yet evidenced, keep `phase_a_pass=false`; do not infer it from successful direct/max-payload cases.
+  The tracer requires 5/5 negative rejection, 100% valid-v2 semantic equivalence with the pre-candidate baseline, and unchanged legacy-v1 semantics. It writes a hashed report containing exact `go version`, `go env GOEXPERIMENT GOOS GOARCH CGO_ENABLED`, candidate mode, command and exit status. Task 1 later productionizes this already-proven boundary; it does not discover the parser contract for the first time.
 
-- [ ] **Step 3: Run the parser/toolchain candidate gate before production code**
+- [ ] **Step 5: Run the complete parser/toolchain candidate matrix**
 
-  At execution time, first check official Go availability. If an official Go 1.27+ GA toolchain exists, evaluate the stable stdlib JSON-v2 path. If it does not, the Go 1.26 fallback may be evaluated only after explicit project acceptance of global `GOEXPERIMENT=jsonv2` risk.
+  First re-check official Go status. Stable Go 1.27+ stdlib JSON-v2 is eligible only after official GA. Otherwise the Go 1.26 `GOEXPERIMENT=jsonv2` candidate is eligible only after explicit project acceptance of global experiment risk.
 
-  For the Go 1.26 fallback, the minimum local matrix is:
+  For the Go 1.26 candidate, the local commands include:
 
   ```bash
+  GOEXPERIMENT=jsonv2 go test ./tools/rich-media-parser-gate -count=1
+  GOEXPERIMENT=jsonv2 go run ./tools/rich-media-parser-gate -fixtures ./tools/rich-media-parser-gate/testdata/fixtures.json -out .build/rich-local-media-parser-gate/report.json
+  GOEXPERIMENT=jsonv2 go test -race ./internal/adapter/ipc ./internal/adapter/mcp ./tests/contract -count=1
   GOEXPERIMENT=jsonv2 go test -count=1 ./...
   GOCACHE="$(go env GOCACHE)" GOEXPERIMENT=jsonv2 ./scripts/test-hardening.sh
   GOEXPERIMENT=jsonv2 ./scripts/test-security.sh
@@ -98,36 +253,54 @@
   GOEXPERIMENT=jsonv2 go env GOEXPERIMENT GOOS GOARCH CGO_ENABLED
   ```
 
-  The native GitHub `checkpoint`, `nightly`, and `release-candidate` macOS/Linux lanes must run the same selected mode. A missing/contradicting mode, any non-media JSON regression, valid-v2 semantic drift, v1 regression, race failure, or release-build divergence is a candidate FAIL. Because this plan does not authorize push/PR by itself, if those native remote lanes cannot be produced without a user-authorized remote run, record the candidate `NOT_RUN` and keep `parser_toolchain_pass=false`; never substitute local macOS success or cross-compilation for native macOS+Linux evidence.
+  Native macOS and Linux release/checkpoint lanes must use the identical selected mode. If remote/native lanes require push/PR or another external action not explicitly authorized, mark the parser candidate `NOT_RUN`; local success/cross-build cannot substitute.
 
-- [ ] **Step 4: Freeze the conjunction decision**
+- [ ] **Step 6: Define a versioned manifest whose verdict is derived, not trusted**
 
-  Write the exact predicate and evidence IDs into both evidence docs:
+  `rich-local-media-preimplementation-gate-v1.schema.json` requires immutable base/spec/plan/source hashes, the complete Phase A row set, parser candidate identity, strict-tracer report hash, native lane evidence/hashes, and evidence-document hashes. The JSON manifest may contain reported summary fields, but the checker recomputes:
 
   ```text
-  phase_a_pass = Section 21 complete scorecard PASS
-  parser_toolchain_pass = one Section 8.1 candidate passes the complete Section 26.1 matrix
-  can_execute_production_tasks = phase_a_pass && parser_toolchain_pass
+  phase_a_pass = every required Phase A row/threshold passes
+  parser_toolchain_pass = strict tracer + valid corpus + v1 + race + full repo + identical native release lanes pass
+  final_pass = phase_a_pass && parser_toolchain_pass
   ```
 
-  If the conjunction is false, stop here. Tasks 1–10 remain documentation only.
+  The checker rejects missing/duplicate rows, threshold misses, stale base/spec/plan/source hashes, missing native lanes, parser-mode mismatch, missing evidence files, bad hashes, and any hand-edited summary `true` inconsistent with derived facts.
 
-- [ ] **Step 5: Verify and commit the gate/spec normalization**
+- [ ] **Step 7: RED/GREEN the checker itself**
 
-  Run:
+  `scripts/test-rich-media-preimplementation-gate.sh` creates bounded temporary fixtures for: missing row, duplicate row, threshold miss, stale base SHA, stale spec SHA, stale plan SHA, wrong approved-source SHA, missing parser tracer report, missing native lane, mismatched `GOEXPERIMENT`, forged top-level `true`, explicit FAIL, explicit NOT_RUN, and one fully valid fixture.
+
+  Expected exits:
+
+  ```text
+  0 = complete derived PASS
+  3 = honest NOT_RUN / incomplete mandatory evidence
+  4 = FAIL or invalid/stale/forged evidence
+  ```
+
+- [ ] **Step 8: Always persist and commit the honest Task 0 outcome before authorization**
+
+  Write the two human-readable evidence docs plus the JSON manifest for PASS, FAIL, or NOT_RUN. Do **not** skip verification/commit when the conjunction is false.
 
   ```bash
-  rg -n '8 MiB|8388608|11,184,812|11,250,348' docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md
+  ./scripts/test-rich-media-preimplementation-gate.sh
   rg -n 'TBD|TODO|FIXME' docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md docs/superpowers/evidence/2026-08-17-rich-local-media-*.md
   git diff --check
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
+  git add docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md docs/superpowers/evidence docs/superpowers/evidence/schemas scripts/check-rich-media-preimplementation-gate.sh scripts/test-rich-media-preimplementation-gate.sh tools/rich-media-parser-gate
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "docs: record rich media pre-implementation gate"
   ```
 
-  Expected: no stale 8 MiB production limit, no placeholders, no whitespace errors. Then:
+- [ ] **Step 9: Run the authorization checker after the evidence commit**
 
   ```bash
-  git add docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md
-  git commit -m "docs: close rich media pre-implementation gates"
+  ./scripts/check-rich-media-preimplementation-gate.sh
   ```
+
+  Exit `0` authorizes Task 1. Exit `3` or `4` stops the plan with capability unadvertised and the honest evidence retained in history.
 
 ### Task 1: Freeze Strict JSON and the Reproducible Build Mode
 
@@ -148,6 +321,16 @@
 **Interfaces:**
 - Consumes: the exact parser mode selected by Task 0.
 - Produces: `jsonstrict.Decode(data []byte, dst any) error`; one checked build-mode guard used consistently by dev/CI/test/release.
+
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
 
 - [ ] **Step 1: Write RED strict-decoder tests**
 
@@ -216,17 +399,18 @@
   ```bash
   ./scripts/check-json-mode.sh
   go test ./internal/adapter/jsonstrict ./internal/adapter/mcp ./internal/adapter/ipc ./tests/contract -count=1
-  go test ./... -count=1
-  GOCACHE="$(go env GOCACHE)" ./scripts/test-hardening.sh
   ```
 
-  Expected: all strict negatives reject; existing valid v2 semantics and v1 fixtures remain green.
+  Expected: all strict negatives reject; existing valid v2 semantics and v1 fixtures remain green. Do not rerun a fresh full repository/hardening suite here; Task 0 already gated the selected mode and Task 10 owns release-scale verification.
 
 - [ ] **Step 7: Commit**
 
   ```bash
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add internal/adapter/jsonstrict internal/adapter/mcp/input.go internal/adapter/mcp/discovery_test.go internal/adapter/ipc/protocol_v2.go internal/adapter/ipc/protocol_v2_test.go scripts/check-json-mode.sh Makefile .github/workflows/checkpoint.yml .github/workflows/nightly.yml .github/workflows/release.yml
-  git commit -m "build: freeze strict json mode"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "build: freeze strict json mode"
   ```
 
 ### Task 2: Introduce the Core Media Contract and Dynamic Schema Fragments
@@ -246,6 +430,16 @@
 
 **Interfaces:**
 - Produces: `media.DisplayAddress`, `media.LogicalPath`, `media.Limits`, `media.File`, `media.Result`, exact V1 constants used by daemon/IPC/bridge/MCP, and stable media failure constants available to later tasks.
+
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
 
 - [ ] **Step 1: Write RED contract/path tests**
 
@@ -353,8 +547,11 @@
 - [ ] **Step 6: Commit**
 
   ```bash
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add internal/core/media internal/core/failure api/schema tests/contract
-  git commit -m "feat: define rich media contracts"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "feat: define rich media contracts"
   ```
 
 ### Task 3: Add Descriptor-Relative Safe Local File Acquisition
@@ -371,9 +568,19 @@
 - Consumes: `media.LogicalPath`, `media.Limits`.
 - Produces: `type Reader struct{}` and `func (Reader) Read(ctx context.Context, base string, path media.LogicalPath, limits media.Limits) (media.File, error)`.
 
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
+
 - [ ] **Step 1: Write RED native safety tests**
 
-  Cover regular PNG/JPEG, intermediate/final symlink, FIFO, Unix socket, directory, missing file, permission denial, source rename/replace/write mutation, exact 7 MiB and 7 MiB+1, and deterministic race hooks. Use channels/barriers; do not use arbitrary sleeps for TOCTOU assertions.
+  Cover regular PNG/JPEG, intermediate/final symlink, FIFO, Unix socket, directory, missing file, permission denial, source rename/replace/write mutation, exact 7 MiB and 7 MiB+1, deterministic race hooks, cancellation before/between every controllable traversal/stat/read/config stage, and cancellation between read chunks. Add an injected blocking syscall/read hook proving a kernel-blocked worker retains its FD + capacity slot until it actually returns. Use channels/barriers; do not use arbitrary sleeps for TOCTOU/cancellation assertions.
 
 - [ ] **Step 2: Pin the reviewed WebP dependency before importing it**
 
@@ -404,9 +611,25 @@
 
   Immediately `Fstat` the final descriptor and reject anything not a regular file before content read. Convert syscall/OS failures to the Task-2 stable media failure taxonomy at the adapter boundary without exposing raw error strings.
 
-- [ ] **Step 4: Bounded read + stable-source tuple + image config validation**
+- [ ] **Step 4: Context-aware bounded read + stable-source tuple + image config validation**
 
-  Capture `{dev, ino, mode/type, size, mtime, ctime}`, read through `io.LimitReader(file, MaxImageBytes+1)`, then `Fstat` again and require tuple equality. Detect/validate only PNG/JPEG/WebP from encoded content, enforce width/height/pixel caps, and use header/config decode rather than full pixel decode. Do not require a filename extension to prove content type.
+  Check `ctx.Err()` before and after each controllable `openat`, `fstat`, read chunk, second `fstat`, and `DecodeConfig` stage. A syscall already blocked in the kernel is not magically cancellable: it keeps its descriptor and daemon media slot until return; no replacement worker is started.
+
+  Capture `{dev, ino, mode/type, size, mtime, ctime}`. Read at most `MaxImageBytes+1` using a fixed bounded chunk buffer (for example 64 KiB), checking context between chunks and handling short reads/EINTR without losing the byte ceiling:
+
+  ```go
+  for len(data) <= limits.MaxImageBytes {
+      if err := ctx.Err(); err != nil { return media.File{}, err }
+      n, readErr := file.Read(buf)
+      if n > 0 { data = append(data, buf[:n]...) }
+      if len(data) > limits.MaxImageBytes { return media.File{}, failure.MediaTooLarge }
+      if readErr == io.EOF { break }
+      if readErr != nil { return media.File{}, mapReadFailure(readErr) }
+      if err := ctx.Err(); err != nil { return media.File{}, err }
+  }
+  ```
+
+  Then `Fstat` again and require tuple equality. Detect/validate only PNG/JPEG/WebP from encoded content, enforce width/height/pixel caps, and use header/config decode rather than full pixel decode. Do not require a filename extension to prove content type.
 
 - [ ] **Step 5: GREEN and fuzz smoke**
 
@@ -419,8 +642,11 @@
 - [ ] **Step 6: Commit**
 
   ```bash
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add internal/adapter/localfs internal/core/media go.mod go.sum
-  git commit -m "feat: acquire local images safely"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "feat: acquire local images safely"
   ```
 
 ### Task 4: Add Daemon Media Admission, Resolution, and Cooperative Timeout
@@ -437,9 +663,19 @@
 - Consumes: `MediaReader.Read`, existing `WorkspaceResolver.ResolveAddress`.
 - Produces: `func (s *Service) ReadMedia(context.Context, MediaRequest) (media.Result, error)`; optional media dependency is nil when unsupported.
 
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
+
 - [ ] **Step 1: Write RED ordering/admission tests**
 
-  Build deterministic fakes that count resolver/base-reader entry. With capacity 2, A/B acquire slots then block; C must return `capacity_exceeded` while resolver/reader counters remain exactly 2. Repeat with caller timeouts whose workers remain blocked; slots stay occupied until worker exit.
+  Build deterministic fakes that count resolver/base-reader entry. With capacity 2, A/B acquire slots then block; C must return `capacity_exceeded` while resolver/reader counters remain exactly 2. Repeat with context cancellation between controllable localfs stages and with an injected kernel/blocking reader: cooperative cancellation exits/releases the slot when the worker can observe context, while the injected blocked worker retains the slot until actual return. Caller timeout never releases capacity early.
 
 - [ ] **Step 2: Add the daemon request/port**
 
@@ -459,7 +695,7 @@
 
 - [ ] **Step 3: Implement bounded worker lifecycle**
 
-  Launch at most one worker per acquired slot. The worker owns the slot until its actual return. The caller waits for result or the 5 s cooperative budget; on budget expiry return `media_read_timeout` with `retryable=false` but do not manufacture a replacement worker or release the token early.
+  Launch at most one worker per acquired slot. The worker owns the slot until its actual return. Propagate a cancellable context into `MediaReader.Read`; localfs observes it between controllable steps/chunks. The caller waits for result or the 5 s cooperative budget; on budget expiry cancel the worker context and return `media_read_timeout` with `retryable=false`, but do not manufacture a replacement worker or release the token early. A worker blocked inside a kernel call keeps the slot until it returns.
 
 - [ ] **Step 4: Wire localfs only into daemon composition**
 
@@ -475,8 +711,11 @@
 - [ ] **Step 6: Commit**
 
   ```bash
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add internal/app/daemon cmd/shellbeam/command_daemon.go
-  git commit -m "feat: add bounded daemon media reads"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "feat: add bounded daemon media reads"
   ```
 
 ### Task 5: Add Stateless Media Capability Negotiation
@@ -489,6 +728,16 @@
 
 **Interfaces:**
 - Produces: immutable consumer/daemon media-support declarations, fixed V1 daemon/bridge support declarations, and deterministic intersection/fingerprint.
+
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
 
 - [ ] **Step 1: Write RED negotiation/catalog tests**
 
@@ -523,8 +772,11 @@
 
   ```bash
   go test ./internal/core/capability ./internal/core/failure -count=1
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add internal/core/capability
-  git commit -m "feat: define negotiated media capability"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "feat: define negotiated media capability"
   ```
 
 ### Task 6: Extend IPC v2 with Private Negotiation and Bounded Media Results
@@ -544,9 +796,19 @@
 - Consumes: `capability.MediaSupport`, `capability.NegotiatedMedia`, `daemon.MediaRequest`, `media.Result`.
 - Produces: private actions `capabilities.negotiate` and `read_media`; wire-neutral bridge request/response fields used by the IPC adapter; media response outer bound enforced before JSON/base64 decode.
 
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
+
 - [ ] **Step 1: Write RED IPC contract tests**
 
-  Add fixtures for negotiation success/unsupported schema, read without opt-in, wrong fingerprint, malformed media envelope, exact `maxOuter=9_852_248`, `maxOuter+1`, malformed base64, duplicate/invalid/trailing JSON, and ordinary IPC unchanged.
+  Add fixtures for negotiation success/unsupported schema, read without opt-in, wrong fingerprint, malformed media envelope, exact `maxOuter=9_852_248`, `maxOuter+1`, malformed base64, duplicate/invalid/trailing JSON, a short body, and a custom response body that returns a valid-looking JSON prefix plus an injected non-EOF read error. Every transport-error case must return failure with zero `Response.Media`; ordinary IPC remains unchanged.
 
 - [ ] **Step 2: Add transport-neutral media fields to the bridge port, then extend closed IPC-v2 types**
 
@@ -603,22 +865,28 @@
 
   ```go
   limited := io.LimitReader(resp.Body, media.MaxOuterResponseBytes+1)
-  body, err := io.ReadAll(limited)
+  body, readErr := io.ReadAll(limited)
   if len(body) > media.MaxOuterResponseBytes {
       return out, failure.New(failure.InvalidDaemonResponse, nil, errors.New("media response too large"))
+  }
+  if readErr != nil {
+      return out, failure.New(failure.InvalidDaemonResponse, nil, errors.New("media response read failed"))
   }
   if err := jsonstrict.Decode(body, &out); err != nil { ... }
   ```
 
-  Validate response kind/version/action/request ID before returning it to the bridge.
+  Ordering is normative: bounded read -> oversize classification -> **read-error check** -> strict JSON/base64 decode -> envelope/request correlation. A valid-looking prefix accompanied by a transport read error is never decoded/rendered. Validate response kind/version/action/request ID before returning it to the bridge.
 
 - [ ] **Step 5: GREEN, skew integration, commit**
 
   ```bash
   go test ./api/schema ./internal/adapter/ipc ./internal/core/capability -run 'Test.*Media|Test.*Negotiate|TestIPCV2|TestCompatibility' -count=1
   go test ./internal/adapter/ipc -count=1
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add api/schema/ipc-v2.json internal/adapter/ipc internal/app/bridge/client_port.go cmd/shellbeam/command_daemon.go
-  git commit -m "feat: transport negotiated media over ipc"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "feat: transport negotiated media over ipc"
   ```
 
 ### Task 7: Make the Bridge Own Effective Capability and Exact Media Correlation
@@ -633,6 +901,16 @@
 
 **Interfaces:**
 - Produces: immutable bridge effective catalog; startup negotiation that degrades safely to media-unavailable; request-derived expected address; validated `Response.Media` ready for MCP translation.
+
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
 
 - [ ] **Step 1: Write RED bridge negotiation/skew tests**
 
@@ -682,8 +960,11 @@
 - [ ] **Step 7: Commit**
 
   ```bash
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add internal/app/bridge cmd/shellbeam/command_mcp.go
-  git commit -m "feat: validate negotiated media at bridge"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "feat: validate negotiated media at bridge"
   ```
 
 ### Task 8: Dynamically Expose `read_media` and Render Native `ImageContent`
@@ -700,6 +981,16 @@
 **Interfaces:**
 - Consumes: bridge effective catalog + validated `media.Result`.
 - Produces: conditionally composed one-tool schema, accurate egress disclosure, and native `mcpgo.ImageContent`.
+
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
 
 - [ ] **Step 1: Write RED metadata/schema/rendering tests**
 
@@ -758,8 +1049,11 @@
 - [ ] **Step 7: Commit**
 
   ```bash
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add internal/adapter/mcp scripts/test-mcp-local.sh
-  git commit -m "feat: expose native local image reads"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "feat: expose native local image reads"
   ```
 
 ### Task 9: Prove Privacy, Failure Mapping, and No Hot-Path Regression
@@ -775,13 +1069,23 @@
 - Consumes: full daemon→IPC→bridge→MCP production path.
 - Produces: integration evidence that media bytes live only in bounded transient result memory and do not alter ordinary execution behavior.
 
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
+
 - [ ] **Step 1: Write a privacy sentinel fixture**
 
   Generate an accepted image containing distinctive low-entropy EXIF/comment-like byte strings and a distinctive canonical path component. Assert the returned `ImageContent` preserves original encoded bytes, while state dir, receipts, session output, telemetry, repro, event journal, structured metadata, ordinary logs, and test evidence contain none of the sentinels or canonical path.
 
 - [ ] **Step 2: Add end-to-end error matrix assertions**
 
-  Exercise every V1 media error and snapshot exact code/retryability. For `invalid_daemon_response`, explicitly inject wrong workspace, wrong CWD, wrong kind, missing/both bases, normalized path, canonicalized CWD, malformed data, and version skew; every case must emit zero `ImageContent`.
+  Exercise every V1 media error and snapshot exact code/retryability. For `invalid_daemon_response`, explicitly inject wrong workspace, wrong CWD, wrong kind, missing/both bases, normalized path, canonicalized CWD, malformed data, version skew, short response bodies, and valid-looking JSON prefixes followed by transport read errors; every case must emit zero `ImageContent`.
 
 - [ ] **Step 3: Prove ordinary execution does no media work**
 
@@ -795,11 +1099,15 @@
 
   ```bash
   go test ./tests/integration ./tests/contract ./internal/observability -run 'Test.*Media|Test.*Privacy|Test.*Redact' -count=1
-  GOCACHE="$(go env GOCACHE)" ./scripts/test-hardening.sh
-  ./scripts/test-security.sh
+  sh -n ./scripts/test-hardening.sh ./scripts/test-security.sh
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add tests internal/observability scripts/test-security.sh scripts/test-hardening.sh
-  git commit -m "test: prove rich media privacy boundaries"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "test: prove rich media privacy boundaries"
   ```
+
+  Task 10 runs the modified hardening/security scripts as part of release-scale verification.
 
 ### Task 10: Native Filesystem, Memory, Full Regression, and Phase B Revalidation
 
@@ -815,6 +1123,16 @@
 
 **Interfaces:**
 - Produces: native macOS/Linux safe-open proof, <=128 MiB two-read incremental RSS evidence, full repository regression evidence, and production ChatGPT Phase B scorecard.
+
+- [ ] **Precondition: Recheck the machine pre-implementation gate**
+
+  ```bash
+  ./scripts/check-rich-media-preimplementation-gate.sh
+  EXECUTION_BASE="$(python3 -c 'import json; print(json.load(open("docs/superpowers/evidence/2026-08-17-rich-local-media-preimplementation-gate.json"))["execution_base_sha"])')"
+  test -n "$EXECUTION_BASE"
+  ```
+
+  Expected: checker exit `0`. Any other exit stops this task before editing production code.
 
 - [ ] **Step 1: Add the native media gate script**
 
@@ -842,7 +1160,7 @@
   GOCACHE="$(go env GOCACHE)" ./scripts/test-hardening.sh
   ./scripts/test-security.sh
   ./scripts/test-media-native.sh
-  go run ./tools/devctl verify --checkpoint --base origin/main --json
+  go run ./tools/devctl verify --checkpoint --base "$EXECUTION_BASE" --json
   go build -trimpath -buildvcs=false -o .build/checkpoints/rich-media/shellbeam ./cmd/shellbeam
   git diff --check
   ```
@@ -870,49 +1188,61 @@
   ```bash
   git status --short
   git diff --check
+  go run ./tools/devctl test --dirty --base "$EXECUTION_BASE" --json
+  go run ./tools/devctl build --dirty --base "$EXECUTION_BASE" --json
   git add scripts/test-media-native.sh docs/testing/rich-local-media.md .github/workflows/checkpoint.yml .github/workflows/nightly.yml .github/workflows/release.yml scripts/e2e-tunnel-user.sh docs/superpowers/evidence
-  git commit -m "test: verify rich local media access"
+  git diff --cached --check
+  git -c core.hooksPath=.githooks commit -m "test: verify rich local media access"
   ```
 
 ## Execution Order and Stop Conditions
 
 ```text
-Task 0 conjunction gate
-  ├─ FAIL -> STOP; no production implementation
+Task -1 bind current base + approved source
+  ├─ FAIL / NOT_RUN -> STOP; Task 0 forbidden
   └─ PASS
-      Task 1 strict JSON/build mode
-      Task 2 core contract/schema fragments
-      Task 3 localfs acquisition
-      Task 4 daemon admission/read lifecycle
-      Task 5 capability negotiation
-      Task 6 private IPC negotiation/media transport
-      Task 7 bridge effective catalog/correlation
-      Task 8 MCP dynamic exposure/ImageContent
-      Task 9 privacy/integration/hot-path proof
-      Task 10 native/full regression/Phase B
+      Task 0 normalize Phase A + run parser tracer/native matrix
+        commit PASS / FAIL / NOT_RUN evidence
+        run machine checker
+          ├─ exit 3/4 -> STOP; capability absent
+          └─ exit 0
+              Task 1 strict JSON/build mode
+              Task 2 core contract/schema fragments
+              Task 3 localfs acquisition
+              Task 4 daemon admission/read lifecycle
+              Task 5 capability negotiation
+              Task 6 private IPC negotiation/media transport
+              Task 7 bridge effective catalog/correlation
+              Task 8 MCP dynamic exposure/ImageContent
+              Task 9 privacy/integration/hot-path proof
+              Task 10 native/full regression/Phase B
 ```
 
 Additional stop conditions:
 
-- If the complete Phase A one-tool scorecard fails a hard gate and the dedicated `read_local_image` candidate passes the full matrix, revise the spec/plan topology before Task 1.
+- If Task -1 cannot materialize an artifact matching SHA-256 `7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906`, stop; never reconstruct the approved design from chat memory.
+- If Task -1 finds stale Files/Interfaces/symbol mappings after synchronizing to `EXECUTION_BASE`, revise/re-review this plan and rerun Task -1 before Task 0.
+- If the complete Phase A one-tool scorecard fails a hard gate and the dedicated `read_local_image` candidate passes the full matrix, revise the bound spec/plan topology before Task 1.
 - If PNG does not enter model vision, stop the feature.
 - If only a subset of PNG/JPEG/WebP passes, revise the allowlist before production code.
-- If neither approved parser/toolchain candidate passes, stop before Task 1.
+- If no parser/toolchain candidate passes the strict tracer + corpus + full/native matrix, checker remains nonzero and Task 1 is forbidden.
+- If Go 1.26 experiment risk has not been explicitly accepted while Go 1.27 remains unavailable as an official GA candidate, record parser gate `NOT_RUN`; do not infer consent.
 - If WebP dependency review fails, revise V1 to PNG/JPEG; do not select another broad decoder framework silently.
 - If the 7 MiB ceiling fails again through the official tunnel in production Phase B, lower the explicit product limit and rerun the affected full matrix; do not ship an undocumented effective limit.
 
 ## Plan Self-Review Checklist
 
-Before executing Task 0 and again before Task 10:
+Before executing Task -1, after Task -1 rebinding, after Task 0, and again before Task 10:
 
-- [ ] Every v8/v9 acceptance criterion maps to at least one task/test above.
+- [ ] The repository-bound approved source exactly matches SHA-256 `7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906`, and every acceptance criterion in the bound canonical spec maps to at least one task/test above.
 - [ ] `display_address` is complete and exact at MCP request, daemon result, IPC envelope, bridge correlation, structured metadata, and UI evidence.
 - [ ] No task adds a generic filesystem/binary/media framework surface.
 - [ ] Legacy daemon `inspect.server` never exposes media.
 - [ ] Public schema exposure is dynamic and driven by bridge effective negotiation, not a static unconditional schema change.
-- [ ] Media outer ceiling is enforced before JSON/base64 decode.
+- [ ] Media outer ceiling is enforced before JSON/base64 decode, and any non-EOF body read error fails before decode/rendering.
+- [ ] Localfs checks context between every controllable traversal/stat/read/config stage and between read chunks; a blocked syscall retains FD + capacity until return.
 - [ ] Timeout retains capacity until worker exit.
 - [ ] Privacy tests include original-file metadata egress but exclude durable/logging persistence.
-- [ ] Build mode is identical in dev/CI/test/release.
+- [ ] Build mode is identical in dev/CI/test/release; the narrow strict-decode tracer, valid-v2 semantic corpus, v1 compatibility, race and native lanes are all represented in Task 0 evidence.
 - [ ] Exact raw max is 7 MiB everywhere; no stale 8 MiB production assumption remains.
-- [ ] Main-agent-only execution is preserved; no subagents, push, or PR are introduced implicitly.
+- [ ] Every Task 1–10 starts with the machine gate checker; every task commit uses affected `devctl` verification plus `git -c core.hooksPath=.githooks commit`; no subagents, push, or PR are introduced implicitly.
