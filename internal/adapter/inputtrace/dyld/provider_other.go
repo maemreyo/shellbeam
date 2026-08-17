@@ -32,6 +32,9 @@ func (p *Provider) Prepare(_ context.Context, request traceapp.PrepareRequest) (
 func (p *Provider) Finalize(context.Context, trace.InstrumentationBinding) (traceapp.ProviderSnapshot, error) {
 	return traceapp.ProviderSnapshot{}, failure.New(failure.InputTraceNotFound, nil, nil)
 }
+func (p *Provider) Cleanup(ctx context.Context, _ trace.InstrumentationBinding) error {
+	return ctx.Err()
+}
 
 var _ traceapp.Preparer = (*Provider)(nil)
 var _ traceapp.Finalizer = (*Provider)(nil)
