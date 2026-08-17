@@ -1,5 +1,3 @@
-//go:build goexperiment.jsonv2
-
 package main
 
 import (
@@ -12,23 +10,25 @@ import (
 )
 
 func TestCandidateModeSelection(t *testing.T) {
+	const exactModule = "v0.0.0-20260623181947-01eb4420fa68"
 	cases := []struct {
 		version    string
 		experiment string
+		module     string
 		want       string
 		ok         bool
 	}{
-		{"go1.26.5-X:jsonv2", "jsonv2", "go1.26-jsonv2-experiment", true},
-		{"go1.26.5", "", "", false},
-		{"go1.27rc2", "", "go1.27-jsonv2-preview", true},
-		{"go1.27.0", "", "go1.27-stable-jsonv2", true},
-		{"go1.27.1", "", "go1.27-stable-jsonv2", true},
-		{"go1.27.0", "jsonv2", "", false},
+		{"go1.26.5", "", exactModule, "go1.26-pinned-json-library-boundary", true},
+		{"go1.26.5", "jsonv2", exactModule, "", false},
+		{"go1.26.5", "other", exactModule, "", false},
+		{"go1.26.5", "", "v0.0.0-deadbeef", "", false},
+		{"go1.25.9", "", exactModule, "", false},
+		{"go1.27.0", "", exactModule, "", false},
 	}
 	for _, tt := range cases {
-		got, ok := candidateMode(tt.version, tt.experiment)
+		got, ok := candidateMode(tt.version, tt.experiment, tt.module)
 		if got != tt.want || ok != tt.ok {
-			t.Fatalf("candidateMode(%q,%q)=(%q,%t), want (%q,%t)", tt.version, tt.experiment, got, ok, tt.want, tt.ok)
+			t.Fatalf("candidateMode(%q,%q,%q)=(%q,%t), want (%q,%t)", tt.version, tt.experiment, tt.module, got, ok, tt.want, tt.ok)
 		}
 	}
 }
@@ -49,22 +49,22 @@ func TestRunWritesCompletePassingReport(t *testing.T) {
 	if rep.Verdict != "PASS" || rep.ExitStatus != 0 {
 		t.Fatalf("verdict=%s exit=%d", rep.Verdict, rep.ExitStatus)
 	}
-	wantMode, ok := candidateMode(runtime.Version(), os.Getenv("GOEXPERIMENT"))
+	wantMode, ok := candidateMode(runtime.Version(), os.Getenv("GOEXPERIMENT"), rep.ModuleVersion)
 	if !ok || rep.CandidateMode != wantMode {
 		t.Fatalf("candidate=%q want=%q runtime=%q experiment=%q", rep.CandidateMode, wantMode, runtime.Version(), os.Getenv("GOEXPERIMENT"))
 	}
-	if rep.FixtureManifestSHA256 == "" || rep.Command == "" || rep.GoVersionCommand == "" {
+	if rep.FixtureManifestSHA256 == "" || rep.Command == "" || rep.GoVersionCommand == "" || rep.ModuleVersion == "" {
 		t.Fatalf("missing provenance: %+v", rep)
 	}
 	wantFragment := "go run ./tools/rich-media-parser-gate -fixtures testdata/fixtures.json -out "
 	if !strings.Contains(rep.Command, wantFragment) {
 		t.Fatalf("command=%q missing stable logical fragment %q", rep.Command, wantFragment)
 	}
-	if rep.GoExperiment == "jsonv2" && !strings.Contains(rep.Command, "GOEXPERIMENT=jsonv2 ") {
-		t.Fatalf("experimental command missing explicit mode: %q", rep.Command)
+	if rep.GoExperiment != "" {
+		t.Fatalf("library-boundary report has global experiment %q", rep.GoExperiment)
 	}
-	if rep.GoExperiment == "" && strings.Contains(rep.Command, "GOEXPERIMENT=jsonv2 ") {
-		t.Fatalf("stable/preview command falsely advertises experiment: %q", rep.Command)
+	if strings.Contains(rep.Command, "GOEXPERIMENT=") {
+		t.Fatalf("library-boundary command falsely advertises experiment: %q", rep.Command)
 	}
 	if strings.Contains(rep.Command, "/go-build") || strings.Contains(rep.Command, "/Caches/go-build") {
 		t.Fatalf("command leaks nondeterministic executable path: %q", rep.Command)

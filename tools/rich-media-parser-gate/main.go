@@ -1,22 +1,18 @@
-//go:build goexperiment.jsonv2
-
 package main
 
 import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"flag"
 	"fmt"
+	jsonv2 "github.com/go-json-experiment/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -48,6 +44,7 @@ type checkResult struct {
 type report struct {
 	SchemaVersion         int           `json:"schema_version"`
 	CandidateMode         string        `json:"candidate_mode"`
+	ModuleVersion         string        `json:"module_version"`
 	FixtureManifestSHA256 string        `json:"fixture_manifest_sha256"`
 	GoVersion             string        `json:"go_version"`
 	GoVersionCommand      string        `json:"go_version_command"`
@@ -164,45 +161,30 @@ func goEnvDetails() (string, string, string, string, error) {
 	return lines[0], lines[1], lines[2], lines[3], nil
 }
 
-var (
-	stableJSONv2Version  = regexp.MustCompile(`^go1\.([0-9]+)(?:\.[0-9]+)?$`)
-	previewJSONv2Version = regexp.MustCompile(`^go1\.([0-9]+)(?:beta|rc)[0-9]+$`)
+const (
+	pinnedJSONModuleVersion = "v0.0.0-20260623181947-01eb4420fa68"
+	pinnedLibraryCandidate  = "go1.26-pinned-json-library-boundary"
 )
 
-func jsonv2Minor(version string, pattern *regexp.Regexp) (int, bool) {
-	match := pattern.FindStringSubmatch(version)
-	if len(match) != 2 {
-		return 0, false
-	}
-	minor, err := strconv.Atoi(match[1])
-	return minor, err == nil
+func jsonModuleVersion() (string, error) {
+	return output("go", "list", "-m", "-f", "{{.Version}}", "github.com/go-json-experiment/json")
 }
 
-func candidateMode(version, experiment string) (string, bool) {
-	if strings.HasPrefix(version, "go1.26") {
-		if experiment == "jsonv2" {
-			return "go1.26-jsonv2-experiment", true
-		}
+func candidateMode(version, experiment, moduleVersion string) (string, bool) {
+	if !strings.HasPrefix(version, "go1.26") || experiment != "" || moduleVersion != pinnedJSONModuleVersion {
 		return "", false
 	}
-	if experiment != "" {
-		return "", false
-	}
-	if minor, ok := jsonv2Minor(version, previewJSONv2Version); ok && minor >= 27 {
-		return "go1.27-jsonv2-preview", true
-	}
-	if minor, ok := jsonv2Minor(version, stableJSONv2Version); ok && minor >= 27 {
-		return "go1.27-stable-jsonv2", true
-	}
-	return "", false
+	return pinnedLibraryCandidate, true
 }
 
 func newCandidateReport(raw []byte, fixturesPath, outPath string) report {
 	goVersionCommand, goVersionErr := output("go", "version")
 	goExperiment, goos, goarch, cgoEnabled, goEnvErr := goEnvDetails()
+	moduleVersion, moduleErr := jsonModuleVersion()
 	rep := report{
 		SchemaVersion:         2,
 		CandidateMode:         "",
+		ModuleVersion:         moduleVersion,
 		FixtureManifestSHA256: fileSHA256(raw),
 		GoVersion:             runtime.Version(),
 		GoVersionCommand:      goVersionCommand,
@@ -212,9 +194,9 @@ func newCandidateReport(raw []byte, fixturesPath, outPath string) report {
 		Verdict:               "PASS",
 	}
 	rep.GoExperiment, rep.GOOS, rep.GOARCH, rep.CGOEnabled = goExperiment, goos, goarch, cgoEnabled
-	mode, modeOK := candidateMode(rep.GoVersion, rep.GoExperiment)
+	mode, modeOK := candidateMode(rep.GoVersion, rep.GoExperiment, rep.ModuleVersion)
 	rep.CandidateMode = mode
-	if goVersionErr != nil || goEnvErr != nil || !modeOK {
+	if goVersionErr != nil || goEnvErr != nil || moduleErr != nil || !modeOK {
 		rep.Verdict = "FAIL"
 	}
 	return rep

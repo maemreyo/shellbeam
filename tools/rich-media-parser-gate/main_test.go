@@ -29,9 +29,10 @@ func TestCandidateSourceContract(t *testing.T) {
 	}
 	src := string(raw)
 	for _, want := range []string{
-		"//go:build goexperiment.jsonv2",
-		`jsonv2 "encoding/json/v2"`,
+		`jsonv2 "github.com/go-json-experiment/json"`,
 		"jsonv2.RejectUnknownMembers(true)",
+		"go1.26-pinned-json-library-boundary",
+		"module_version",
 		"canonicalSemanticDigest",
 		"fixture_manifest_sha256",
 		"candidate_mode",
@@ -40,6 +41,7 @@ func TestCandidateSourceContract(t *testing.T) {
 		"GoVersionCommand",
 		`output("go", "version")`,
 		`exec.Command("go", "env", "GOEXPERIMENT", "GOOS", "GOARCH", "CGO_ENABLED")`,
+		`output("go", "list", "-m"`,
 		"invalid-utf8", "duplicate-names", "unknown-names", "wrong-case", "trailing-json",
 	} {
 		if !strings.Contains(src, want) {

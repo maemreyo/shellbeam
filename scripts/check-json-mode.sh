@@ -8,12 +8,10 @@ goversion=$(go env GOVERSION)
 goexperiment=$(go env GOEXPERIMENT)
 module_version=$(go list -m -f '{{.Version}}' github.com/go-json-experiment/json)
 
-case ",${goexperiment}," in
-  *,jsonv2,*|*jsonv2*)
-    echo "json mode mismatch: global GOEXPERIMENT=jsonv2 is forbidden in ${MODE}" >&2
-    exit 4
-    ;;
-esac
+if [ -n "$goexperiment" ]; then
+  echo "json mode mismatch: global GOEXPERIMENT must be empty in ${MODE}, got ${goexperiment}" >&2
+  exit 4
+fi
 
 version=${goversion#go}
 major=${version%%.*}

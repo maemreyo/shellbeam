@@ -25,6 +25,7 @@ SH
 V=v0.0.0-20260623181947-01eb4420fa68
 run_case baseline go1.26.5 '' "$V" pass
 run_case global-experiment go1.26.5 jsonv2 "$V" fail
+run_case other-experiment go1.26.5 other "$V" fail
 run_case old-go go1.25.9 '' "$V" fail
 run_case module-drift go1.26.5 '' v0.0.0-deadbeef fail
 echo PASS

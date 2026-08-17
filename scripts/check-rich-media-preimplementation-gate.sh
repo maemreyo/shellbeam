@@ -54,6 +54,7 @@ BASE_PHASE={
 }
 ANNOTATION={'annotation-omitted','annotation-user-assistant','annotation-selection'}
 REMEMBERED='remembered-approval'
+PINNED_JSON_MODULE_VERSION='v0.0.0-20260623181947-01eb4420fa68'
 PARSER_IDS={'five-rejections','valid-v2-semantic','legacy-v1','error-code-compat','ordinary-build','full-tests','race','macos-native','linux-native','shell-acceptance','non-media-json-regression','mode-consistency'}
 
 def derive_phase(obj):
@@ -133,19 +134,22 @@ def derive_parser(obj, root):
     else: derived='PASS'
     if derived=='PASS':
         cand=obj.get('candidate'); mode=obj.get('mode'); gov=obj.get('go_version',''); exp=obj.get('goexperiment','')
+        module_version=obj.get('module_version','')
         if cand=='go1.27-stable-jsonv2':
             if obj.get('go127_ga') is not True or mode!='stable' or exp!='' or not re.match(r'^go1\.(2[7-9]|[3-9][0-9])(?:\.|$)',gov):
                 raise GateError('invalid stable Go 1.27+ parser evidence')
-        elif cand=='go1.26-jsonv2-experiment':
-            if obj.get('explicit_go126_experiment_acceptance') is not True or mode!='experimental' or exp!='jsonv2' or not gov.startswith('go1.26'):
-                raise GateError('invalid Go 1.26 experimental parser evidence')
+        elif cand=='go1.26-pinned-json-library-boundary':
+            if obj.get('go127_ga') is not False or mode!='library-boundary' or exp!='' or not gov.startswith('go1.26') or module_version!=PINNED_JSON_MODULE_VERSION:
+                raise GateError('invalid Go 1.26 pinned-library parser evidence')
         else: raise GateError('unknown passing parser candidate: %r' % cand)
         tracer_path=verify_artifact(root,obj.get('strict_tracer_report'),'strict-tracer-report')
         tracer=load_json(tracer_path)
         if tracer.get('verdict')!='PASS' or tracer.get('exit_status')!=0:
             raise GateError('strict tracer report is not PASS')
-        if tracer.get('goexperiment')!=exp or tracer.get('candidate_mode') not in (cand,'go1.26-jsonv2-experiment' if cand=='go1.26-jsonv2-experiment' else 'go1.27-stable-jsonv2'):
+        if tracer.get('goexperiment')!=exp or tracer.get('candidate_mode')!=cand:
             raise GateError('strict tracer mode mismatch')
+        if cand=='go1.26-pinned-json-library-boundary' and tracer.get('module_version')!=module_version:
+            raise GateError('strict tracer module mismatch')
         lanes=obj.get('native_lanes')
         if not isinstance(lanes,dict) or set(lanes)!= {'macos','linux'}:
             raise GateError('native lane set must be exactly macos+linux')
@@ -155,6 +159,8 @@ def derive_parser(obj, root):
                 raise GateError('native lane not PASS: %s' % lane_name)
             if lane.get('mode')!=mode or lane.get('goexperiment')!=exp or lane.get('go_version')!=gov:
                 raise GateError('native lane mode mismatch: %s' % lane_name)
+            if cand=='go1.26-pinned-json-library-boundary' and lane.get('module_version')!=module_version:
+                raise GateError('native lane module mismatch: %s' % lane_name)
             verify_artifact(root,lane.get('evidence'),'native-lane-%s' % lane_name)
     else:
         if obj.get('strict_tracer_report') is not None:

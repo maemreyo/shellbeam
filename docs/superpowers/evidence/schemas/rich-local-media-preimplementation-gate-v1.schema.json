@@ -53,6 +53,9 @@
         "mode": {
           "type": "string"
         },
+        "module_version": {
+          "type": "string"
+        },
         "status": {
           "enum": [
             "PASS",
@@ -247,6 +250,9 @@
           "type": "string"
         },
         "mode": {
+          "type": "string"
+        },
+        "module_version": {
           "type": "string"
         },
         "native_lanes": {
