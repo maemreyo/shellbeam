@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shellbeam.dev/schema/mcp-read-media-output-v1.json",
+  "title": "local_shell read_media safe structured output fragment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "display_address": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address_kind": {"enum": ["workspace", "cwd"]},
+        "workspace_id": {"type": "string", "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"},
+        "cwd": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^/"},
+        "path": {"type": "string", "minLength": 1, "maxLength": 1024}
+      },
+      "required": ["address_kind", "path"],
+      "oneOf": [
+        {"properties": {"address_kind": {"const": "workspace"}}, "required": ["workspace_id"], "not": {"required": ["cwd"]}},
+        {"properties": {"address_kind": {"const": "cwd"}}, "required": ["cwd"], "not": {"required": ["workspace_id"]}}
+      ]
+    }
+  },
+  "properties": {
+    "schema_version": {"const": 1},
+    "kind": {"const": "media"},
+    "display_address": {"$ref": "#/$defs/display_address"},
+    "mime_type": {"enum": ["image/png", "image/jpeg", "image/webp"]},
+    "format": {"enum": ["png", "jpeg", "webp"]},
+    "byte_size": {"type": "integer", "minimum": 1, "maximum": 7340032},
+    "width": {"type": "integer", "minimum": 1, "maximum": 16384},
+    "height": {"type": "integer", "minimum": 1, "maximum": 16384}
+  },
+  "required": ["schema_version", "kind", "display_address", "mime_type", "format", "byte_size", "width", "height"]
+}

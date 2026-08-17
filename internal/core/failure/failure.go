@@ -87,6 +87,17 @@ const (
 	PersistentInputHistoryExhausted   Code = "persistent_input_history_exhausted"
 	PersistentKillHistoryExhausted    Code = "persistent_kill_history_exhausted"
 	PersistenceAmbiguous              Code = "persistence_ambiguous"
+	InvalidDaemonResponse             Code = "invalid_daemon_response"
+	MediaPathNotFound                 Code = "media_path_not_found"
+	MediaPathUnsafe                   Code = "media_path_unsafe"
+	MediaNotRegular                   Code = "media_not_regular"
+	MediaTooLarge                     Code = "media_too_large"
+	MediaTypeUnsupported              Code = "media_type_unsupported"
+	MediaInvalidImage                 Code = "media_invalid_image"
+	MediaDimensionsExceeded           Code = "media_dimensions_exceeded"
+	MediaSourceChanged                Code = "media_source_changed"
+	MediaReadTimeout                  Code = "media_read_timeout"
+	MediaReadFailed                   Code = "media_read_failed"
 	CapacityExceeded                  Code = "capacity_exceeded"
 	SessionNotFound                   Code = "session_not_found"
 	PersistenceUnavailable            Code = "persistence_unavailable"
@@ -200,6 +211,17 @@ var publicSpecs = map[Code]publicSpec{
 	PersistentInputHistoryExhausted:   {message: "persistent input history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistentKillHistoryExhausted:    {message: "persistent kill history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
+	InvalidDaemonResponse:             {message: "invalid daemon response"},
+	MediaPathNotFound:                 {message: "media path not found"},
+	MediaPathUnsafe:                   {message: "media path is unsafe"},
+	MediaNotRegular:                   {message: "media path is not a regular file"},
+	MediaTooLarge:                     {message: "media exceeds byte limit", details: keys("limit", "byte_size")},
+	MediaTypeUnsupported:              {message: "media type unsupported", details: keys("mime_type", "format")},
+	MediaInvalidImage:                 {message: "media image is invalid", details: keys("format", "reason")},
+	MediaDimensionsExceeded:           {message: "media dimensions exceed limits", details: keys("width", "height", "limit")},
+	MediaSourceChanged:                {message: "media source changed during read", retryable: true},
+	MediaReadTimeout:                  {message: "media read timed out"},
+	MediaReadFailed:                   {message: "media read failed", details: keys("reason")},
 	CapacityExceeded:                  {message: "capacity exceeded", retryable: true, details: keys("active", "limit", "retry_after_ms")},
 	SessionNotFound:                   {message: "session not found", details: keys("session_id", "reason")},
 	PersistenceUnavailable:            {message: "persistence unavailable", retryable: true},

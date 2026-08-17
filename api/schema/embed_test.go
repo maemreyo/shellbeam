@@ -53,3 +53,70 @@ func TestIPCV2SchemaValidatesRealPayloads(t *testing.T) {
 		}
 	}
 }
+
+func TestReadMediaSchemaFragmentsValidateSafeShapes(t *testing.T) {
+	inputData, err := Load(MCPReadMediaInputV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outputData, err := Load(MCPReadMediaOutputV1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for label, data := range map[string][]byte{"input": inputData, "output": outputData} {
+		var s jsonschema.Schema
+		if err := json.Unmarshal(data, &s); err != nil {
+			t.Fatalf("%s: %v", label, err)
+		}
+		if _, err := s.Resolve(nil); err != nil {
+			t.Fatalf("%s resolve: %v", label, err)
+		}
+	}
+	var inSchema jsonschema.Schema
+	_ = json.Unmarshal(inputData, &inSchema)
+	in, err := inSchema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	valid := []map[string]any{
+		{"action": "read_media", "workspace_id": "ws_01K00000000000000000000000", "path": "artifacts/settings.png"},
+		{"action": "read_media", "cwd": "/tmp", "path": "settings.png"},
+	}
+	for _, p := range valid {
+		if err := in.Validate(p); err != nil {
+			t.Fatalf("valid input %#v: %v", p, err)
+		}
+	}
+	invalid := []map[string]any{
+		{"action": "read_media", "path": "settings.png"},
+		{"action": "read_media", "workspace_id": "ws_01K00000000000000000000000", "cwd": "/tmp", "path": "settings.png"},
+		{"action": "read_media", "cwd": "/tmp", "path": "/settings.png"},
+		{"action": "read_media", "cwd": "/tmp", "path": "a//b.png"},
+		{"action": "read_media", "cwd": "/tmp", "path": "a/../b.png"},
+		{"action": "read_media", "cwd": "/tmp", "path": "settings.png", "extra": true},
+	}
+	for _, p := range invalid {
+		if err := in.Validate(p); err == nil {
+			t.Fatalf("invalid input accepted %#v", p)
+		}
+	}
+
+	var outSchema jsonschema.Schema
+	_ = json.Unmarshal(outputData, &outSchema)
+	out, err := outSchema.Resolve(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good := map[string]any{"schema_version": 1.0, "kind": "media", "display_address": map[string]any{"address_kind": "cwd", "cwd": "/tmp", "path": "settings.png"}, "mime_type": "image/png", "format": "png", "byte_size": 123.0, "width": 10.0, "height": 10.0}
+	if err := out.Validate(good); err != nil {
+		t.Fatalf("valid output: %v", err)
+	}
+	bad := make(map[string]any, len(good)+1)
+	for k, v := range good {
+		bad[k] = v
+	}
+	bad["data"] = "base64-secret"
+	if err := out.Validate(bad); err == nil {
+		t.Fatal("output schema accepted raw data")
+	}
+}

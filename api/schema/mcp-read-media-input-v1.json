@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://shellbeam.dev/schema/mcp-read-media-input-v1.json",
+  "title": "local_shell read_media input fragment v1",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "const": "read_media"
+    },
+    "workspace_id": {
+      "type": "string",
+      "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "cwd": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^/"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^[^/\\\\\\x00]+(?:/[^/\\\\\\x00]+)*$",
+      "not": {
+        "pattern": "(^|/)\\.\\.?($|/)"
+      }
+    }
+  },
+  "required": [
+    "action",
+    "path"
+  ],
+  "oneOf": [
+    {
+      "required": [
+        "workspace_id"
+      ],
+      "not": {
+        "required": [
+          "cwd"
+        ]
+      }
+    },
+    {
+      "required": [
+        "cwd"
+      ],
+      "not": {
+        "required": [
+          "workspace_id"
+        ]
+      }
+    }
+  ]
+}

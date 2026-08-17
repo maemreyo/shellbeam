@@ -2,6 +2,7 @@ package contract_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -92,5 +93,28 @@ func TestMCPInputSchemaValidatesRealPayloads(t *testing.T) {
 		if err := rs.Validate(p); err == nil {
 			t.Errorf("expected invalid, got no error for %v", p)
 		}
+	}
+}
+
+func TestReadMediaFragmentsAreInventorySchemasNotBaseV2Exposure(t *testing.T) {
+	for _, name := range []schema.Name{schema.MCPReadMediaInputV1, schema.MCPReadMediaOutputV1} {
+		if _, err := schema.Load(name); err != nil {
+			t.Fatalf("load %s: %v", name, err)
+		}
+	}
+	base, err := schema.Load(schema.MCPInputV2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(base) == "" {
+		t.Fatal("empty v2 schema")
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(base, &doc); err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(doc)
+	if strings.Contains(string(body), `"read_media"`) {
+		t.Fatal("base MCP v2 schema exposes read_media unconditionally")
 	}
 }
