@@ -10,6 +10,7 @@ import (
 
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
+	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -181,5 +182,22 @@ func TestDeriveTerminalRejectsMalformedFrozenEnvironmentBinding(t *testing.T) {
 	}
 	if len(repo.records) != 0 {
 		t.Fatalf("malformed binding persisted evidence: %#v", repo.records)
+	}
+}
+
+func TestE27InputTraceBindingCannotNarrowEvidenceSourceValidity(t *testing.T) {
+	repo := rawEvidenceServiceRepo(t, t.TempDir(), "", &core.Contract{VerificationKind: core.VerificationTest})
+	before, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal)
+	if err != nil || !created {
+		t.Fatalf("before=%#v created=%v err=%v", before, created, err)
+	}
+	binding := inputtrace.InstrumentationBinding{SchemaVersion: inputtrace.SchemaVersion, TraceID: "trace_01K00000000000000000000000", Mode: inputtrace.ModeBestEffort, Status: inputtrace.BindingActive, Provider: inputtrace.ProviderIdentity{ID: "dyld-interpose", Version: 1, CapabilityVersion: 1}, Platform: "darwin", InstrumentationFingerprint: strings.Repeat("e", 64), InstrumentationEffect: inputtrace.EffectEnvironmentAffecting, Coverage: inputtrace.CoverageMatrix{FilesystemReads: inputtrace.CoveragePartial, FilesystemMetadataQueries: inputtrace.CoveragePartial, DirectoryEnumerations: inputtrace.CoveragePartial, FilesystemWrites: inputtrace.CoveragePartial, ExecutedBinaries: inputtrace.CoveragePartial, LoadedLibraries: inputtrace.CoveragePartial, EnvironmentNamesObserved: inputtrace.CoverageUnsupported, NetworkAttempts: inputtrace.CoverageUnsupported, ChildProcesses: inputtrace.CoveragePartial}}
+	repo.reservation.Trace = &binding
+	after, _, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Source != before.Source || after.Result != before.Result || after.Terminal != before.Terminal {
+		t.Fatalf("trace narrowed evidence before=%#v after=%#v", before, after)
 	}
 }

@@ -145,6 +145,7 @@ func (s *Service) finishPersistentTerminal(ctx context.Context, live *liveSessio
 	s.scheduleStructuredTerminal(rec, live.reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
 	s.scheduleEvidenceTerminal(rec, live.reservation)
+	s.scheduleInputTraceTerminal(rec, live.reservation)
 	previousUpdate := binding.UpdatedAt
 	binding.Lifecycle = persistentcore.LifecycleTerminal
 	binding.UpdatedAt = time.Now().UTC()

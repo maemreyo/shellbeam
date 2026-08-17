@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	core "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -161,5 +162,17 @@ func TestE27InputTraceValidSnapshotHonorsFrozenPreExecCoverage(t *testing.T) {
 	binding.PreExecCoverageEstablished = false
 	if validSnapshot(binding, snapshot) {
 		t.Fatal("complete snapshot accepted without frozen pre-exec coverage")
+	}
+}
+
+func TestE27InputTraceRestartOwnershipLossIsExplicitPartial(t *testing.T) {
+	repo, provider, scheduled := materializeFixture(t)
+	provider.finalErr = failure.New(failure.InputTraceNotFound, map[string]string{"trace_id": repo.reservation.Trace.TraceID}, nil)
+	got, err := NewMaterializer(repo, provider, nil).MaterializeTerminal(context.Background(), scheduled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Outcome != core.OutcomePartial || got.GapReason != core.GapOwnershipLost || !got.MayHaveUnobservedDependencies {
+		t.Fatalf("restart gap=%#v", got)
 	}
 }

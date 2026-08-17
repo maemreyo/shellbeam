@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	core "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -124,9 +125,11 @@ func (m *Materializer) loadExisting(ctx context.Context, authority materializati
 func (m *Materializer) deriveRecord(ctx context.Context, authority materializationAuthority) (core.Record, error) {
 	record := baseTraceRecord(authority.binding, authority.receipt, authority.receiptDigest)
 	if m.provider != nil {
-		snapshot, err := m.provider.Finalize(ctx, authority.binding)
-		if err == nil && validSnapshot(authority.binding, snapshot) {
+		snapshot, finalizeErr := m.provider.Finalize(ctx, authority.binding)
+		if finalizeErr == nil && validSnapshot(authority.binding, snapshot) {
 			m.applySnapshot(ctx, &record, authority.reservation, snapshot)
+		} else if finalizeErr != nil {
+			m.applyProviderFailure(&record, finalizeErr)
 		}
 	}
 	key, err := traceDerivationKey(authority.receiptDigest, authority.binding)
@@ -138,6 +141,31 @@ func (m *Materializer) deriveRecord(ctx context.Context, authority materializati
 		return core.Record{}, err
 	}
 	return record, nil
+}
+
+func (m *Materializer) applyProviderFailure(record *core.Record, err error) {
+	code := failure.Public(err).Code
+	if code != failure.InputTraceNotFound && code != failure.InputTraceOwnershipLost {
+		return
+	}
+	record.Outcome = core.OutcomePartial
+	record.GapReason = core.GapOwnershipLost
+	record.Coverage = downgradeCoverageForGap(record.Coverage)
+}
+
+func downgradeCoverageForGap(matrix core.CoverageMatrix) core.CoverageMatrix {
+	downgrade := func(value core.Coverage) core.Coverage {
+		if value == core.CoverageCompleteForOwnedTree {
+			return core.CoveragePartial
+		}
+		return value
+	}
+	return core.CoverageMatrix{
+		FilesystemReads: downgrade(matrix.FilesystemReads), FilesystemMetadataQueries: downgrade(matrix.FilesystemMetadataQueries),
+		DirectoryEnumerations: downgrade(matrix.DirectoryEnumerations), FilesystemWrites: downgrade(matrix.FilesystemWrites),
+		ExecutedBinaries: downgrade(matrix.ExecutedBinaries), LoadedLibraries: downgrade(matrix.LoadedLibraries),
+		EnvironmentNamesObserved: downgrade(matrix.EnvironmentNamesObserved), NetworkAttempts: downgrade(matrix.NetworkAttempts), ChildProcesses: downgrade(matrix.ChildProcesses),
+	}
 }
 
 func (m *Materializer) applySnapshot(ctx context.Context, record *core.Record, reservation operation.Reservation, snapshot ProviderSnapshot) {

@@ -122,6 +122,10 @@ type ScopeKind string
 
 const ScopeObservedInput ScopeKind = "observed_input_scope"
 
+type GapReason string
+
+const GapOwnershipLost GapReason = "ownership_lost"
+
 type Outcome string
 
 const (
@@ -155,6 +159,7 @@ type Record struct {
 	PreExecCoverageEstablished    bool                  `json:"pre_exec_coverage_established"`
 	Coverage                      CoverageMatrix        `json:"coverage"`
 	Outcome                       Outcome               `json:"outcome"`
+	GapReason                     GapReason             `json:"gap_reason,omitempty"`
 	Truncated                     bool                  `json:"trace_truncated,omitempty"`
 	Resources                     []Resource            `json:"resources,omitempty"`
 	Summary                       Summary               `json:"summary"`

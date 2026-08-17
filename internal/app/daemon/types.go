@@ -70,7 +70,7 @@ type EvidenceWorker interface {
 	ScheduleTerminal(context.Context, receipt.Receipt) error
 }
 type InputTraceWorker interface {
-	ScheduleTerminal(context.Context, receipt.Receipt, trace.InstrumentationBinding) error
+	ScheduleTerminal(context.Context, receipt.Receipt) error
 }
 
 type PollRequest struct {

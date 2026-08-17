@@ -95,4 +95,5 @@ func (s *Service) publishPersistentSpawnFailure(reservation operation.Reservatio
 	s.scheduleStructuredTerminal(rec, reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
 	s.scheduleEvidenceTerminal(rec, reservation)
+	s.scheduleInputTraceTerminal(rec, reservation)
 }
