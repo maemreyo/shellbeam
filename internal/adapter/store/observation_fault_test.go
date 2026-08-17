@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -121,5 +122,70 @@ func TestObservationRejectsSymlinkRecordEntry(t *testing.T) {
 	}
 	if _, err := Open(root, repository.limits); err == nil {
 		t.Fatal("symlink obligation record accepted")
+	}
+}
+
+func TestObservationOpenUsesMetadataButReadStillRejectsCorruptRecord(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	repository := openObservationRepository(t, root)
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		if _, result := repository.PrepareObservation(ctx, observationRequest("subject:metadata-open")); result.Err != nil {
+			t.Fatal(result.Err)
+		}
+	}
+	if err := os.WriteFile(repository.observationPath(1), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := Open(root, repository.limits)
+	if err != nil {
+		t.Fatalf("metadata-only reopen rejected an unrelated corrupt record: %v", err)
+	}
+	if high, err := reopened.ObservationHighWatermark(ctx); err != nil || high != 2 {
+		t.Fatalf("high watermark after reopen = %d err=%v, want 2", high, err)
+	}
+	later, err := reopened.ListObservationObligations(ctx, 1, 10)
+	if err != nil || len(later) != 1 || later[0].ChangeSeq != 2 {
+		t.Fatalf("listing after corrupt history = %#v err=%v", later, err)
+	}
+	if _, err := reopened.ListObservationObligations(ctx, 0, 10); err == nil {
+		t.Fatal("strict observation read accepted corrupt record content")
+	}
+}
+
+func TestObservationOpenRecoversBeyondHistoricalScanLimit(t *testing.T) {
+	const historicalScanLimit = 65536
+	root := filepath.Join(t.TempDir(), "state")
+	repository := openObservationRepository(t, root)
+	sourceDir := filepath.Join(t.TempDir(), "sources")
+	if err := os.MkdirAll(sourceDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const sourceCount = 256
+	sources := make([]string, sourceCount)
+	for i := range sources {
+		sources[i] = filepath.Join(sourceDir, string(rune('a'+i%26))+"-"+strconv.Itoa(i))
+		if err := os.WriteFile(sources[i], []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for seq := 1; seq <= historicalScanLimit+1; seq++ {
+		path := repository.observationPath(observation.ChangeSeq(seq))
+		if err := os.Link(sources[(seq-1)%sourceCount], path); err != nil {
+			t.Fatalf("link seq %d: %v", seq, err)
+		}
+	}
+
+	reopened, err := Open(root, repository.limits)
+	if err != nil {
+		t.Fatalf("reopen beyond historical scan limit: %v", err)
+	}
+	if high, err := reopened.ObservationHighWatermark(context.Background()); err != nil || high != historicalScanLimit+1 {
+		t.Fatalf("high watermark = %d err=%v, want %d", high, err, historicalScanLimit+1)
+	}
+	next, result := reopened.PrepareObservation(context.Background(), observationRequest("subject:after-large-ledger"))
+	if result.Err != nil || next.Obligation.ChangeSeq != historicalScanLimit+2 {
+		t.Fatalf("next after oversized ledger = %#v result=%#v", next, result)
 	}
 }

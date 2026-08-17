@@ -10,6 +10,7 @@ A long-running ShellBeam daemon currently accumulates one small JSON file per ob
 2. ownership tests leak package-scoped build directories and persistent supervisors.
 3. observation obligations have no collector, while `observationSequences` refuses directories larger than 65,536 entries.
 4. `initObservationStore` calls the same strict scanner and decodes every obligation merely to recover the highest sequence, making startup O(number of obligations × JSON decode cost).
+5. the daemon starts event materialization only once; later committed obligations are materialized only if a client happens to call `inspect.events`, so a quiet event consumer leaves `MaterializedThroughSeq` stale and prevents obligation retention from advancing.
 
 A WIP change already adds free-space reporting, test cleanup, and observation retention. This design hardens that WIP without changing the on-disk observation record format.
 
@@ -23,6 +24,7 @@ A WIP change already adds free-space reporting, test cleanup, and observation re
 - Preserve restart correctness after collection.
 - Surface low free space as an operator warning, never as an admission/startup refusal.
 - Stop tests from leaking shared build directories or persistent supervisors.
+- Restore the originally designed post-commit materializer wake-up so projection progress does not depend on `inspect.events` traffic.
 
 ## Non-goals
 
@@ -93,7 +95,23 @@ A record is collectible only when:
 
 The method is bounded per sweep and fsyncs the obligation directory after removals. Logical state-byte accounting is decremented by deleted logical sizes.
 
-### 4. Background housekeeping
+### 4. Eventual materialization wake-up
+
+The durable observation obligation remains authority, but a terminal obligation transition (`committed` or `aborted`) emits a best-effort in-process wake-up on a buffered size-one channel owned by the repository. The notification carries no sequence and is not durable; it is only a latency hint. Multiple transitions coalesce safely because the materializer always reads the durable high watermark.
+
+The execution-observation runtime:
+
+- runs one materialization pass immediately at startup;
+- sleeps without polling while healthy;
+- reruns after a repository wake-up;
+- retries after a bounded delay only when the previous materialization pass returned an error; and
+- remains serialized with synchronous `inspect.events` materialization by the materializer's existing mutex.
+
+This restores the implementation intent already documented for `StoreResult.ObservationSeq`/post-commit wake-up while centralizing the signal at the observation terminal transition, so every event producer benefits without plumbing callbacks through all daemon mutation paths.
+
+The signal is deliberately not used as authority: restart always performs an immediate pass from durable state, so a lost process-local notification cannot create a silent gap.
+
+### 5. Background housekeeping
 
 After daemon readiness:
 
@@ -104,7 +122,7 @@ After daemon readiness:
 
 Housekeeping failures do not prevent service or create a tight retry loop.
 
-### 5. Free-space warning semantics
+### 6. Free-space warning semantics
 
 Use `statfs` `Bavail * Bsize`, because it represents blocks available to the daemon user rather than blocks reserved for privileged use.
 
@@ -112,7 +130,7 @@ Use `statfs` `Bavail * Bsize`, because it represents blocks available to the dae
 - daemon: emit `free_space_low` only on crossing below the configured threshold and `free_space_recovered` on crossing back above it.
 - no admission refusal is added.
 
-### 6. Test leak cleanup
+### 7. Test leak cleanup
 
 - package-scoped ownership test binary: clean from `TestMain`, matching the `sync.Once` lifetime.
 - persistent session helper: register cleanup kill for every successfully started persistent session, making future tests safe by default.
@@ -129,12 +147,13 @@ TDD cases must cover:
 4. retention preserves prepared records, stops at projection, respects bounds, and preserves high watermark across reopen.
 5. daemon wiring actually shrinks a materialized ledger and the resulting store restarts.
 6. low-space doctor/runtime warnings have warning-only and edge-triggered semantics.
-7. persistent tests and ownership binary leave no new supervisor/build-dir leaks.
-8. full repository test/build/policy gates pass, or any pre-existing failure is identified with before/after evidence.
+7. a materializer that has already completed its initial pass is woken by a later committed observation and advances the projection without an `inspect.events` call.
+8. persistent tests and ownership binary leave no new supervisor/build-dir leaks.
+9. full repository test/build/policy gates pass, or any pre-existing failure is identified with before/after evidence.
 
 ## Follow-up: physical storage amplification
 
-After this slice, separately design a segmented observation store. Target properties:
+After this slice, separately design a segmented observation store. The current wake-up/retention fix bounds steady-state file count but does not change the allocation-unit cost of each surviving file. Target properties:
 
 - append-many records per durable segment instead of one APFS allocation unit per ~300–500 byte JSON record
 - bounded segment size and record count

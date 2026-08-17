@@ -27,9 +27,27 @@ import (
 
 var (
 	ownershipBinaryOnce sync.Once
+	ownershipBinaryRoot string
 	ownershipBinaryPath string
 	ownershipBinaryErr  error
 )
+
+// TestMain removes the shared daemon build after every test has run.
+//
+// The build cannot clean itself up through t.Cleanup. It is built once per
+// package under a sync.Once, so the cleanup would attach to whichever test
+// happened to win the race into Do -- and deleting the binary when that test
+// ended would leave every later test pointing at a path that no longer exists.
+// The package's lifetime is the only scope that matches the binary's, and
+// TestMain is what owns it. Without this each package run leaked its build
+// directory into /tmp, roughly 23MB a time, indefinitely.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	if ownershipBinaryRoot != "" {
+		_ = os.RemoveAll(ownershipBinaryRoot)
+	}
+	os.Exit(code)
+}
 
 // ownershipBinary builds the daemon once for the whole package.
 func ownershipBinary(t *testing.T) string {
@@ -40,6 +58,7 @@ func ownershipBinary(t *testing.T) string {
 			ownershipBinaryErr = err
 			return
 		}
+		ownershipBinaryRoot = root
 		binary := filepath.Join(root, "shellbeam")
 		if out, err := exec.Command("go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 			ownershipBinaryErr = err

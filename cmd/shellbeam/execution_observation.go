@@ -19,20 +19,22 @@ import (
 )
 
 const (
-	structuredWorkerCount      = 2
-	structuredWorkerQueueDepth = 64
-	structuredWorkerMaxBytes   = 8 << 20
-	structuredWorkerMaxRecords = 1024
-	structuredWorkerMaxString  = 64 << 10
-	structuredWorkerMaxDepth   = 16
-	structuredWorkerMaxTime    = 5 * time.Second
+	structuredWorkerCount           = 2
+	structuredWorkerQueueDepth      = 64
+	structuredWorkerMaxBytes        = 8 << 20
+	structuredWorkerMaxRecords      = 1024
+	structuredWorkerMaxString       = 64 << 10
+	structuredWorkerMaxDepth        = 16
+	structuredWorkerMaxTime         = 5 * time.Second
+	materializationErrorRetryPeriod = time.Minute
 )
 
 type executionObservationRuntime struct {
 	events     *observationapp.Service
 	structured *structuredapp.Inspector
 	worker     *structuredapp.Worker
-	material   *observationapp.Materializer
+	material   observationapp.MaterializerPort
+	wakeups    <-chan struct{}
 }
 
 func newExecutionObservationRuntime(ctx context.Context, store *storeadapter.Repository) (*executionObservationRuntime, error) {
@@ -67,14 +69,33 @@ func newExecutionObservationRuntime(ctx context.Context, store *storeadapter.Rep
 	if err != nil {
 		return nil, err
 	}
-	return &executionObservationRuntime{events: events, structured: structured, worker: worker, material: materializer}, nil
+	return &executionObservationRuntime{events: events, structured: structured, worker: worker, material: materializer, wakeups: store.ObservationWakeups()}, nil
 }
 
 func (r *executionObservationRuntime) startMaterialization(ctx context.Context) {
 	if r == nil || r.material == nil {
 		return
 	}
-	go func() { _, _ = r.material.Materialize(ctx) }()
+	go r.materializationLoop(ctx)
+}
+
+func (r *executionObservationRuntime) materializationLoop(ctx context.Context) {
+	for {
+		_, err := r.material.Materialize(ctx)
+		if ctx.Err() != nil {
+			return
+		}
+		var retry <-chan time.Time
+		if err != nil {
+			retry = time.After(materializationErrorRetryPeriod)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-r.wakeups:
+		case <-retry:
+		}
+	}
 }
 
 func (r *executionObservationRuntime) shutdown(ctx context.Context) error {

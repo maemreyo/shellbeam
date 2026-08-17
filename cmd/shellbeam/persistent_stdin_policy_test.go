@@ -30,7 +30,38 @@ func startPersistent(t *testing.T, client *ipcadapter.Client, operationID, comma
 	if err != nil {
 		t.Fatalf("start persistent %s: %v", operationID, err)
 	}
+	if response.OK && response.Result != nil {
+		killPersistentOnCleanup(t, client, operationID, response.Result.Operation.SessionID)
+	}
 	return response
+}
+
+// killPersistentOnCleanup terminates a persistent session when its test ends.
+//
+// Outliving the daemon is what persistent means, so stopping the daemon does
+// not stop the supervisor: it waits for its child to exit, and a child like
+// `cat` waits for an EOF on a stdin whose write end that same supervisor holds.
+// Neither can move, the test's runtime directory is already gone, and nothing
+// is left to reap either process -- so every run of a test that started one and
+// never killed it stranded a supervisor and a shell on the machine for good.
+//
+// This belongs to the helper rather than to the tests because the leak is a
+// property of starting a persistent session, not of any one test's subject. A
+// session a test already killed is terminal by now and refuses this second
+// kill, which is why the outcome is deliberately ignored.
+func killPersistentOnCleanup(t *testing.T, client *ipcadapter.Client, operationID, sessionID string) {
+	t.Helper()
+	if sessionID == "" {
+		return
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = client.CallV2(ctx, ipcadapter.RequestV2{
+			IPVersion: 2, Kind: "request", RequestID: operationID + "-cleanup", Action: "kill",
+			SessionID: sessionID, KillID: operationID + "-cleanup", Signal: "KILL",
+		})
+	})
 }
 
 // TestPersistentSessionKeepsWritableStdinByDefault: the session must accept

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
@@ -146,5 +147,27 @@ func observationRequest(subject string) observation.PrepareRequest {
 			OperationID: "op-1",
 			SessionID:   "session-1",
 		},
+	}
+}
+
+func TestObservationTerminalTransitionSignalsMaterializer(t *testing.T) {
+	repository := openObservationRepository(t, filepath.Join(t.TempDir(), "state"))
+	wakeups := repository.ObservationWakeups()
+	prepared, result := repository.PrepareObservation(context.Background(), observationRequest("subject:wakeup"))
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	select {
+	case <-wakeups:
+		t.Fatal("prepared observation woke the materializer before terminal resolution")
+	default:
+	}
+	if result := repository.CommitObservation(context.Background(), prepared.Obligation.ChangeSeq); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	select {
+	case <-wakeups:
+	case <-time.After(time.Second):
+		t.Fatal("committed observation did not wake the materializer")
 	}
 }

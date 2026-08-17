@@ -6,6 +6,7 @@ import (
 	"fmt"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	"github.com/maemreyo/shellbeam/internal/adapter/ownership"
+	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	control "github.com/maemreyo/shellbeam/internal/app/control"
 	"io"
 	"os"
@@ -86,8 +87,36 @@ func doctorReport(args []string) (control.Report, error) {
 	} else {
 		report.Checks = append(report.Checks, control.Check{ID: "tunnel_client", Status: control.Warn, Message: "tunnel-client not found", Hint: "install OpenAI Secure MCP Tunnel client separately"})
 	}
-	_ = cfg
+	report.Checks = append(report.Checks, doctorFreeSpaceCheck(paths.StateDir, cfg.MinFreeSpaceBytes))
 	return report, nil
+}
+
+// doctorFreeSpaceCheck reports room on the volume holding the state store.
+//
+// min_free_space_bytes was configured, defaulted and validated for a long time
+// without anything ever reading it, so the floor it describes was never applied
+// at all. It is applied here as a warning and nowhere as a refusal, and that is
+// deliberate: the number is a guess about a filesystem ShellBeam shares with
+// every other process on the machine, and a daemon that declined to start over
+// it would remove the operator's shell at the moment they most need one to go
+// and free some room. Reporting is useful; gating on it is not.
+//
+// The store's own byte budget answers a different question -- how much this
+// store has written -- and cannot see the disk filling underneath it.
+func doctorFreeSpaceCheck(stateDir string, minimum int64) control.Check {
+	available, err := storeadapter.AvailableBytes(stateDir)
+	if err != nil {
+		return control.Check{ID: "disk_space", Status: control.Warn, Message: "free space undetermined", Hint: err.Error()}
+	}
+	hint := fmt.Sprintf("available=%dMiB minimum=%dMiB", available>>20, minimum>>20)
+	if minimum > 0 && available < minimum {
+		return control.Check{
+			ID: "disk_space", Status: control.Warn,
+			Message: "free space below the configured minimum",
+			Hint:    hint + "; free space on this volume or move state_dir",
+		}
+	}
+	return control.Check{ID: "disk_space", Status: control.Pass, Message: "free space above the configured minimum", Hint: hint}
 }
 
 // doctorOwnerCheck reports who holds a directory's lifetime lease.

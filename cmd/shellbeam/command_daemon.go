@@ -24,6 +24,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
+	"github.com/maemreyo/shellbeam/internal/config"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
@@ -53,20 +54,11 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 		return err
 	}
 	incarnation := ulid.Make().String()
-	// The runtime directory's lease protects the endpoint; this one protects
-	// the durable authority. Two daemons pointed at one state directory would
-	// each admit up to the session limit against the same store, so state
-	// ownership has to be claimed before the store is opened -- not inferred
-	// from whoever happens to hold the socket.
-	stateLease, err := ownership.Acquire(paths.StateDir, incarnation)
+	stateLease, store, err := openOwnedDaemonState(paths.StateDir, incarnation, cfg)
 	if err != nil {
 		return err
 	}
 	defer stateLease.Release()
-	store, err := openDaemonStore(paths.StateDir, cfg)
-	if err != nil {
-		return err
-	}
 	persistentRuntime, err := composePersistentSessionRuntime(store, paths.RuntimeDir, cfg)
 	if err != nil {
 		return err
@@ -131,7 +123,25 @@ func runDaemonWithCodeProvider(ctx context.Context, args []string, providerFacto
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
 	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc}
-	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, cfg.TerminalRetentionHours, store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+}
+
+// openOwnedDaemonState claims durable authority before opening the store. The
+// runtime directory lease only protects the endpoint; without this second lease
+// two daemons pointed at one state directory could each admit against the same
+// durable state. A failed store open releases the just-acquired lease here so
+// the caller only owns a lease paired with a usable store.
+func openOwnedDaemonState(stateDir, incarnation string, cfg config.Config) (*ownership.Lease, *storeadapter.Repository, error) {
+	stateLease, err := ownership.Acquire(stateDir, incarnation)
+	if err != nil {
+		return nil, nil, err
+	}
+	store, err := openDaemonStore(stateDir, cfg)
+	if err != nil {
+		_ = stateLease.Release()
+		return nil, nil, err
+	}
+	return stateLease, store, nil
 }
 
 func serveDaemonRuntime(
@@ -139,7 +149,7 @@ func serveDaemonRuntime(
 	runtimeDir string,
 	stateLease *ownership.Lease,
 	terminationGrace time.Duration,
-	terminalRetentionHours int,
+	keep housekeeping,
 	store *storeadapter.Repository,
 	incarnation string,
 	svc *daemonapp.Service,
@@ -210,8 +220,7 @@ func serveDaemonRuntime(
 		return err
 	}
 	server.MarkReady()
-	// Housekeeping starts only once the daemon is already serving.
-	startRetention(ctx, store, terminalRetentionHours)
+	startHousekeeping(ctx, store, keep)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
 }

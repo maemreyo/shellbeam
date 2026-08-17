@@ -13,6 +13,7 @@ import (
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	observation "github.com/maemreyo/shellbeam/internal/core/observation"
@@ -463,4 +464,105 @@ func readStateTree(t *testing.T, root string) []byte {
 		t.Fatal(err)
 	}
 	return out
+}
+
+type materializerWakeProbe struct {
+	calls chan struct{}
+}
+
+func (p *materializerWakeProbe) Materialize(context.Context) (observationapp.MaterializeResult, error) {
+	select {
+	case p.calls <- struct{}{}:
+	default:
+	}
+	return observationapp.MaterializeResult{}, nil
+}
+
+func TestExecutionObservationMaterializerContinuesAfterWakeup(t *testing.T) {
+	wakeups := make(chan struct{}, 1)
+	probe := &materializerWakeProbe{calls: make(chan struct{}, 4)}
+	runtime := &executionObservationRuntime{material: probe, wakeups: wakeups}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	runtime.startMaterialization(ctx)
+
+	waitMaterializerCall(t, probe.calls, "initial materialization")
+	wakeups <- struct{}{}
+	waitMaterializerCall(t, probe.calls, "post-commit wakeup")
+}
+
+func waitMaterializerCall(t *testing.T, calls <-chan struct{}, phase string) {
+	t.Helper()
+	select {
+	case <-calls:
+	case <-time.After(time.Second):
+		t.Fatalf("%s did not run", phase)
+	}
+}
+
+type materializerDelegateProbe struct {
+	inner observationapp.MaterializerPort
+	calls chan observationapp.MaterializeResult
+}
+
+func (p *materializerDelegateProbe) Materialize(ctx context.Context) (observationapp.MaterializeResult, error) {
+	result, err := p.inner.Materialize(ctx)
+	select {
+	case p.calls <- result:
+	default:
+	}
+	return result, err
+}
+
+func TestExecutionObservationRuntimeMaterializesCommitAfterInitialPass(t *testing.T) {
+	stateDir, _ := a1RuntimeDirs(t)
+	store := openA1Store(t, stateDir)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	runtime, err := newExecutionObservationRuntime(ctx, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+		defer shutdownCancel()
+		_ = runtime.shutdown(shutdownCtx)
+	})
+	probe := &materializerDelegateProbe{inner: runtime.material, calls: make(chan observationapp.MaterializeResult, 4)}
+	runtime.material = probe
+	runtime.startMaterialization(ctx)
+
+	select {
+	case initial := <-probe.calls:
+		if initial.HighWatermark != 0 || initial.State.MaterializedThroughSeq != 0 {
+			t.Fatalf("initial materialization=%#v", initial)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("initial materialization did not finish")
+	}
+
+	prepared, result := store.PrepareObservation(ctx, observation.PrepareRequest{
+		Kind:       observation.EventOperationAdmitted,
+		SubjectRef: "operation:background-materialization",
+		Summary:    "operation admitted",
+	})
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if result := store.CommitObservation(ctx, prepared.Obligation.ChangeSeq); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+
+	select {
+	case materialized := <-probe.calls:
+		if materialized.State.MaterializedThroughSeq != prepared.Obligation.ChangeSeq || materialized.HighWatermark != prepared.Obligation.ChangeSeq {
+			t.Fatalf("post-commit materialization=%#v seq=%d", materialized, prepared.Obligation.ChangeSeq)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("post-commit observation was not materialized without inspect.events")
+	}
+	state, err := store.LoadEventProjectionState(ctx)
+	if err != nil || state.MaterializedThroughSeq != prepared.Obligation.ChangeSeq {
+		t.Fatalf("projection state=%#v err=%v", state, err)
+	}
 }

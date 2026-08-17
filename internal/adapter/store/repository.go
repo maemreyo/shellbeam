@@ -57,6 +57,7 @@ type Repository struct {
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
 	observationHighWatermark uint64
+	observationWake          chan struct{}
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
 	now                      func() time.Time
@@ -165,7 +166,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, now: func() time.Time { return time.Now().UTC() }}
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }}
 	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
 	if err := repository.initObservationStore(); err != nil {
 		return nil, err

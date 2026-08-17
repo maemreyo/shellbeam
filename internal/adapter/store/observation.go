@@ -20,7 +20,6 @@ import (
 const (
 	MaxObservationObligationBytes = 16 << 10
 	MaxObservationListRecords     = 1024
-	maxObservationScanRecords     = 65536
 )
 
 var observationAbortReasonPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,127}$`)
@@ -113,6 +112,7 @@ func (r *Repository) transitionObservation(ctx context.Context, seq observation.
 	}
 	if current.State == state {
 		if state != observation.ObligationAborted || current.AbortReason == reason {
+			r.signalObservationMaterializer()
 			return app.StoreResult{Durability: app.DurableChange}
 		}
 		return observationStateConflict()
@@ -125,7 +125,26 @@ func (r *Repository) transitionObservation(ctx context.Context, seq observation.
 	if err := current.Validate(); err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	return r.writer.Replace(r.observationPath(seq), current)
+	result := r.writer.Replace(r.observationPath(seq), current)
+	if result.Durability != app.NoDurableChange {
+		r.signalObservationMaterializer()
+	}
+	return result
+}
+
+// ObservationWakeups exposes a coalescing in-process notification that a
+// prepared observation reached a terminal state. The durable obligation files
+// remain authoritative; this channel is only a latency optimization for the
+// asynchronous materializer and intentionally carries no sequence payload.
+func (r *Repository) ObservationWakeups() <-chan struct{} {
+	return r.observationWake
+}
+
+func (r *Repository) signalObservationMaterializer() {
+	select {
+	case r.observationWake <- struct{}{}:
+	default:
+	}
 }
 
 func (r *Repository) ObservationHighWatermark(ctx context.Context) (observation.ChangeSeq, error) {
@@ -215,9 +234,6 @@ func observationSequences(dir string) ([]observation.ChangeSeq, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(entries) > maxObservationScanRecords {
-		return nil, fmt.Errorf("observation obligation scan limit exceeded")
-	}
 	sequences := make([]observation.ChangeSeq, 0, len(entries))
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".shellbeam-") {
@@ -236,13 +252,6 @@ func observationSequences(dir string) ([]observation.ChangeSeq, error) {
 		}
 		if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || !ownedByCurrent(info) || info.Size() < 1 || info.Size() > MaxObservationObligationBytes {
 			return nil, fmt.Errorf("unsafe observation obligation entry")
-		}
-		var record observation.ObservationObligation
-		if err := readStrict(filepath.Join(dir, entry.Name()), &record); err != nil {
-			return nil, err
-		}
-		if record.ChangeSeq != seq || record.Validate() != nil {
-			return nil, fmt.Errorf("invalid observation obligation record")
 		}
 		sequences = append(sequences, seq)
 	}
