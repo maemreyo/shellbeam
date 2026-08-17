@@ -160,6 +160,7 @@ func TestReadMediaRejectsDaemonAddressAndMetadataCorruption(t *testing.T) {
 			r.DisplayAddress.CWD = "/tmp"
 		},
 		"normalized-path": func(r *media.Result) { r.DisplayAddress.Path = "artifacts/./a.png" },
+		"schema-version":  func(r *media.Result) { r.SchemaVersion++ },
 		"byte-size":       func(r *media.Result) { r.ByteSize++ },
 		"mime":            func(r *media.Result) { r.MIMEType = "image/jpeg" },
 		"format":          func(r *media.Result) { r.Format = "jpeg" },
@@ -197,16 +198,20 @@ func TestNewNegotiatedRejectsTamperedFingerprint(t *testing.T) {
 	}
 }
 
-func TestReadMediaRejectsCanonicalCWDSubstitution(t *testing.T) {
+func TestReadMediaRejectsWrongOrCanonicalizedCWDSubstitution(t *testing.T) {
 	expected := media.DisplayAddress{AddressKind: media.AddressCWD, CWD: "/tmp/../tmp", Path: "a.png"}
-	bad := validBridgeMedia(t, expected)
-	bad.DisplayAddress.CWD = "/tmp"
-	h, _ := negotiatedHandlerForMedia(t, bad)
-	got, err := h.Handle(context.Background(), Request{ProtocolVersion: 2, Action: "read_media", Media: &daemonapp.MediaRequest{CWD: expected.CWD, Path: expected.Path}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Code != string(failure.InvalidDaemonResponse) || got.Media != nil {
-		t.Fatalf("response=%#v", got)
+	for name, cwd := range map[string]string{"wrong-cwd": "/private", "canonicalized-cwd": "/tmp"} {
+		t.Run(name, func(t *testing.T) {
+			bad := validBridgeMedia(t, expected)
+			bad.DisplayAddress.CWD = cwd
+			h, _ := negotiatedHandlerForMedia(t, bad)
+			got, err := h.Handle(context.Background(), Request{ProtocolVersion: 2, Action: "read_media", Media: &daemonapp.MediaRequest{CWD: expected.CWD, Path: expected.Path}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Code != string(failure.InvalidDaemonResponse) || got.Media != nil {
+				t.Fatalf("response=%#v", got)
+			}
+		})
 	}
 }

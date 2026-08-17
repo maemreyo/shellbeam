@@ -142,11 +142,13 @@ func TestMediaV2ClientRejectsReadErrorBeforeDecodingValidPrefix(t *testing.T) {
 func TestMediaV2ClientRejectsOversizeMalformedBase64AndEnvelopeMismatch(t *testing.T) {
 	consumer := capability.V1MediaSupport()
 	req := RequestV2{IPVersion: 2, Kind: "request", RequestID: "r", Action: "read_media", ConsumerMedia: &consumer, MediaContractFingerprint: strings.Repeat("a", 64), Media: &daemonapp.MediaRequest{CWD: "/tmp", Path: "a.png"}}
+	valid := validMediaResponseJSON(req)
 	cases := map[string][]byte{
-		"oversize":      bytes.Repeat([]byte{'x'}, media.MaxOuterResponseBytes+1),
-		"bad-base64":    []byte(`{"ipc_version":2,"kind":"response","request_id":"r","action":"read_media","ok":true,"media":{"schema_version":1,"kind":"media","display_address":{"address_kind":"cwd","cwd":"/tmp","path":"a.png"},"mime_type":"image/png","format":"png","byte_size":3,"width":1,"height":1,"data":"***"}}`),
-		"wrong-request": bytes.Replace(validMediaResponseJSON(req), []byte(`"request_id":"r"`), []byte(`"request_id":"other"`), 1),
-		"wrong-action":  bytes.Replace(validMediaResponseJSON(req), []byte(`"action":"read_media"`), []byte(`"action":"poll"`), 1),
+		"oversize":       bytes.Repeat([]byte{'x'}, media.MaxOuterResponseBytes+1),
+		"short-response": append([]byte(nil), valid[:len(valid)-7]...),
+		"bad-base64":     []byte(`{"ipc_version":2,"kind":"response","request_id":"r","action":"read_media","ok":true,"media":{"schema_version":1,"kind":"media","display_address":{"address_kind":"cwd","cwd":"/tmp","path":"a.png"},"mime_type":"image/png","format":"png","byte_size":3,"width":1,"height":1,"data":"***"}}`),
+		"wrong-request":  bytes.Replace(validMediaResponseJSON(req), []byte(`"request_id":"r"`), []byte(`"request_id":"other"`), 1),
+		"wrong-action":   bytes.Replace(validMediaResponseJSON(req), []byte(`"action":"read_media"`), []byte(`"action":"poll"`), 1),
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

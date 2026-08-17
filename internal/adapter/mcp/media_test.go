@@ -239,6 +239,40 @@ func TestMediaOutputSchemaIsConditionalAndContainsMetadataOnly(t *testing.T) {
 	}
 }
 
+func TestReadMediaInvalidAddressBasesReturnNoImage(t *testing.T) {
+	client := &mediaMCPClient{catalog: capability.Baseline(capability.Limits{})}
+	h, err := bridge.NewNegotiated(context.Background(), client, capability.V1MediaSupport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, closeSession := currentSession(t, New(h, h.EffectiveCatalog()))
+	defer closeSession()
+	cases := map[string]json.RawMessage{
+		"missing-base": json.RawMessage(`{"action":"read_media","path":"probe.png"}`),
+		"both-bases":   json.RawMessage(`{"action":"read_media","workspace_id":"ws_01K00000000000000000000000","cwd":"/tmp","path":"probe.png"}`),
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			client.last = bridge.Request{}
+			result, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: args})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !result.IsError {
+				t.Fatalf("expected invalid request: %#v", result)
+			}
+			for _, content := range result.Content {
+				if _, ok := content.(*mcpgo.ImageContent); ok {
+					t.Fatalf("invalid address emitted ImageContent: %#v", result.Content)
+				}
+			}
+			if client.last.Action == "read_media" {
+				t.Fatalf("invalid input reached daemon: %#v", client.last)
+			}
+		})
+	}
+}
+
 func TestReadMediaCallGateRequiresEffectiveNegotiation(t *testing.T) {
 	catalog := capability.Baseline(capability.Limits{})
 	client := &mediaMCPClient{catalog: catalog, media: mediaResult(t, media.DisplayAddress{AddressKind: media.AddressCWD, CWD: "/tmp", Path: "probe.png"})}

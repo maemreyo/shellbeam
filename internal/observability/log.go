@@ -15,11 +15,20 @@ func (l *Logger) Event(event string, attrs ...string) {
 	safe := []any{"event", event}
 	for i := 0; i+1 < len(attrs); i += 2 {
 		key, value := attrs[i], attrs[i+1]
-		switch key {
-		case "command", "cwd", "environment", "stdin", "output", "credential", "token", "path", "error":
+		if !safeMetadataKey(key) {
 			value = "[redacted]"
 		}
 		safe = append(safe, key, value)
 	}
 	l.log.Info("shellbeam", safe...)
+}
+
+func safeMetadataKey(key string) bool {
+	switch key {
+	case "incarnation", "operation_id", "session", "session_id", "action", "state", "outcome",
+		"duration_ms", "byte_count", "input_bytes", "output_bytes", "code", "retryable", "count", "limit":
+		return true
+	default:
+		return false
+	}
 }
