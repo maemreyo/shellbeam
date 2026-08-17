@@ -210,6 +210,8 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, timeoutSource: policySource, stdinSource: stdinSource, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
+		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
+		s.finalizeAdmittedStartFailure(live, "process_observation_failed")
 		return View{}, failure.Normalize(processObservation.Err)
 	}
 	s.activateLiveSession(live)
