@@ -56,10 +56,7 @@ func TestPersistentReconciliationCanonicalizesOutputPublishesTerminalAndCleansUp
 	if err != nil || rec.State != session.Completed || rec.Outcome != session.Success || rec.OutputBytes != 5 || !rec.OutputComplete {
 		t.Fatalf("receipt=%#v err=%v", rec, err)
 	}
-	binding, err := store.LoadPersistentBinding(context.Background(), operation.SessionID(started.SessionID))
-	if err != nil || binding.Lifecycle != persistentcore.LifecycleTerminal {
-		t.Fatalf("binding=%#v err=%v", binding, err)
-	}
+	awaitPersistentBindingTerminal(t, store, operation.SessionID(started.SessionID))
 	if handle.Ack() != 5 || handle.cleanups.Load() != 1 {
 		t.Fatalf("ack=%d cleanups=%d", handle.Ack(), handle.cleanups.Load())
 	}
@@ -332,6 +329,31 @@ func TestPersistentTerminalBindingFailureProjectsLiveTerminalAndSchedulesOnce(t 
 	if worker.count() != 1 {
 		t.Fatalf("terminal worker calls after convergence=%d", worker.count())
 	}
+}
+
+// awaitPersistentBindingTerminal waits for the binding rather than asserting on
+// it the instant the session reads terminal.
+//
+// finishPersistentTerminal publishes the durable receipt before it advances the
+// binding, and this test polls with a twenty millisecond yield, so Poll can
+// return the receipt while the binding is still Live. That window is
+// microseconds on a quiet machine and wide enough to lose on a loaded CI
+// runner, which is where it failed. Waiting asserts the same end state without
+// depending on an ordering the code never promised; a build that advances the
+// binding first still satisfies it on the first read.
+func awaitPersistentBindingTerminal(t *testing.T, store *storeadapter.Repository, sessionID operation.SessionID) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	var binding persistentcore.Binding
+	var err error
+	for time.Now().Before(deadline) {
+		binding, err = store.LoadPersistentBinding(context.Background(), sessionID)
+		if err == nil && binding.Lifecycle == persistentcore.LifecycleTerminal {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("binding never reached terminal: %#v err=%v", binding, err)
 }
 
 func TestPersistentReconciliationOutputConflictKeepsCanonicalTruthLive(t *testing.T) {
