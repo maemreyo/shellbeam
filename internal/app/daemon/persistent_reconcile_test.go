@@ -2,6 +2,7 @@ package daemon_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -67,6 +68,44 @@ func TestPersistentReconciliationCanonicalizesOutputPublishesTerminalAndCleansUp
 	}
 }
 
+func TestPersistentReconciliationRetriesTransientControlFailure(t *testing.T) {
+	store := openPersistentLaunchStore(t)
+	handle := newPersistentReconcileHandle([]byte("retry"))
+	handle.mu.Lock()
+	handle.statusFailures = 1
+	handle.terminalFailures = 1
+	handle.mu.Unlock()
+	runtime := &persistentReconcileRuntime{store: store, handle: handle}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{
+		Incarnation: "persistent-retry", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime,
+	})
+	started, err := svc.Start(context.Background(), app.StartRequest{
+		ProtocolVersion: 2, OperationID: "persistent-reconcile-retry", Command: "printf retry", CWD: "/",
+		Persistent: true, SessionName: "persistent-reconcile-retry", YieldMS: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	for {
+		view, pollErr := svc.Poll(ctx, app.PollRequest{SessionID: started.SessionID, YieldMS: 20})
+		if pollErr != nil {
+			t.Fatalf("reconciliation did not survive transient failure: %v", pollErr)
+		}
+		if view.State.Terminal() {
+			if view.State != session.Completed || view.Outcome != session.Success {
+				t.Fatalf("terminal=%#v", view)
+			}
+			break
+		}
+	}
+	binding, err := store.LoadPersistentBinding(context.Background(), operation.SessionID(started.SessionID))
+	if err != nil || binding.Lifecycle != persistentcore.LifecycleTerminal {
+		t.Fatalf("binding=%#v err=%v", binding, err)
+	}
+}
+
 type persistentReconcileRuntime struct {
 	store         *storeadapter.Repository
 	handle        *persistentReconcileHandle
@@ -113,6 +152,9 @@ type persistentReconcileHandle struct {
 	terminalOnce       sync.Once
 	terminalCalled     chan struct{}
 	terminalGeneration string
+	statusFailures     int
+	terminalFailures   int
+	signals            atomic.Int32
 }
 
 func newPersistentReconcileHandle(data []byte) *persistentReconcileHandle {
@@ -122,6 +164,7 @@ func (h *persistentReconcileHandle) PID() int           { return 4242 }
 func (h *persistentReconcileHandle) Write([]byte) error { return nil }
 func (h *persistentReconcileHandle) CloseStdin() error  { return nil }
 func (h *persistentReconcileHandle) Signal(name string) receipt.SignalEvidence {
+	h.signals.Add(1)
 	return receipt.SignalEvidence{Requested: name, Attempted: true, Succeeded: true}
 }
 func (h *persistentReconcileHandle) Wait(context.Context) receipt.ExitEvidence {
@@ -159,6 +202,10 @@ func (h *persistentReconcileHandle) AcknowledgeOutput(_ context.Context, offset 
 func (h *persistentReconcileHandle) Status(context.Context) (persistentapp.Status, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.statusFailures > 0 {
+		h.statusFailures--
+		return persistentapp.Status{}, errors.New("transient supervisor status failure")
+	}
 	return persistentapp.Status{SessionID: h.sessionID, GenerationID: "generation-reconcile", State: session.Running, Change: 1, PID: 4242, OutputBytes: int64(len(h.data)), OutputAcknowledged: h.ack, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}}, nil
 }
 func (h *persistentReconcileHandle) WaitStatus(context.Context, uint64, int) (persistentapp.Status, error) {
@@ -171,9 +218,12 @@ func (h *persistentReconcileHandle) Terminal(context.Context) (persistentapp.Ter
 	h.terminalOnce.Do(func() { close(h.terminalCalled) })
 	code := 0
 	h.mu.Lock()
-	sessionID, generation := h.sessionID, h.terminalGeneration
-	h.mu.Unlock()
-	return persistentapp.TerminalEvidence{SessionID: sessionID, GenerationID: generation, State: session.Completed, Outcome: session.Success, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: &code}, OutputBytes: int64(len(h.data)), OutputComplete: true}, nil
+	defer h.mu.Unlock()
+	if h.terminalFailures > 0 {
+		h.terminalFailures--
+		return persistentapp.TerminalEvidence{}, errors.New("transient supervisor terminal failure")
+	}
+	return persistentapp.TerminalEvidence{SessionID: h.sessionID, GenerationID: h.terminalGeneration, State: session.Completed, Outcome: session.Success, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: &code}, OutputBytes: int64(len(h.data)), OutputComplete: true}, nil
 }
 func (h *persistentReconcileHandle) RecoveryState(context.Context) (int64, int64, error) {
 	h.mu.Lock()
@@ -207,15 +257,31 @@ func TestPersistentReconciliationOutputConflictKeepsCanonicalTruthLive(t *testin
 	case <-time.After(time.Second):
 		t.Fatal("reconciler did not inspect supervisor output")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var terminal app.View
+	for {
+		terminal, err = svc.Poll(ctx, app.PollRequest{SessionID: started.SessionID, YieldMS: 20})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if terminal.State.Terminal() {
+			break
+		}
+	}
+	if terminal.State != session.Abandoned || terminal.Outcome != session.Ambiguous {
+		t.Fatalf("terminal=%#v", terminal)
+	}
 	binding, err := store.LoadPersistentBinding(context.Background(), operation.SessionID(started.SessionID))
-	if err != nil || binding.Lifecycle != persistentcore.LifecycleLive {
+	if err != nil || binding.Lifecycle != persistentcore.LifecycleLost {
 		t.Fatalf("binding=%#v err=%v", binding, err)
 	}
-	if _, err := store.LoadReceipt(context.Background(), operation.SessionID(started.SessionID)); err == nil {
-		t.Fatal("output conflict published terminal receipt")
+	rec, err := store.LoadReceipt(context.Background(), operation.SessionID(started.SessionID))
+	if err != nil || rec.State != session.Abandoned || rec.Outcome != session.Ambiguous || rec.FailureReason != "persistent_recovery_output_conflict" {
+		t.Fatalf("receipt=%#v err=%v", rec, err)
 	}
-	if handle.cleanups.Load() != 0 || worker.count() != 0 {
-		t.Fatalf("conflict cleanups=%d telemetry=%d", handle.cleanups.Load(), worker.count())
+	if handle.cleanups.Load() != 0 || handle.signals.Load() != 0 || worker.count() != 0 {
+		t.Fatalf("conflict cleanups=%d signals=%d telemetry=%d", handle.cleanups.Load(), handle.signals.Load(), worker.count())
 	}
 }
 
@@ -234,14 +300,30 @@ func TestPersistentReconciliationRejectsWrongTerminalGenerationWithoutCleanup(t 
 	case <-time.After(time.Second):
 		t.Fatal("reconciler did not inspect terminal evidence")
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var terminal app.View
+	for {
+		terminal, err = svc.Poll(ctx, app.PollRequest{SessionID: started.SessionID, YieldMS: 20})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if terminal.State.Terminal() {
+			break
+		}
+	}
+	if terminal.State != session.Abandoned || terminal.Outcome != session.Ambiguous {
+		t.Fatalf("terminal=%#v", terminal)
+	}
 	binding, err := store.LoadPersistentBinding(context.Background(), operation.SessionID(started.SessionID))
-	if err != nil || binding.Lifecycle != persistentcore.LifecycleLive {
+	if err != nil || binding.Lifecycle != persistentcore.LifecycleLost {
 		t.Fatalf("binding=%#v err=%v", binding, err)
 	}
-	if _, err := store.LoadReceipt(context.Background(), operation.SessionID(started.SessionID)); err == nil {
-		t.Fatal("wrong generation published terminal receipt")
+	rec, err := store.LoadReceipt(context.Background(), operation.SessionID(started.SessionID))
+	if err != nil || rec.State != session.Abandoned || rec.Outcome != session.Ambiguous || rec.FailureReason != "supervisor_state_conflict_terminal_identity" {
+		t.Fatalf("receipt=%#v err=%v", rec, err)
 	}
-	if handle.cleanups.Load() != 0 {
-		t.Fatalf("wrong generation cleanup=%d", handle.cleanups.Load())
+	if handle.cleanups.Load() != 0 || handle.signals.Load() != 0 {
+		t.Fatalf("wrong generation cleanup=%d signals=%d", handle.cleanups.Load(), handle.signals.Load())
 	}
 }

@@ -137,21 +137,21 @@ git commit -m "fix: close persistent bindings after start failure"
 - Consumes: `reconcilePersistentSession`, `persistentStartupLossReason`, `PersistentSessionStore.AbandonPersistentSession`.
 - Produces: `runPersistentReconciliation(...)` which either retries, classifies Lost, reaches Terminal, or exits only for deliberate cancellation/detach.
 
-- [ ] **Step 1: Write a RED transient-error retry test**
+- [x] **Step 1: Write a RED transient-error retry test**
 
 Make `Status()` fail once with an unclassified transient error, then return a valid running/terminal sequence. Assert one transient failure does not end reconciliation and the session eventually reaches canonical terminal.
 
-- [ ] **Step 2: Write a RED fatal ownership/conflict test**
+- [x] **Step 2: Write a RED fatal ownership/conflict test**
 
 Use an invalid supervisor generation or `PersistentRecoveryOutputConflict`. Assert the reconciler does not silently disappear with `Live` binding; it classifies the session lost/ambiguous, publishes canonical terminal evidence, and removes the active recovery marker without signaling the child.
 
-- [ ] **Step 3: Verify both tests fail on current code**
+- [x] **Step 3: Verify both tests fail on current code**
 
 ```bash
 go test ./internal/app/daemon -run 'TestPersistentReconciliation.*(Retries|Lost)' -count=1
 ```
 
-- [ ] **Step 4: Implement the reconciliation supervisor loop**
+- [x] **Step 4: Implement the reconciliation supervisor loop**
 
 Pseudo-code:
 
@@ -172,13 +172,13 @@ for {
 
 Check `ctx.Err()` before classification so graceful daemon shutdown remains detach, not loss.
 
-- [ ] **Step 5: Verify GREEN and existing conflict tests**
+- [x] **Step 5: Verify GREEN and existing conflict tests**
 
 ```bash
 go test ./internal/app/daemon -run 'TestPersistentReconciliation' -count=1
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/app/daemon/persistent_reconcile.go internal/app/daemon/persistent_reconcile_test.go

@@ -35,8 +35,132 @@ func (s *Service) startPersistentReconciliation(live *liveSession) {
 	live.mu.Unlock()
 	go func() {
 		defer close(done)
-		_ = s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore)
+		s.runPersistentReconciliation(ctx, live, control, outputStore, bindingStore)
 	}()
+}
+
+// runPersistentReconciliation is the lifecycle owner for a live persistent
+// session. It may exit only after deliberate cancellation/detach, canonical
+// terminal convergence, or durable loss classification. A transient error is
+// never allowed to silently orphan a Live binding.
+func (s *Service) runPersistentReconciliation(ctx context.Context, live *liveSession, control persistentapp.RecoveryAttachment, outputStore persistentOutputStore, bindingStore PersistentSessionStore) {
+	delay := 25 * time.Millisecond
+	for {
+		err := s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore)
+		if err == nil || ctx.Err() != nil {
+			return
+		}
+
+		// If a canonical terminal receipt already won the race, never downgrade it
+		// to Lost. The remaining error belongs to post-terminal convergence (for
+		// example a binding update) and is retried through the same owner.
+		snapshot, snapshotErr := s.store.LoadSession(ctx, operation.SessionID(live.sessionID))
+		if snapshotErr == nil && !snapshot.State.Terminal() {
+			if reason, lost := persistentStartupLossReason(err); lost {
+				if s.finalizePersistentRuntimeLoss(ctx, live, bindingStore, reason) == nil {
+					return
+				}
+				if ctx.Err() != nil {
+					return
+				}
+			}
+		}
+
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return
+		case <-timer.C:
+		}
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
+}
+
+// finalizePersistentRuntimeLoss converts an unrecoverable ownership/control
+// failure into canonical Abandoned/Ambiguous + Lost state. It never signals or
+// cleans up the child: after ownership proof is lost, only the local attachment
+// may be closed.
+func (s *Service) finalizePersistentRuntimeLoss(ctx context.Context, live *liveSession, bindingStore PersistentSessionStore, reason string) error {
+	delay := 25 * time.Millisecond
+	for {
+		binding, err := bindingStore.LoadPersistentBinding(ctx, operation.SessionID(live.sessionID))
+		if err == nil {
+			result := bindingStore.AbandonPersistentSession(ctx, binding, s.options.Incarnation, reason)
+			if result.Err == nil {
+				break
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
+
+	var rec receipt.Receipt
+	for {
+		loaded, err := s.store.LoadReceipt(ctx, operation.SessionID(live.sessionID))
+		if err == nil {
+			rec = loaded
+			break
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	s.endManagedShell(live)
+	if live.handle != nil {
+		_ = live.handle.Close()
+	}
+	s.projectPersistentTerminalLive(live, rec)
+	return nil
+}
+
+func (s *Service) projectPersistentTerminalLive(live *liveSession, rec receipt.Receipt) {
+	live.mu.Lock()
+	live.state = rec.State
+	live.outcome = rec.Outcome
+	live.spawn = rec.Spawn
+	live.exit = rec.Exit
+	live.signal = rec.Signal
+	live.accepted = rec.InputAcceptedBytes
+	live.delivered = rec.InputDeliveredBytes
+	live.eof = rec.StdinClosed
+	live.outputBytes = rec.OutputBytes
+	live.notify()
+	live.doneOnce.Do(func() { close(live.done) })
+	live.mu.Unlock()
 }
 
 func (s *Service) reconcilePersistentSession(ctx context.Context, live *liveSession, control persistentapp.RecoveryAttachment, outputStore persistentOutputStore, bindingStore PersistentSessionStore) error {
