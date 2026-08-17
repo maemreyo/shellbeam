@@ -97,9 +97,49 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	r.commitObservationBestEffort(seq)
 	metadata := withObservationSeq(r.ensureSessionMetadata(want), seq)
 	if metadata.Err != nil {
+		if metadata.Durability == app.AmbiguousChange {
+			if compensationErr := r.finalizeAmbiguousAdmission(want); compensationErr != nil {
+				metadata.Err = errors.Join(metadata.Err, compensationErr)
+			}
+		}
 		return want, false, metadata
 	}
 	return want, true, metadata
+}
+
+// finalizeAmbiguousAdmission closes the ownership gap created when session
+// metadata was renamed into place but its parent directory sync failed. The
+// operation reservation is already durable at this point, but Start must not
+// be authorized because metadata durability is ambiguous. Since no runtime
+// owner has been created yet, the only safe same-process outcome is canonical
+// Abandoned/Ambiguous terminal state before returning the original error.
+func (r *Repository) finalizeAmbiguousAdmission(want operation.Reservation) error {
+	snap, err := r.LoadSession(context.Background(), want.SessionID)
+	if err != nil {
+		return fmt.Errorf("load ambiguous admission metadata: %w", err)
+	}
+	if snap.OperationID != string(want.OperationID) || snap.SessionID != string(want.SessionID) {
+		return fmt.Errorf("ambiguous admission metadata identity mismatch")
+	}
+	if snap.State.Terminal() {
+		return nil
+	}
+	rec := abandonedReceipt(snap, want, true, want.DaemonIncarnation)
+	rec.FailureReason = "admission_metadata_ambiguous"
+	delay := 25 * time.Millisecond
+	for {
+		result := r.PublishTerminal(context.Background(), rec)
+		if result.Err == nil {
+			return nil
+		}
+		time.Sleep(delay)
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
 }
 
 func (r *Repository) replayReservation(want, existing operation.Reservation) (operation.Reservation, bool, app.StoreResult) {

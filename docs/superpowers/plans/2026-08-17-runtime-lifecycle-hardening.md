@@ -238,27 +238,27 @@ git commit -m "fix: converge persistent live state after terminal receipt"
 - Must preserve the store contract that ambiguous durability never authorizes spawn.
 - Must ensure a failed Start does not leave a capacity-owning `Starting` session without an owner.
 
-- [ ] **Step 1: Add the exact RED fault case**
+- [x] **Step 1: Add the exact RED fault case**
 
 Inject the metadata `replace.dir_sync` failure after reservation creation. With `MaxSessions: 1`, assert the failed admission is reconciled/terminalized in the same daemon lifetime and a second admission can succeed without restart.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 go test ./internal/adapter/store -run 'Test.*Metadata.*Ambiguous.*Capacity' -count=1
 ```
 
-- [ ] **Step 3: Implement same-process compensation without authorizing spawn**
+- [x] **Step 3: Implement same-process compensation without authorizing spawn**
 
 Do not reinterpret `AmbiguousChange` as successful admission. Once the store can prove the intended session metadata exists after the ambiguous rename, durably terminalize that unowned session (or otherwise remove it from active admission truth) before returning the failure to the caller.
 
-- [ ] **Step 4: Verify all reservation fault boundaries**
+- [x] **Step 4: Verify all reservation fault boundaries**
 
 ```bash
 go test ./internal/adapter/store -run 'TestReservationFaultBoundaries|Test.*Metadata.*Ambiguous.*Capacity' -count=1
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/adapter/store
