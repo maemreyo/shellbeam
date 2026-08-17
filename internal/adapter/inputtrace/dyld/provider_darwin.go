@@ -4,6 +4,8 @@ package dyld
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -162,3 +164,33 @@ func (p *preparedTrace) Abort() error { p.once.Do(func() { p.provider.abort(p.tr
 
 var _ traceapp.Preparer = (*Provider)(nil)
 var _ traceapp.Finalizer = (*Provider)(nil)
+
+func (p *Provider) Cleanup(ctx context.Context, binding trace.InstrumentationBinding) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := binding.Validate(); err != nil || binding.Provider.ID != "dyld-interpose" {
+		return failure.New(failure.InputTraceNotFound, map[string]string{"trace_id": binding.TraceID}, err)
+	}
+	p.abort(binding.TraceID)
+	dir := filepath.Join(tracesRoot(p.stateDir), binding.TraceID)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() != "raw.events" || entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unsafe trace cleanup entry")
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if err := os.Remove(dir); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}

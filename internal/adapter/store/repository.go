@@ -50,6 +50,7 @@ type Repository struct {
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
 	telemetryMu              sync.Mutex
+	inputTraceMu             sync.Mutex
 	reproMu                  sync.Mutex
 	checkpointMu             sync.Mutex
 	mutationScopeMu          sync.Mutex
@@ -177,6 +178,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initTelemetryStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initInputTraceStore(); err != nil {
 		return nil, err
 	}
 	if err := repository.initReproStore(); err != nil {

@@ -224,7 +224,7 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 
 func reconcilableObservationKind(kind observation.EventKind) bool {
 	switch kind {
-	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved, observation.EventEvidenceValidityChanged, observation.EventMutationScopeChanged, observation.EventPersistentSessionStarted, observation.EventPersistentSessionReattached, observation.EventPersistentSessionTerminal, observation.EventPersistentSessionLost, observation.EventCheckpointCreated, observation.EventCheckpointRestoreStarted, observation.EventCheckpointRestoreCompleted, observation.EventCheckpointExpired:
+	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved, observation.EventEvidenceValidityChanged, observation.EventMutationScopeChanged, observation.EventPersistentSessionStarted, observation.EventPersistentSessionReattached, observation.EventPersistentSessionTerminal, observation.EventPersistentSessionLost, observation.EventCheckpointCreated, observation.EventCheckpointRestoreStarted, observation.EventCheckpointRestoreCompleted, observation.EventCheckpointExpired, observation.EventInputTraceRecorded, observation.EventInputTraceTruncated:
 		return true
 	default:
 		return false
@@ -259,6 +259,8 @@ func (r *Repository) observationSubjectPresent(ctx context.Context, obligation o
 		return r.persistentObservationSubjectPresent(ctx, obligation)
 	case observation.EventCheckpointCreated, observation.EventCheckpointRestoreStarted, observation.EventCheckpointRestoreCompleted, observation.EventCheckpointExpired:
 		return r.checkpointObservationSubjectPresent(ctx, obligation)
+	case observation.EventInputTraceRecorded, observation.EventInputTraceTruncated:
+		return r.inputTraceSubjectPresent(ctx, obligation.SubjectRef)
 	default:
 		return false, nil
 	}

@@ -46,6 +46,7 @@ type ProviderSnapshot struct {
 
 type Finalizer interface {
 	Finalize(context.Context, core.InstrumentationBinding) (ProviderSnapshot, error)
+	Cleanup(context.Context, core.InstrumentationBinding) error
 }
 
 type Preparation struct {
