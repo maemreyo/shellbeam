@@ -349,7 +349,7 @@ experimental_input_tracing = false
 - Modify only: `docs/superpowers/plans/2026-08-17-dynamic-input-tracing.md`
 - Generated evidence: ignored `.build/e27/final-checkpoint.json`
 
-> **Frozen checkpoint note (2026-08-17):** Tasks 1–9 are committed through `17cc97e`; supporting verification/build fixes are `1a1b2a4` and `95a7d72`. Task 10 records all remaining gate receipts and postcommit proof only in ignored `.build/e27/final-checkpoint.json`. No tracked bytes are mutated after this freeze.
+> **Re-frozen checkpoint note (2026-08-17):** The first checkpoint commit `e118f27` was invalidated by a fresh post-checkpoint stress run that reproduced loss of accepted terminal DYLD datagrams. Follow-up `1828a06` adds a RED→GREEN socket-drain regression and drains accepted datagrams before collector finalization. Tasks 1–9 plus this corrective fix are now committed through `1828a06`; Task 10 is re-run from the beginning on these exact tracked bytes, with remaining gate receipts and postcommit proof only in ignored `.build/e27/final-checkpoint.json`. No tracked bytes are mutated after this re-freeze.
 
 - [x] **Step 1: Confirm Tasks 1-9 committed.** Final tracked tree contains only intended Task 10 plan checkbox/note bytes; no provider overclaim, no second shipped artifact, no unrelated roadmap implementation.
 - [x] **Step 2: Freeze final tracked plan bytes** before exact gates. Store source fingerprint only in ignored `.build/e27/final-checkpoint.json`; do not mutate tracked proof bytes after freeze.
