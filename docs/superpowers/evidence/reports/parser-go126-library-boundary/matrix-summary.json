@@ -1,0 +1,193 @@
+{
+  "candidate": "go1.26-pinned-json-library-boundary",
+  "discarded_diagnostics": [
+    {
+      "lane": "linux-root",
+      "reason": "UID 0 bypassed read-only permission fixtures; security harness also lacked ripgrep. Non-root authoritative rerun passed.",
+      "status": "INVALID_FOR_SCORING"
+    }
+  ],
+  "files": {
+    "linux-full-tests.log": {
+      "bytes": 4457,
+      "sha256": "afae7fc631cec99e1945f51d74ca050c6143c0062ad472a242c2f9fbc262b7a6"
+    },
+    "linux-hardening.log": {
+      "bytes": 1160,
+      "sha256": "bd2faa995152f6d3616b089c8836c4880ff6367b9995195ca1e5e1fa4db744ac"
+    },
+    "linux-json-mode.log": {
+      "bytes": 143,
+      "sha256": "2d439cbb912ab23437af6ea147d7e7b404f76926bf97118882c4fbeefe3488ab"
+    },
+    "linux-lsp-regression.log": {
+      "bytes": 215,
+      "sha256": "62c0c72a4dc7ba78e86012d82eee615a41447f21770c135f4d847434aa88ecd4"
+    },
+    "linux-native-build.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "linux-native.json": {
+      "bytes": 1167,
+      "sha256": "f9cce0966bf8638f66da73f19745fd895b4605ee9af4011911cf241e84f45f45"
+    },
+    "linux-race.log": {
+      "bytes": 774,
+      "sha256": "4cf66a8c6a30e657a5080623b94dc4ae120afad333f634a3e05b507aef7a5918"
+    },
+    "linux-security.log": {
+      "bytes": 487,
+      "sha256": "f1758990788576a75e4afc1bed52c38ddf5de486d05cb11e565a5d2886b82967"
+    },
+    "linux-shell-acceptance.log": {
+      "bytes": 33,
+      "sha256": "8f8c058576568d1e50de14d227d85ee73eb3631e81799589455eacf37fc3f30b"
+    },
+    "linux-status.log": {
+      "bytes": 133,
+      "sha256": "9ca92f36a0072f7ee308a252ffc658efabef54b5c2a96685692c7d13b33bad08"
+    },
+    "linux-toolchain.log": {
+      "bytes": 287,
+      "sha256": "e1bafbfa195872dee413c3f61fa44eb731517222aa7e39e2faeee59ccb7d1806"
+    },
+    "linux-tracer-test.log": {
+      "bytes": 157,
+      "sha256": "8e10df8271c659daff8243cec87a4d012ec92416507a32954d07a2b6c4e21295"
+    },
+    "macos-full-tests.log": {
+      "bytes": 4415,
+      "sha256": "2610a04b0e948634455e8b68939e6a8039ba56bae0edb235563728d66dae8543"
+    },
+    "macos-hardening.log": {
+      "bytes": 1170,
+      "sha256": "e5b7ae15acf94579a83d9231da885d4a40a1b3bb9e0aa80a95c066b5a14c2878"
+    },
+    "macos-json-mode.log": {
+      "bytes": 143,
+      "sha256": "2d439cbb912ab23437af6ea147d7e7b404f76926bf97118882c4fbeefe3488ab"
+    },
+    "macos-lsp-regression.log": {
+      "bytes": 91,
+      "sha256": "125071348b6af291c226d2734713b16a3825b5ea62e74501df3ffd6c23689c45"
+    },
+    "macos-native-build.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "macos-native.json": {
+      "bytes": 609,
+      "sha256": "7fde5294fe4be08c8ee88be4534feb86b76c9b1a61c7ad95ec73f58a1424fdb4"
+    },
+    "macos-race.log": {
+      "bytes": 183,
+      "sha256": "3d9dc7282e3c61499467ab766ef7575f9022a9fb7b520eb4c543cd9c982379be"
+    },
+    "macos-security.log": {
+      "bytes": 345,
+      "sha256": "8cb614d6f465fc749750bc492d603269427142f9caed7a93655eb161cd5b197f"
+    },
+    "macos-shell-acceptance.log": {
+      "bytes": 33,
+      "sha256": "8f8c058576568d1e50de14d227d85ee73eb3631e81799589455eacf37fc3f30b"
+    },
+    "macos-status.log": {
+      "bytes": 133,
+      "sha256": "9ca92f36a0072f7ee308a252ffc658efabef54b5c2a96685692c7d13b33bad08"
+    },
+    "macos-toolchain.log": {
+      "bytes": 252,
+      "sha256": "f757f6cb574d352f8f3f0491b94ceda0732f8a115c7a5f5696d48f8394f624f9"
+    },
+    "macos-tracer-test.log": {
+      "bytes": 71,
+      "sha256": "13d4ce5ccade79079fc1e2578d728344f4879f56b7a9543be8a759d120693d15"
+    },
+    "strict-tracer-linux-report.json": {
+      "bytes": 2541,
+      "sha256": "84c6065113a270840fc682ebb5e9844ad685cadd4af28d5f4ad36ac258c953d6"
+    },
+    "strict-tracer-report.json": {
+      "bytes": 2567,
+      "sha256": "f49dfc72fd8fa35317f0ff01751a36d302af04481b4d5aa13eaa2794a8a8ac9f"
+    }
+  },
+  "go_version": "go1.26.5",
+  "goexperiment": "",
+  "linux": {
+    "arch": "arm64",
+    "cgo_enabled": "1",
+    "checks": {
+      "full-tests": 0,
+      "hardening": 0,
+      "json-mode": 0,
+      "lsp-regression": 0,
+      "native-build": 0,
+      "race": 0,
+      "security": 0,
+      "shell-acceptance": 0,
+      "tracer-run": 0,
+      "tracer-test": 0
+    },
+    "container_runtime": {
+      "image": "golang:1.26.5-bookworm",
+      "image_digest": "sha256:53eeac89074db483fdf0ab3be1df32bf6e47562263d2d0d6baa7f26acb4957dd",
+      "product": "Docker Desktop",
+      "run_uid": 1000,
+      "run_user": "runner",
+      "server_version": "29.4.1"
+    },
+    "cross_build": false,
+    "diagnostic_note": "An initial UID-0 container run was excluded: permission-failure tests are invalid under root and ripgrep was absent. The authoritative non-root lane reran the complete matrix with lsof+ripgrep and passed.",
+    "go_version": "go1.26.5",
+    "goexperiment": "",
+    "kernel": "6.12.76-linuxkit",
+    "mode": "library-boundary",
+    "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+    "native_execution": true,
+    "os": "linux",
+    "schema_version": 1,
+    "shell_acceptance": "shellbeam version",
+    "source_commit": "be54aee89e9c47b95aa15c709ca5d88ed310215f",
+    "status": "PASS"
+  },
+  "macos": {
+    "arch": "arm64",
+    "cgo_enabled": "1",
+    "checks": {
+      "full-tests": 0,
+      "hardening": 0,
+      "json-mode": 0,
+      "lsp-regression": 0,
+      "native-build": 0,
+      "race": 0,
+      "security": 0,
+      "shell-acceptance": 0,
+      "tracer-run": 0,
+      "tracer-test": 0
+    },
+    "go_version": "go1.26.5",
+    "goexperiment": "",
+    "kernel": "Darwin 25.6.0",
+    "mode": "library-boundary",
+    "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+    "os": "darwin",
+    "schema_version": 1,
+    "shell_acceptance": "shellbeam version",
+    "source_commit": "be54aee89e9c47b95aa15c709ca5d88ed310215f",
+    "status": "PASS"
+  },
+  "mode": "library-boundary",
+  "module": "github.com/go-json-experiment/json",
+  "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+  "schema_version": 2,
+  "source_commit": "be54aee89e9c47b95aa15c709ca5d88ed310215f",
+  "strict_contract": {
+    "invalid_rejections": 5,
+    "legacy_v1": 4,
+    "status": "PASS",
+    "valid_v2_semantics": 18
+  },
+  "verdict": "PASS"
+}

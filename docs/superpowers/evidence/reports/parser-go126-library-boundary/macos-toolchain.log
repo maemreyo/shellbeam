@@ -1,0 +1,7 @@
+go version go1.26.5 darwin/arm64
+
+darwin
+arm64
+1
+github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
+Darwin TrungNgo 25.6.0 Darwin Kernel Version 25.6.0: Sat Jul 11 15:27:02 PDT 2026; root:xnu-12377.161.13~4/RELEASE_ARM64_T8112 arm64

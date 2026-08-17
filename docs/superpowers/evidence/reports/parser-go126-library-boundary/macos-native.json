@@ -1,0 +1,26 @@
+{
+  "arch": "arm64",
+  "cgo_enabled": "1",
+  "checks": {
+    "full-tests": 0,
+    "hardening": 0,
+    "json-mode": 0,
+    "lsp-regression": 0,
+    "native-build": 0,
+    "race": 0,
+    "security": 0,
+    "shell-acceptance": 0,
+    "tracer-run": 0,
+    "tracer-test": 0
+  },
+  "go_version": "go1.26.5",
+  "goexperiment": "",
+  "kernel": "Darwin 25.6.0",
+  "mode": "library-boundary",
+  "module_version": "v0.0.0-20260623181947-01eb4420fa68",
+  "os": "darwin",
+  "schema_version": 1,
+  "shell_acceptance": "shellbeam version",
+  "source_commit": "be54aee89e9c47b95aa15c709ca5d88ed310215f",
+  "status": "PASS"
+}

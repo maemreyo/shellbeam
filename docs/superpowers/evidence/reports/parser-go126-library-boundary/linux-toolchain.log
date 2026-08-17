@@ -1,0 +1,10 @@
+uid=1000(runner) gid=1000(runner) groups=1000(runner)
+go version go1.26.5 linux/arm64
+
+linux
+arm64
+1
+github.com/go-json-experiment/json v0.0.0-20260623181947-01eb4420fa68
+Linux 3fb5e5857513 6.12.76-linuxkit #1 SMP Fri Apr 17 14:56:37 UTC 2026 aarch64 GNU/Linux
+/usr/bin/lsof
+/usr/bin/rg

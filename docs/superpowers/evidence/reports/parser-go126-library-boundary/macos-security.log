@@ -1,0 +1,7 @@
+all modules verified
+ok  	github.com/maemreyo/shellbeam/internal/adapter/store	86.914s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/ipc	6.955s
+ok  	github.com/maemreyo/shellbeam/internal/observability	0.783s
+ok  	github.com/maemreyo/shellbeam/tests/contract	1.010s
+govulncheck: NOT_RUN (not installed)
+security: PASS for mandatory checks

@@ -1,0 +1,3 @@
+ok  	github.com/maemreyo/shellbeam/internal/adapter/ipc	2.974s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/mcp	2.932s
+ok  	github.com/maemreyo/shellbeam/tests/contract	2.465s
