@@ -32,6 +32,7 @@ const (
 	FeatureExecutionTelemetry     Feature = "execution_telemetry"
 	FeatureReproductionCapsules   Feature = "reproduction_capsules"
 	FeatureSafetyCheckpoints      Feature = "safety_checkpoints"
+	FeatureRichLocalMedia         Feature = "rich_local_media"
 )
 
 type Limits struct {
@@ -150,6 +151,7 @@ type Catalog struct {
 	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
 	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
 	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
+	Media                             *MediaSupport               `json:"media,omitempty"`
 	Features                          map[Feature]Availability    `json:"features"`
 	Limits                            Limits                      `json:"limits"`
 }
@@ -177,6 +179,7 @@ var targetFeatures = []Feature{
 	FeatureExecutionTelemetry,
 	FeatureReproductionCapsules,
 	FeatureSafetyCheckpoints,
+	FeatureRichLocalMedia,
 }
 
 func TargetFeatures() []Feature {
@@ -236,6 +239,10 @@ func (c Catalog) Clone() Catalog {
 		support := *c.SafetyCheckpoints
 		support.SchemaVersions = append([]int(nil), c.SafetyCheckpoints.SchemaVersions...)
 		out.SafetyCheckpoints = &support
+	}
+	if c.Media != nil {
+		support := c.Media.Clone()
+		out.Media = &support
 	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
