@@ -3,9 +3,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -351,8 +354,25 @@ func assertE27PublicStatePrivateValuesAbsent(t *testing.T, stateDir, logPath str
 	t.Helper()
 	privateRoot := e27ProviderRoot(stateDir)
 	var public []byte
+	// Checking each file as it is read, rather than the concatenation at the
+	// end, is what lets a failure name the file that carries the leak. Without
+	// it this assertion reports only which string escaped, which on a host that
+	// reproduces the leak and a developer machine that does not leaves nothing
+	// to go on.
+	forbiddenPaths := []string{"/tmp/shellbeam-e27-", filepath.Join("input-trace", "dyld-v1", "artifacts")}
+	carriers := map[string][]string{}
+	note := func(origin string, data []byte) {
+		for _, forbidden := range forbiddenPaths {
+			if bytes.Contains(data, []byte(forbidden)) {
+				carriers[forbidden] = append(carriers[forbidden], origin)
+			}
+		}
+	}
 	err := filepath.Walk(stateDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) && path != stateDir {
+				return nil
+			}
 			return err
 		}
 		if path == privateRoot {
@@ -361,8 +381,16 @@ func assertE27PublicStatePrivateValuesAbsent(t *testing.T, stateDir, logPath str
 		if info.Mode().IsRegular() {
 			data, readErr := os.ReadFile(path)
 			if readErr != nil {
+				if errors.Is(readErr, fs.ErrNotExist) {
+					return nil
+				}
 				return readErr
 			}
+			rel, relErr := filepath.Rel(stateDir, path)
+			if relErr != nil {
+				rel = path
+			}
+			note(rel, data)
 			public = append(public, data...)
 		}
 		return nil
@@ -371,12 +399,13 @@ func assertE27PublicStatePrivateValuesAbsent(t *testing.T, stateDir, logPath str
 		t.Fatal(err)
 	}
 	if data, err := os.ReadFile(logPath); err == nil {
+		note("daemon.log", data)
 		public = append(public, data...)
 	}
 	assertE27PrivateValuesAbsent(t, public, secrets)
-	for _, forbidden := range []string{"/tmp/shellbeam-e27-", filepath.Join("input-trace", "dyld-v1", "artifacts")} {
-		if strings.Contains(string(public), forbidden) {
-			t.Fatalf("public state leaked provider-private path %q", forbidden)
+	for _, forbidden := range forbiddenPaths {
+		if origins := carriers[forbidden]; len(origins) > 0 {
+			t.Fatalf("public state leaked provider-private path %q via %s", forbidden, strings.Join(origins, ", "))
 		}
 	}
 }
