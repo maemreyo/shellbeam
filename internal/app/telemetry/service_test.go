@@ -208,8 +208,10 @@ func TestServiceRejectsNonAuthoritativeOrChangedTerminalInputs(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			copyRepo := *repo
-			copyRepo.records = map[string]core.PerformanceRecord{}
+			copyRepo := memoryTelemetryRepository{
+				reservation: repo.reservation, snapshot: repo.snapshot, receipt: repo.receipt,
+				records: map[string]core.PerformanceRecord{},
+			}
 			scheduled := copyRepo.receipt
 			mutate(&copyRepo, &scheduled)
 			local, _ := newService(&copyRepo, "darwin", "arm64")
