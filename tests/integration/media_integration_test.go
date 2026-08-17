@@ -39,27 +39,7 @@ var (
 
 func TestMediaRealDaemonMCPPrivacySentinelNeverPersists(t *testing.T) {
 	root := t.TempDir()
-	stateDir := filepath.Join(root, "state")
-	runtimeDir, err := os.MkdirTemp("/tmp", "sb-rm-")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
-	canonicalToken := "CANON_" + randomMediaToken(t)
-	payloadToken := "PAYLOAD_" + randomMediaToken(t) + "_GPS_21.0285_105.8542"
-	canonicalRoot := filepath.Join(root, canonicalToken)
-	aliasRoot := filepath.Join(root, "selected")
-	if err := os.MkdirAll(canonicalRoot, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(canonicalRoot, aliasRoot); err != nil {
-		t.Fatal(err)
-	}
-	imageBytes := privacyPNG(t, []byte(payloadToken))
-	if err := os.WriteFile(filepath.Join(canonicalRoot, "probe.png"), imageBytes, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
+	stateDir, runtimeDir, aliasRoot, imageBytes, forbidden := setupMediaPrivacyFixture(t, root)
 	daemonLog := filepath.Join(root, "daemon.log")
 	daemon := startMediaDaemon(t, stateDir, runtimeDir, daemonLog)
 	if !daemon.ready(t) {
@@ -80,21 +60,50 @@ func TestMediaRealDaemonMCPPrivacySentinelNeverPersists(t *testing.T) {
 		_ = log.Close()
 		t.Fatalf("connect MCP: %v", err)
 	}
+	result, err := session.CallTool(ctx, &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"read_media","cwd":` + mustJSON(t, aliasRoot) + `,"path":"probe.png"}`)})
+	if err != nil || result.IsError {
+		_ = session.Close()
+		_ = log.Close()
+		t.Fatalf("read_media result=%#v err=%v", result, err)
+	}
+	assertMediaPrivacyResult(t, result, aliasRoot, imageBytes, forbidden...)
+	if err := session.Close(); err != nil {
+		t.Fatalf("close MCP: %v", err)
+	}
+	_ = log.Close()
+	daemon.stop(t)
+	for _, path := range []string{stateDir, daemonLog, mcpLog} {
+		assertTreeOmits(t, path, forbidden...)
+	}
+}
 
-	result, err := session.CallTool(ctx, &mcpgo.CallToolParams{
-		Name:      "local_shell",
-		Arguments: json.RawMessage(`{"action":"read_media","cwd":` + mustJSON(t, aliasRoot) + `,"path":"probe.png"}`),
-	})
+func setupMediaPrivacyFixture(t *testing.T, root string) (string, string, string, []byte, []string) {
+	t.Helper()
+	stateDir := filepath.Join(root, "state")
+	runtimeDir, err := os.MkdirTemp("/tmp", "sb-rm-")
 	if err != nil {
-		_ = session.Close()
-		_ = log.Close()
-		t.Fatalf("read_media: %v", err)
+		t.Fatal(err)
 	}
-	if result.IsError {
-		_ = session.Close()
-		_ = log.Close()
-		t.Fatalf("read_media returned error: %#v", result)
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+	canonicalToken := "CANON_" + randomMediaToken(t)
+	payloadToken := "PAYLOAD_" + randomMediaToken(t) + "_GPS_21.0285_105.8542"
+	canonicalRoot := filepath.Join(root, canonicalToken)
+	aliasRoot := filepath.Join(root, "selected")
+	if err := os.MkdirAll(canonicalRoot, 0o700); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.Symlink(canonicalRoot, aliasRoot); err != nil {
+		t.Fatal(err)
+	}
+	imageBytes := privacyPNG(t, []byte(payloadToken))
+	if err := os.WriteFile(filepath.Join(canonicalRoot, "probe.png"), imageBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return stateDir, runtimeDir, aliasRoot, imageBytes, []string{payloadToken, canonicalToken, canonicalRoot}
+}
+
+func assertMediaPrivacyResult(t *testing.T, result *mcpgo.CallToolResult, aliasRoot string, imageBytes []byte, forbidden ...string) {
+	t.Helper()
 	var gotImage *mcpgo.ImageContent
 	for _, content := range result.Content {
 		if imageContent, ok := content.(*mcpgo.ImageContent); ok {
@@ -111,23 +120,13 @@ func TestMediaRealDaemonMCPPrivacySentinelNeverPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{payloadToken, canonicalToken, canonicalRoot} {
-		if bytes.Contains(structured, []byte(forbidden)) {
-			t.Fatalf("structured content leaked %q: %s", forbidden, structured)
+	for _, token := range forbidden {
+		if bytes.Contains(structured, []byte(token)) {
+			t.Fatalf("structured content leaked %q: %s", token, structured)
 		}
 	}
 	if !bytes.Contains(structured, []byte(aliasRoot)) {
 		t.Fatalf("structured content lost exact caller display address: %s", structured)
-	}
-
-	if err := session.Close(); err != nil {
-		t.Fatalf("close MCP: %v", err)
-	}
-	_ = log.Close()
-	daemon.stop(t)
-
-	for _, path := range []string{stateDir, daemonLog, mcpLog} {
-		assertTreeOmits(t, path, payloadToken, canonicalToken, canonicalRoot)
 	}
 }
 
