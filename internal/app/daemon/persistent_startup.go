@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	persistentapp "github.com/maemreyo/shellbeam/internal/app/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
@@ -114,10 +113,11 @@ func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, bindi
 			_ = result.Handle.Close()
 		}
 	}()
-	control, ok := result.Handle.(persistentapp.RecoveryAttachment)
-	if !ok {
-		return failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": binding.SessionID, "reason": "reattach_control"}, nil)
+	reconciliationOwner, err := s.preparePersistentReconciliation(result.Handle)
+	if err != nil {
+		return err
 	}
+	control := reconciliationOwner.control
 	reservation, err := s.store.LoadOperation(ctx, operation.ID(binding.OperationID))
 	if err != nil {
 		return err
@@ -148,17 +148,12 @@ func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, bindi
 			s.endManagedShell(live)
 			return stored.Err
 		}
-		s.startPersistentReconciliation(live)
+		s.startPersistentReconciliation(live, reconciliationOwner)
 		closeOnError = false
 		return nil
 	}
 	if result.State.Terminal() && result.State != session.Abandoned && result.PID == 0 {
-		outputStore, outputOK := s.store.(persistentOutputStore)
-		bindingStore, bindingOK := s.store.(PersistentSessionStore)
-		if !outputOK || !bindingOK {
-			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions"}, nil)
-		}
-		err := s.reconcilePersistentSession(ctx, live, control, outputStore, bindingStore)
+		err := s.reconcilePersistentSession(ctx, live, control, reconciliationOwner.outputStore, reconciliationOwner.bindingStore)
 		closeOnError = false
 		_ = result.Handle.Close()
 		return err

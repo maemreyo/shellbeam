@@ -39,6 +39,12 @@ func (s *Service) spawnPreparedPersistentStart(ctx context.Context, req StartReq
 		s.publishPersistentSpawnFailure(stored, activityID, workspaceObservation, launch.Spawn, "persistent_spawn_identity")
 		return View{}, failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": sid, "reason": "process_identity"}, fmt.Errorf("persistent runtime process identity mismatch"))
 	}
+	reconciliationOwner, reconcileErr := s.preparePersistentReconciliation(launch.Handle)
+	if reconcileErr != nil {
+		_ = launch.Handle.Close()
+		s.publishPersistentSpawnFailure(stored, activityID, workspaceObservation, launch.Spawn, "persistent_spawn_recovery_capability")
+		return View{}, failure.Normalize(reconcileErr)
+	}
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
 		_ = launch.Handle.Close()
@@ -69,7 +75,7 @@ func (s *Service) spawnPreparedPersistentStart(ctx context.Context, req StartReq
 		return View{}, failure.Normalize(got.Err)
 	}
 	s.resolveProcessStartedObservation(processObservation.ObservationSeq, true)
-	s.startPersistentReconciliation(live)
+	s.startPersistentReconciliation(live, reconciliationOwner)
 	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	s.decorateNewStartView(&view, viewErr, stored, workspaceObservation, req.WorkspaceHint)
 	return view, viewErr

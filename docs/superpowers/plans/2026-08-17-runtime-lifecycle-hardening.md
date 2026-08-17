@@ -265,7 +265,42 @@ git add internal/adapter/store
 git commit -m "fix: compensate ambiguous admitted session metadata"
 ```
 
-### Task 6: Full lifecycle verification
+### Task 6: Require a persistent recovery owner before Running
+
+**Files:**
+- Modify: `internal/app/daemon/persistent_reconcile.go`
+- Modify: `internal/app/daemon/persistent_start.go`
+- Modify: `internal/app/daemon/persistent_startup.go`
+- Test: `internal/app/daemon/persistent_launch_test.go`
+
+**Invariant:** a persistent session may not publish `Running` unless the launched/reattached handle and store have the complete recovery surfaces required by the reconciliation owner.
+
+- [x] **Step 1: RED — generic persistent handle cannot become Running**
+
+Replace the old fixture that accepted a PID-only `ProcessHandle` with a test that requires `SupervisorStateConflict`, a durable Failed receipt, zero signal/write fallback, local handle close, and immediate capacity reuse. Current code returns `err=nil`, proving the architecture hole.
+
+- [x] **Step 2: Prepare lifecycle ownership before Running**
+
+Add a preparation primitive that proves `RecoveryAttachment`, persistent output reconciliation, and persistent binding reconciliation before process-start observation / Running publication. Pass the prepared owner into `startPersistentReconciliation`; remove silent capability returns. Apply the same preparation on startup reattach.
+
+- [x] **Step 3: Keep successful fixtures honest**
+
+Success-path persistent test handles implement `RecoveryAttachment` and explicitly shut down their test service. Generic unauthenticated handles remain fail-closed and are never used as fallback control.
+
+- [x] **Step 4: Verify persistent regression group**
+
+```bash
+go test ./internal/app/daemon -run 'TestPersistent' -count=1
+```
+
+- [x] **Step 5: Commit**
+
+```bash
+git add docs/superpowers/plans/2026-08-17-runtime-lifecycle-hardening.md internal/app/daemon
+git commit -m "fix: require persistent recovery ownership before running"
+```
+
+### Task 7: Full lifecycle verification
 
 **Files:**
 - No production changes unless a regression is found and reproduced with a RED test first.

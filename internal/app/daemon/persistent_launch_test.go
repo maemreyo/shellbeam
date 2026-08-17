@@ -36,7 +36,7 @@ func TestOrdinaryStartDoesNotCallPersistentRuntime(t *testing.T) {
 func TestPersistentStartUsesRuntimeAfterDurableReservationAndRetriesWithoutRelaunch(t *testing.T) {
 	store := openPersistentLaunchStore(t)
 	owner := &fakeOwner{}
-	handle := &persistentFakeHandle{pid: 4242}
+	handle := &persistentControlFakeHandle{persistentFakeHandle: persistentFakeHandle{pid: 4242}}
 	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
 	runtime.onEnsure = func(res operation.Reservation) {
 		loaded, err := store.LoadOperation(context.Background(), res.OperationID)
@@ -45,6 +45,7 @@ func TestPersistentStartUsesRuntimeAfterDurableReservationAndRetriesWithoutRelau
 		}
 	}
 	svc := app.NewService(store, owner, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+	cleanupPersistentTestService(t, svc)
 	req := app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-launch", Command: "sleep 10", CWD: "/", Persistent: true, SessionName: "dev-server"}
 	first, err := svc.Start(context.Background(), req)
 	if err != nil {
@@ -178,33 +179,39 @@ func TestPersistentLaunchFailureDoesNotPublishRunningOrUseDirectOwner(t *testing
 	waitForTerminal(t, svc, second.SessionID)
 }
 
-func TestPersistentMissingControlProofFailsClosedAndShutdownDetaches(t *testing.T) {
-	store := openPersistentLaunchStore(t)
-	handle := &persistentFakeHandle{pid: 4242}
-	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
-	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
-	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-detach", Command: "sleep 10", CWD: "/", Persistent: true, SessionName: "dev-server"})
+func TestPersistentMissingRecoveryAttachmentFailsBeforeRunningAndFreesCapacity(t *testing.T) {
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 1, MaxSessionOutput: 1 << 20, MaxTotalState: 8 << 20, ControlReserve: 4096})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Write(context.Background(), app.WriteRequest{SessionID: view.SessionID, InputOffset: 0, Chars: "x"}); !errors.Is(err, failure.SupervisorUnavailable) {
-		t.Fatalf("persistent write err=%v", err)
+	handle := &persistentFakeHandle{pid: 4242}
+	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+
+	_, err = svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-missing-recovery", Command: "sleep 10", CWD: "/", Persistent: true, SessionName: "dev-server"})
+	if !errors.Is(err, failure.SupervisorStateConflict) {
+		t.Fatalf("start without recovery attachment err=%v", err)
 	}
-	if _, err := svc.Kill(context.Background(), app.KillRequest{SessionID: view.SessionID, KillID: "kill-persistent", Signal: "TERM"}); !errors.Is(err, failure.SupervisorUnavailable) {
-		t.Fatalf("persistent kill err=%v", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	if err := svc.Shutdown(ctx); err != nil {
+	reservation, err := store.LoadOperation(context.Background(), "persistent-missing-recovery")
+	if err != nil {
 		t.Fatal(err)
+	}
+	snapshot, err := store.LoadSession(context.Background(), reservation.SessionID)
+	if err != nil || snapshot.State != session.Failed {
+		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
+	}
+	rec, err := store.LoadReceipt(context.Background(), reservation.SessionID)
+	if err != nil || rec.State != session.Failed || rec.Outcome != session.Failure || rec.FailureReason != "persistent_spawn_recovery_capability" {
+		t.Fatalf("receipt=%#v err=%v", rec, err)
 	}
 	if handle.signals.Load() != 0 || handle.writes.Load() != 0 || handle.closes.Load() != 1 {
 		t.Fatalf("signals=%d writes=%d closes=%d", handle.signals.Load(), handle.writes.Load(), handle.closes.Load())
 	}
-	resolved, err := svc.ResolveProcessSession(context.Background(), view.SessionID)
-	if err != nil || !resolved.Known || resolved.Current || resolved.PID != 0 {
-		t.Fatalf("post-detach resolved=%#v err=%v", resolved, err)
+	second, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "after-missing-recovery", Command: "true", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatalf("capacity remained occupied after missing recovery attachment: %v", err)
 	}
+	_ = waitForTerminal(t, svc, second.SessionID)
 }
 
 func openPersistentLaunchStore(t *testing.T) *storeadapter.Repository {
@@ -291,6 +298,7 @@ func TestPersistentWriteAndKillPreserveCallerMutationIdentity(t *testing.T) {
 	handle := &persistentControlFakeHandle{persistentFakeHandle: persistentFakeHandle{pid: 4242}}
 	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
 	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+	cleanupPersistentTestService(t, svc)
 	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-control", Command: "cat", CWD: "/", Persistent: true, SessionName: "control"})
 	if err != nil {
 		t.Fatal(err)
@@ -310,18 +318,12 @@ func TestPersistentControlWithoutAuthenticatedAttachmentNeverFallsBackToGenericH
 	handle := &persistentFakeHandle{pid: 4242}
 	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
 	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
-	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-no-control-proof", Command: "cat", CWD: "/", Persistent: true, SessionName: "no-control-proof"})
-	if err != nil {
-		t.Fatal(err)
+	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-no-control-proof", Command: "cat", CWD: "/", Persistent: true, SessionName: "no-control-proof"})
+	if !errors.Is(err, failure.SupervisorStateConflict) {
+		t.Fatalf("start without authenticated recovery attachment err=%v", err)
 	}
-	if _, err := svc.Write(context.Background(), app.WriteRequest{SessionID: view.SessionID, InputOffset: 0, Chars: "x"}); !errors.Is(err, failure.SupervisorUnavailable) {
-		t.Fatalf("write without control proof err=%v", err)
-	}
-	if _, err := svc.Kill(context.Background(), app.KillRequest{SessionID: view.SessionID, KillID: "caller-kill", Signal: "TERM"}); !errors.Is(err, failure.SupervisorUnavailable) {
-		t.Fatalf("kill without control proof err=%v", err)
-	}
-	if handle.writes.Load() != 0 || handle.signals.Load() != 0 {
-		t.Fatalf("generic fallback writes=%d signals=%d", handle.writes.Load(), handle.signals.Load())
+	if handle.writes.Load() != 0 || handle.signals.Load() != 0 || handle.closes.Load() != 1 {
+		t.Fatalf("generic fallback writes=%d signals=%d closes=%d", handle.writes.Load(), handle.signals.Load(), handle.closes.Load())
 	}
 }
 
@@ -356,6 +358,23 @@ func (h *persistentControlFakeHandle) WaitStatus(context.Context, uint64, int) (
 }
 func (h *persistentControlFakeHandle) Terminal(context.Context) (persistentapp.TerminalEvidence, error) {
 	return persistentapp.TerminalEvidence{}, nil
+}
+func (h *persistentControlFakeHandle) RecoveryState(context.Context) (int64, int64, error) {
+	return 0, 0, nil
+}
+func (h *persistentControlFakeHandle) Cleanup(context.Context) error { return nil }
+
+var _ persistentapp.RecoveryAttachment = (*persistentControlFakeHandle)(nil)
+
+func cleanupPersistentTestService(t *testing.T, svc *app.Service) {
+	t.Helper()
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := svc.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown persistent test service: %v", err)
+		}
+	})
 }
 
 type countingPersistentRuntime struct{ calls atomic.Int32 }

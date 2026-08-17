@@ -14,19 +14,33 @@ import (
 
 const persistentReconcileChunkBytes = 32 * 1024
 
-func (s *Service) startPersistentReconciliation(live *liveSession) {
-	control, ok := live.handle.(persistentapp.RecoveryAttachment)
+type persistentReconciliationOwner struct {
+	control      persistentapp.RecoveryAttachment
+	outputStore  persistentOutputStore
+	bindingStore PersistentSessionStore
+}
+
+// preparePersistentReconciliation proves that a persistent Running session can
+// have a lifecycle owner before Running is ever published. This prevents a
+// successful launch from becoming ownerless merely because a handle or store
+// lacks the recovery surface the reconciler needs.
+func (s *Service) preparePersistentReconciliation(handle ProcessHandle) (persistentReconciliationOwner, error) {
+	control, ok := handle.(persistentapp.RecoveryAttachment)
 	if !ok {
-		return
+		return persistentReconciliationOwner{}, failure.New(failure.SupervisorStateConflict, map[string]string{"reason": "recovery_attachment"}, nil)
 	}
 	outputStore, ok := s.store.(persistentOutputStore)
 	if !ok {
-		return
+		return persistentReconciliationOwner{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_output_reconciliation"}, nil)
 	}
 	bindingStore, ok := s.store.(PersistentSessionStore)
 	if !ok {
-		return
+		return persistentReconciliationOwner{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_binding_reconciliation"}, nil)
 	}
+	return persistentReconciliationOwner{control: control, outputStore: outputStore, bindingStore: bindingStore}, nil
+}
+
+func (s *Service) startPersistentReconciliation(live *liveSession, owner persistentReconciliationOwner) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	live.mu.Lock()
@@ -35,7 +49,7 @@ func (s *Service) startPersistentReconciliation(live *liveSession) {
 	live.mu.Unlock()
 	go func() {
 		defer close(done)
-		s.runPersistentReconciliation(ctx, live, control, outputStore, bindingStore)
+		s.runPersistentReconciliation(ctx, live, owner.control, owner.outputStore, owner.bindingStore)
 	}()
 }
 
