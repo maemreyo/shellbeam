@@ -4,8 +4,8 @@
 
 ```text
 verdict = FAIL
-reason = semantic_retrace_function_cap_conflict
-attempt = 3
+reason = exact_source_whitespace_policy_conflict
+attempt = 4
 ```
 
 Task 0 is not authorized by this receipt. No production media implementation was performed.
@@ -14,47 +14,56 @@ Task 0 is not authorized by this receipt. No production media implementation was
 
 ```text
 execution_base_sha = a92a52fba7d123c50d84e5b879e65d176bd25444
-branch_head_sha = fb2b3feb9acc54e039b0a32ca757e823338b658a
-plan_sha256 = 0ccc32ec1a0e0a1d81fe8cabf436536c15067454c611931d258702495df7b88f
+branch_head_sha = 2a55ec4dba238dd918e4577501e722e1f3644e10
+plan_sha256 = 3b614cfe97ca4d238433bc512b62f3032a1908019dfb5fc34fa8d4dc173e6213
 approved_source_path = docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md
 approved_source_sha256 = 7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906
 approved_source_lines = 1657
 approved_source_bytes = 79933
 contributor_contract_sha256 = f7938af79f22a90d50ccf3dd267ba823e0704b5241fa82aa124eb0a0355b988d
 touchpoint_inventory = PASS
-semantic_seam_inventory = FAIL
+semantic_seam_inventory = PASS
+contributor_policy_mapping = PASS
+pass_commit_hygiene = FAIL
 ```
 
-## Attempt 3 verification
+## Attempt 4 results before PASS commit
 
-- Clean gate, fresh fetch, base ancestry/rebase: PASS.
-- Frozen execution base: `a92a52fba7d123c50d84e5b879e65d176bd25444`.
-- Exact approved v8 compressed stream and decoded 1,657-line / 79,933-byte / `7d719f5a...c6906` source: PASS.
-- Dependency-aware Create/Modify/Test availability: PASS with zero path problems.
-- Named ownership anchors (daemon resolver/service, IPC v2, bridge port/handler, capability/failure, MCP decode/server): present and compatible with the plan.
-- File-cap correction from `fb2b3fe` resolves the previously known near/over-500 file growth by planning same-package splits for IPC protocol/server and MCP call/input responsibilities.
+- Clean gate, fresh fetch/rebase/ancestry: PASS on `a92a52fba7d123c50d84e5b879e65d176bd25444`.
+- Exact approved v8 source: PASS, 1,657 lines / 79,933 bytes / SHA-256 `7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906`.
+- Dependency-aware path inventory: PASS, 97 declaration occurrences, zero path problems.
+- Exact seam anchors: PASS.
+- Current hard policy debt: exactly three known items (503-line IPC server plus daemon functions 86/81), all mapped to explicit behavior-preserving structural remedies in the plan.
+- Near-function headroom and interface scan: PASS; no hard interface violation remained unmapped.
 
-## Remaining hard-cap conflict
+## PASS-commit blocker
 
-A broader fresh policy scan replicated the active `tools/devctl/check.go` rules across every existing Go file the plan declares Modify/Test. It found two pre-existing functions in `cmd/shellbeam/command_daemon.go` that exceed the repository hard function cap and would therefore fail any later tracked-hook commit that stages this file:
+The exact approved source itself contains one trailing ASCII space at line 328. Because the source is immutable by SHA, trimming that byte would violate approved-source identity. Branch C requires staging the exact source, while both the plan and tracked hook require raw `git diff --cached --check`.
+
+Fresh staged check failed exactly at:
 
 ```text
-cmd/shellbeam/command_daemon.go = 392 lines
-runDaemonWithCodeProvider = 86 lines  -> hard cap 80
-serveDaemonRuntime = 81 lines         -> hard cap 80
+docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md:328: trailing whitespace.
 ```
 
-Root `AGENTS.md` requires function review above 60 and fails above 80. `devctl commit-gate` invokes `checkFile` on every staged Go file, and `checkFile` rejects functions above 80 without grandfathering. Tasks 4 and 6 both plan to modify/stage `cmd/shellbeam/command_daemon.go`, so the current plan is still not executable under its mandatory contributor workflow.
+The tracked hook implementation at `tools/devctl/commit_gate.go` also invokes raw `git diff --cached --check`, so this cannot be bypassed by changing only the outer commit command.
 
-No other existing planned staged Go file had a function above 80 in this scan. The already-known 503-line `server_unix.go` is now covered by an explicit behavior-preserving split before media edits; the near-cap MCP/IPC files similarly have explicit headroom moves.
+A separate temporary Git repository verified a narrow durable mechanism: a `.gitattributes` rule
 
-Required correction before retry: Task 4 must create behavior-preserving daemon-composition headroom by extracting responsibilities from `runDaemonWithCodeProvider` and `serveDaemonRuntime` into focused helpers/files so every changed function is <=80 before media wiring. Task 6 must reuse that corrected composition surface rather than reintroduce long functions. Then rerun the full path + file/function/interface policy scan before declaring Task -1 PASS.
+```gitattributes
+docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md -whitespace
+```
+
+causes `git diff --cached --check` to ignore whitespace diagnostics only for that exact immutable evidence path while still rejecting trailing whitespace in ordinary files. The current approved Task -1 does not authorize creating/staging `.gitattributes` in Branch C, so attempt 4 must FAIL rather than add the exception ad hoc.
+
+Required correction: add a Task -1 provenance/hygiene step that creates or updates tracked `.gitattributes` with the exact-path `-whitespace` exception, verifies no wildcard/broader scope, stages it together with PASS evidence + exact v8 source, and records why the exception exists. The exception must apply only to this immutable approved artifact and must not weaken Go/docs whitespace checks elsewhere.
 
 ## Attempt history
 
-- Attempt 1: FAIL / base-only path inventory rule; receipt commit `8decbc5eae48f7034b5bb9f2b871458ac96d593c`; corrected by `1e6cbcae5a1da1bdd9c6413d0b6dfdf04a8cf922`.
-- Attempt 2: FAIL / staged-file hard-cap conflict; receipt commit `e7b80afe9e88815ec857283d9e3aee1fb8f0ff2f`; corrected by plan commit `fb2b3feb9acc54e039b0a32ca757e823338b658a`.
-- Attempt 3: current FAIL / daemon composition function-cap conflict.
+- Attempt 1: FAIL / base-only path inventory; closed by `8decbc5eae48f7034b5bb9f2b871458ac96d593c`.
+- Attempt 2: FAIL / staged file-cap mapping; closed by `e7b80afe9e88815ec857283d9e3aee1fb8f0ff2f`.
+- Attempt 3: FAIL / daemon function-cap mapping; closed by `a693736d644777744d638f9ff78400e1ad62282b`.
+- Attempt 4: current FAIL / exact-source whitespace policy conflict after all semantic/path checks passed.
 
 ## Stop condition
 
