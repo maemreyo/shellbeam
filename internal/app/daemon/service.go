@@ -78,6 +78,7 @@ type liveSession struct {
 	writerDone              chan struct{}
 	done                    chan struct{}
 	doneOnce                sync.Once
+	persistentTerminalOnce  sync.Once
 	coherenceLease          ManagedShellLease
 	persistent              bool
 	persistentReattached    bool

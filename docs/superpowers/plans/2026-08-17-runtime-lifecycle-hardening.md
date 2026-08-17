@@ -195,7 +195,7 @@ git commit -m "fix: supervise persistent reconciliation lifecycle"
 **Interfaces:**
 - Produces: an idempotent live terminal projection/scheduling path; binding persistence remains retryable separately.
 
-- [ ] **Step 1: Write a RED binding-update fault test**
+- [x] **Step 1: Write a RED binding-update fault test**
 
 Wrap the persistent store so the first `AdvancePersistentBinding(...Terminal)` fails after `PublishTerminal` succeeds. Assert:
 - durable receipt is terminal;
@@ -203,7 +203,7 @@ Wrap the persistent store so the first `AdvancePersistentBinding(...Terminal)` f
 - terminal workers schedule exactly once;
 - reconciliation later retries binding closure and binding becomes Terminal.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 go test ./internal/app/daemon -run 'TestPersistentTerminal.*Binding.*Failure' -count=1
@@ -211,15 +211,15 @@ go test ./internal/app/daemon -run 'TestPersistentTerminal.*Binding.*Failure' -c
 
 Expected: current code leaves live state Running and the goroutine exits.
 
-- [ ] **Step 3: Project canonical terminal to live state immediately**
+- [x] **Step 3: Project canonical terminal to live state immediately**
 
 Right after successful `publishPersistentTerminal`, mirror terminal state/outcome/evidence into `live` and notify waiters. Use a `sync.Once` on `liveSession` for structured/telemetry/evidence scheduling so retrying binding closure cannot schedule duplicates.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run focused persistent terminal/reconciliation tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add internal/app/daemon

@@ -266,9 +266,7 @@ func (s *Service) finishPersistentTerminal(ctx context.Context, live *liveSessio
 	if err := s.publishPersistentTerminal(ctx, rec); err != nil {
 		return err
 	}
-	s.scheduleStructuredTerminal(rec, live.reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
-	s.scheduleEvidenceTerminal(rec, live.reservation)
+	s.projectAndSchedulePersistentTerminal(live, rec)
 	previousUpdate := binding.UpdatedAt
 	binding.Lifecycle = persistentcore.LifecycleTerminal
 	binding.UpdatedAt = time.Now().UTC()
@@ -280,19 +278,16 @@ func (s *Service) finishPersistentTerminal(ctx context.Context, live *liveSessio
 	}
 	s.endManagedShell(live)
 	_ = control.Cleanup(ctx)
-	live.mu.Lock()
-	live.state = terminal.State
-	live.outcome = terminal.Outcome
-	live.exit = terminal.Exit
-	live.signal = terminal.Signal
-	live.accepted = terminal.InputAcceptedBytes
-	live.delivered = terminal.InputDeliveredBytes
-	live.eof = terminal.StdinClosed
-	live.outputBytes = terminal.OutputBytes
-	live.notify()
-	live.doneOnce.Do(func() { close(live.done) })
-	live.mu.Unlock()
 	return nil
+}
+
+func (s *Service) projectAndSchedulePersistentTerminal(live *liveSession, rec receipt.Receipt) {
+	live.persistentTerminalOnce.Do(func() {
+		s.projectPersistentTerminalLive(live, rec)
+		s.scheduleStructuredTerminal(rec, live.reservation.StructuredAdapter)
+		s.scheduleTelemetryTerminal(rec)
+		s.scheduleEvidenceTerminal(rec, live.reservation)
+	})
 }
 
 func (s *Service) persistentTerminalReceipt(live *liveSession, terminal persistentapp.TerminalEvidence) receipt.Receipt {

@@ -242,6 +242,98 @@ func (h *persistentReconcileHandle) Ack() int64 {
 
 var _ persistentapp.RecoveryAttachment = (*persistentReconcileHandle)(nil)
 
+type failOnceTerminalBindingStore struct {
+	*storeadapter.Repository
+	attempts     atomic.Int32
+	firstFailed  chan struct{}
+	retryBlocked chan struct{}
+	allowRetry   chan struct{}
+}
+
+func newFailOnceTerminalBindingStore(base *storeadapter.Repository) *failOnceTerminalBindingStore {
+	return &failOnceTerminalBindingStore{Repository: base, firstFailed: make(chan struct{}), retryBlocked: make(chan struct{}), allowRetry: make(chan struct{})}
+}
+
+func (s *failOnceTerminalBindingStore) AdvancePersistentBinding(ctx context.Context, binding persistentcore.Binding) app.StoreResult {
+	if binding.Lifecycle != persistentcore.LifecycleTerminal {
+		return s.Repository.AdvancePersistentBinding(ctx, binding)
+	}
+	switch s.attempts.Add(1) {
+	case 1:
+		close(s.firstFailed)
+		return app.StoreResult{Durability: app.NoDurableChange, Err: errors.New("injected terminal binding failure")}
+	case 2:
+		close(s.retryBlocked)
+		select {
+		case <-ctx.Done():
+			return app.StoreResult{Durability: app.NoDurableChange, Err: ctx.Err()}
+		case <-s.allowRetry:
+		}
+	}
+	return s.Repository.AdvancePersistentBinding(ctx, binding)
+}
+
+func TestPersistentTerminalBindingFailureProjectsLiveTerminalAndSchedulesOnce(t *testing.T) {
+	base := openPersistentLaunchStore(t)
+	store := newFailOnceTerminalBindingStore(base)
+	handle := newPersistentReconcileHandle([]byte("done"))
+	runtime := &persistentReconcileRuntime{store: base, handle: handle}
+	worker := &recordingTelemetryWorker{store: base}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{
+		Incarnation: "persistent-terminal-binding-fault", Shell: "/bin/sh", MaxQueuedInputBytes: 100,
+		PersistentRuntime: runtime, TelemetryWorker: worker,
+	})
+	started, err := svc.Start(context.Background(), app.StartRequest{
+		ProtocolVersion: 2, OperationID: "persistent-terminal-binding-fault", Command: "printf done", CWD: "/",
+		Persistent: true, SessionName: "persistent-terminal-binding-fault", YieldMS: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-store.firstFailed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first terminal binding update did not fail")
+	}
+	select {
+	case <-store.retryBlocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("reconciler did not retry terminal binding update")
+	}
+
+	rec, err := base.LoadReceipt(context.Background(), operation.SessionID(started.SessionID))
+	if err != nil || rec.State != session.Completed || rec.Outcome != session.Success {
+		t.Fatalf("receipt=%#v err=%v", rec, err)
+	}
+	view, err := svc.Poll(context.Background(), app.PollRequest{SessionID: started.SessionID, YieldMS: 0})
+	if err != nil || view.State != session.Completed || view.Outcome != session.Success {
+		t.Fatalf("poll during binding retry=%#v err=%v", view, err)
+	}
+	if worker.count() != 1 {
+		t.Fatalf("terminal worker calls during retry=%d", worker.count())
+	}
+	binding, err := base.LoadPersistentBinding(context.Background(), operation.SessionID(started.SessionID))
+	if err != nil || binding.Lifecycle != persistentcore.LifecycleLive {
+		t.Fatalf("binding before retry release=%#v err=%v", binding, err)
+	}
+
+	close(store.allowRetry)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		binding, err = base.LoadPersistentBinding(context.Background(), operation.SessionID(started.SessionID))
+		if err == nil && binding.Lifecycle == persistentcore.LifecycleTerminal {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("binding did not converge terminal: %#v err=%v", binding, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if worker.count() != 1 {
+		t.Fatalf("terminal worker calls after convergence=%d", worker.count())
+	}
+}
+
 func TestPersistentReconciliationOutputConflictKeepsCanonicalTruthLive(t *testing.T) {
 	store := openPersistentLaunchStore(t)
 	handle := newPersistentReconcileHandle([]byte("hello"))
