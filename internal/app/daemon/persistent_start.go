@@ -7,6 +7,7 @@ import (
 
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -92,7 +93,44 @@ func (s *Service) publishPersistentSpawnFailure(reservation operation.Reservatio
 	rec.Spawn = spawn
 	s.attachWorkspaceProvenance(&rec, workspace)
 	s.publishUntilDurable(rec)
+	s.convergeFailedPersistentBinding(reservation.SessionID)
 	s.scheduleStructuredTerminal(rec, reservation.StructuredAdapter)
 	s.scheduleTelemetryTerminal(rec)
 	s.scheduleEvidenceTerminal(rec, reservation)
+}
+
+// convergeFailedPersistentBinding closes any persistent recovery ownership that
+// was provisioned before a start failed. The canonical failed receipt is
+// already durable when this runs, so no new child may be launched or signaled;
+// the only legal convergence is away from Provisioning/Live to Lost.
+func (s *Service) convergeFailedPersistentBinding(sessionID operation.SessionID) {
+	store, ok := s.store.(PersistentSessionStore)
+	if !ok {
+		return
+	}
+	delay := 25 * time.Millisecond
+	for {
+		binding, found, err := store.FindPersistentBinding(context.Background(), sessionID)
+		if err == nil {
+			if !found || binding.Lifecycle == persistentcore.LifecycleLost || binding.Lifecycle == persistentcore.LifecycleTerminal {
+				return
+			}
+			lost := binding
+			lost.Lifecycle = persistentcore.LifecycleLost
+			lost.UpdatedAt = time.Now().UTC()
+			if !lost.UpdatedAt.After(binding.UpdatedAt) {
+				lost.UpdatedAt = binding.UpdatedAt.Add(time.Nanosecond)
+			}
+			if result := store.AdvancePersistentBinding(context.Background(), lost); result.Err == nil {
+				return
+			}
+		}
+		time.Sleep(delay)
+		if delay < time.Second {
+			delay *= 2
+			if delay > time.Second {
+				delay = time.Second
+			}
+		}
+	}
 }

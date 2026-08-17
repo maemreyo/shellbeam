@@ -13,6 +13,7 @@ import (
 	persistentapp "github.com/maemreyo/shellbeam/internal/app/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
@@ -83,6 +84,64 @@ func TestPersistentStartUsesRuntimeAfterDurableReservationAndRetriesWithoutRelau
 // failure until every slot was exhausted and every future start -- persistent
 // or not -- failed with capacity_exceeded no matter how many times the daemon
 // was restarted.
+type provisioningFailureRuntime struct {
+	store *storeadapter.Repository
+}
+
+func (r *provisioningFailureRuntime) Ensure(ctx context.Context, reservation operation.Reservation, _ operation.ExecutionSpec) (app.PersistentLaunch, error) {
+	binding := persistentcore.Binding{
+		SchemaVersion: persistentcore.SchemaVersion, SessionID: string(reservation.SessionID), OperationID: string(reservation.OperationID),
+		ActivityID: reservation.ActivityID, WorkspaceID: reservation.WorkspaceID, SessionName: reservation.SessionName,
+		Persistent: true, Supervision: persistentcore.SupervisionPerSession, Continuity: persistentcore.ContinuityDaemonRestart,
+		SupervisorGenerationID: "generation-start-failure", SupervisorEndpointRef: "endpoint-start-failure",
+		Lifecycle: persistentcore.LifecycleProvisioning, CreatedAt: reservation.CreatedAt.UTC(), UpdatedAt: reservation.CreatedAt.UTC(),
+	}
+	if _, _, result := r.store.ReservePersistentBinding(ctx, binding); result.Err != nil {
+		return app.PersistentLaunch{}, result.Err
+	}
+	return app.PersistentLaunch{}, failure.New(failure.SupervisorUnavailable, map[string]string{"reason": "injected_after_provisioning"}, nil)
+}
+
+func TestPersistentLaunchFailureAfterProvisioningClosesBindingAndRecoveryMarker(t *testing.T) {
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 1, MaxSessionOutput: 1 << 20, MaxTotalState: 8 << 20, ControlReserve: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &provisioningFailureRuntime{store: store}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+
+	_, err = svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-fail-after-binding", Command: "sleep 10", CWD: "/", Persistent: true, SessionName: "fail-after-binding"})
+	if !errors.Is(err, failure.SupervisorUnavailable) {
+		t.Fatalf("start err=%v", err)
+	}
+	reservation, err := store.LoadOperation(context.Background(), "persistent-fail-after-binding")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.LoadSession(context.Background(), reservation.SessionID)
+	if err != nil || snapshot.State != session.Failed {
+		t.Fatalf("snapshot=%#v err=%v", snapshot, err)
+	}
+	stored, err := store.LoadPersistentBinding(context.Background(), reservation.SessionID)
+	if err != nil || stored.Lifecycle != persistentcore.LifecycleLost {
+		t.Fatalf("binding=%#v err=%v", stored, err)
+	}
+	candidates, err := store.ListPersistentRecoveryCandidates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range candidates {
+		if candidate.SessionID == string(reservation.SessionID) {
+			t.Fatalf("failed session remained recovery candidate: %#v", candidate)
+		}
+	}
+	second, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "after-persistent-binding-fail", Command: "true", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatalf("capacity remained occupied: %v", err)
+	}
+	_ = waitForTerminal(t, svc, second.SessionID)
+}
+
 func TestPersistentLaunchFailureDoesNotPublishRunningOrUseDirectOwner(t *testing.T) {
 	// A capacity of exactly one makes a leaked slot observable: the second
 	// Start below can only succeed if the failed launch actually released it.

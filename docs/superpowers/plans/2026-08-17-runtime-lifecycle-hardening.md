@@ -90,7 +90,7 @@ git commit -m "fix: finalize admitted direct start failures"
 - Consumes: `PersistentSessionStore.FindPersistentBinding`, `AdvancePersistentBinding`, existing `publishPersistentSpawnFailure`.
 - Produces: a persistent-start failure convergence helper that leaves no `Provisioning`/`Live` binding after the Start call returns.
 
-- [ ] **Step 1: Write a RED test using a runtime that reserves a real provisioning binding and then returns an Ensure error**
+- [x] **Step 1: Write a RED test using a runtime that reserves a real provisioning binding and then returns an Ensure error**
 
 The runtime must call `ReservePersistentBinding` before returning the injected error. Assert after Start returns:
 - canonical session is terminal;
@@ -98,7 +98,7 @@ The runtime must call `ReservePersistentBinding` before returning the injected e
 - binding is `Lost`;
 - `ListPersistentRecoveryCandidates` does not include the session.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 ```bash
 go test ./internal/app/daemon -run 'TestPersistent.*Failure.*Binding' -count=1
@@ -106,21 +106,21 @@ go test ./internal/app/daemon -run 'TestPersistent.*Failure.*Binding' -count=1
 
 Expected: current `c1961ed` leaves binding `Provisioning` and recovery marker active.
 
-- [ ] **Step 3: Converge existing binding to Lost after durable failed receipt**
+- [x] **Step 3: Converge existing binding to Lost after durable failed receipt**
 
 After the failed receipt is durable, look up the persistent binding. If absent, keep current behavior. If `Provisioning` or `Live`, advance it monotonically to `Lost`; retry ambiguous/transient persistence until the binding is no longer active. Never signal the child.
 
-- [ ] **Step 4: Add restart repair before reattach**
+- [x] **Step 4: Add restart repair before reattach**
 
 Before `ReconcilePersistentStartup` reattaches an active binding, check canonical session metadata. If the session is already terminal, do not reattach. Converge the stale active binding away from `Provisioning`/`Live` and remove its recovery marker.
 
-- [ ] **Step 5: Verify focused tests**
+- [x] **Step 5: Verify focused tests**
 
 ```bash
 go test ./internal/app/daemon -run 'TestPersistent.*(Failure.*Binding|Startup.*Terminal)' -count=1
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add internal/app/daemon
