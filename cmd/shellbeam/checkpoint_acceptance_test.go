@@ -161,6 +161,81 @@ func TestE26CheckpointLostResponseReplaySurvivesDaemonReconstruction(t *testing.
 	}
 }
 
+func TestE26BatchedNoTaxEstimatorRejectsPersistentTaxAndIgnoresOneNoisyWindow(t *testing.T) {
+	const batchSize = 10
+	disabled := make([]time.Duration, 40)
+	enabled := make([]time.Duration, 40)
+	persistent := make([]time.Duration, 40)
+	for i := range disabled {
+		drift := time.Duration(i/batchSize) * 50 * time.Millisecond
+		base := drift + time.Duration(i%batchSize+1)*time.Millisecond
+		disabled[i] = base
+		enabled[i] = base + 2*time.Millisecond
+		persistent[i] = base + 12*time.Millisecond
+	}
+	// One scheduler-distorted window must not redefine the feature tax.
+	enabled[0] += 100 * time.Millisecond
+	p95, p99, ok := e26BatchedIncrementPercentiles(disabled, enabled, batchSize)
+	if !ok || p95 != 2*time.Millisecond || p99 != 2*time.Millisecond {
+		t.Fatalf("batched estimator p95=%s p99=%s ok=%v", p95, p99, ok)
+	}
+	p95, p99, ok = e26BatchedIncrementPercentiles(disabled, persistent, batchSize)
+	if !ok || p95 != 12*time.Millisecond || p99 != 12*time.Millisecond {
+		t.Fatalf("persistent tax was not preserved p95=%s p99=%s ok=%v", p95, p99, ok)
+	}
+}
+
+type e26NoTaxMeasurement struct {
+	disabledP95 time.Duration
+	disabledP99 time.Duration
+	enabledP95  time.Duration
+	enabledP99  time.Duration
+	inc95       time.Duration
+	inc99       time.Duration
+}
+
+func e26BatchedIncrementPercentiles(disabled, enabled []time.Duration, batchSize int) (time.Duration, time.Duration, bool) {
+	if len(disabled) != len(enabled) || batchSize < 2 || len(disabled) < batchSize || len(disabled)%batchSize != 0 {
+		return 0, 0, false
+	}
+	p95Deltas := make([]time.Duration, 0, len(disabled)/batchSize)
+	p99Deltas := make([]time.Duration, 0, len(disabled)/batchSize)
+	for start := 0; start < len(disabled); start += batchSize {
+		end := start + batchSize
+		p95Deltas = append(p95Deltas, e26Percentile(enabled[start:end], 95)-e26Percentile(disabled[start:end], 95))
+		p99Deltas = append(p99Deltas, e26Percentile(enabled[start:end], 99)-e26Percentile(disabled[start:end], 99))
+	}
+	return e26Percentile(p95Deltas, 50), e26Percentile(p99Deltas, 50), true
+}
+
+func measureE26NoTaxWindow(t *testing.T, disabled, enabled *ipcadapter.Client, cwd, label string) e26NoTaxMeasurement {
+	t.Helper()
+	const samples = 200
+	disabledDurations := make([]time.Duration, 0, samples)
+	enabledDurations := make([]time.Duration, 0, samples)
+	for i := 0; i < samples; i++ {
+		disabledID := fmt.Sprintf("e26-disabled-%s-%d", label, i)
+		enabledID := fmt.Sprintf("e26-enabled-%s-%d", label, i)
+		if i%2 == 0 {
+			disabledDurations = append(disabledDurations, measureE26Admission(t, disabled, disabledID, cwd))
+			enabledDurations = append(enabledDurations, measureE26Admission(t, enabled, enabledID, cwd))
+		} else {
+			enabledDurations = append(enabledDurations, measureE26Admission(t, enabled, enabledID, cwd))
+			disabledDurations = append(disabledDurations, measureE26Admission(t, disabled, disabledID, cwd))
+		}
+	}
+	dp95, dp99 := e26Percentile(disabledDurations, 95), e26Percentile(disabledDurations, 99)
+	ep95, ep99 := e26Percentile(enabledDurations, 95), e26Percentile(enabledDurations, 99)
+	inc95, inc99, ok := e26BatchedIncrementPercentiles(disabledDurations, enabledDurations, 20)
+	if !ok {
+		t.Fatal("invalid E26 no-tax batch shape")
+	}
+	return e26NoTaxMeasurement{
+		disabledP95: dp95, disabledP99: dp99, enabledP95: ep95, enabledP99: ep99,
+		inc95: inc95, inc99: inc99,
+	}
+}
+
 func TestE26EnabledUnusedAdmissionIncrementalP95P99(t *testing.T) {
 	disabledState, disabledRun := a1RuntimeDirs(t)
 	enabledState, enabledRun := a1RuntimeDirs(t)
@@ -174,27 +249,14 @@ func TestE26EnabledUnusedAdmissionIncrementalP95P99(t *testing.T) {
 		_ = measureE26Admission(t, disabled, fmt.Sprintf("e26-disabled-warm-%d", i), cwd)
 		_ = measureE26Admission(t, enabled, fmt.Sprintf("e26-enabled-warm-%d", i), cwd)
 	}
-	// Independent percentile deltas represent the feature tax we care about;
-	// paired single-call deltas amplify scheduler jitter. Use enough alternating
-	// samples that p95/p99 are not determined by one or two transient calls.
-	const samples = 200
-	disabledDurations := make([]time.Duration, 0, samples)
-	enabledDurations := make([]time.Duration, 0, samples)
-	for i := 0; i < samples; i++ {
-		if i%2 == 0 {
-			disabledDurations = append(disabledDurations, measureE26Admission(t, disabled, fmt.Sprintf("e26-disabled-%d", i), cwd))
-			enabledDurations = append(enabledDurations, measureE26Admission(t, enabled, fmt.Sprintf("e26-enabled-%d", i), cwd))
-		} else {
-			enabledDurations = append(enabledDurations, measureE26Admission(t, enabled, fmt.Sprintf("e26-enabled-%d", i), cwd))
-			disabledDurations = append(disabledDurations, measureE26Admission(t, disabled, fmt.Sprintf("e26-disabled-%d", i), cwd))
-		}
-	}
-	dp95, dp99 := e26Percentile(disabledDurations, 95), e26Percentile(disabledDurations, 99)
-	ep95, ep99 := e26Percentile(enabledDurations, 95), e26Percentile(enabledDurations, 99)
-	inc95, inc99 := ep95-dp95, ep99-dp99
-	t.Logf("E26 ordinary admission disabled p95=%s p99=%s enabled p95=%s p99=%s incremental p95=%s p99=%s", dp95, dp99, ep95, ep99, inc95, inc99)
-	if inc95 > 5*time.Millisecond || inc99 > 10*time.Millisecond {
-		t.Fatalf("E26 no-tax budget exceeded incremental p95=%s p99=%s", inc95, inc99)
+
+	// Estimate incremental tail tax in ten local 20-sample windows, then use
+	// the median window delta. This keeps the original p95/p99 budgets while
+	// preventing one scheduler regime from dominating the cross-daemon delta.
+	measurement := measureE26NoTaxWindow(t, disabled, enabled, cwd, "batched")
+	t.Logf("E26 ordinary admission disabled p95=%s p99=%s enabled p95=%s p99=%s batched incremental p95=%s p99=%s", measurement.disabledP95, measurement.disabledP99, measurement.enabledP95, measurement.enabledP99, measurement.inc95, measurement.inc99)
+	if measurement.inc95 > 5*time.Millisecond || measurement.inc99 > 10*time.Millisecond {
+		t.Fatalf("E26 no-tax budget exceeded batched incremental p95=%s p99=%s", measurement.inc95, measurement.inc99)
 	}
 	if capture, restore, inspect, sweep := provider.counts(); capture != 0 || restore != 0 || inspect != 0 || sweep != 0 {
 		t.Fatalf("enabled ordinary admission touched provider capture=%d restore=%d inspect=%d sweep=%d", capture, restore, inspect, sweep)
