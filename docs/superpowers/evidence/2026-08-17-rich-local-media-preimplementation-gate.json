@@ -228,50 +228,50 @@
       {
         "fail_trials": 0,
         "id": "payload-64k",
-        "not_run_trials": 1,
+        "not_run_trials": 0,
         "pass_threshold": 1,
-        "pass_trials": 0,
+        "pass_trials": 1,
         "provenance": [
           "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
         ],
         "required_trials": 1,
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "fail_trials": 0,
         "id": "payload-256k",
-        "not_run_trials": 1,
+        "not_run_trials": 0,
         "pass_threshold": 1,
-        "pass_trials": 0,
+        "pass_trials": 1,
         "provenance": [
           "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
         ],
         "required_trials": 1,
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "fail_trials": 0,
         "id": "payload-1m",
-        "not_run_trials": 1,
+        "not_run_trials": 0,
         "pass_threshold": 1,
-        "pass_trials": 0,
+        "pass_trials": 1,
         "provenance": [
           "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
         ],
         "required_trials": 1,
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "fail_trials": 0,
         "id": "payload-4m",
-        "not_run_trials": 1,
+        "not_run_trials": 0,
         "pass_threshold": 1,
-        "pass_trials": 0,
+        "pass_trials": 1,
         "provenance": [
           "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
         ],
         "required_trials": 1,
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "fail_trials": 0,
@@ -300,26 +300,26 @@
       {
         "fail_trials": 0,
         "id": "format-jpeg",
-        "not_run_trials": 1,
+        "not_run_trials": 0,
         "pass_threshold": 1,
-        "pass_trials": 0,
+        "pass_trials": 1,
         "provenance": [
           "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
         ],
         "required_trials": 1,
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "fail_trials": 0,
         "id": "format-webp",
-        "not_run_trials": 1,
+        "not_run_trials": 0,
         "pass_threshold": 1,
-        "pass_trials": 0,
+        "pass_trials": 1,
         "provenance": [
           "docs/superpowers/evidence/2026-08-17-rich-local-media-phase-a.md"
         ],
         "required_trials": 1,
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "fail_trials": 0,
@@ -426,7 +426,7 @@
   "schema_version": 1,
   "sha256": {
     "parser": "54d0a42f0a8f9ebf04f4e89967efdc2dbd5a19e9c23c6d1516f82993bb2c31ba",
-    "phase_a": "94c3ed8c6050d7de4091138e2f8b6b4a08051ab86793672a0b1939f7eb82d575",
+    "phase_a": "1d95a6895a6b5dc71f6023e64c4936d0dbfd9610caf06fb8d5bc9644653e7a17",
     "plan": "875bc14f14fa1a5291bc206df4d01d178c96c22ae9b48758810c8e060bef3c5b",
     "preflight": "1cf03afe18f094e88aa10cf66bb6fe054633f1269cc7933af13c601eb4730d4e",
     "source": "7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906",
