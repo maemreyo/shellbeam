@@ -305,29 +305,43 @@ git commit -m "fix: require persistent recovery ownership before running"
 **Files:**
 - No production changes unless a regression is found and reproduced with a RED test first.
 
-- [ ] **Step 1: Focused repeat**
+- [x] **Step 1: Focused repeat**
 
 ```bash
 go test ./internal/app/daemon ./internal/adapter/store -count=3
 ```
 
-- [ ] **Step 2: Race**
+PASS on final HEAD `b64b03e`: daemon 317.994s, store 378.600s.
+
+- [x] **Step 2: Race**
 
 ```bash
 go test -race ./internal/app/daemon ./internal/adapter/store
 ```
 
-- [ ] **Step 3: Full suite**
+PASS on final HEAD.
+
+- [x] **Step 3: Full suite**
 
 ```bash
 go test ./...
 ```
 
-- [ ] **Step 4: Repository checks**
+`make test` PASS on rerun. The first full-suite run hit one load-sensitive A2.5 acceptance failure where the shared 2s process-observation budget expired before the fake `lsof` process could start; the exact test then passed 10/10 in isolation and the full suite passed on rerun, so no unrelated test patch was mixed into this branch.
+
+- [x] **Step 4: Repository checks**
 
 Run the project-supported `devctl` test/check commands discovered in this worktree, using dirty/base flags only if required by the command contract.
 
-- [ ] **Step 5: Inspect final diff/status**
+Results:
+- `make fmt-check` PASS.
+- `go mod verify` PASS.
+- `go vet ./internal/app/daemon ./internal/adapter/store` PASS.
+- `make hardening` PASS, including build, broader race coverage, repeated core tests, and bounded fuzz campaigns.
+- Global `go vet ./...` is blocked by a pre-existing `copylocks` finding in `internal/app/telemetry/service_test.go:211`; exact failure reproduced on base `main@c1961ed`.
+- `make devctl-verify` is blocked by a pre-existing 86-line `runDaemonWithCodeProvider` hard-cap violation (limit 80); exact failure reproduced on base `main@c1961ed`.
+
+- [x] **Step 5: Inspect final diff/status**
 
 ```bash
 git status --short --branch
