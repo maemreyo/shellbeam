@@ -1,0 +1,10 @@
+# go.lsp.dev/protocol
+../../../../go/pkg/mod/go.lsp.dev/protocol@v1.0.1/codec_helpers.go:183:13: assignment mismatch: 2 variables but tok.Int returns 1 value
+../../../../go/pkg/mod/go.lsp.dev/protocol@v1.0.1/codec_helpers.go:209:13: assignment mismatch: 2 variables but tok.Uint returns 1 value
+ok  	github.com/maemreyo/shellbeam/internal/app/daemon	91.666s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/process	4.613s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/store	113.592s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/ipc	2.906s
+ok  	github.com/maemreyo/shellbeam/internal/adapter/mcp	4.090s
+FAIL	github.com/maemreyo/shellbeam/tests/integration [build failed]
+FAIL

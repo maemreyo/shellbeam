@@ -1,23 +1,406 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://shellbeam.dev/schema/rich-local-media-preimplementation-gate-v1.schema.json",
-  "title": "ShellBeam rich local media preimplementation gate v1",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schema_version", "execution_base_sha", "paths", "sha256", "phase_a", "parser_toolchain", "phase_a_pass", "parser_toolchain_pass", "verdict"],
-  "properties": {
-    "schema_version": {"const": 1},
-    "execution_base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
-    "paths": {"type": "object", "additionalProperties": false, "required": ["plan", "spec", "source", "preflight", "phase_a", "parser"], "properties": {"plan": {"$ref": "#/$defs/path"}, "spec": {"$ref": "#/$defs/path"}, "source": {"$ref": "#/$defs/path"}, "preflight": {"$ref": "#/$defs/path"}, "phase_a": {"$ref": "#/$defs/path"}, "parser": {"$ref": "#/$defs/path"}}},
-    "sha256": {"type": "object", "additionalProperties": false, "required": ["plan", "spec", "source", "preflight", "phase_a", "parser"], "properties": {"plan": {"$ref": "#/$defs/sha"}, "spec": {"$ref": "#/$defs/sha"}, "source": {"$ref": "#/$defs/sha"}, "preflight": {"$ref": "#/$defs/sha"}, "phase_a": {"$ref": "#/$defs/sha"}, "parser": {"$ref": "#/$defs/sha"}}},
-    "phase_a": {"type": "object", "required": ["topology", "host_offers_remembered_approval", "checks", "phase_a_pass"], "properties": {"topology": {"const": "one-tool"}, "host_offers_remembered_approval": {"type": ["boolean", "null"]}, "checks": {"type": "array", "items": {"$ref": "#/$defs/phaseRow"}}, "phase_a_pass": {"type": "boolean"}}},
-    "parser_toolchain": {"type": "object", "required": ["candidate", "go127_ga", "explicit_go126_experiment_acceptance", "mode", "go_version", "goexperiment", "checks", "parser_toolchain_pass"], "properties": {"candidate": {"type": "string"}, "go127_ga": {"type": "boolean"}, "explicit_go126_experiment_acceptance": {"type": "boolean"}, "mode": {"type": "string"}, "go_version": {"type": "string"}, "goexperiment": {"type": "string"}, "checks": {"type": "array", "items": {"$ref": "#/$defs/parserRow"}}, "parser_toolchain_pass": {"type": "boolean"}}},
-    "phase_a_pass": {"type": "boolean"}, "parser_toolchain_pass": {"type": "boolean"}, "verdict": {"enum": ["PASS", "FAIL", "NOT_RUN"]}
-  },
   "$defs": {
-    "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"},
-    "sha": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "phaseRow": {"type": "object", "required": ["id", "required_trials", "pass_threshold", "pass_trials", "fail_trials", "not_run_trials", "status", "provenance"], "properties": {"id": {"type": "string"}, "required_trials": {"type": "integer", "minimum": 0}, "pass_threshold": {"type": "integer", "minimum": 0}, "pass_trials": {"type": "integer", "minimum": 0}, "fail_trials": {"type": "integer", "minimum": 0}, "not_run_trials": {"type": "integer", "minimum": 0}, "status": {"enum": ["PASS", "FAIL", "NOT_RUN", "NOT_APPLICABLE"]}, "provenance": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "selected_variant": {"enum": ["omitted", "user-assistant"]}}},
-    "parserRow": {"type": "object", "required": ["id", "status", "provenance"], "properties": {"id": {"type": "string"}, "status": {"enum": ["PASS", "FAIL", "NOT_RUN"]}, "provenance": {"type": "array", "minItems": 1, "items": {"type": "string"}}}}
-  }
+    "artifactBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "type": "object"
+    },
+    "nativeLane": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "PASS",
+                  "FAIL"
+                ]
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "required": [
+              "evidence"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "evidence": {
+          "$ref": "#/$defs/artifactBinding"
+        },
+        "go_version": {
+          "type": "string"
+        },
+        "goexperiment": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "mode",
+        "go_version",
+        "goexperiment"
+      ],
+      "type": "object"
+    },
+    "parserRow": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "provenance": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "path": {
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+      "type": "string"
+    },
+    "phaseRow": {
+      "properties": {
+        "fail_trials": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "not_run_trials": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pass_threshold": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pass_trials": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "provenance": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        "required_trials": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "selected_variant": {
+          "enum": [
+            "omitted",
+            "user-assistant"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PASS",
+            "FAIL",
+            "NOT_RUN",
+            "NOT_APPLICABLE"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "required_trials",
+        "pass_threshold",
+        "pass_trials",
+        "fail_trials",
+        "not_run_trials",
+        "status",
+        "provenance"
+      ],
+      "type": "object"
+    },
+    "sha": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    }
+  },
+  "$id": "https://shellbeam.dev/schema/rich-local-media-preimplementation-gate-v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "execution_base_sha": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "parser_toolchain": {
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "parser_toolchain_pass": {
+                "const": true
+              }
+            },
+            "required": [
+              "parser_toolchain_pass"
+            ]
+          },
+          "then": {
+            "properties": {
+              "native_lanes": {
+                "properties": {
+                  "linux": {
+                    "properties": {
+                      "status": {
+                        "const": "PASS"
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ]
+                  },
+                  "macos": {
+                    "properties": {
+                      "status": {
+                        "const": "PASS"
+                      }
+                    },
+                    "required": [
+                      "status"
+                    ]
+                  }
+                },
+                "required": [
+                  "macos",
+                  "linux"
+                ]
+              }
+            },
+            "required": [
+              "strict_tracer_report",
+              "native_lanes"
+            ]
+          }
+        }
+      ],
+      "properties": {
+        "candidate": {
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/parserRow"
+          },
+          "type": "array"
+        },
+        "explicit_go126_experiment_acceptance": {
+          "type": "boolean"
+        },
+        "go127_ga": {
+          "type": "boolean"
+        },
+        "go_version": {
+          "type": "string"
+        },
+        "goexperiment": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "native_lanes": {
+          "additionalProperties": false,
+          "properties": {
+            "linux": {
+              "$ref": "#/$defs/nativeLane"
+            },
+            "macos": {
+              "$ref": "#/$defs/nativeLane"
+            }
+          },
+          "type": "object"
+        },
+        "parser_toolchain_pass": {
+          "type": "boolean"
+        },
+        "strict_tracer_report": {
+          "$ref": "#/$defs/artifactBinding"
+        }
+      },
+      "required": [
+        "candidate",
+        "go127_ga",
+        "explicit_go126_experiment_acceptance",
+        "mode",
+        "go_version",
+        "goexperiment",
+        "checks",
+        "parser_toolchain_pass"
+      ],
+      "type": "object"
+    },
+    "parser_toolchain_pass": {
+      "type": "boolean"
+    },
+    "paths": {
+      "additionalProperties": false,
+      "properties": {
+        "parser": {
+          "$ref": "#/$defs/path"
+        },
+        "phase_a": {
+          "$ref": "#/$defs/path"
+        },
+        "plan": {
+          "$ref": "#/$defs/path"
+        },
+        "preflight": {
+          "$ref": "#/$defs/path"
+        },
+        "source": {
+          "$ref": "#/$defs/path"
+        },
+        "spec": {
+          "$ref": "#/$defs/path"
+        }
+      },
+      "required": [
+        "plan",
+        "spec",
+        "source",
+        "preflight",
+        "phase_a",
+        "parser"
+      ],
+      "type": "object"
+    },
+    "phase_a": {
+      "properties": {
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/phaseRow"
+          },
+          "type": "array"
+        },
+        "host_offers_remembered_approval": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "phase_a_pass": {
+          "type": "boolean"
+        },
+        "topology": {
+          "const": "one-tool"
+        }
+      },
+      "required": [
+        "topology",
+        "host_offers_remembered_approval",
+        "checks",
+        "phase_a_pass"
+      ],
+      "type": "object"
+    },
+    "phase_a_pass": {
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "sha256": {
+      "additionalProperties": false,
+      "properties": {
+        "parser": {
+          "$ref": "#/$defs/sha"
+        },
+        "phase_a": {
+          "$ref": "#/$defs/sha"
+        },
+        "plan": {
+          "$ref": "#/$defs/sha"
+        },
+        "preflight": {
+          "$ref": "#/$defs/sha"
+        },
+        "source": {
+          "$ref": "#/$defs/sha"
+        },
+        "spec": {
+          "$ref": "#/$defs/sha"
+        }
+      },
+      "required": [
+        "plan",
+        "spec",
+        "source",
+        "preflight",
+        "phase_a",
+        "parser"
+      ],
+      "type": "object"
+    },
+    "verdict": {
+      "enum": [
+        "PASS",
+        "FAIL",
+        "NOT_RUN"
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "execution_base_sha",
+    "paths",
+    "sha256",
+    "phase_a",
+    "parser_toolchain",
+    "phase_a_pass",
+    "parser_toolchain_pass",
+    "verdict"
+  ],
+  "title": "ShellBeam rich local media preimplementation gate v1",
+  "type": "object"
 }

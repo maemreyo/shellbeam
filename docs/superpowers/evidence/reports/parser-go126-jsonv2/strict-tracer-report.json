@@ -1,0 +1,128 @@
+{
+  "schema_version": 2,
+  "candidate_mode": "go1.26-jsonv2-experiment",
+  "fixture_manifest_sha256": "2347d77d69455d2260d2e48351fc7bb0be4b10ef466597f8033e51fa0f1d4e1a",
+  "go_version": "go1.26.5-X:jsonv2",
+  "go_version_command": "go version go1.26.5 darwin/arm64",
+  "goos": "darwin",
+  "goarch": "arm64",
+  "goexperiment": "jsonv2",
+  "cgo_enabled": "1",
+  "command": "GOEXPERIMENT=jsonv2 go run ./tools/rich-media-parser-gate -fixtures ./tools/rich-media-parser-gate/testdata/fixtures.json -out .build/rich-local-media-parser-gate/report.json",
+  "exit_status": 0,
+  "invalid_checks": [
+    {
+      "id": "invalid-utf8",
+      "status": "PASS"
+    },
+    {
+      "id": "duplicate-names",
+      "status": "PASS"
+    },
+    {
+      "id": "unknown-names",
+      "status": "PASS"
+    },
+    {
+      "id": "wrong-case",
+      "status": "PASS"
+    },
+    {
+      "id": "trailing-json",
+      "status": "PASS"
+    }
+  ],
+  "valid_v2_checks": [
+    {
+      "id": "mcp-inspect-server",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-start-shell",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-poll",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-kill",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-inspect-structured",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-inspect-telemetry",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-repro-create",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-inspect-sessions",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-typed-start",
+      "status": "PASS"
+    },
+    {
+      "id": "mcp-inspect-evidence",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-start-request",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-poll-request",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-write-request",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-kill-request",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-inspect-server-request",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-inspect-server-response",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-start-response",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-error-response",
+      "status": "PASS"
+    }
+  ],
+  "legacy_v1_checks": [
+    {
+      "id": "ipc-v1-start",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-v1-poll",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-v1-write",
+      "status": "PASS"
+    },
+    {
+      "id": "ipc-v1-kill",
+      "status": "PASS"
+    }
+  ],
+  "verdict": "PASS"
+}

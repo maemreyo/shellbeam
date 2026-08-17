@@ -1,63 +1,35 @@
 {
   "execution_base_sha": "a92a52fba7d123c50d84e5b879e65d176bd25444",
   "parser_toolchain": {
-    "candidate": "none",
+    "candidate": "go1.26-jsonv2-experiment",
     "checks": [
-      {
-        "id": "five-rejections",
-        "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
-        ],
-        "status": "NOT_RUN"
-      },
-      {
-        "id": "valid-v2-semantic",
-        "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
-        ],
-        "status": "NOT_RUN"
-      },
-      {
-        "id": "legacy-v1",
-        "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
-        ],
-        "status": "NOT_RUN"
-      },
       {
         "id": "error-code-compat",
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/race.log"
         ],
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
-        "id": "ordinary-build",
+        "id": "five-rejections",
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/strict-tracer-report.json"
         ],
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "id": "full-tests",
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/full-tests.log"
         ],
-        "status": "NOT_RUN"
+        "status": "FAIL"
       },
       {
-        "id": "race",
+        "id": "legacy-v1",
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/strict-tracer-report.json"
         ],
-        "status": "NOT_RUN"
-      },
-      {
-        "id": "macos-native",
-        "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
-        ],
-        "status": "NOT_RUN"
+        "status": "PASS"
       },
       {
         "id": "linux-native",
@@ -67,7 +39,14 @@
         "status": "NOT_RUN"
       },
       {
-        "id": "shell-acceptance",
+        "id": "macos-native",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/matrix-summary.json"
+        ],
+        "status": "FAIL"
+      },
+      {
+        "id": "mode-consistency",
         "provenance": [
           "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
         ],
@@ -76,24 +55,68 @@
       {
         "id": "non-media-json-regression",
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/lsp-normal.log",
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/lsp-jsonv2.log"
         ],
-        "status": "NOT_RUN"
+        "status": "FAIL"
       },
       {
-        "id": "mode-consistency",
+        "id": "ordinary-build",
         "provenance": [
-          "docs/superpowers/evidence/2026-08-17-rich-local-media-parser-gate.md"
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/macos-build.log"
         ],
-        "status": "NOT_RUN"
+        "status": "FAIL"
+      },
+      {
+        "id": "race",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/race.log"
+        ],
+        "status": "PASS"
+      },
+      {
+        "id": "shell-acceptance",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/macos-build.log"
+        ],
+        "status": "FAIL"
+      },
+      {
+        "id": "valid-v2-semantic",
+        "provenance": [
+          "docs/superpowers/evidence/reports/parser-go126-jsonv2/strict-tracer-report.json"
+        ],
+        "status": "PASS"
       }
     ],
-    "explicit_go126_experiment_acceptance": false,
+    "explicit_go126_experiment_acceptance": true,
     "go127_ga": false,
     "go_version": "go1.26.5",
-    "goexperiment": "",
-    "mode": "none",
-    "parser_toolchain_pass": false
+    "goexperiment": "jsonv2",
+    "mode": "experimental",
+    "native_lanes": {
+      "linux": {
+        "go_version": "go1.26.5",
+        "goexperiment": "jsonv2",
+        "mode": "experimental",
+        "status": "NOT_RUN"
+      },
+      "macos": {
+        "evidence": {
+          "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/matrix-summary.json",
+          "sha256": "0873fb619af2d8fefc2b8576e5e3eca5d82590edffaf09a8ab53d8ec3bb9f629"
+        },
+        "go_version": "go1.26.5",
+        "goexperiment": "jsonv2",
+        "mode": "experimental",
+        "status": "FAIL"
+      }
+    },
+    "parser_toolchain_pass": false,
+    "strict_tracer_report": {
+      "path": "docs/superpowers/evidence/reports/parser-go126-jsonv2/strict-tracer-report.json",
+      "sha256": "0284736fa9e54fa738b4c681007b0757bc75c37d3df7fd77f383444b960d0436"
+    }
   },
   "parser_toolchain_pass": false,
   "paths": {
@@ -402,12 +425,12 @@
   "phase_a_pass": false,
   "schema_version": 1,
   "sha256": {
-    "parser": "dc40f914ca3b889a541973a16e3ac851691d4ac6e7f97ce004e2dbacd22ecc16",
+    "parser": "54d0a42f0a8f9ebf04f4e89967efdc2dbd5a19e9c23c6d1516f82993bb2c31ba",
     "phase_a": "94c3ed8c6050d7de4091138e2f8b6b4a08051ab86793672a0b1939f7eb82d575",
     "plan": "875bc14f14fa1a5291bc206df4d01d178c96c22ae9b48758810c8e060bef3c5b",
     "preflight": "1cf03afe18f094e88aa10cf66bb6fe054633f1269cc7933af13c601eb4730d4e",
     "source": "7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906",
     "spec": "4de00e7a29472903e8c5139345684c8f9d2fa93e84f11d3647644493040eb683"
   },
-  "verdict": "NOT_RUN"
+  "verdict": "FAIL"
 }

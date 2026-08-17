@@ -106,7 +106,17 @@ def derive_phase(obj):
     if stored!=(derived=='PASS'): raise GateError('forged phase_a_pass stored=%s derived=%s' % (stored,derived))
     return derived
 
-def derive_parser(obj):
+def verify_artifact(root, artifact, label):
+    if not isinstance(artifact,dict): raise GateError('missing artifact binding: %s' % label)
+    path=artifact.get('path'); expected=artifact.get('sha256')
+    if not isinstance(path,str) or not isinstance(expected,str) or not re.fullmatch(r'[0-9a-f]{64}',expected):
+        raise GateError('invalid artifact binding: %s' % label)
+    bound=relpath(root,path)
+    actual=sha256(bound)
+    if actual!=expected: raise GateError('artifact hash mismatch: %s' % label)
+    return bound
+
+def derive_parser(obj, root):
     checks=obj.get('checks')
     if not isinstance(checks,list): raise GateError('parser checks must be array')
     by={}
@@ -130,6 +140,34 @@ def derive_parser(obj):
             if obj.get('explicit_go126_experiment_acceptance') is not True or mode!='experimental' or exp!='jsonv2' or not gov.startswith('go1.26'):
                 raise GateError('invalid Go 1.26 experimental parser evidence')
         else: raise GateError('unknown passing parser candidate: %r' % cand)
+        tracer_path=verify_artifact(root,obj.get('strict_tracer_report'),'strict-tracer-report')
+        tracer=load_json(tracer_path)
+        if tracer.get('verdict')!='PASS' or tracer.get('exit_status')!=0:
+            raise GateError('strict tracer report is not PASS')
+        if tracer.get('goexperiment')!=exp or tracer.get('candidate_mode') not in (cand,'go1.26-jsonv2-experiment' if cand=='go1.26-jsonv2-experiment' else 'go1.27-stable-jsonv2'):
+            raise GateError('strict tracer mode mismatch')
+        lanes=obj.get('native_lanes')
+        if not isinstance(lanes,dict) or set(lanes)!= {'macos','linux'}:
+            raise GateError('native lane set must be exactly macos+linux')
+        for lane_name in ('macos','linux'):
+            lane=lanes[lane_name]
+            if not isinstance(lane,dict) or lane.get('status')!='PASS':
+                raise GateError('native lane not PASS: %s' % lane_name)
+            if lane.get('mode')!=mode or lane.get('goexperiment')!=exp or lane.get('go_version')!=gov:
+                raise GateError('native lane mode mismatch: %s' % lane_name)
+            verify_artifact(root,lane.get('evidence'),'native-lane-%s' % lane_name)
+    else:
+        if obj.get('strict_tracer_report') is not None:
+            verify_artifact(root,obj.get('strict_tracer_report'),'strict-tracer-report')
+        lanes=obj.get('native_lanes')
+        if lanes is not None:
+            if not isinstance(lanes,dict) or not set(lanes).issubset({'macos','linux'}):
+                raise GateError('invalid native lane set')
+            for lane_name,lane in lanes.items():
+                if not isinstance(lane,dict) or lane.get('status') not in ('PASS','FAIL','NOT_RUN'):
+                    raise GateError('invalid native lane evidence: %s' % lane_name)
+                if lane.get('status')!='NOT_RUN':
+                    verify_artifact(root,lane.get('evidence'),'native-lane-%s' % lane_name)
     stored=bool(obj.get('parser_toolchain_pass'))
     if stored!=(derived=='PASS'): raise GateError('forged parser_toolchain_pass stored=%s derived=%s' % (stored,derived))
     return derived
@@ -149,7 +187,7 @@ def main():
         p=relpath(root,paths[key]); actual=sha256(p)
         if not re.fullmatch(r'[0-9a-f]{64}',str(hashes[key])) or actual!=hashes[key]: raise GateError('hash mismatch: %s' % key)
     if 'verdict = PASS' not in relpath(root,paths['preflight']).read_text(): raise GateError('preflight is not PASS')
-    phase=derive_phase(m.get('phase_a') or {}); parser=derive_parser(m.get('parser_toolchain') or {})
+    phase=derive_phase(m.get('phase_a') or {}); parser=derive_parser(m.get('parser_toolchain') or {},root)
     if bool(m.get('phase_a_pass'))!=(phase=='PASS') or bool(m.get('parser_toolchain_pass'))!=(parser=='PASS'):
         raise GateError('forged top-level gate boolean')
     derived='FAIL' if 'FAIL' in (phase,parser) else ('PASS' if phase=='PASS' and parser=='PASS' else 'NOT_RUN')
