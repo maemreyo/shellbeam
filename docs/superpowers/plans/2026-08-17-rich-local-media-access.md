@@ -27,6 +27,7 @@
 - The bridge derives `expected_display_address` from the strict-decoded request and rejects any missing/wrong-kind/wrong-base/canonicalized daemon identity as `invalid_daemon_response` before emitting image content.
 - The daemon's ordinary legacy-compatible `inspect.server` always omits rich-local-media. Only a compatible new-bridge/new-daemon effective projection may expose it after private opt-in negotiation.
 - Raw image bytes/base64/EXIF/GPS/ICC/comments/trailing bytes/canonical paths never enter receipts, session output, telemetry, repro, event journal, activities, manifests, ordinary logs, crash evidence, or content hashes.
+- The repository carries exactly one path-scoped Git whitespace exception for the immutable approved-v8 evidence source: `docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md -whitespace`. It exists only because the approved bytes contain one trailing ASCII space and their SHA must remain exact; no wildcard or broader whitespace exemption is allowed.
 - Successful metadata/disclosure must truthfully say original selected file bytes egress to the connected MCP client/model and may contain embedded metadata.
 - No streaming, FD passing, public temp file server, generic binary transfer, transform/resize/OCR framework, cache, durable artifact database, or media resource URI in V1.
 - Ordinary `start`/`poll`/`write`/`kill`/inspection hot paths perform zero media filesystem/decoder/admission work when media is unused.
@@ -73,6 +74,7 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
 - Modify: `docs/superpowers/evidence/2026-08-17-rich-local-media-preflight.md`
 - Create: `docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md`
 - Inspect only: `AGENTS.md`
+- Inspect/verify: `.gitattributes` exact immutable-source whitespace exception
 - Inspect only: `docs/superpowers/plans/2026-08-17-rich-local-media-access.md`
 - Inspect only: `docs/superpowers/specs/2026-08-16-rich-local-media-access-design.md`
 
@@ -121,7 +123,12 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
   test "$(wc -l < docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md | tr -d ' ')" = 1657
   test "$(wc -c < docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md | tr -d ' ')" = 79933
   test "$(shasum -a 256 docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md | awk '{print $1}')" = 7d719f5add41354ca14716a78b32ca0a6744e09e8225387b48737dce475c6906
+  test "$(grep -Fxc 'docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md -whitespace' .gitattributes)" -eq 1
+  test "$(grep -Ec '(^|[[:space:]])-?whitespace($|[[:space:]])' .gitattributes)" -eq 1
+  test "$(git check-attr whitespace -- docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md)" = "docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md: whitespace: unset"
   ```
+
+  The `.gitattributes` checks are part of approved-source identity/hygiene: they allow Git's staged whitespace checker to preserve the exact immutable bytes at line 328 without weakening whitespace diagnostics anywhere else. Any missing, duplicated, wildcard, or broader whitespace rule is `FAIL`.
 
   Never reconstruct the source from chat memory, conversational revision labels, or a partial diff. Any missing source or line/byte/SHA mismatch is `FAIL`; continue only to Step 5 branch B to persist the evidence-only record, then stop.
 
@@ -176,7 +183,7 @@ Do not install hooks into shared `.git/hooks`; do not stash/reset unrelated work
 
   If this clean attempt materialized `docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.md` before later failing, record its observed identity in the preflight evidence, but do not stage it on a non-PASS verdict. After the evidence commit, remove that source file **only if this Task -1 attempt created it from an initially absent path**; never remove or overwrite a file that pre-existed the attempt. The resulting worktree must return to the same clean state it had at Step 1.
 
-  **C. PASS.** Preserve the existing PASS workflow and bind both the preflight record and the exact approved source:
+  **C. PASS.** Preserve the existing PASS workflow and bind both the preflight record and the exact approved source. The tracked `.gitattributes` exact-path rule must already be present and verified by Step 3; Branch C does not create or broaden it during the attempt:
 
   ```bash
   git diff --check
@@ -189,7 +196,7 @@ docs/superpowers/evidence/sources/2026-08-17-rich-local-media-access-design-v8.m
   git -c core.hooksPath=.githooks commit -m "docs: bind rich media execution inputs"
   ```
 
-  Static acceptance for Task -1 requires all three branches above to have explicit persistence behavior: dirty Step 1 = zero mutation; clean later FAIL/NOT_RUN = evidence-only tracked-hook commit; PASS = evidence + exact approved-source tracked-hook commit. Task 0 may start only from `verdict=PASS` with all recorded identities still matching.
+  Static acceptance for Task -1 requires all three branches above to have explicit persistence behavior: dirty Step 1 = zero mutation; clean later FAIL/NOT_RUN = evidence-only tracked-hook commit; PASS = evidence + exact approved-source tracked-hook commit. It also requires the single exact-path `.gitattributes` whitespace exception to resolve to `whitespace: unset` for the immutable source and no other whitespace exception rule. Task 0 may start only from `verdict=PASS` with all recorded identities still matching.
 
 ### Task 0: Close the Machine-Verifiable Conjunction Gate and Promote the Runtime Limit
 
