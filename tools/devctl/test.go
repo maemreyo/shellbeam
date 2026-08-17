@@ -120,6 +120,32 @@ func runGoTest(packages []string, race bool) error {
 	if len(packages) == 0 {
 		return nil
 	}
+	ordinary := make([]string, 0, len(packages))
+	performance := ""
+	for _, pkg := range packages {
+		if isShellbeamPerformancePackage(pkg) {
+			performance = pkg
+			continue
+		}
+		ordinary = append(ordinary, pkg)
+	}
+	if err := runGoTestBatch(ordinary, race); err != nil {
+		return err
+	}
+	if performance != "" {
+		return runGoTestBatch([]string{performance}, race)
+	}
+	return nil
+}
+
+func isShellbeamPerformancePackage(pkg string) bool {
+	return pkg == "./cmd/shellbeam" || strings.HasSuffix(pkg, "/cmd/shellbeam")
+}
+
+func runGoTestBatch(packages []string, race bool) error {
+	if len(packages) == 0 {
+		return nil
+	}
 	args := []string{"test"}
 	if race {
 		args = append(args, "-race")
