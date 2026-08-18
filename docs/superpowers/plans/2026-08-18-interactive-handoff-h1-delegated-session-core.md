@@ -414,6 +414,8 @@ git -c core.hooksPath=.githooks commit -m "feat: persist delegated session autho
 - Create: `internal/app/delegatedsession/service.go`
 - Create: `internal/app/delegatedsession/service_test.go`
 - Create: `internal/adapter/delegatedtmux/provider.go`
+- Create: `internal/adapter/delegatedtmux/provider_session.go`
+- Create: `internal/adapter/delegatedtmux/provider_tmux.go`
 - Create: `internal/adapter/delegatedtmux/provider_test.go`
 - Create: `internal/adapter/delegatedtmux/control.go`
 - Create: `internal/adapter/delegatedtmux/control_test.go`
