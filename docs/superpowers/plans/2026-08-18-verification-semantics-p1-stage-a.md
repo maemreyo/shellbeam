@@ -1418,11 +1418,11 @@ git -c core.hooksPath=.githooks commit -m "feat: expose verification obligations
 17. activation same-intent retry preserves first daemon timestamp and never rolls current index backward after a later activation;
 18. policy_absent remains explicit and no response exposes user-task completion truth.
 
-- [ ] **Step 1: Write RED real-daemon acceptance tests**
+- [x] **Step 1: Write RED real-daemon acceptance tests**
 
 Use a temporary attached Git repository and exact `.shellbeam/verification-policy.toml` fixtures. Do not rely only on in-memory fake services. Include named anchors `TestFirstPolicyRequiresExternalActivationSubsequentCut`, `TestProposedPolicyCannotSelfGrantActivationOrWaiverAuthority`, `TestPolicyActivationIsImmutableAuditableAuthority`, and `TestPinnedPolicyUnaffectedByStarterTemplateChange`.
 
-- [ ] **Step 2: Run focused acceptance**
+- [x] **Step 2: Run focused acceptance**
 
 ```bash
 go test ./cmd/shellbeam -run VerificationSemantics -count=1
@@ -1430,7 +1430,7 @@ go test ./cmd/shellbeam -run VerificationSemantics -count=1
 
 Expected before final wiring fixes: FAIL on at least one missing/incorrect integrated contract.
 
-- [ ] **Step 3: Make minimum integration fixes and run GREEN**
+- [x] **Step 3: Make minimum integration fixes and run GREEN**
 
 ```bash
 go test ./cmd/shellbeam -run VerificationSemantics -count=1
@@ -1440,7 +1440,7 @@ go run ./tools/devctl check
 go run ./tools/devctl test --dirty --base "${SHELLBEAM_BASE_REF:-origin/main}" --json
 ```
 
-- [ ] **Step 4: Practical Task-0 comparison**
+- [x] **Step 4: Practical Task-0 comparison**
 
 On a disposable worktree/fixture, produce an `inspect.verification` result for the docs-only four-Markdown shape and record:
 
@@ -1455,7 +1455,7 @@ whether broad Go/full-suite obligation was absent/not_triggered by approved poli
 
 Do not claim runtime savings from inspection alone; Stage B benchmark measures actual evidence selection/sufficiency.
 
-- [ ] **Step 5: Commit Stage-A acceptance**
+- [x] **Step 5: Commit Stage-A acceptance**
 
 ```bash
 git add cmd/shellbeam/verification_semantics_test.go docs/superpowers/evidence/2026-08-18-verification-semantics-p1-baseline.md
@@ -1475,14 +1475,14 @@ Handoff must include exact checkpoint source fingerprint and any provider/covera
 
 ## Self-Review Checklist
 
-- [ ] `python3 scripts/check-verification-p1-plan-traceability.py` passes `core=24/24 roadmap=4/4 review=11/11 deferred=7/7` before Task 0.
-- [ ] Every Stage-A spec requirement has a task: policy source/authority split, first-policy bootstrap, self-amendment, starter templates, no invented NFR targets, affected authority×coverage, uncertainty monotonicity, policy gaps, dispositions, waivers, no auto-execution.
-- [ ] No task treats `waived` as evidence.
-- [ ] No task computes scalar confidence or residual-risk probability.
-- [ ] No repository field such as `approved_by` is trusted as activation authority.
-- [ ] Policy activation is impossible on the same proposal generation.
-- [ ] No new durable Change aggregate exists.
-- [ ] No new MCP tool exists.
-- [ ] No production package exceeds project structural limits by plan design.
-- [ ] Stage A does not claim `gate_status=clear`; evidence sufficiency is intentionally Stage B.
-- [ ] Task 0 preserves the historical full-checkpoint baseline as evidence, not as desired behavior.
+- [x] `python3 scripts/check-verification-p1-plan-traceability.py` passes `core=24/24 roadmap=4/4 review=11/11 deferred=7/7` before Task 0.
+- [x] Every Stage-A spec requirement has a task: policy source/authority split, first-policy bootstrap, self-amendment, starter templates, no invented NFR targets, affected authority×coverage, uncertainty monotonicity, policy gaps, dispositions, waivers, no auto-execution.
+- [x] No task treats `waived` as evidence.
+- [x] No task computes scalar confidence or residual-risk probability.
+- [x] No repository field such as `approved_by` is trusted as activation authority.
+- [x] Policy activation is impossible on the same proposal generation.
+- [x] No new durable Change aggregate exists.
+- [x] No new MCP tool exists.
+- [x] No production package exceeds project structural limits by plan design.
+- [x] Stage A does not claim `gate_status=clear`; evidence sufficiency is intentionally Stage B.
+- [x] Task 0 preserves the historical full-checkpoint baseline as evidence, not as desired behavior.
