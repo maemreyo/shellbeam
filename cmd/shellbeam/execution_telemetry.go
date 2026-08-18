@@ -71,3 +71,13 @@ func (p *telemetryWorkerProxy) ScheduleTerminal(ctx context.Context, rec receipt
 	}
 	return worker.ScheduleTerminal(ctx, rec)
 }
+
+func (p *telemetryWorkerProxy) ScheduleTerminalWithResources(ctx context.Context, rec receipt.Receipt, resources *receipt.ResourceEvidence) error {
+	p.mu.RLock()
+	worker := p.worker
+	p.mu.RUnlock()
+	if worker == nil {
+		return telemetryapp.ErrWorkerClosed
+	}
+	return worker.ScheduleTerminalWithResources(ctx, rec, resources)
+}

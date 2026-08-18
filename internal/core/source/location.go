@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const MaxLogicalPathBytes = 1024
@@ -34,10 +35,22 @@ type SourceLocation struct {
 	ProviderReported *ProviderReportedLocation `json:"provider_reported,omitempty"`
 }
 
+const MaxDisplayPreviewBytes = 512
+
+type DisplaySourceLocation struct {
+	Path      string `json:"path"`
+	Line      int    `json:"line"`
+	Column    int    `json:"column"`
+	EndLine   int    `json:"end_line,omitempty"`
+	EndColumn int    `json:"end_column,omitempty"`
+	Preview   string `json:"preview,omitempty"`
+}
+
 type ResolvedSourceLocation struct {
-	SourceRefID string `json:"source_ref_id"`
-	StartByte   int64  `json:"start_byte"`
-	EndByte     int64  `json:"end_byte"`
+	SourceRefID string                 `json:"source_ref_id"`
+	StartByte   int64                  `json:"start_byte"`
+	EndByte     int64                  `json:"end_byte"`
+	Display     *DisplaySourceLocation `json:"display,omitempty"`
 }
 
 type ProviderReportedLocation struct {
@@ -70,6 +83,27 @@ func (l SourceLocation) Validate() error {
 func (l ResolvedSourceLocation) Validate() error {
 	if !validOpaqueID(l.SourceRefID, "src_") || l.StartByte < 0 || l.EndByte < l.StartByte {
 		return fmt.Errorf("invalid resolved source location")
+	}
+	if l.Display != nil {
+		if err := l.Display.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (l DisplaySourceLocation) Validate() error {
+	if !safeLogicalPath(l.Path) || l.Line < 1 || l.Column < 1 {
+		return fmt.Errorf("invalid display source location")
+	}
+	if (l.EndLine == 0) != (l.EndColumn == 0) || l.EndLine < 0 || l.EndColumn < 0 {
+		return fmt.Errorf("invalid display source end position")
+	}
+	if l.EndLine > 0 && (l.EndLine < l.Line || l.EndLine == l.Line && l.EndColumn < l.Column) {
+		return fmt.Errorf("invalid display source range")
+	}
+	if len(l.Preview) > MaxDisplayPreviewBytes || !utf8.ValidString(l.Preview) || strings.ContainsRune(l.Preview, 0) || strings.ContainsAny(l.Preview, "\r\n") {
+		return fmt.Errorf("invalid display source preview")
 	}
 	return nil
 }

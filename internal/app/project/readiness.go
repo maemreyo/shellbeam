@@ -75,10 +75,18 @@ func (s *Service) Readiness(ctx context.Context, workspaceID string) (core.Readi
 		return core.Readiness{}, err
 	}
 	load := s.loader.Load(ctx, record.Root)
-	if load.State != core.LoadValid || load.Parsed == nil || load.ManifestDigest == "" {
-		return core.Readiness{}, failure.New(failure.ProjectReadinessUnavailable, map[string]string{"workspace_id": workspaceID, "reason": "manifest_unavailable"}, nil)
-	}
 	now := s.readiness.now().UTC()
+	if load.State != core.LoadValid || load.Parsed == nil || load.ManifestDigest == "" {
+		code := load.Code
+		if code == "" {
+			code = "project_manifest_unavailable"
+		}
+		value := core.Readiness{SchemaVersion: core.ReadinessSchemaVersion, State: core.ReadinessUnavailable, RepositoryID: string(record.RepositoryID), WorkspaceID: string(record.ID), CapturedAt: now, CacheQuality: core.CacheFresh, Checks: []core.ReadinessCheck{}, DiagnosticCode: code}
+		if err := value.Validate(); err != nil {
+			return core.Readiness{}, failure.New(failure.ProjectReadinessUnavailable, map[string]string{"workspace_id": workspaceID, "reason": "invalid_unbound_observation"}, err)
+		}
+		return value, nil
+	}
 	key := readinessCacheKey(record, load)
 	if cached, ok := s.readiness.cached(key, now); ok {
 		return cached, nil

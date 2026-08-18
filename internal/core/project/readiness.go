@@ -77,6 +77,7 @@ type Readiness struct {
 	CacheQuality           CacheQuality     `json:"cache_quality"`
 	CacheAgeMS             int64            `json:"cache_age_ms"`
 	Checks                 []ReadinessCheck `json:"checks"`
+	DiagnosticCode         string           `json:"diagnostic_code,omitempty"`
 }
 
 func FoldReadiness(checks []ReadinessCheck) ReadinessState {
@@ -130,8 +131,15 @@ func (r Readiness) Validate() error {
 	if _, err := workspace.ParseWorkspaceID(r.WorkspaceID); err != nil {
 		return fmt.Errorf("invalid readiness workspace: %w", err)
 	}
-	if !validFingerprint(r.ManifestDigest) || !SupportedManifestSchemaVersion(r.ManifestSchemaVersion) {
+	if r.ManifestDigest == "" {
+		if r.State != ReadinessUnavailable || r.ManifestSchemaVersion != 0 || len(r.Checks) != 0 || r.EnvironmentFingerprint != "" || r.ToolchainFingerprint != "" || r.DiagnosticCode == "" || !boundedOptional(r.DiagnosticCode) {
+			return fmt.Errorf("invalid manifest-unbound readiness")
+		}
+	} else if !validFingerprint(r.ManifestDigest) || !SupportedManifestSchemaVersion(r.ManifestSchemaVersion) {
 		return fmt.Errorf("invalid readiness manifest binding")
+	}
+	if !boundedOptional(r.DiagnosticCode) {
+		return fmt.Errorf("invalid readiness diagnostic")
 	}
 	if r.EnvironmentFingerprint != "" && !validFingerprint(r.EnvironmentFingerprint) {
 		return fmt.Errorf("invalid environment fingerprint")

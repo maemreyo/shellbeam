@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"time"
+	"unicode/utf8"
 
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	core "github.com/maemreyo/shellbeam/internal/core/codeintel"
@@ -162,11 +163,49 @@ func (s *Service) promoteObservedLocation(ctx context.Context, workspace workspa
 	}
 	resolved := core.SourceLocation{Kind: core.LocationResolved, Resolved: &core.ResolvedSourceLocation{
 		SourceRefID: string(bound.Ref.ID), StartByte: start, EndByte: end,
+		Display: &core.DisplaySourceLocation{
+			Path: reported.SanitizedLogicalPath, Line: reported.Line, Column: reported.Column,
+			EndLine: reported.EndLine, EndColumn: reported.EndColumn, Preview: displayLinePreview(bound.Bytes, reported.Line),
+		},
 	}}
 	if err := resolved.Validate(); err != nil {
 		return location
 	}
 	return resolved
+}
+
+func displayLinePreview(data []byte, line int) string {
+	if line < 1 || len(data) == 0 {
+		return ""
+	}
+	start := 0
+	current := 1
+	for current < line {
+		i := bytes.IndexByte(data[start:], '\n')
+		if i < 0 {
+			return ""
+		}
+		start += i + 1
+		current++
+	}
+	end := len(data)
+	if i := bytes.IndexByte(data[start:], '\n'); i >= 0 {
+		end = start + i
+	}
+	lineBytes := data[start:end]
+	if len(lineBytes) > 0 && lineBytes[len(lineBytes)-1] == '\r' {
+		lineBytes = lineBytes[:len(lineBytes)-1]
+	}
+	if !utf8.Valid(lineBytes) {
+		return ""
+	}
+	if len(lineBytes) > 512 {
+		lineBytes = lineBytes[:512]
+		for len(lineBytes) > 0 && !utf8.Valid(lineBytes) {
+			lineBytes = lineBytes[:len(lineBytes)-1]
+		}
+	}
+	return string(lineBytes)
 }
 
 func (r InspectRequest) Validate() error {

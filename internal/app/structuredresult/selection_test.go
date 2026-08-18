@@ -30,3 +30,28 @@ func TestGoAdapterSelectionIsExplicitOrExactDirectArgvOnly(t *testing.T) {
 		})
 	}
 }
+
+func TestExplicitAdapterRequiresMatchingDirectProducerArgv(t *testing.T) {
+	cases := []struct {
+		name    string
+		adapter string
+		argv    []string
+		ok      bool
+	}{
+		{"test json", "go-test-json", []string{"go", "test", "-json", "./..."}, true},
+		{"test json later flag", "go-test-json", []string{"go", "test", "./...", "-json"}, true},
+		{"test json equals", "go-test-json", []string{"go", "test", "-json=true", "./..."}, true},
+		{"test missing json", "go-test-json", []string{"go", "test", "./..."}, false},
+		{"test wrong producer", "go-test-json", []string{"go", "vet", "-json", "./..."}, false},
+		{"vet json", "go-vet-json", []string{"go", "vet", "-json", "./..."}, true},
+		{"vet missing json", "go-vet-json", []string{"go", "vet", "./..."}, false},
+		{"empty argv", "go-test-json", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := AdapterAcceptsArgv(tc.adapter, tc.argv); got != tc.ok {
+				t.Fatalf("AdapterAcceptsArgv(%q, %#v)=%v want %v", tc.adapter, tc.argv, got, tc.ok)
+			}
+		})
+	}
+}

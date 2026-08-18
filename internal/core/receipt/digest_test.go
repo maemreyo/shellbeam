@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -51,5 +52,41 @@ func digestTestReceipt() Receipt {
 		State: session.Completed, Outcome: session.Success, OutputBytes: 12, OutputComplete: true,
 		InputAcceptedBytes: 4, InputDeliveredBytes: 4, Spawn: SpawnEvidence{Attempted: true, Succeeded: true},
 		Exit: ExitEvidence{Reaped: true, Code: &code},
+	}
+}
+
+func TestLocalResourceEvidenceDoesNotChangeReceiptJSONOrDigest(t *testing.T) {
+	base := digestTestReceipt()
+	baseJSON, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseDigest, err := Digest(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := int64(17)
+	withResources := base
+	withResources.Exit.Resources = &ResourceEvidence{
+		CPUUserMS:        ResourceMetric{Quality: ResourcePlatformReported, Value: &value},
+		CPUSystemMS:      ResourceMetric{Quality: ResourcePlatformReported, Value: &value},
+		MaxRSSBytes:      ResourceMetric{Quality: ResourcePlatformReported, Value: &value},
+		ReadBytes:        ResourceMetric{Quality: ResourceUnavailable},
+		WriteBytes:       ResourceMetric{Quality: ResourceUnavailable},
+		ProcessCountPeak: ResourceMetric{Quality: ResourceSampled, Value: &value},
+	}
+	resourceJSON, err := json.Marshal(withResources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resourceDigest, err := Digest(withResources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(resourceJSON) != string(baseJSON) {
+		t.Fatalf("local resource evidence changed public receipt JSON\nbase=%s\nwith=%s", baseJSON, resourceJSON)
+	}
+	if resourceDigest != baseDigest {
+		t.Fatalf("local resource evidence changed receipt digest %s -> %s", baseDigest, resourceDigest)
 	}
 }

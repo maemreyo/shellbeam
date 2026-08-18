@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	core "github.com/maemreyo/shellbeam/internal/core/project"
@@ -23,10 +24,15 @@ func (l *Loader) Load(ctx context.Context, root string) core.LoadResult {
 	if !filepath.IsAbs(root) {
 		return core.LoadResult{State: core.LoadInvalid, Code: core.CodePathEscape}
 	}
+	families, evidence := discoverProjectFamilies(root)
+	discoveryFingerprint := ""
+	if len(evidence) > 0 {
+		discoveryFingerprint = core.RawDigest([]byte(strings.Join(evidence, "\n")))
+	}
 	manifestPath := filepath.Join(root, ".shellbeam", "project.toml")
 	info, err := os.Lstat(manifestPath)
 	if errors.Is(err, os.ErrNotExist) {
-		return core.LoadResult{State: core.LoadAbsent}
+		return core.LoadResult{State: core.LoadAbsent, Code: core.CodeManifestAbsent, DiscoveryFingerprint: discoveryFingerprint, DetectedFamilies: families, DiscoveryEvidence: evidence}
 	}
 	if err != nil {
 		return core.LoadResult{State: core.LoadInvalid, Code: core.CodeSchemaError}
@@ -65,7 +71,37 @@ func (l *Loader) Load(ctx context.Context, root string) core.LoadResult {
 		return core.LoadResult{State: core.LoadInvalid, ManifestDigest: core.RawDigest(data), Code: core.ErrorCode(err)}
 	}
 	digest := core.RawDigest(data)
-	return core.LoadResult{State: core.LoadValid, Parsed: &parsed, ManifestDigest: digest, DiscoveryFingerprint: digest}
+	return core.LoadResult{State: core.LoadValid, Parsed: &parsed, ManifestDigest: digest, DiscoveryFingerprint: digest, DetectedFamilies: families, DiscoveryEvidence: evidence}
+}
+
+func discoverProjectFamilies(root string) ([]string, []string) {
+	markers := []struct {
+		family string
+		path   string
+	}{
+		{"go", "go.mod"},
+		{"node", "package.json"},
+		{"python", "pyproject.toml"},
+		{"python", "requirements.txt"},
+		{"rust", "Cargo.toml"},
+	}
+	familySet := make(map[string]struct{}, len(markers))
+	evidence := make([]string, 0, len(markers))
+	for _, marker := range markers {
+		info, err := os.Lstat(filepath.Join(root, marker.path))
+		if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		familySet[marker.family] = struct{}{}
+		evidence = append(evidence, marker.family+":"+marker.path)
+	}
+	families := make([]string, 0, len(familySet))
+	for family := range familySet {
+		families = append(families, family)
+	}
+	sort.Strings(families)
+	sort.Strings(evidence)
+	return families, evidence
 }
 
 func withinRoot(root, candidate string) bool {

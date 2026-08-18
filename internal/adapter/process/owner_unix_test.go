@@ -5,6 +5,7 @@ package process
 import (
 	"context"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"sync"
 	"testing"
 	"time"
@@ -79,5 +80,34 @@ func TestOwnerPTY(t *testing.T) {
 	sink.mu.Unlock()
 	if got != "tty" {
 		t.Fatalf("output=%q", got)
+	}
+}
+
+func TestOwnerReportsTerminalCPUAndMemoryResourceEvidence(t *testing.T) {
+	sink := &memorySink{}
+	h, spawn, err := (Owner{}).Start(context.Background(), operation.ExecutionSpec{Shell: "/bin/sh", Command: "i=0; while [ $i -lt 5000 ]; do i=$((i+1)); done", CWD: t.TempDir()}, sink)
+	if err != nil || !spawn.Succeeded {
+		t.Fatalf("spawn=%#v err=%v", spawn, err)
+	}
+	exit := h.Wait(context.Background())
+	if exit.Resources == nil {
+		t.Fatalf("terminal resource evidence missing: %#v", exit)
+	}
+	resources := exit.Resources
+	for name, metric := range map[string]receipt.ResourceMetric{
+		"cpu_user":     resources.CPUUserMS,
+		"cpu_system":   resources.CPUSystemMS,
+		"max_rss":      resources.MaxRSSBytes,
+		"process_peak": resources.ProcessCountPeak,
+	} {
+		if metric.Value == nil || *metric.Value < 0 || metric.Quality == receipt.ResourceUnavailable {
+			t.Fatalf("%s unavailable: %#v", name, metric)
+		}
+	}
+	if resources.ProcessCountPeak.Quality != receipt.ResourceSampled || *resources.ProcessCountPeak.Value < 1 {
+		t.Fatalf("process peak=%#v", resources.ProcessCountPeak)
+	}
+	if resources.ReadBytes.Quality != receipt.ResourceUnavailable || resources.WriteBytes.Quality != receipt.ResourceUnavailable {
+		t.Fatalf("I/O bytes overclaimed: %#v", resources)
 	}
 }

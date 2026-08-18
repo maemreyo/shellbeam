@@ -33,17 +33,73 @@ func normalizeNavigationLocation(workspace workspacecore.Workspace, documents []
 		if err != nil {
 			return normalizedNavigationLocation{}, err
 		}
-		return normalizedNavigationLocation{Location: core.SourceLocation{
-			Kind: core.LocationResolved,
-			Resolved: &core.ResolvedSourceLocation{
-				SourceRefID: string(document.SourceRef), StartByte: byteRange.Start, EndByte: byteRange.End,
-			},
-		}}, nil
+		location, err := resolvedDocumentLocation(document, byteRange)
+		if err != nil {
+			return normalizedNavigationLocation{}, err
+		}
+		return normalizedNavigationLocation{Location: location}, nil
 	}
 	if logicalPath, ok := repositoryLogicalPath(workspace.Root, documentURI); ok {
 		return normalizeObservedRepositoryLocation(workspace, logicalPath, documentURI, value, encoding)
 	}
 	return normalizedNavigationLocation{Location: providerReportedExternalLocation(documentURI, value)}, nil
+}
+
+func resolvedDocumentLocation(document synchronizedDocument, byteRange core.ByteRange) (core.SourceLocation, error) {
+	resolved := &core.ResolvedSourceLocation{
+		SourceRefID: string(document.SourceRef), StartByte: byteRange.Start, EndByte: byteRange.End,
+	}
+	if document.LogicalPath != "" {
+		line, column, err := core.ByteOffsetToDisplayPosition(document.Bytes, byteRange.Start)
+		if err != nil {
+			return core.SourceLocation{}, err
+		}
+		endLine, endColumn, err := core.ByteOffsetToDisplayPosition(document.Bytes, byteRange.End)
+		if err != nil {
+			return core.SourceLocation{}, err
+		}
+		resolved.Display = &core.DisplaySourceLocation{
+			Path: document.LogicalPath, Line: line, Column: column, EndLine: endLine, EndColumn: endColumn,
+			Preview: synchronizedLinePreview(document.Bytes, line),
+		}
+	}
+	location := core.SourceLocation{Kind: core.LocationResolved, Resolved: resolved}
+	if err := location.Validate(); err != nil {
+		return core.SourceLocation{}, err
+	}
+	return location, nil
+}
+
+func synchronizedLinePreview(data []byte, line int) string {
+	if line < 1 || len(data) == 0 {
+		return ""
+	}
+	start := 0
+	for current := 1; current < line; current++ {
+		i := strings.IndexByte(string(data[start:]), '\n')
+		if i < 0 {
+			return ""
+		}
+		start += i + 1
+	}
+	end := len(data)
+	if i := strings.IndexByte(string(data[start:]), '\n'); i >= 0 {
+		end = start + i
+	}
+	lineBytes := data[start:end]
+	if len(lineBytes) > 0 && lineBytes[len(lineBytes)-1] == '\r' {
+		lineBytes = lineBytes[:len(lineBytes)-1]
+	}
+	if !utf8.Valid(lineBytes) {
+		return ""
+	}
+	if len(lineBytes) > 512 {
+		lineBytes = lineBytes[:512]
+		for len(lineBytes) > 0 && !utf8.Valid(lineBytes) {
+			lineBytes = lineBytes[:len(lineBytes)-1]
+		}
+	}
+	return string(lineBytes)
 }
 
 func normalizeObservedRepositoryLocation(workspace workspacecore.Workspace, logicalPath string, documentURI uri.URI, value protocol.Range, encoding protocol.PositionEncodingKind) (normalizedNavigationLocation, error) {

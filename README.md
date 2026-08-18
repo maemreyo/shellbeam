@@ -6,7 +6,7 @@ ShellBeam gives ChatGPT one MCP tool, `local_shell`, backed by a persistent per-
 
 ## Build and test
 
-Requirements: Go 1.26.5, Git, a POSIX shell, and macOS or Linux.
+Requirements: Go 1.26.6, Git, a POSIX shell, and macOS or Linux.
 
 ```sh
 go mod verify

@@ -27,10 +27,15 @@ type WorkerOptions struct {
 	MaxDuration time.Duration
 }
 
+type terminalJob struct {
+	receipt   receipt.Receipt
+	resources *receipt.ResourceEvidence
+}
+
 type Worker struct {
 	service     *Service
 	maxDuration time.Duration
-	jobs        chan receipt.Receipt
+	jobs        chan terminalJob
 	mu          sync.Mutex
 	closed      bool
 	closeOnce   sync.Once
@@ -53,7 +58,7 @@ func NewWorkerWithService(service *Service, options WorkerOptions) (*Worker, err
 	if service == nil || service.repository == nil || options.MaxWorkers < 1 || options.MaxWorkers > maxWorkerCount || options.QueueDepth < 1 || options.QueueDepth > maxWorkerQueueDepth || options.MaxDuration <= 0 || options.MaxDuration > maxWorkerDuration {
 		return nil, fmt.Errorf("invalid telemetry worker options")
 	}
-	worker := &Worker{service: service, maxDuration: options.MaxDuration, jobs: make(chan receipt.Receipt, options.QueueDepth), done: make(chan struct{})}
+	worker := &Worker{service: service, maxDuration: options.MaxDuration, jobs: make(chan terminalJob, options.QueueDepth), done: make(chan struct{})}
 	worker.wg.Add(options.MaxWorkers)
 	for range options.MaxWorkers {
 		go worker.run()
@@ -66,10 +71,18 @@ func NewWorkerWithService(service *Service, options WorkerOptions) (*Worker, err
 }
 
 func (w *Worker) ScheduleTerminal(ctx context.Context, rec receipt.Receipt) error {
+	return w.scheduleTerminal(ctx, rec, nil)
+}
+
+func (w *Worker) ScheduleTerminalWithResources(ctx context.Context, rec receipt.Receipt, resources *receipt.ResourceEvidence) error {
+	return w.scheduleTerminal(ctx, rec, cloneResourceEvidence(resources))
+}
+
+func (w *Worker) scheduleTerminal(ctx context.Context, rec receipt.Receipt, resources *receipt.ResourceEvidence) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if w == nil || rec.Validate() != nil || !rec.State.Terminal() {
+	if w == nil || rec.Validate() != nil || !rec.State.Terminal() || resources != nil && resources.Validate() != nil {
 		return fmt.Errorf("invalid telemetry terminal job")
 	}
 	w.mu.Lock()
@@ -78,11 +91,28 @@ func (w *Worker) ScheduleTerminal(ctx context.Context, rec receipt.Receipt) erro
 		return ErrWorkerClosed
 	}
 	select {
-	case w.jobs <- rec:
+	case w.jobs <- terminalJob{receipt: rec, resources: resources}:
 		return nil
 	default:
 		return ErrWorkerQueueFull
 	}
+}
+
+func cloneResourceEvidence(value *receipt.ResourceEvidence) *receipt.ResourceEvidence {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	for dst, src := range map[*receipt.ResourceMetric]receipt.ResourceMetric{
+		&copy.CPUUserMS: value.CPUUserMS, &copy.CPUSystemMS: value.CPUSystemMS, &copy.MaxRSSBytes: value.MaxRSSBytes,
+		&copy.ReadBytes: value.ReadBytes, &copy.WriteBytes: value.WriteBytes, &copy.ProcessCountPeak: value.ProcessCountPeak,
+	} {
+		if src.Value != nil {
+			v := *src.Value
+			dst.Value = &v
+		}
+	}
+	return &copy
 }
 
 func (w *Worker) Shutdown(ctx context.Context) error {
@@ -105,9 +135,9 @@ func (w *Worker) Shutdown(ctx context.Context) error {
 
 func (w *Worker) run() {
 	defer w.wg.Done()
-	for rec := range w.jobs {
+	for job := range w.jobs {
 		ctx, cancel := context.WithTimeout(context.Background(), w.maxDuration)
-		_, _ = w.service.DeriveTerminal(ctx, rec)
+		_, _ = w.service.DeriveTerminalWithResources(ctx, job.receipt, job.resources)
 		cancel()
 	}
 }

@@ -139,3 +139,23 @@ func TestManifestLoaderAcceptsSupportedV2AndRejectsNewerSchema(t *testing.T) {
 		t.Fatalf("v3=%#v", got)
 	}
 }
+
+func TestManifestLoaderDiscoversBoundedProjectFamiliesWhenManifestAbsent(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"go.mod", "package.json", "pyproject.toml", "Cargo.toml"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("marker"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := NewLoader().Load(context.Background(), root)
+	if got.State != core.LoadAbsent || got.Code != core.CodeManifestAbsent {
+		t.Fatalf("load=%#v", got)
+	}
+	wantFamilies := []string{"go", "node", "python", "rust"}
+	if strings.Join(got.DetectedFamilies, ",") != strings.Join(wantFamilies, ",") {
+		t.Fatalf("families=%v", got.DetectedFamilies)
+	}
+	if len(got.DiscoveryEvidence) != 4 || got.DiscoveryFingerprint == "" {
+		t.Fatalf("discovery=%#v", got)
+	}
+}

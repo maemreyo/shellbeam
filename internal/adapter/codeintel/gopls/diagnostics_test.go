@@ -16,8 +16,8 @@ func TestDiagnosticsCollectorCorrelatesMatchingDocumentVersionToExactSourceRef(t
 	documentURI := uri.File("/workspace/main.go")
 	doc := synchronizedDocument{
 		URI: documentURI, Version: 1,
-		SourceRef: core.SourceRefID("src_01ARZ3NDEKTSV4RRFFQ69G5FB3"),
-		Bytes:     []byte("package p\nvar X = missing\n"),
+		SourceRef: core.SourceRefID("src_01ARZ3NDEKTSV4RRFFQ69G5FB3"), LogicalPath: "main.go",
+		Bytes: []byte("package p\nvar X = missing\n"),
 	}
 	session.pushDiagnostics(documentURI, lspadapter.DiagnosticNotification{
 		URI: documentURI, Version: 1, HasVersion: true, Sequence: 1,
@@ -34,6 +34,9 @@ func TestDiagnosticsCollectorCorrelatesMatchingDocumentVersionToExactSourceRef(t
 	location := response.Diagnostics[0].Location
 	if location.Kind != core.LocationResolved || location.Resolved == nil || location.Resolved.SourceRefID != string(doc.SourceRef) {
 		t.Fatalf("location=%+v", location)
+	}
+	if location.Resolved.Display == nil || location.Resolved.Display.Path != "main.go" || location.Resolved.Display.Line != 2 || location.Resolved.Display.Column != 9 || location.Resolved.Display.EndLine != 2 || location.Resolved.Display.EndColumn != 16 || location.Resolved.Display.Preview != "var X = missing" {
+		t.Fatalf("display=%+v", location.Resolved.Display)
 	}
 	if response.Diagnostics[0].Severity != core.SeverityError || response.Diagnostics[0].ProviderSource != "compiler" {
 		t.Fatalf("diagnostic=%+v", response.Diagnostics[0])

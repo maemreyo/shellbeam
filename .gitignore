@@ -2,3 +2,6 @@
 /dist/
 *.test
 /shellbeam
+
+# macOS Finder metadata
+.DS_Store

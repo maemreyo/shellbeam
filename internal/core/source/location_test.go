@@ -25,3 +25,18 @@ func TestSourceLocationClosedUnionAndPathSafety(t *testing.T) {
 		}
 	}
 }
+
+func TestResolvedSourceLocationAcceptsBoundedDisplayNavigation(t *testing.T) {
+	location := ResolvedSourceLocation{
+		SourceRefID: "src_01K00000000000000000000000", StartByte: 10, EndByte: 20,
+		Display: &DisplaySourceLocation{Path: "internal/app/main.go", Line: 5, Column: 2, EndLine: 5, EndColumn: 8, Preview: "\treturn value"},
+	}
+	if err := location.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	bad := location
+	bad.Display = &DisplaySourceLocation{Path: "../private.go", Line: 1, Column: 1, Preview: "x"}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("unsafe display path accepted")
+	}
+}

@@ -197,6 +197,16 @@ func normalizedStructuredAdapterForArgv(req StartRequest, argv []string) (string
 		if !operation.ValidStructuredAdapterID(req.StructuredAdapter) {
 			return "", failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
 		}
+		selection := structuredapp.SelectAdapter(req.StructuredAdapter, nil)
+		if selection.Status != structuredapp.SelectionSelected {
+			return req.StructuredAdapter, nil
+		}
+		if !structuredapp.AdapterAcceptsArgv(req.StructuredAdapter, argv) {
+			return "", failure.New(failure.InvalidInput, map[string]string{
+				"field": "structured_adapter", "adapter": req.StructuredAdapter,
+				"reason": "producer_mode_mismatch", "required": structuredAdapterRequirement(req.StructuredAdapter),
+			}, fmt.Errorf("structured adapter %q requires matching direct argv with native JSON output enabled", req.StructuredAdapter))
+		}
 		return req.StructuredAdapter, nil
 	}
 	selection := structuredapp.SelectAdapter("", argv)
@@ -204,6 +214,17 @@ func normalizedStructuredAdapterForArgv(req StartRequest, argv []string) (string
 		return selection.AdapterID, nil
 	}
 	return "", nil
+}
+
+func structuredAdapterRequirement(adapter string) string {
+	switch adapter {
+	case "go-test-json":
+		return "argv: go test -json ..."
+	case "go-vet-json":
+		return "argv: go vet -json ..."
+	default:
+		return "matching direct argv with native machine-readable output"
+	}
 }
 
 func (s *Service) waitReservedStart(ctx context.Context, req StartRequest, stored operation.Reservation, sessionID string) (View, error) {

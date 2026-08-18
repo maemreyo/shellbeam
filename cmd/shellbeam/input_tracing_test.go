@@ -12,12 +12,13 @@ import (
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
+	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 func TestE27InputTraceCompositionDisabledDoesZeroProviderWork(t *testing.T) {
 	state := filepath.Join(t.TempDir(), "not-created")
 	base := capability.Baseline(capability.Limits{})
-	composition, err := composeInputTracing(context.Background(), false, state, nil, base)
+	composition, err := composeInputTracing(context.Background(), false, state, nil, nil, base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +52,7 @@ func TestE27InputTraceCompositionHealthyDarwinIsTruthfulAndLazy(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := capability.Baseline(capability.Limits{})
-	composition, err := composeInputTracing(context.Background(), true, state, repo, base)
+	composition, err := composeInputTracing(context.Background(), true, state, repo, nil, base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +86,7 @@ func TestE27InputTraceCompositionProviderFailureLeavesDaemonCapabilityUnavailabl
 	if err := os.Chmod(state, 0755); err != nil {
 		t.Fatal(err)
 	}
-	composition, err := composeInputTracing(context.Background(), true, state, nil, capability.Baseline(capability.Limits{}))
+	composition, err := composeInputTracing(context.Background(), true, state, nil, nil, capability.Baseline(capability.Limits{}))
 	if err != nil {
 		t.Fatalf("optional provider failure must not fail daemon composition: %v", err)
 	}
@@ -105,4 +106,27 @@ func TestE27InputTraceCompositionCloseIsBounded(t *testing.T) {
 	if err := composition.Close(ctx); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestInputTraceWorkspaceResolverUsesRegisteredWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	lookup := &inputTraceWorkspaceLookupFake{record: workspacecore.Workspace{ID: workspacecore.WorkspaceID("ws_01K00000000000000000000000"), Root: root}}
+	resolver := inputTraceWorkspaceResolver{workspaces: lookup}
+	got, err := resolver.ResolveInputTraceWorkspace(context.Background(), string(lookup.record.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != root || len(lookup.calls) != 1 || lookup.calls[0] != string(lookup.record.ID) {
+		t.Fatalf("root=%q calls=%v", got, lookup.calls)
+	}
+}
+
+type inputTraceWorkspaceLookupFake struct {
+	record workspacecore.Workspace
+	calls  []string
+}
+
+func (f *inputTraceWorkspaceLookupFake) Inspect(_ context.Context, id string) (workspacecore.Workspace, error) {
+	f.calls = append(f.calls, id)
+	return f.record, nil
 }

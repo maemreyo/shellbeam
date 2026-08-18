@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -138,6 +139,31 @@ func TestServiceDerivesTerminalTelemetryFromDurableAuthorities(t *testing.T) {
 	}
 	if repo.putCalls != 1 || len(repo.records) != 1 {
 		t.Fatalf("puts=%d records=%d", repo.putCalls, len(repo.records))
+	}
+}
+
+func TestServiceProjectsFrozenEnvironmentBindingIntoTelemetry(t *testing.T) {
+	created := time.Date(2026, 8, 15, 1, 0, 0, 0, time.UTC)
+	repo := telemetryFixture(created, created.Add(time.Second), session.Completed, session.Success)
+	repo.reservation.EnvironmentBinding = &environment.Binding{
+		SnapshotID:             "env_" + strings.Repeat("a", 64),
+		EnvironmentFingerprint: strings.Repeat("b", 64), EnvironmentFingerprintVersion: environment.FingerprintVersion,
+		ToolchainFingerprint: strings.Repeat("c", 64), ToolchainFingerprintVersion: environment.ToolchainFingerprintVersion,
+		CapturedAt: created,
+	}
+	if err := repo.reservation.EnvironmentBinding.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	service, err := newService(repo, "darwin", "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.DeriveTerminal(context.Background(), repo.receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EnvironmentFingerprint != repo.reservation.EnvironmentBinding.EnvironmentFingerprint || got.EnvironmentSchemaVersion != environment.FingerprintVersion || got.ToolchainFingerprint != repo.reservation.EnvironmentBinding.ToolchainFingerprint || got.ToolchainSchemaVersion != environment.ToolchainFingerprintVersion {
+		t.Fatalf("telemetry environment binding lost: %#v", got)
 	}
 }
 
@@ -334,4 +360,43 @@ func telemetryProjectCommandBinding(t *testing.T) project.CommandBinding {
 		t.Fatal(err)
 	}
 	return binding
+}
+
+func TestServiceMapsDurableExitResourcesIntoTelemetry(t *testing.T) {
+	created := time.Date(2026, 8, 18, 2, 0, 0, 0, time.UTC)
+	repo := telemetryFixture(created, created.Add(time.Second), session.Completed, session.Success)
+	cpuUser, cpuSystem, rss, peak := int64(31), int64(7), int64(42<<20), int64(3)
+	resources := &receipt.ResourceEvidence{
+		CPUUserMS:        receipt.ResourceMetric{Quality: receipt.ResourcePlatformReported, Value: &cpuUser},
+		CPUSystemMS:      receipt.ResourceMetric{Quality: receipt.ResourcePlatformReported, Value: &cpuSystem},
+		MaxRSSBytes:      receipt.ResourceMetric{Quality: receipt.ResourcePlatformReported, Value: &rss},
+		ReadBytes:        receipt.ResourceMetric{Quality: receipt.ResourceUnavailable},
+		WriteBytes:       receipt.ResourceMetric{Quality: receipt.ResourceUnavailable},
+		ProcessCountPeak: receipt.ResourceMetric{Quality: receipt.ResourceSampled, Value: &peak},
+	}
+	service, err := newService(repo, "darwin", "arm64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := service.DeriveTerminalWithResources(context.Background(), repo.receipt, resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		got     core.IntMetric
+		quality core.MetricQuality
+		value   int64
+	}{
+		"cpu_user":     {got.Resources.CPUUserMS, core.MetricPlatformReported, cpuUser},
+		"cpu_system":   {got.Resources.CPUSystemMS, core.MetricPlatformReported, cpuSystem},
+		"max_rss":      {got.Resources.MaxRSSBytes, core.MetricPlatformReported, rss},
+		"process_peak": {got.Resources.ProcessCountPeak, core.MetricSampled, peak},
+	} {
+		if tc.got.Quality != tc.quality || tc.got.Value == nil || *tc.got.Value != tc.value {
+			t.Fatalf("%s=%#v", name, tc.got)
+		}
+	}
+	if got.Resources.ReadBytes.Quality != core.MetricUnavailable || got.Resources.WriteBytes.Quality != core.MetricUnavailable {
+		t.Fatalf("I/O resource quality=%#v", got.Resources)
+	}
 }

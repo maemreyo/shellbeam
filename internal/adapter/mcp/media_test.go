@@ -12,6 +12,7 @@ import (
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -318,5 +319,68 @@ func assertReadMediaBranches(t *testing.T, tools []*mcpgo.Tool, want int) {
 	}
 	if got != want {
 		t.Fatalf("read_media branches=%d want=%d schema=%s", got, want, encoded)
+	}
+}
+
+type refreshableMCPMediaClient struct {
+	catalog      capability.Catalog
+	mediaEnabled bool
+	media        media.Result
+}
+
+func (c *refreshableMCPMediaClient) Forward(_ context.Context, req bridge.Request) (bridge.Response, error) {
+	switch req.Action {
+	case "inspect.server":
+		catalog := c.catalog.Clone()
+		return bridge.Response{Server: &catalog}, nil
+	case "capabilities.negotiate":
+		if !c.mediaEnabled {
+			return bridge.Response{Code: string(failure.FeatureUnavailable)}, nil
+		}
+		n, ok := capability.NegotiateMedia(*req.ConsumerMedia, capability.V1MediaSupport())
+		if !ok {
+			return bridge.Response{}, nil
+		}
+		return bridge.Response{NegotiatedMedia: &n}, nil
+	case "read_media":
+		result := c.media
+		result.Data = append([]byte(nil), result.Data...)
+		return bridge.Response{Media: &result}, nil
+	default:
+		return bridge.Response{}, nil
+	}
+}
+
+func TestMCPRefreshesConditionalToolSchemaOnNextRequest(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	client := &refreshableMCPMediaClient{catalog: catalog}
+	h, err := bridge.NewNegotiated(context.Background(), client, capability.V1MediaSupport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(h, h.EffectiveCatalog())
+	session, closeSession := currentSession(t, server)
+	defer closeSession()
+
+	before, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReadMediaBranches(t, before.Tools, 0)
+
+	client.mediaEnabled = true
+	client.media = mediaResult(t, media.DisplayAddress{AddressKind: media.AddressCWD, CWD: "/tmp", Path: "refresh.png"})
+	probe, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"inspect.server"}`)})
+	if err != nil || probe.IsError {
+		t.Fatalf("probe=%#v err=%v", probe, err)
+	}
+
+	after, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReadMediaBranches(t, after.Tools, 1)
+	if !strings.Contains(after.Tools[0].Description, "original selected local image file bytes") {
+		t.Fatalf("refreshed tool disclosure missing: %q", after.Tools[0].Description)
 	}
 }

@@ -521,6 +521,9 @@ func TestServicePromotesObservedWorkspaceNavigationLocationToExactSourceRef(t *t
 	if location.Resolved.StartByte != int64(len("package p\nvar ")) || location.Resolved.EndByte != int64(len("package p\nvar X")) {
 		t.Fatalf("resolved range=%+v", location.Resolved)
 	}
+	if location.Resolved.Display == nil || location.Resolved.Display.Path != "other.go" || location.Resolved.Display.Line != 2 || location.Resolved.Display.Column != 5 || location.Resolved.Display.Preview != "var X = 1" {
+		t.Fatalf("display navigation=%+v", location.Resolved.Display)
+	}
 }
 
 func TestServiceDoesNotPromoteWorkspaceLocationWhenObservedBytesChanged(t *testing.T) {
