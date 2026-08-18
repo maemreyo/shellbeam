@@ -76,7 +76,7 @@ func (s *AffectedService) selectAffectedPaths(ctx context.Context, req AffectedR
 	if sample.RepositoryID != ws.RepositoryID || sample.WorkspaceID != ws.ID {
 		return workspace.DeltaSample{}, affectedSelection{}, fmt.Errorf("delta workspace mismatch")
 	}
-	selection := affectedSelection{paths: append([]string(nil), sample.ResolvedPaths...), basis: "workspace_dirty", coverage: coverageFromSelection(sample.Completeness)}
+	selection := affectedSelection{paths: pathsFromDeltaSample(sample), basis: "workspace_dirty", coverage: coverageFromSelection(sample.Completeness)}
 	if req.ActivityID != "" {
 		selection.basis = "activity_delta"
 		if s.activities == nil {
@@ -180,6 +180,18 @@ func weakenCoverage(c core.Coverage) core.Coverage {
 		return c
 	}
 	return core.CoveragePartial
+}
+func pathsFromDeltaSample(sample workspace.DeltaSample) []string {
+	out := append([]string(nil), sample.ResolvedPaths...)
+	for _, change := range sample.Changes {
+		if change.OldPath != "" {
+			out = append(out, change.OldPath)
+		}
+		if change.NewPath != "" {
+			out = append(out, change.NewPath)
+		}
+	}
+	return out
 }
 func pathsFromActivity(facts []activity.PathFact) []string {
 	out := make([]string, 0, len(facts))

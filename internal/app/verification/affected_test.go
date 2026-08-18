@@ -2,6 +2,7 @@ package verification
 
 import (
 	"context"
+	"reflect"
 	"sort"
 	"testing"
 	"time"
@@ -264,5 +265,38 @@ func TestEffectiveClassificationCapturedAtComesFromAffectedObservation(t *testin
 		if d.Kind == core.DomainPolicyClassification && !d.CapturedAt.Equal(want) {
 			t.Fatalf("captured=%v want=%v", d.CapturedAt, want)
 		}
+	}
+}
+
+func TestAffectedWorkspaceUsesCurrentChangesAndResolvedTransitions(t *testing.T) {
+	b := workspace.CoherenceBarrier{DaemonIncarnation: "daemon-1", Epoch: 1}
+	sample := workspace.DeltaSample{
+		SchemaVersion: workspace.DeltaSampleSchemaVersion,
+		RepositoryID:  serviceWorkspace().RepositoryID,
+		WorkspaceID:   serviceWorkspace().ID,
+		Freshness:     workspace.SampleFreshlySampled,
+		Completeness:  workspace.SelectionComplete,
+		ObservedAt:    time.Unix(20, 0).UTC(),
+		Head:          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Ref:           "refs/heads/main",
+		Changes: []workspace.ChangeRecord{
+			{PathTransition: workspace.PathModified, NewPath: "internal/auth/a.go", SourceTransition: workspace.SourceBytesChanged, VCSTransition: workspace.VCSOther},
+			{PathTransition: workspace.PathReplaced, OldPath: "old/name.go", NewPath: "new/name.go", SourceTransition: workspace.SourceIdentityChanged, VCSTransition: workspace.VCSOther},
+		},
+		ResolvedPaths:   []string{"restored.go"},
+		BarrierBefore:   b,
+		BarrierAfter:    b,
+		RecordsObserved: 2,
+		BytesObserved:   64,
+	}
+	svc := NewAffectedService(&fakeAffectedWorkspaceInspector{ws: serviceWorkspace()}, &fakeAffectedSampler{sample: sample}, nil, &fakeSnapshotter{result: freshSnapshot(serviceGen('2'))}, nil)
+	got, err := svc.Derive(context.Background(), AffectedRequest{WorkspaceID: string(serviceWorkspace().ID)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := targetPaths(got.Surface)
+	want := []string{"internal/auth/a.go", "new/name.go", "old/name.go", "restored.go"}
+	if !reflect.DeepEqual(paths, want) {
+		t.Fatalf("affected paths=%v want=%v", paths, want)
 	}
 }
