@@ -54,6 +54,20 @@ type p15PerSessionState struct {
 	current   *controlClient
 }
 
+func (s *p15PerSessionState) closeObservers() {
+	seen := make(map[*controlClient]struct{}, len(s.observers))
+	for _, observer := range s.observers {
+		if observer == nil {
+			continue
+		}
+		if _, ok := seen[observer]; ok {
+			continue
+		}
+		seen[observer] = struct{}{}
+		_ = observer.close()
+	}
+}
+
 func faultP15PerSession(ctx context.Context, env nativeProbeEnv) (bool, map[string]string, string) {
 	facts := map[string]string{}
 	state, err := newP15PerSessionState(ctx, env)
@@ -62,6 +76,7 @@ func faultP15PerSession(ctx context.Context, env nativeProbeEnv) (bool, map[stri
 	}
 	defer state.f.close(context.Background())
 	defer state.controls.close()
+	defer state.closeObservers()
 	if err := p15PerSessionStartup(ctx, state); err != nil {
 		return false, facts, err.Error() + "\n"
 	}
