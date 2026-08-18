@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 var nativeProbeRegistry = map[string]nativeProbeFunc{
@@ -31,6 +33,8 @@ var nativeProbeRegistry = map[string]nativeProbeFunc{
 	"P11": probeP11CrashReconnectIdentity,
 	"P12": probeP12ACKOrderingAndBackpressure,
 	"P13": probeP13ResourceLeakStress,
+	"P14": probeP14MultiSessionPrivacyIsolation,
+	"P15": probeP15ObserverOverlapPrivacyFault,
 }
 
 type identity struct {
@@ -52,7 +56,7 @@ func main() {
 
 func runCLI(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: interactive-handoff-h0 render|verify-gate")
+		return errors.New("usage: interactive-handoff-h0 run|render|verify-gate")
 	}
 	switch args[0] {
 	case "render":
@@ -60,10 +64,166 @@ func runCLI(args []string) error {
 	case "verify-gate":
 		return runVerifyGate(args[1:])
 	case "run":
-		return errors.New("run subcommand is unavailable until P0-P15 probes are implemented")
+		return runNative(args[1:])
 	default:
 		return fmt.Errorf("unknown subcommand %q", args[0])
 	}
+}
+
+func runNative(args []string) error {
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var tmuxPath, rawDir, jsonPath string
+	fs.StringVar(&tmuxPath, "tmux", "", "absolute tmux executable path")
+	fs.StringVar(&rawDir, "raw-dir", "", "H0 raw artifact directory")
+	fs.StringVar(&jsonPath, "json", "", "native report JSON output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 || tmuxPath == "" || rawDir == "" || jsonPath == "" {
+		return errors.New("run requires --tmux, --raw-dir, and --json")
+	}
+	id, err := collectIdentity(tmuxPath)
+	if err != nil {
+		return err
+	}
+	repo, err := repositoryRoot()
+	if err != nil {
+		return err
+	}
+	rawDir, jsonPath, err = validateRunPaths(repo, rawDir, jsonPath)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(rawDir, 0o700); err != nil {
+		return err
+	}
+	if err := os.Chmod(rawDir, 0o700); err != nil {
+		return err
+	}
+	results := runNativeProbes(nativeProbeEnv{Tmux: id.TmuxPath, RawDir: rawDir}, nativeProbeRegistry)
+	report := Report{SchemaVersion: reportSchemaVersion, GitHead: id.GitHead, GOOS: id.GOOS, GOARCH: id.GOARCH, GoVersion: id.GoVersion, TmuxPath: id.TmuxPath, TmuxVersion: id.TmuxVersion, TmuxSHA256: id.TmuxSHA256, Results: sortedResults(results), Verdict: verdict(results)}
+	if err := validateReport(report); err != nil {
+		return fmt.Errorf("native report invalid: %w", err)
+	}
+	encoded, err := marshalDeterministic(report)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(jsonPath, encoded, 0o600)
+}
+
+func runNativeProbes(env nativeProbeEnv, registry map[string]nativeProbeFunc) []ProbeResult {
+	results := make([]ProbeResult, 0, 16)
+	for _, id := range requiredProbeIDs() {
+		probe := registry[id]
+		if probe == nil {
+			results = append(results, ProbeResult{ID: id, Status: StatusNotRun, Summary: "probe is not registered"})
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), nativeProbeTimeout(id))
+		result := probe(ctx, env)
+		cancel()
+		if result.ID != id {
+			result = ProbeResult{ID: id, Status: StatusFail, Summary: fmt.Sprintf("probe returned id %q", result.ID)}
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func nativeProbeTimeout(id string) time.Duration {
+	switch id {
+	case "P13", "P14", "P15":
+		return 3 * time.Minute
+	case "P3", "P5", "P6", "P10", "P11", "P12":
+		return 90 * time.Second
+	default:
+		return 45 * time.Second
+	}
+}
+
+func repositoryRoot() (string, error) {
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse --show-toplevel: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" || !filepath.IsAbs(root) {
+		return "", fmt.Errorf("invalid repository root %q", root)
+	}
+	return filepath.Clean(root), nil
+}
+
+func validateRunPaths(repoRoot, rawDir, jsonPath string) (string, string, error) {
+	root, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return "", "", err
+	}
+	allowed := filepath.Join(root, ".build", "interactive-handoff-h0")
+	resolve := func(path string) (string, error) {
+		if path == "" {
+			return "", errors.New("empty output path")
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		return filepath.Abs(filepath.Clean(path))
+	}
+	rawAbs, err := resolve(rawDir)
+	if err != nil {
+		return "", "", err
+	}
+	jsonAbs, err := resolve(jsonPath)
+	if err != nil {
+		return "", "", err
+	}
+	if !pathWithin(allowed, rawAbs) || rawAbs == allowed {
+		return "", "", errors.New("raw-dir must be below .build/interactive-handoff-h0")
+	}
+	if !pathWithin(rawAbs, jsonAbs) || jsonAbs == rawAbs {
+		return "", "", errors.New("json report must be a file below raw-dir")
+	}
+	if err := rejectExistingSymlinkComponents(root, rawAbs); err != nil {
+		return "", "", err
+	}
+	if err := rejectExistingSymlinkComponents(root, jsonAbs); err != nil {
+		return "", "", err
+	}
+	return rawAbs, jsonAbs, nil
+}
+
+func rejectExistingSymlinkComponents(root, target string) error {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
+	if err != nil {
+		return err
+	}
+	current := filepath.Clean(root)
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("H0 output path contains symlink component %q", current)
+		}
+	}
+	return nil
+}
+
+func pathWithin(root, target string) bool {
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
 }
 
 type stringListFlag []string

@@ -73,17 +73,38 @@ func TestGateDoesNotAllowH1WithoutQualifiedFenceAndObservationTopology(t *testin
 
 func TestGateDoesNotAllowH1WhenProviderFactsDisagreeAcrossPlatforms(t *testing.T) {
 	reports := passingNativeReports(t)
-	for i := range reports {
-		reports[i].Report.Results[indexOf(reports[i].Report.Results, "P3")].Facts = map[string]string{"input_fence_mechanism": "same_client_readonly_fence"}
-		reports[i].Report.Results[indexOf(reports[i].Report.Results, "P4")].Facts = map[string]string{"observation_topology": "per_session_observer"}
-		reports[i] = bindReport(t, reports[i].Report)
-	}
-	reports[1].Report.Results[indexOf(reports[1].Report.Results, "P4")].Facts["observation_topology"] = "shared_observer_demux"
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	qualifyProviderFacts(&reports[1].Report, candidateSharedDaemonDemux)
+	reports[0] = bindReport(t, reports[0].Report)
 	reports[1] = bindReport(t, reports[1].Report)
 	gate := gateFromReports(reports)
-	if gate.H1Allowed {
-		t.Fatal("h1 allowed with cross-platform topology disagreement")
+	if gate.H1Allowed || gate.ObservationTopology != "unqualified" {
+		t.Fatalf("cross-platform topology disagreement accepted: %#v", gate)
 	}
+}
+
+func TestGateUsesFinalQualifiedTopologyNotP4MeasurementPlaceholder(t *testing.T) {
+	reports := passingNativeReports(t)
+	for i := range reports {
+		qualifyProviderFacts(&reports[i].Report, candidatePerSessionObserver)
+		reports[i] = bindReport(t, reports[i].Report)
+	}
+	gate := gateFromReports(reports)
+	if gate.ObservationTopology != candidatePerSessionObserver || !gate.H1Allowed {
+		t.Fatalf("gate=%#v", gate)
+	}
+}
+
+func qualifyProviderFacts(report *Report, candidate string) {
+	report.Results[indexOf(report.Results, "P3")].Facts = map[string]string{"input_fence_mechanism": "same_client_readonly_fence"}
+	for _, probeID := range []string{"P4", "P5", "P6", "P14", "P15"} {
+		result := &report.Results[indexOf(report.Results, probeID)]
+		if result.Facts == nil {
+			result.Facts = map[string]string{}
+		}
+		result.Facts["candidate."+candidate+"."+strings.ToLower(probeID)] = "PASS"
+	}
+	report.Results[indexOf(report.Results, "P4")].Facts["observation_topology"] = "unqualified"
 }
 
 func TestGateJSONRoundTripIsDeterministic(t *testing.T) {

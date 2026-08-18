@@ -157,7 +157,7 @@ func gateFromReports(reports []BoundReport) QualificationGate {
 		ProviderID:          "tmux_control_mode",
 		ProviderVersion:     1,
 		InputFenceMechanism: consensusProbeFact(reports, "P3", "input_fence_mechanism"),
-		ObservationTopology: consensusProbeFact(reports, "P4", "observation_topology"),
+		ObservationTopology: consensusQualifiedObservationTopology(reports),
 		ControlAdapter:      "raw_control_mode",
 	}
 	gate.H1Allowed = deriveH1Allowed(gate, reports)
@@ -191,6 +191,52 @@ func consensusProbeFact(reports []BoundReport, probeID, key string) string {
 	return value
 }
 
+func consensusQualifiedObservationTopology(reports []BoundReport) string {
+	var selected string
+	for _, bound := range reports {
+		candidate := qualifiedObservationTopology(bound.Report)
+		if candidate == "unqualified" {
+			return "unqualified"
+		}
+		if selected == "" {
+			selected = candidate
+			continue
+		}
+		if selected != candidate {
+			return "unqualified"
+		}
+	}
+	if selected == "" {
+		return "unqualified"
+	}
+	return selected
+}
+
+func qualifiedObservationTopology(report Report) string {
+	for _, candidate := range []string{candidatePerSessionObserver, candidateSharedPerPane, candidateSharedDaemonDemux} {
+		if privacyCandidatePassed(report, candidate) {
+			return candidate
+		}
+	}
+	return "unqualified"
+}
+
+func privacyCandidatePassed(report Report, candidate string) bool {
+	for _, probeID := range []string{"P4", "P5", "P6", "P14", "P15"} {
+		status := ""
+		for _, result := range report.Results {
+			if result.ID == probeID {
+				status = result.Facts["candidate."+candidate+"."+strings.ToLower(probeID)]
+				break
+			}
+		}
+		if status != "PASS" {
+			return false
+		}
+	}
+	return true
+}
+
 func deriveH1Allowed(gate QualificationGate, reports []BoundReport) bool {
 	if gate.SchemaVersion != gateSchemaVersion || gate.GateKind != gateKind || gate.SpecCommit != frozenSpecCommit {
 		return false
@@ -201,7 +247,7 @@ func deriveH1Allowed(gate QualificationGate, reports []BoundReport) bool {
 	if gate.InputFenceMechanism == "" || gate.InputFenceMechanism == "unqualified" || gate.ObservationTopology == "" || gate.ObservationTopology == "unqualified" {
 		return false
 	}
-	if gate.InputFenceMechanism != consensusProbeFact(reports, "P3", "input_fence_mechanism") || gate.ObservationTopology != consensusProbeFact(reports, "P4", "observation_topology") {
+	if gate.InputFenceMechanism != consensusProbeFact(reports, "P3", "input_fence_mechanism") || gate.ObservationTopology != consensusQualifiedObservationTopology(reports) {
 		return false
 	}
 	byPlatform := make(map[string]BoundReport, len(reports))
