@@ -508,6 +508,9 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 - Create: `internal/app/daemon/delegated_control.go`
 - Create: `internal/app/daemon/delegated_control_test.go`
 - Modify: `internal/app/daemon/admission.go`
+- Modify: `internal/app/daemon/bindings.go`
+- Modify: `internal/app/daemon/project_command.go`
+- Modify: `internal/app/daemon/project_command_test.go`
 - Modify: `internal/app/daemon/actions.go`
 - Modify: `internal/app/daemon/service.go`
 - Modify: `internal/app/daemon/types.go`
@@ -532,6 +535,7 @@ delegated + tty/persistent legacy field -> invalid_input
 delegated + explicit ordinary evidence contract -> invalid_input before reservation/provider work
 unknown session_mode -> feature_unavailable before reservation/provider work
 direct/B1 -> exact existing route
+raw delegated + typed project-command delegated -> same delegated admission/provider ordering after their respective identity/binding resolution
 ```
 
 - [ ] **Step 2: Implement delegated start ordering.**
