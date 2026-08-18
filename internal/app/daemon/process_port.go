@@ -64,3 +64,23 @@ func resourceLimitBreachOf(handle ProcessHandle) operation.ResourceLimitKind {
 		return ""
 	}
 }
+
+type resourceCleanupHandle interface {
+	ResourceCleanupIncomplete() string
+}
+
+func resourceCleanupOf(handle ProcessHandle) *receipt.ResourceCleanup {
+	aware, ok := handle.(resourceCleanupHandle)
+	if !ok {
+		return nil
+	}
+	reason := aware.ResourceCleanupIncomplete()
+	if reason == "" {
+		return nil
+	}
+	cleanup := &receipt.ResourceCleanup{Status: receipt.ResourceCleanupIncomplete, Reason: reason}
+	if err := cleanup.Validate(); err != nil {
+		cleanup.Reason = "cleanup_unknown"
+	}
+	return cleanup
+}

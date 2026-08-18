@@ -23,6 +23,7 @@ func (o resourceTerminalOwner) Start(context.Context, operation.ExecutionSpec, a
 
 type resourceTerminalHandle struct {
 	breach          operation.ResourceLimitKind
+	cleanupReason   string
 	exit            chan receipt.ExitEvidence
 	releaseOnSignal bool
 	once            sync.Once
@@ -51,6 +52,7 @@ func (h *resourceTerminalHandle) Signal(signal string) receipt.SignalEvidence {
 	return receipt.SignalEvidence{Requested: signal, Attempted: true, Succeeded: true}
 }
 func (h *resourceTerminalHandle) ResourceLimitBreach() operation.ResourceLimitKind { return h.breach }
+func (h *resourceTerminalHandle) ResourceCleanupIncomplete() string                { return h.cleanupReason }
 func (h *resourceTerminalHandle) Reap(exit receipt.ExitEvidence) {
 	h.once.Do(func() { h.exit <- exit })
 }
@@ -180,5 +182,27 @@ func TestTimeoutWinsOverResourceBreachAlreadyFrozenByHandle(t *testing.T) {
 	}
 	if terminal.Receipt.FailureReason == "resource_limit_memory" || terminal.Failure == nil || terminal.Failure.Code != "timed_out" {
 		t.Fatalf("resource breach overrode timeout: receipt=%#v failure=%#v", terminal.Receipt, terminal.Failure)
+	}
+}
+
+func TestResourceCleanupIncompletePersistsSeparatelyFromSuccessfulChildOutcome(t *testing.T) {
+	handle := newResourceTerminalHandle("")
+	handle.cleanupReason = "cleanup_remove_failed"
+	svc := resourceTerminalService(t, handle)
+	limits := &operation.ResourceLimits{MemoryBytes: 64 << 20}
+	started, err := svc.Start(context.Background(), app.StartRequest{
+		ProtocolVersion: 2, OperationID: "resource-cleanup-incomplete", Command: "true", CWD: "/tmp", ResourceLimits: limits, YieldMS: 0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zero := 0
+	handle.Reap(receipt.ExitEvidence{Reaped: true, Code: &zero})
+	terminal := waitForTerminal(t, svc, started.SessionID)
+	if terminal.State != session.Completed || terminal.Outcome != session.Success || terminal.Failure != nil || terminal.Receipt == nil {
+		t.Fatalf("cleanup metadata changed child/operation truth: %#v", terminal)
+	}
+	if terminal.Receipt.ResourceCleanup == nil || terminal.Receipt.ResourceCleanup.Status != "incomplete" || terminal.Receipt.ResourceCleanup.Reason != "cleanup_remove_failed" {
+		t.Fatalf("cleanup metadata=%#v", terminal.Receipt.ResourceCleanup)
 	}
 }

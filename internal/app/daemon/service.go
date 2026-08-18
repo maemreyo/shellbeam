@@ -70,6 +70,7 @@ type liveSession struct {
 	spawn                   receipt.SpawnEvidence
 	exit                    receipt.ExitEvidence
 	signal                  receipt.SignalEvidence
+	resourceCleanup         *receipt.ResourceCleanup
 	input                   *session.InputLedger
 	kills                   *session.KillLedger
 	accepted                int64
@@ -290,7 +291,9 @@ func resourceLimitFailureReason(kind operation.ResourceLimitKind) string {
 func (s *Service) waitLoop(l *liveSession) {
 	exit := l.handle.Wait(context.Background())
 	resourceBreach := resourceLimitBreachOf(l.handle)
+	resourceCleanup := resourceCleanupOf(l.handle)
 	l.mu.Lock()
+	l.resourceCleanup = resourceCleanup
 	l.exit = exit
 	l.state = session.Finalizing
 	l.notify()

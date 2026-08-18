@@ -5,6 +5,7 @@ package process
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -106,6 +107,20 @@ type resourceProviderError struct{ reason string }
 func (e resourceProviderError) Error() string { return "resource enforcement unavailable: " + e.reason }
 
 func resourceProviderFailure(reason string) error { return resourceProviderError{reason: reason} }
+
+func resourceCleanupReasonFromError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var providerErr resourceProviderError
+	if errors.As(err, &providerErr) {
+		switch providerErr.reason {
+		case "final_events_unavailable", "cleanup_kill_failed", "cleanup_events_failed", "cleanup_events_invalid", "cleanup_timeout", "cleanup_remove_failed":
+			return providerErr.reason
+		}
+	}
+	return "cleanup_unknown"
+}
 
 // NewOwnerFromEnvironment qualifies the platform resource provider once. An
 // absent configuration is not an error and performs no provider probing.

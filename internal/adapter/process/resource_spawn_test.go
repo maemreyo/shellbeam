@@ -220,3 +220,41 @@ func TestResourceOwnerPTYKeepsSessionAndControllingTTYAttributes(t *testing.T) {
 	}
 	_ = h.Close()
 }
+
+type task5CleanupFailDomain struct {
+	task5Domain
+	finishErr error
+}
+
+func (d *task5CleanupFailDomain) finish() (operation.ResourceLimitKind, error) {
+	d.finishCalls++
+	return d.breach, d.finishErr
+}
+
+func TestResourceOwnerFreezesCleanupIncompleteSeparatelyFromLiteralExit(t *testing.T) {
+	domain := &task5CleanupFailDomain{finishErr: resourceProviderFailure("cleanup_remove_failed")}
+	provider := &task5ResourceProvider{domain: domain}
+	owner := Owner{resources: provider}
+	limits := &operation.ResourceLimits{MemoryBytes: 64 << 20}
+	h, spawn, err := owner.Start(context.Background(), operation.ExecutionSpec{
+		Shell: "/bin/sh", Command: "true", CWD: t.TempDir(), ResourceLimits: limits,
+	}, task5Sink{})
+	if err != nil || !spawn.Succeeded || h == nil {
+		t.Fatalf("start spawn=%#v err=%v", spawn, err)
+	}
+	exit := h.Wait(context.Background())
+	if exit.Code == nil || *exit.Code != 0 || exit.Signal != "" {
+		t.Fatalf("cleanup defect rewrote exit evidence: %#v", exit)
+	}
+	status, ok := h.(interface{ ResourceCleanupIncomplete() string })
+	if !ok || status.ResourceCleanupIncomplete() != "cleanup_remove_failed" {
+		t.Fatalf("cleanup status=%T %#v", h, status)
+	}
+	breach, ok := h.(interface {
+		ResourceLimitBreach() operation.ResourceLimitKind
+	})
+	if !ok || breach.ResourceLimitBreach() != "" {
+		t.Fatalf("cleanup defect invented breach: %T %#v", h, breach)
+	}
+	_ = h.Close()
+}

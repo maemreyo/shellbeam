@@ -26,7 +26,8 @@ type ptyHandle struct {
 	captureDone    chan struct{}
 	resourceMu     sync.RWMutex
 	resourceDomain resourceExecutionDomain
-	resourceBreach operation.ResourceLimitKind
+	resourceBreach        operation.ResourceLimitKind
+	resourceCleanupReason string
 }
 
 func startPTY(spec operation.ExecutionSpec, sink app.OutputSink, domain resourceExecutionDomain) (app.ProcessHandle, receipt.SpawnEvidence, error) {
@@ -112,9 +113,10 @@ func (h *ptyHandle) reap() {
 		}
 	}
 	if h.resourceDomain != nil {
-		breach, _ := h.resourceDomain.finish()
+		breach, cleanupErr := h.resourceDomain.finish()
 		h.resourceMu.Lock()
 		h.resourceBreach = breach
+		h.resourceCleanupReason = resourceCleanupReasonFromError(cleanupErr)
 		h.resourceMu.Unlock()
 	}
 	h.wait <- e
@@ -124,6 +126,11 @@ func (h *ptyHandle) ResourceLimitBreach() operation.ResourceLimitKind {
 	h.resourceMu.RLock()
 	defer h.resourceMu.RUnlock()
 	return h.resourceBreach
+}
+func (h *ptyHandle) ResourceCleanupIncomplete() string {
+	h.resourceMu.RLock()
+	defer h.resourceMu.RUnlock()
+	return h.resourceCleanupReason
 }
 func (h *ptyHandle) Wait(ctx context.Context) receipt.ExitEvidence {
 	select {

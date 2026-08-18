@@ -91,6 +91,9 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		rec.ExecutionFingerprint = l.reservation.ExecutionFingerprint
 		rec.ObservationBindingFingerprint = l.reservation.ObservationBindingFingerprint
 		rec.ProjectCommand = l.reservation.ProjectCommand
+		if rec.SchemaVersion == 2 || rec.SchemaVersion == 3 {
+			rec.ResourceCleanup = l.resourceCleanup
+		}
 		if (rec.SchemaVersion == 2 || (rec.SchemaVersion == 4 && l.reservation.ProjectCommand == nil)) && l.reservation.Evidence != nil {
 			frozen := *l.reservation.Evidence
 			frozen.ExpectedOutputs = append(frozen.ExpectedOutputs[:0:0], l.reservation.Evidence.ExpectedOutputs...)

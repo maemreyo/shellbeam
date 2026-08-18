@@ -26,6 +26,28 @@ type SignalEvidence struct {
 	Succeeded bool   `json:"succeeded"`
 }
 
+
+type ResourceCleanupStatus string
+
+const ResourceCleanupIncomplete ResourceCleanupStatus = "incomplete"
+
+type ResourceCleanup struct {
+	Status ResourceCleanupStatus `json:"status"`
+	Reason string                `json:"reason"`
+}
+
+func (c ResourceCleanup) Validate() error {
+	if c.Status != ResourceCleanupIncomplete {
+		return fmt.Errorf("invalid resource cleanup status")
+	}
+	switch c.Reason {
+	case "final_events_unavailable", "cleanup_kill_failed", "cleanup_events_failed", "cleanup_events_invalid", "cleanup_timeout", "cleanup_remove_failed", "cleanup_unknown":
+		return nil
+	default:
+		return fmt.Errorf("invalid resource cleanup reason")
+	}
+}
+
 type Receipt struct {
 	SchemaVersion                 int             `json:"schema_version"`
 	OperationID                   string          `json:"operation_id"`
@@ -60,6 +82,7 @@ type Receipt struct {
 	TimeoutSource       string                  `json:"timeout_source,omitempty"`
 	StdinModeSource     string                  `json:"stdin_mode_source,omitempty"`
 	FailureReason       string                  `json:"failure_reason,omitempty"`
+	ResourceCleanup     *ResourceCleanup        `json:"resource_cleanup,omitempty"`
 	WorkspaceProvenance *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
 	ProjectCommand      *project.CommandBinding `json:"project_command,omitempty"`
 	Evidence            *evidence.Contract      `json:"evidence,omitempty"`
@@ -71,7 +94,7 @@ type Receipt struct {
 func (r Receipt) Validate() error {
 	switch r.SchemaVersion {
 	case 1:
-		if r.ProjectCommand != nil || r.Evidence != nil {
+		if r.ProjectCommand != nil || r.Evidence != nil || r.ResourceCleanup != nil {
 			return fmt.Errorf("derived provenance requires newer receipt schema")
 		}
 	case 2:
@@ -97,6 +120,9 @@ func (r Receipt) Validate() error {
 			return fmt.Errorf("invalid v3 project command provenance: %w", err)
 		}
 	case 4:
+		if r.ResourceCleanup != nil {
+			return fmt.Errorf("resource cleanup metadata unsupported for persistent receipt")
+		}
 		if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" || !r.Persistent || r.TTY {
 			return fmt.Errorf("v4 persistent receipt identity missing")
 		}
@@ -119,6 +145,11 @@ func (r Receipt) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unsupported receipt schema")
+	}
+	if r.ResourceCleanup != nil {
+		if err := r.ResourceCleanup.Validate(); err != nil {
+			return err
+		}
 	}
 	if r.InputDeliveredBytes > r.InputAcceptedBytes {
 		return fmt.Errorf("delivered input exceeds accepted")

@@ -32,7 +32,8 @@ type Handle struct {
 	closeOnce      sync.Once
 	resourceMu     sync.RWMutex
 	resourceDomain resourceExecutionDomain
-	resourceBreach operation.ResourceLimitKind
+	resourceBreach        operation.ResourceLimitKind
+	resourceCleanupReason string
 	// stdinClosed is guarded by writeMu. Both the policy close at spawn and an
 	// explicit end-of-input go through the same primitive, so the write end is
 	// closed exactly once however input ends.
@@ -229,9 +230,10 @@ func (h *Handle) reap() {
 		}
 	}
 	if h.resourceDomain != nil {
-		breach, _ := h.resourceDomain.finish()
+		breach, cleanupErr := h.resourceDomain.finish()
 		h.resourceMu.Lock()
 		h.resourceBreach = breach
+		h.resourceCleanupReason = resourceCleanupReasonFromError(cleanupErr)
 		h.resourceMu.Unlock()
 	}
 	h.wait <- e
@@ -241,6 +243,11 @@ func (h *Handle) ResourceLimitBreach() operation.ResourceLimitKind {
 	h.resourceMu.RLock()
 	defer h.resourceMu.RUnlock()
 	return h.resourceBreach
+}
+func (h *Handle) ResourceCleanupIncomplete() string {
+	h.resourceMu.RLock()
+	defer h.resourceMu.RUnlock()
+	return h.resourceCleanupReason
 }
 func (h *Handle) Wait(ctx context.Context) receipt.ExitEvidence {
 	select {
