@@ -18,14 +18,14 @@ import (
 )
 
 type ptyHandle struct {
-	cmd            *exec.Cmd
-	terminal       io.ReadWriteCloser
-	sink           app.OutputSink
-	writeMu        sync.Mutex
-	wait           chan receipt.ExitEvidence
-	captureDone    chan struct{}
-	resourceMu     sync.RWMutex
-	resourceDomain resourceExecutionDomain
+	cmd                   *exec.Cmd
+	terminal              io.ReadWriteCloser
+	sink                  app.OutputSink
+	writeMu               sync.Mutex
+	wait                  chan receipt.ExitEvidence
+	captureDone           chan struct{}
+	resourceMu            sync.RWMutex
+	resourceDomain        resourceExecutionDomain
 	resourceBreach        operation.ResourceLimitKind
 	resourceCleanupReason string
 }

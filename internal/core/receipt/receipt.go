@@ -26,7 +26,6 @@ type SignalEvidence struct {
 	Succeeded bool   `json:"succeeded"`
 }
 
-
 type ResourceCleanupStatus string
 
 const ResourceCleanupIncomplete ResourceCleanupStatus = "incomplete"
@@ -91,10 +90,29 @@ type Receipt struct {
 	Signal              SignalEvidence          `json:"signal_evidence"`
 }
 
-func (r Receipt) Validate() error {
+func (r Receipt) validateResourceCleanup() error {
+	if r.ResourceCleanup == nil {
+		return nil
+	}
 	switch r.SchemaVersion {
 	case 1:
-		if r.ProjectCommand != nil || r.Evidence != nil || r.ResourceCleanup != nil {
+		return fmt.Errorf("derived provenance requires newer receipt schema")
+	case 2, 3:
+		return r.ResourceCleanup.Validate()
+	case 4:
+		return fmt.Errorf("resource cleanup metadata unsupported for persistent receipt")
+	default:
+		return nil
+	}
+}
+
+func (r Receipt) Validate() error {
+	if err := r.validateResourceCleanup(); err != nil {
+		return err
+	}
+	switch r.SchemaVersion {
+	case 1:
+		if r.ProjectCommand != nil || r.Evidence != nil {
 			return fmt.Errorf("derived provenance requires newer receipt schema")
 		}
 	case 2:
@@ -120,9 +138,6 @@ func (r Receipt) Validate() error {
 			return fmt.Errorf("invalid v3 project command provenance: %w", err)
 		}
 	case 4:
-		if r.ResourceCleanup != nil {
-			return fmt.Errorf("resource cleanup metadata unsupported for persistent receipt")
-		}
 		if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" || !r.Persistent || r.TTY {
 			return fmt.Errorf("v4 persistent receipt identity missing")
 		}
@@ -145,11 +160,6 @@ func (r Receipt) Validate() error {
 		}
 	default:
 		return fmt.Errorf("unsupported receipt schema")
-	}
-	if r.ResourceCleanup != nil {
-		if err := r.ResourceCleanup.Validate(); err != nil {
-			return err
-		}
 	}
 	if r.InputDeliveredBytes > r.InputAcceptedBytes {
 		return fmt.Errorf("delivered input exceeds accepted")

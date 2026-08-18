@@ -21,17 +21,17 @@ type Owner struct {
 	resources resourceProvider
 }
 type Handle struct {
-	cmd            *exec.Cmd
-	stdin          *os.File
-	output         *os.File
-	sink           app.OutputSink
-	redactor       *traceOutputRedactor
-	writeMu        sync.Mutex
-	wait           chan receipt.ExitEvidence
-	captureDone    chan struct{}
-	closeOnce      sync.Once
-	resourceMu     sync.RWMutex
-	resourceDomain resourceExecutionDomain
+	cmd                   *exec.Cmd
+	stdin                 *os.File
+	output                *os.File
+	sink                  app.OutputSink
+	redactor              *traceOutputRedactor
+	writeMu               sync.Mutex
+	wait                  chan receipt.ExitEvidence
+	captureDone           chan struct{}
+	closeOnce             sync.Once
+	resourceMu            sync.RWMutex
+	resourceDomain        resourceExecutionDomain
 	resourceBreach        operation.ResourceLimitKind
 	resourceCleanupReason string
 	// stdinClosed is guarded by writeMu. Both the policy close at spawn and an
