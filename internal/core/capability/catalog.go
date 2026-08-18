@@ -365,7 +365,7 @@ func (c Catalog) WithExecutionTelemetry(maxSamples int, metadataBytes int64, max
 	out.Limits.TelemetryRetentionAgeMS = retentionAgeMS
 	out.Limits.TelemetryInspectSamples = inspectSamples
 	out.ResourceObservation = &ResourceObservationSupport{
-		CPUTime: ResourceUnavailable, MaxRSS: ResourceUnavailable, IOBytes: ResourceUnavailable, ProcessCountPeak: ResourceUnavailable,
+		CPUTime: ResourcePlatformReported, MaxRSS: ResourcePlatformReported, IOBytes: ResourceUnavailable, ProcessCountPeak: ResourceSampled,
 	}
 	return out
 }

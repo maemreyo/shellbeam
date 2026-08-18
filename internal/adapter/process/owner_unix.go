@@ -26,6 +26,7 @@ type Handle struct {
 	output                *os.File
 	sink                  app.OutputSink
 	redactor              *traceOutputRedactor
+	resources             *resourceSampler
 	writeMu               sync.Mutex
 	wait                  chan receipt.ExitEvidence
 	captureDone           chan struct{}
@@ -150,6 +151,7 @@ func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(o
 		domain.startMonitoring()
 	}
 	h := &Handle{cmd: cmd, stdin: stdinW, output: outR, sink: sink, redactor: newTraceOutputRedactor(spec.EnvironmentAdditions), wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{}), resourceDomain: domain}
+	h.resources = newResourceSampler(cmd.Process.Pid)
 	if spec.StdinMode == operation.StdinModeClosed {
 		// Deliver EOF now, so a child that reads its input finishes instead of
 		// waiting for a caller who was never going to write. Dropping the write
@@ -217,6 +219,9 @@ func (h *Handle) reap() {
 	<-h.captureDone
 	_ = h.output.Close()
 	e := receipt.ExitEvidence{Reaped: true}
+	if h.resources != nil {
+		e.Resources = h.resources.Finish(h.cmd.ProcessState)
+	}
 	if err == nil {
 		zero := 0
 		e.Code = &zero

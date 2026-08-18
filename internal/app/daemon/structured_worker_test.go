@@ -89,7 +89,7 @@ func TestStructuredAdapterRetryMetadataConflictNeverRespawns(t *testing.T) {
 		t.Fatalf("response-controls replay: %v", err)
 	}
 	changed := first
-	changed.StructuredAdapter = "go-vet-json"
+	changed.StructuredAdapter = "junit"
 	if _, err := svc.Start(context.Background(), changed); !errors.Is(err, failure.OperationMetadataConflict) {
 		t.Fatalf("adapter conflict=%v", err)
 	}
@@ -179,7 +179,7 @@ func TestStructuredWorkerBackpressureDoesNotChangeTerminalTruth(t *testing.T) {
 	worker := &recordingStructuredWorker{store: store, scheduleErr: structuredapp.ErrWorkerQueueFull}
 	owner := &noTaxOwner{worker: worker}
 	svc := app.NewService(store, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, StructuredWorker: worker})
-	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "structured-backpressure", Command: "true", CWD: "/", StructuredAdapter: "go-test-json", YieldMS: 100})
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "structured-backpressure", Argv: []string{"go", "test", "-json", "./..."}, CWD: "/", StructuredAdapter: "go-test-json", YieldMS: 100})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestUnsupportedStructuredAdapterWarnsAndExecutesWithoutParser(t *testing.T)
 		t.Fatalf("stored=%#v err=%v", stored, err)
 	}
 	changed := request
-	changed.StructuredAdapter = "go-test-json"
+	changed.StructuredAdapter = "sarif"
 	if _, err := svc.Start(context.Background(), changed); !errors.Is(err, failure.OperationMetadataConflict) {
 		t.Fatalf("changed adapter=%v", err)
 	}

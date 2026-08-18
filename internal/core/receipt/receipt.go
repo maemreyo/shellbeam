@@ -15,10 +15,59 @@ type SpawnEvidence struct {
 	Succeeded bool   `json:"succeeded"`
 	ErrorCode string `json:"error_code,omitempty"`
 }
+type ResourceQuality string
+
+const (
+	ResourceExact            ResourceQuality = "exact"
+	ResourcePlatformReported ResourceQuality = "platform_reported"
+	ResourceSampled          ResourceQuality = "sampled"
+	ResourceUnavailable      ResourceQuality = "unavailable"
+)
+
+type ResourceMetric struct {
+	Quality ResourceQuality `json:"quality"`
+	Value   *int64          `json:"value,omitempty"`
+}
+
+type ResourceEvidence struct {
+	CPUUserMS        ResourceMetric `json:"cpu_user_ms"`
+	CPUSystemMS      ResourceMetric `json:"cpu_system_ms"`
+	MaxRSSBytes      ResourceMetric `json:"max_rss_bytes"`
+	ReadBytes        ResourceMetric `json:"read_bytes"`
+	WriteBytes       ResourceMetric `json:"write_bytes"`
+	ProcessCountPeak ResourceMetric `json:"process_count_peak"`
+}
+
+func (e ResourceEvidence) Validate() error {
+	for _, metric := range []ResourceMetric{e.CPUUserMS, e.CPUSystemMS, e.MaxRSSBytes, e.ReadBytes, e.WriteBytes, e.ProcessCountPeak} {
+		if err := metric.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m ResourceMetric) validate() error {
+	switch m.Quality {
+	case ResourceUnavailable:
+		if m.Value != nil {
+			return fmt.Errorf("unavailable resource metric has value")
+		}
+	case ResourceExact, ResourcePlatformReported, ResourceSampled:
+		if m.Value == nil || *m.Value < 0 {
+			return fmt.Errorf("observed resource metric lacks non-negative value")
+		}
+	default:
+		return fmt.Errorf("invalid resource metric quality")
+	}
+	return nil
+}
+
 type ExitEvidence struct {
-	Reaped bool   `json:"reaped"`
-	Code   *int   `json:"code,omitempty"`
-	Signal string `json:"signal,omitempty"`
+	Reaped    bool              `json:"reaped"`
+	Code      *int              `json:"code,omitempty"`
+	Signal    string            `json:"signal,omitempty"`
+	Resources *ResourceEvidence `json:"-"`
 }
 type SignalEvidence struct {
 	Requested string `json:"requested,omitempty"`
@@ -163,6 +212,11 @@ func (r Receipt) Validate() error {
 	}
 	if r.InputDeliveredBytes > r.InputAcceptedBytes {
 		return fmt.Errorf("delivered input exceeds accepted")
+	}
+	if r.Exit.Resources != nil {
+		if err := r.Exit.Resources.Validate(); err != nil {
+			return fmt.Errorf("invalid exit resource evidence: %w", err)
+		}
 	}
 	if r.State == session.Completed && r.Outcome == session.Success {
 		if !r.Spawn.Attempted || !r.Spawn.Succeeded || !r.Exit.Reaped || r.Exit.Code == nil || *r.Exit.Code != 0 || !r.OutputComplete || r.InputAcceptedBytes != r.InputDeliveredBytes {

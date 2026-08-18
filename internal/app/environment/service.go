@@ -162,9 +162,12 @@ func (s *Service) capture(
 	if err := snapshot.Validate(); err != nil {
 		return core.Snapshot{}, failure.New(failure.EnvironmentObservationUnavailable, map[string]string{"reason": "invalid_snapshot"}, err)
 	}
-	bindingKey, err := cachedBindingKey(BindingRequest{WorkspaceID: workspaceID, ManifestDigest: manifestDigest, Execution: execution})
-	if err != nil {
-		return core.Snapshot{}, err
+	bindingKey := ""
+	if manifestDigest != "" {
+		bindingKey, err = cachedBindingKey(BindingRequest{WorkspaceID: workspaceID, ManifestDigest: manifestDigest, Execution: execution})
+		if err != nil {
+			return core.Snapshot{}, err
+		}
 	}
 	s.cache.put(cacheKey, bindingKey, snapshot)
 	return cloneSnapshot(snapshot), nil
@@ -225,9 +228,9 @@ func (s *Service) manifestView(ctx context.Context, workspaceID string) (Manifes
 	if err != nil {
 		return ManifestView{}, err
 	}
-	if view.ManifestDigest == "" {
-		return ManifestView{}, failure.New(failure.EnvironmentObservationUnavailable, map[string]string{"reason": "manifest_unavailable"}, nil)
-	}
+	// A workspace can be attached before it has a reviewed project manifest.
+	// Host-baseline observation is still useful in that state; an empty digest
+	// deliberately carries no project-binding authority.
 	return view, nil
 }
 

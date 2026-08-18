@@ -202,3 +202,22 @@ func readinessV2EmptyLoad(t *testing.T) core.LoadResult {
 	}
 	return core.LoadResult{State: core.LoadValid, Parsed: &parsed, ManifestDigest: strings.Repeat("c", 64), DiscoveryFingerprint: parsed.Fingerprint}
 }
+
+func TestReadinessWithoutManifestReturnsStructuredUnavailableDiagnostic(t *testing.T) {
+	record := testProjectWorkspace()
+	svc := NewWithReadiness(
+		fakeWorkspaceLookup{values: []workspace.Workspace{record}},
+		&fakeLoader{result: core.LoadResult{State: core.LoadAbsent, Code: core.CodeManifestAbsent, DetectedFamilies: []string{"go"}, DiscoveryEvidence: []string{"go:go.mod"}, DiscoveryFingerprint: strings.Repeat("d", 64)}},
+		nil, ReadinessObservers{}, ReadinessOptions{Now: func() time.Time { return time.Date(2026, 8, 18, 3, 30, 0, 0, time.UTC) }},
+	)
+	got, err := svc.Readiness(context.Background(), string(record.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != core.ReadinessUnavailable || got.DiagnosticCode != core.CodeManifestAbsent || got.ManifestDigest != "" || got.ManifestSchemaVersion != 0 || len(got.Checks) != 0 {
+		t.Fatalf("readiness=%#v", got)
+	}
+	if err := got.Validate(); err != nil {
+		t.Fatalf("unbound readiness invalid: %v", err)
+	}
+}

@@ -25,7 +25,7 @@ func TestDaemonCatalogAdvertisesBoundedTelemetryWithoutResourceOverclaim(t *test
 	if catalog.Limits.TelemetryMaxSamples < 1 || catalog.Limits.TelemetryMetadataBytes < 1 || catalog.Limits.TelemetryMaxKeys < 1 || catalog.Limits.TelemetryMaxKeysPerRepository < 1 || catalog.Limits.TelemetryMaxSamplesPerKey < 1 || catalog.Limits.TelemetryRetentionAgeMS < 1 || catalog.Limits.TelemetryInspectSamples != telemetryapp.MaxInspectSamples {
 		t.Fatalf("telemetry limits=%#v", catalog.Limits)
 	}
-	if catalog.ResourceObservation == nil || catalog.ResourceObservation.CPUTime != capability.ResourceUnavailable || catalog.ResourceObservation.MaxRSS != capability.ResourceUnavailable || catalog.ResourceObservation.IOBytes != capability.ResourceUnavailable || catalog.ResourceObservation.ProcessCountPeak != capability.ResourceUnavailable {
+	if catalog.ResourceObservation == nil || catalog.ResourceObservation.CPUTime != capability.ResourcePlatformReported || catalog.ResourceObservation.MaxRSS != capability.ResourcePlatformReported || catalog.ResourceObservation.IOBytes != capability.ResourceUnavailable || catalog.ResourceObservation.ProcessCountPeak != capability.ResourceSampled {
 		t.Fatalf("resource observation overclaimed=%#v", catalog.ResourceObservation)
 	}
 }
@@ -70,6 +70,16 @@ func TestTelemetryDaemonCollectsOnlyAfterTerminalAndRestartDoesNotDuplicate(t *t
 	terminal := pollA22Terminal(t, client, "telemetry-daemon-sample", start.Result.Operation.SessionID)
 	assertA1ChildSuccess(t, terminal)
 	record := waitDaemonTelemetry(t, store, "telemetry-daemon-sample")
+	for name, metric := range map[string]core.IntMetric{"cpu_user": record.Resources.CPUUserMS, "cpu_system": record.Resources.CPUSystemMS, "max_rss": record.Resources.MaxRSSBytes, "process_peak": record.Resources.ProcessCountPeak} {
+		if metric.Quality == core.MetricUnavailable || metric.Value == nil || *metric.Value < 0 {
+			stop()
+			t.Fatalf("daemon resource %s unavailable: %#v", name, metric)
+		}
+	}
+	if record.Resources.ReadBytes.Quality != core.MetricUnavailable || record.Resources.WriteBytes.Quality != core.MetricUnavailable {
+		stop()
+		t.Fatalf("daemon I/O bytes overclaimed: %#v", record.Resources)
+	}
 	waitDaemonTelemetryEvent(t, client, "telemetry-daemon-sample")
 	key, err := core.CompatibilityKey(record)
 	if err != nil {

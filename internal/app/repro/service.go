@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	core "github.com/maemreyo/shellbeam/internal/core/repro"
@@ -96,7 +97,11 @@ func (s *Service) Create(ctx context.Context, request core.CreateRequest) (core.
 	if err != nil {
 		return core.Capsule{}, err
 	}
-	if err := validateDerivedExecution(request.OperationID, &execution, rec, receiptDigest, structuredDerivation, structuredFound, telemetryRecord, telemetryFound); err != nil {
+	inputTraceRecord, inputTraceFound, err := s.repository.LoadInputTraceByOperation(ctx, request.OperationID)
+	if err != nil {
+		return core.Capsule{}, err
+	}
+	if err := validateDerivedExecution(request.OperationID, &execution, rec, receiptDigest, structuredDerivation, structuredFound, telemetryRecord, telemetryFound, inputTraceRecord, inputTraceFound); err != nil {
 		return core.Capsule{}, err
 	}
 
@@ -110,7 +115,7 @@ func (s *Service) Create(ctx context.Context, request core.CreateRequest) (core.
 	if rec.ProjectCommand != nil {
 		project = core.ProjectDescriptor{ManifestDigest: rec.ProjectCommand.ManifestDigest, Quality: core.CaptureExact}
 	}
-	results, producers := currentResultDescriptors(request.OperationID, reservation, structuredDerivation, structuredFound, telemetryRecord, telemetryFound)
+	results, producers := currentResultDescriptors(request.OperationID, reservation, structuredDerivation, structuredFound, telemetryRecord, telemetryFound, inputTraceRecord, inputTraceFound)
 	cut := captureCut{SchemaVersion: 1, Execution: execution, Source: source, Project: project, Environment: environment, Input: input, Results: results, Producers: producers}
 	cutDigest, err := digestCaptureCut(cut)
 	if err != nil {
@@ -134,10 +139,15 @@ func (s *Service) Create(ctx context.Context, request core.CreateRequest) (core.
 	return winner, err
 }
 
-func validateDerivedExecution(operationID string, execution *core.ExecutionDescriptor, rec receipt.Receipt, receiptDigest string, structuredDerivation structured.Derivation, structuredFound bool, telemetryRecord telemetry.PerformanceRecord, telemetryFound bool) error {
+func validateDerivedExecution(operationID string, execution *core.ExecutionDescriptor, rec receipt.Receipt, receiptDigest string, structuredDerivation structured.Derivation, structuredFound bool, telemetryRecord telemetry.PerformanceRecord, telemetryFound bool, inputTraceRecord inputtrace.Record, inputTraceFound bool) error {
 	if structuredFound {
 		if err := structuredDerivation.Validate(); err != nil {
 			return failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "structured_state_invalid"}, err)
+		}
+	}
+	if inputTraceFound {
+		if err := inputTraceRecord.Validate(); err != nil || inputTraceRecord.OperationID != operationID || inputTraceRecord.SessionID != rec.SessionID || inputTraceRecord.ReceiptDigest != receiptDigest {
+			return failure.New(failure.ReproMaterializationUnavailable, map[string]string{"operation_id": operationID, "reason": "input_trace_state_invalid"}, err)
 		}
 	}
 	if !telemetryFound {
@@ -196,9 +206,9 @@ func (s *Service) authoritativeExecution(ctx context.Context, operationID string
 	return reservation, rec, digest, nil
 }
 
-func currentResultDescriptors(operationID string, reservation operation.Reservation, d structured.Derivation, structuredFound bool, t telemetry.PerformanceRecord, telemetryFound bool) ([]core.ReferenceDescriptor, []producerCut) {
-	results := make([]core.ReferenceDescriptor, 0, 2)
-	producers := make([]producerCut, 0, 2)
+func currentResultDescriptors(operationID string, reservation operation.Reservation, d structured.Derivation, structuredFound bool, t telemetry.PerformanceRecord, telemetryFound bool, trace inputtrace.Record, inputTraceFound bool) ([]core.ReferenceDescriptor, []producerCut) {
+	results := make([]core.ReferenceDescriptor, 0, 3)
+	producers := make([]producerCut, 0, 3)
 	if structuredFound {
 		availability := core.AvailabilityPending
 		if d.Lifecycle == structured.LifecycleTerminal {
@@ -209,6 +219,17 @@ func currentResultDescriptors(operationID string, reservation operation.Reservat
 		producers = append(producers, producerCut{Kind: ref.RecordKind, Availability: availability, RefID: ref.RefID, ProducerID: ref.ProducerID, ProducerVersion: ref.ProducerVersion, SchemaVersion: ref.SchemaVersion, Digest: ref.Digest, Lifecycle: string(d.Lifecycle), Completeness: string(d.Completeness)})
 	} else {
 		producers = append(producers, producerCut{Kind: "structured_result", Availability: core.AvailabilityAbsent, ProducerID: reservation.StructuredAdapter})
+	}
+	if inputTraceFound {
+		ref := core.ReferenceDescriptor{RefID: "input-trace:" + trace.DerivationKey, RecordKind: "input_trace", ProducerID: trace.Provider.ID, ProducerVersion: trace.Provider.Version, SchemaVersion: trace.SchemaVersion, Digest: trace.DerivationKey, Summary: string(trace.Outcome), OriginalAvailability: core.AvailabilityTerminal}
+		results = append(results, ref)
+		producers = append(producers, producerCut{Kind: ref.RecordKind, Availability: core.AvailabilityTerminal, RefID: ref.RefID, ProducerID: ref.ProducerID, ProducerVersion: ref.ProducerVersion, SchemaVersion: ref.SchemaVersion, Digest: ref.Digest, Lifecycle: "terminal", Completeness: string(trace.Outcome)})
+	} else {
+		producerID, producerVersion := "", 0
+		if reservation.Trace != nil {
+			producerID, producerVersion = reservation.Trace.Provider.ID, reservation.Trace.Provider.Version
+		}
+		producers = append(producers, producerCut{Kind: "input_trace", Availability: core.AvailabilityAbsent, ProducerID: producerID, ProducerVersion: producerVersion, SchemaVersion: inputtrace.SchemaVersion})
 	}
 	if telemetryFound {
 		ref := core.ReferenceDescriptor{RefID: "telemetry:" + t.DerivationKey, RecordKind: "execution_telemetry", ProducerID: t.Producer.ProducerID, ProducerVersion: t.Producer.ProducerVersion, SchemaVersion: t.SchemaVersion, Digest: t.DerivationKey, OriginalAvailability: core.AvailabilityTerminal}

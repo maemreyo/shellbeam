@@ -80,7 +80,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	coherence := workspaceapp.NewCoherenceTracker(incarnation)
 	deltaSampler := workspaceapp.NewDeltaSampler(store, gitRepo, coherence)
 	checkpointSvc, catalog := composeSafetyCheckpoints(cfg.ExperimentalCheckpoints, paths.StateDir, paths.RuntimeDir, store, newCheckpointWorkspaceSource(workspaceSvc, workspaceObserver, coherence), catalog, checkpointFactory)
-	inputTraceRuntime, err := composeInputTracing(ctx, cfg.ExperimentalInputTracing, paths.StateDir, store, catalog)
+	inputTraceRuntime, err := composeInputTracing(ctx, cfg.ExperimentalInputTracing, paths.StateDir, store, workspaceSvc, catalog)
 	if err != nil {
 		return err
 	}

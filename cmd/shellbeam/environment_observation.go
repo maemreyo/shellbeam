@@ -23,7 +23,7 @@ func (p projectEnvironmentManifestProvider) Manifest(ctx context.Context, worksp
 		return environmentapp.ManifestView{}, err
 	}
 	if inspection.Manifest == nil || inspection.ManifestDigest == "" {
-		return environmentapp.ManifestView{}, failure.New(failure.EnvironmentObservationUnavailable, map[string]string{"reason": "manifest_unavailable"}, nil)
+		return environmentapp.ManifestView{WorkspaceID: workspaceID}, nil
 	}
 	return environmentapp.ManifestView{WorkspaceID: workspaceID, ManifestDigest: inspection.ManifestDigest, Manifest: *inspection.Manifest}, nil
 }

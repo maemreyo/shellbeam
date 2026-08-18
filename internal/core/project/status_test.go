@@ -38,3 +38,16 @@ func TestProjectInspectionCarriesFingerprintAndProvenance(t *testing.T) {
 		t.Fatalf("missing confidence/provenance: %#v", got)
 	}
 }
+
+func TestAbsentProjectInspectionSurfacesBoundedDiscovery(t *testing.T) {
+	got := NewInspection(StatusInput{
+		LoadState: LoadAbsent, DiscoveryFingerprint: "fingerprint", Code: CodeManifestAbsent,
+		DetectedFamilies: []string{"go", "node"}, DiscoveryEvidence: []string{"go:go.mod", "node:package.json"},
+	}, nil)
+	if got.Status != StatusAbsent || got.Confidence != "medium" || got.Provenance != "workspace_discovery" || got.Code != CodeManifestAbsent {
+		t.Fatalf("inspection=%#v", got)
+	}
+	if len(got.DetectedFamilies) != 2 || len(got.DiscoveryEvidence) != 2 {
+		t.Fatalf("discovery fields=%#v", got)
+	}
+}

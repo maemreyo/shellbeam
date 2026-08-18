@@ -16,10 +16,16 @@ import (
 	"github.com/maemreyo/shellbeam/internal/config"
 )
 
+const topLevelUsage = "usage: shellbeam <daemon|mcp|workspace|project|install|uninstall|status|doctor|version>"
+
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: shellbeam <daemon|mcp|workspace|project|install|uninstall|status|doctor|version>")
+		fmt.Fprintln(stderr, topLevelUsage)
 		return 2
+	}
+	if len(args) == 1 && (args[0] == "help" || args[0] == "-h" || args[0] == "--help") {
+		fmt.Fprintln(stdout, topLevelUsage)
+		return 0
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

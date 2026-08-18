@@ -266,7 +266,7 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
+	s.scheduleTelemetryTerminal(rec, nil)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
 	s.scheduleInputTraceTerminal(rec, l.reservation)
 	l.mu.Lock()
@@ -312,6 +312,8 @@ func classifyTerminalResult(target session.State, resourceBreach operation.Resou
 
 func (s *Service) waitLoop(l *liveSession) {
 	exit := l.handle.Wait(context.Background())
+	resourceEvidence := exit.Resources
+	exit.Resources = nil
 	resourceBreach := resourceLimitBreachOf(l.handle)
 	resourceCleanup := resourceCleanupOf(l.handle)
 	l.mu.Lock()
@@ -359,7 +361,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
+	s.scheduleTelemetryTerminal(rec, resourceEvidence)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
 	s.scheduleInputTraceTerminal(rec, l.reservation)
 	l.mu.Lock()

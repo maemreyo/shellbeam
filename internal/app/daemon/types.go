@@ -68,6 +68,9 @@ type TelemetryWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to telemetry derivation.
 	ScheduleTerminal(context.Context, receipt.Receipt) error
 }
+type TelemetryResourceWorker interface {
+	ScheduleTerminalWithResources(context.Context, receipt.Receipt, *receipt.ResourceEvidence) error
+}
 type EvidenceWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to evidence derivation.
 	ScheduleTerminal(context.Context, receipt.Receipt) error

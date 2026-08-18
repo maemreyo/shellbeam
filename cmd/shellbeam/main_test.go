@@ -23,6 +23,20 @@ func TestRunVersionJSON(t *testing.T) {
 	}
 }
 
+func TestTopLevelHelpFlagsPrintUsageAndSucceed(t *testing.T) {
+	for _, arg := range []string{"help", "-h", "--help"} {
+		t.Run(arg, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{arg}, &stdout, &stderr); code != 0 {
+				t.Fatalf("code=%d stderr=%q", code, stderr.String())
+			}
+			if !strings.Contains(stdout.String(), "usage: shellbeam <daemon|mcp|workspace|project|install|uninstall|status|doctor|version>") || stderr.Len() != 0 {
+				t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunContract(t *testing.T) {
 	tests := []struct {
 		name string

@@ -199,3 +199,60 @@ func TestStructuredCodeIntelligenceInspectWireSchemasAreClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestCodeIntelligenceResolvedLocationAcceptsBoundedDisplayNavigation(t *testing.T) {
+	query := map[string]any{"kind": "definition", "path": "main.go", "line": 2.0, "column": 9.0}
+	location := map[string]any{
+		"kind": "resolved",
+		"resolved": map[string]any{
+			"source_ref_id": "src_01K00000000000000000000000", "start_byte": 12.0, "end_byte": 13.0,
+			"display": map[string]any{"path": "other.go", "line": 2.0, "column": 5.0, "end_line": 2.0, "end_column": 6.0, "preview": "var X = 1"},
+		},
+	}
+	result := map[string]any{
+		"status": "unavailable", "query": query,
+		"records": []any{map[string]any{
+			"kind": "location_target", "authority": "mechanical", "source_correlation": "current", "completeness": "provider_reported",
+			"location_target": map[string]any{"name": "X", "relationship": "definition", "location": location},
+		}},
+	}
+	for _, tc := range []struct {
+		schema Name
+		value  map[string]any
+	}{
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.code", "code": result}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "code-display", "action": "inspect.code", "ok": true, "code": result}},
+	} {
+		if err := resolvedSchema(t, tc.schema).Validate(tc.value); err != nil {
+			t.Fatalf("%s rejected code display navigation: %v", tc.schema, err)
+		}
+	}
+}
+
+func TestProjectDiscoveryAndManifestUnboundReadinessWireSchemas(t *testing.T) {
+	workspaceID := "ws_01K00000000000000000000000"
+	repositoryID := "repo_01K00000000000000000000000"
+	project := map[string]any{
+		"status": "absent", "discovery_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"detected_families": []any{"go", "node"}, "discovery_evidence": []any{"go:go.mod", "node:package.json"},
+		"confidence": "medium", "provenance": "workspace_discovery", "code": "project_manifest_absent",
+	}
+	readiness := map[string]any{
+		"schema_version": 1.0, "state": "unavailable", "repository_id": repositoryID, "workspace_id": workspaceID,
+		"captured_at": "2026-08-18T03:30:00Z", "cache_quality": "fresh", "cache_age_ms": 0.0, "checks": []any{},
+		"diagnostic_code": "project_manifest_absent",
+	}
+	for _, tc := range []struct {
+		schema Name
+		value  map[string]any
+	}{
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.project", "project": project}},
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.readiness", "readiness": readiness}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "project-discovery", "action": "inspect.project", "ok": true, "project": project}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "readiness-unbound", "action": "inspect.readiness", "ok": true, "readiness": readiness}},
+	} {
+		if err := resolvedSchema(t, tc.schema).Validate(tc.value); err != nil {
+			t.Fatalf("%s rejected discovery/readiness: %v", tc.schema, err)
+		}
+	}
+}

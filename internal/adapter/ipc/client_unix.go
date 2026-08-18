@@ -71,7 +71,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media}
+	response := bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, InputTrace: out.InputTrace, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media}
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -123,6 +123,7 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.ResourceLimits = in.Start.ResourceLimits.Clone()
 	req.YieldMS = in.Start.YieldMS
 	req.MaxOutputBytes = in.Start.MaxOutputBytes
+	req.TraceMode = in.Start.TraceMode
 }
 
 func applyObservationInspectV2(req *RequestV2, in bridge.Request) {

@@ -26,7 +26,7 @@ func TestA4DaemonComposesTelemetryAndExactlyOnceReproWithoutChangingChildTruth(t
 		t.Fatalf("A4 capability catalog=%#v", server.Server)
 	}
 	resources := server.Server.ResourceObservation
-	if resources == nil || resources.CPUTime != capability.ResourceUnavailable || resources.MaxRSS != capability.ResourceUnavailable || resources.IOBytes != capability.ResourceUnavailable || resources.ProcessCountPeak != capability.ResourceUnavailable {
+	if resources == nil || resources.CPUTime != capability.ResourcePlatformReported || resources.MaxRSS != capability.ResourcePlatformReported || resources.IOBytes != capability.ResourceUnavailable || resources.ProcessCountPeak != capability.ResourceSampled {
 		t.Fatalf("native A4 resource capability overclaimed=%#v", resources)
 	}
 	if server.Server.Limits.ReproMaxCapsules != reproMaxCapsules || server.Server.Limits.ReproMaxReferences != reprocore.MaxReferenceDescriptors || server.Server.Limits.ReproMetadataBytes != reproMetadataBytes {

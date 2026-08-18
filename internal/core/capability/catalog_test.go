@@ -106,8 +106,8 @@ func TestExecutionTelemetryAndReproCapabilitiesAreExplicitAndBounded(t *testing.
 	if telemetry.Limits.TelemetryMaxSamples != 1024 || telemetry.Limits.TelemetryMetadataBytes != 8<<20 || telemetry.Limits.TelemetryMaxKeys != 256 || telemetry.Limits.TelemetryMaxKeysPerRepository != 64 || telemetry.Limits.TelemetryMaxSamplesPerKey != 64 || telemetry.Limits.TelemetryRetentionAgeMS != 7*24*60*60*1000 || telemetry.Limits.TelemetryInspectSamples != 128 {
 		t.Fatalf("telemetry limits=%#v", telemetry.Limits)
 	}
-	if telemetry.ResourceObservation == nil || telemetry.ResourceObservation.CPUTime != ResourceUnavailable || telemetry.ResourceObservation.MaxRSS != ResourceUnavailable || telemetry.ResourceObservation.IOBytes != ResourceUnavailable || telemetry.ResourceObservation.ProcessCountPeak != ResourceUnavailable {
-		t.Fatalf("resource support overclaimed: %#v", telemetry.ResourceObservation)
+	if telemetry.ResourceObservation == nil || telemetry.ResourceObservation.CPUTime != ResourcePlatformReported || telemetry.ResourceObservation.MaxRSS != ResourcePlatformReported || telemetry.ResourceObservation.IOBytes != ResourceUnavailable || telemetry.ResourceObservation.ProcessCountPeak != ResourceSampled {
+		t.Fatalf("resource support dishonest: %#v", telemetry.ResourceObservation)
 	}
 	repro := telemetry.WithReproductionCapsules(256, 32, 65536)
 	if repro.Features[FeatureReproductionCapsules] != Available || !reflect.DeepEqual(repro.ReproSchemaVersions, []int{1}) || repro.Limits.ReproMaxCapsules != 256 || repro.Limits.ReproMaxReferences != 32 || repro.Limits.ReproMetadataBytes != 65536 {

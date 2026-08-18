@@ -6,6 +6,8 @@ const (
 	LoadAbsent  LoadState = "absent"
 	LoadValid   LoadState = "valid"
 	LoadInvalid LoadState = "invalid"
+
+	CodeManifestAbsent = "project_manifest_absent"
 )
 
 type LoadResult struct {
@@ -13,6 +15,8 @@ type LoadResult struct {
 	Parsed               *Parsed
 	ManifestDigest       string
 	DiscoveryFingerprint string
+	DetectedFamilies     []string
+	DiscoveryEvidence    []string
 	Code                 string
 }
 
@@ -33,6 +37,8 @@ type StatusInput struct {
 	DiscoveryFingerprint string
 	ReviewFingerprint    string
 	Review               *Review
+	DetectedFamilies     []string
+	DiscoveryEvidence    []string
 	Code                 string
 }
 
@@ -42,6 +48,8 @@ type Inspection struct {
 	ManifestDigest       string    `json:"manifest_digest,omitempty"`
 	DiscoveryFingerprint string    `json:"discovery_fingerprint,omitempty"`
 	ReviewFingerprint    string    `json:"review_fingerprint,omitempty"`
+	DetectedFamilies     []string  `json:"detected_families,omitempty"`
+	DiscoveryEvidence    []string  `json:"discovery_evidence,omitempty"`
 	Confidence           string    `json:"confidence"`
 	Provenance           string    `json:"provenance"`
 	Code                 string    `json:"code,omitempty"`
@@ -74,8 +82,13 @@ func EvaluateStatus(input StatusInput) Status {
 func NewInspection(input StatusInput, manifest *Manifest) Inspection {
 	status := EvaluateStatus(input)
 	confidence := "high"
+	provenance := "workspace_manifest"
 	if status == StatusAbsent {
 		confidence = "none"
+		if len(input.DetectedFamilies) > 0 {
+			confidence = "medium"
+			provenance = "workspace_discovery"
+		}
 	} else if status == StatusInvalid {
 		confidence = "low"
 	}
@@ -86,6 +99,7 @@ func NewInspection(input StatusInput, manifest *Manifest) Inspection {
 	return Inspection{
 		Status: status, SchemaVersion: input.SchemaVersion, ManifestDigest: input.ManifestDigest,
 		DiscoveryFingerprint: input.DiscoveryFingerprint, ReviewFingerprint: reviewFingerprint,
-		Confidence: confidence, Provenance: "workspace_manifest", Code: input.Code, Manifest: manifest,
+		DetectedFamilies: append([]string(nil), input.DetectedFamilies...), DiscoveryEvidence: append([]string(nil), input.DiscoveryEvidence...),
+		Confidence: confidence, Provenance: provenance, Code: input.Code, Manifest: manifest,
 	}
 }

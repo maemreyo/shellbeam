@@ -76,6 +76,9 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		applyEvidenceInspectV2(req, in)
 	case "inspect.environment", "inspect.process":
 		applyObservationInspectV2(req, in)
+	case "inspect.trace":
+		req.OperationID = in.InputTraceInspect.OperationID
+		req.MaxResources = in.InputTraceInspect.MaxResources
 	case "inspect.telemetry":
 		req.OperationID = in.TelemetryInspect.OperationID
 		req.MaxSamples = in.TelemetryInspect.MaxSamples
