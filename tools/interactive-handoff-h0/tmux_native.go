@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -127,13 +128,36 @@ func (f *nativeFixture) serverIdentity(ctx context.Context) (serverIdentity, err
 }
 
 func (f *nativeFixture) attachHuman(ctx context.Context, readOnly bool) (*humanClient, error) {
+	return f.attachHumanWithOptions(ctx, humanAttachOptions{Session: f.Session, ReadOnly: readOnly, PreserveEnvironment: true})
+}
+
+type humanAttachOptions struct {
+	Session             string
+	ReadOnly            bool
+	PreserveEnvironment bool
+	Environment         map[string]string
+}
+
+func (f *nativeFixture) attachHumanWithOptions(ctx context.Context, options humanAttachOptions) (*humanClient, error) {
 	flags := "ignore-size"
-	if readOnly {
+	if options.ReadOnly {
 		flags = "read-only,ignore-size"
 	}
-	args := []string{"-S", f.SocketPath, "-f", "/dev/null", "attach-session", "-E", "-f", flags, "-t", f.Session}
+	session := options.Session
+	if session == "" {
+		session = f.Session
+	}
+	args := []string{"-S", f.SocketPath, "-f", "/dev/null", "attach-session"}
+	if options.PreserveEnvironment {
+		args = append(args, "-E")
+	}
+	args = append(args, "-f", flags, "-t", session)
 	cmd := exec.CommandContext(ctx, f.Tmux, args...)
-	cmd.Env = environmentWithOverride(os.Environ(), "TERM", "xterm-256color")
+	overrides := map[string]string{"TERM": "xterm-256color"}
+	for key, value := range options.Environment {
+		overrides[key] = value
+	}
+	cmd.Env = environmentWithOverrides(os.Environ(), overrides)
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 100})
 	if err != nil {
 		return nil, err
@@ -144,15 +168,30 @@ func (f *nativeFixture) attachHuman(ctx context.Context, readOnly bool) (*humanC
 }
 
 func environmentWithOverride(env []string, key, value string) []string {
-	prefix := key + "="
-	out := make([]string, 0, len(env)+1)
+	return environmentWithOverrides(env, map[string]string{key: value})
+}
+
+func environmentWithOverrides(env []string, overrides map[string]string) []string {
+	out := make([]string, 0, len(env)+len(overrides))
 	for _, entry := range env {
-		if strings.HasPrefix(entry, prefix) {
+		key := entry
+		if idx := strings.IndexByte(entry, '='); idx >= 0 {
+			key = entry[:idx]
+		}
+		if _, overridden := overrides[key]; overridden {
 			continue
 		}
 		out = append(out, entry)
 	}
-	return append(out, prefix+value)
+	keys := make([]string, 0, len(overrides))
+	for key := range overrides {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		out = append(out, key+"="+overrides[key])
+	}
+	return out
 }
 
 func (h *humanClient) PID() int {

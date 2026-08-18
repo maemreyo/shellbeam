@@ -21,6 +21,10 @@ var nativeProbeRegistry = map[string]nativeProbeFunc{
 	"P1": probeP1ExactHumanClientIdentity,
 	"P2": probeP2ExactClientFlagIsolation,
 	"P3": probeP3SameClientIngressFence,
+	"P4": probeP4PrivacyScope,
+	"P5": probeP5PrivateFromFirstByte,
+	"P6": probeP6ReconnectNoReplay,
+	"P7": probeP7EnvironmentPreservation,
 }
 
 type identity struct {
