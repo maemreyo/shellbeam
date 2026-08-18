@@ -94,6 +94,8 @@ The frozen design is:
 14. Simple interactive CLI input (`y/n`, Enter, menu choice, control bytes) can remain agent-driven while the agent owns the session. Secret, consequential, unknown, or complex interactions can hand off to the human.
 15. Arbitrary adoption of an already-running external Ghostty/fish PTY is **not** part of V1. A future Linux-only experimental provider may investigate reptyr-like adoption, but it is not the product foundation and cannot supply macOS parity.
 16. The shipped product SHALL have no dependency on the ShellBeam source checkout path, developer Homebrew layout, or this machine's shell/terminal configuration.
+17. Delegated capture truth SHALL be **composable**: a coarse `capture_quality` (`complete|partial|incomplete`) is paired with a bounded set of monotonic `capture_reasons`, so intentional private omission can coexist with later transport/provider failure without either fact being overwritten.
+18. A delegated-session receipt is lifecycle/session truth, not ordinary mechanical verification authority. Before an explicitly qualified context-exec path exists, delegated interactive reservations/transcripts SHALL NOT be promoted through the normal evidence pipeline; capture completeness and input/authority provenance are independent dimensions.
 
 ---
 
@@ -590,6 +592,7 @@ HandoffState
 
     agent_ingress
     human_ingress
+    input_authority_provenance
 
     transfer_boundary
 
@@ -606,6 +609,7 @@ Hard distinction:
 ```text
 OWNER
 != INGRESS FENCE
+!= INPUT AUTHORITY PROVENANCE
 != TRANSFER BOUNDARY
 != PRIVACY RELEASE
 != CAPTURE STATE
@@ -636,6 +640,8 @@ HUMAN_OWNED
 ```
 
 For secret flows, agent input authority may become safe before model-visible output becomes safe. Public capture therefore follows `PrivacyReleaseProof`, not merely the owner projection.
+
+`input_authority_provenance` is monotonic session truth. It begins `agent_only`. Before ShellBeam first enables human writable authority, it is durably promoted to `human_write_authority_granted`; it never returns to `agent_only` for that delegated session, even if the human later becomes read-only. This records that non-agent input could have affected terminal/application state without storing human keystrokes or claiming that any particular byte was typed.
 
 A durable desired transition and an external provider mutation are not atomic. On restart/recovery ShellBeam reconciles durable desired authority, current epoch, and fresh provider observation; mismatch means fail closed rather than "probably owned".
 
@@ -1236,13 +1242,24 @@ These facts help the agent know an interactive command completed. They are not a
 
 ### 29.2 Verification boundary
 
-Mechanical verification/evidence that requires ordinary ShellBeam receipt guarantees MUST NOT silently treat an interactive shell transcript as equivalent.
+Mechanical verification/evidence that requires ordinary ShellBeam receipt guarantees MUST NOT silently treat an interactive shell transcript as equivalent. A delegated-session terminal receipt may truthfully report provider/session lifecycle, output accounting, authority generation, and capture status, but its evidence authority is `session_lifecycle_only`.
 
-A later implementation may introduce a receipt-producing **context-exec** primitive that executes a child from inside the delegated shell environment while reporting exact command identity and exit evidence to the daemon. That is valuable but is large enough to require explicit plan/spec treatment if it cannot be kept inside this design's proven boundaries.
+Before a separately qualified context-exec authority exists:
+
+```text
+session_mode = delegated_interactive
+    -> ordinary EvidenceEligible = false
+    -> explicit ordinary evidence contract is rejected before provider/session creation
+    -> build/test/format/generate/release intent does not upgrade the transcript into mechanical evidence
+```
+
+`capture_quality` answers whether model-visible output capture is complete; `input_authority_provenance` answers whether only agent authority or also human write authority could have influenced the interactive context. Neither dimension proves causal attribution of a command's output to the agent.
+
+A later implementation may introduce a receipt-producing **context-exec** primitive that executes a child from inside the delegated shell environment while reporting exact command identity, separately owned output channels, and exit evidence to the daemon. That path requires explicit evidence-contract review before it may become ordinary mechanical verification authority.
 
 ### 29.3 Why this matters
 
-The feature's purpose is context continuity and human handoff, not weakening ShellBeam's evidence model. Any implementation that merely scrapes a prompt and calls it a normal receipt is rejected.
+The feature's purpose is context continuity and human handoff, not weakening ShellBeam's evidence model. Any implementation that merely scrapes a prompt, or wraps a session-level receipt around mixed interactive activity and calls it ordinary verification, is rejected.
 
 ---
 
@@ -1593,27 +1610,41 @@ state files
 
 ## 40. Output truth and evidence semantics
 
-Existing direct PTY semantics aim at byte-correct complete capture. Secret handoff intentionally creates an exception that must be explicit rather than hidden.
+Existing direct PTY semantics aim at byte-correct complete capture. Delegated sessions can accumulate more than one reason why their model-visible transcript is not byte-complete, so capture truth MUST be composable rather than a single mutually-exclusive cause enum.
 
-Delegated-session status SHALL distinguish at least:
-
-```text
-complete_public_capture
-private_intervals_omitted
-transport_incomplete
-provider_lost
-```
-
-For any transcript with intentionally omitted private bytes:
+The delegated receipt/result vocabulary is:
 
 ```text
-output_complete = false
-capture_quality = private_intervals_omitted
+capture_quality = complete | partial | incomplete
+
+capture_reasons[] =
+    private_intervals_omitted
+    transport_gap
+    provider_lost
 ```
 
-The legacy Boolean remains mathematically truthful: the transcript is not byte-complete. The additive quality explains that the incompleteness is intentional privacy rather than transport failure. Direct-session legacy meaning remains unchanged.
+Validation is closed and monotonic:
 
-Private omission is not execution failure. Evidence consumers that require complete command output must reject or explicitly tolerate `private_intervals_omitted` rather than silently treating hidden output as absent.
+```text
+quality=complete
+    -> output_complete=true
+    -> capture_reasons=[]
+
+quality=partial
+    -> output_complete=false
+    -> capture_reasons=[private_intervals_omitted]
+
+quality=incomplete
+    -> output_complete=false
+    -> capture_reasons contains transport_gap or provider_lost
+    -> capture_reasons MAY also contain private_intervals_omitted
+```
+
+Once a reason applies to a delegated session it is never erased by later events. Therefore a session that first omits a private interval, later observes a transport gap, and finally loses its provider ends with all applicable reasons instead of overwriting one truth with another. Reasons are unique, bounded, and canonically ordered in durable/public encoding.
+
+The legacy Boolean remains mathematically truthful: any intentional omission or unproven transport/provider interval means the transcript is not byte-complete. `partial` means the known incompleteness is intentional privacy only; `incomplete` means at least one unintentional/unproven capture failure also occurred. Direct-session legacy meaning remains unchanged.
+
+Private omission is not execution failure. Independently, delegated-session capture completeness does not grant ordinary verification authority: evidence consumers requiring ordinary command receipts must reject `session_lifecycle_only` delegated evidence regardless of whether its capture quality is `complete`, `partial`, or `incomplete`, until a separately approved context-exec authority proves stronger attribution.
 
 ---
 
