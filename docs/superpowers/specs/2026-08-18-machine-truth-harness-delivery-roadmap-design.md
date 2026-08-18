@@ -1,7 +1,7 @@
 # ShellBeam Machine Truth Harness Delivery Roadmap Design
 
 Date: 2026-08-18
-Status: approved sequencing contract; next design action is the P1 implementation plan, not new feature debate
+Status: approved architecture roadmap; sequencing amendment proposed for P4-A/P6-A-before-P2 ordering pending review
 Baseline: latest `origin/main` at final semantic-freeze refresh, `33fe40999910a08410204993b9edb8f7e58698a5`
 Scope: prioritized work needed to evolve ShellBeam into the Machine Truth Harness defined by the 2026-08-18 architecture specs
 
@@ -66,6 +66,7 @@ Authoritative companion designs:
 
 - [Resource Enforcement](./2026-08-18-resource-enforcement-design.md)
 - [Hermetic Boundary](./2026-08-18-hermetic-boundary-design.md)
+- [P4-A / P6-A Sequencing Amendment](./2026-08-18-p4a-p6a-sequencing-amendment-design.md)
 
 Current integration posture:
 
@@ -77,21 +78,43 @@ Current integration posture:
 
 ## 4. Priority ordering
 
-The high-level order is:
+Phase numbers are **capability families / priority buckets**, not a strict total topological order. The implementation DAG is:
 
 ```text
 P0  stabilize Resource Enforcement + implement qualified Hermetic Boundary V1
+ ↓
 P1  Affected Surface + Verification Obligations + Evidence Sufficiency
+ ↓
+P4-A  read-only Code Intelligence foundation (Go/gopls V1)
+ ↓
+P6-A  DAP qualification + debug-session core (Go/Delve V1)
+ ↓
 P2  EngineeringStateView / context projection
+ ↓
+P6-B  DAP harness/evidence integration
+ ↓
 P3  Mutation Transaction + minimal patch provider
-P4  Code Intelligence/source UX/provider expansion where justified
-P5  Browser provider
-P6  DAP/debugger provider
-P7  selective Git semantics / additional evidence providers
-P8  only then reconsider durable envelope handles/project knowledge substrates if measured need exists
+ ↓
+P4-B  mutation-capable semantic actions through Mutation Transaction
+
+P5  Browser full integration remains downstream of P0/P1/P2/P3.
+P7  selective Git semantics / additional evidence providers remain later.
+P8  only then reconsider durable envelope handles/project knowledge substrates if measured need exists.
 ```
 
-This is a dependency/risk order, not a promise that every item is implemented in one branch or release.
+The practical coding-harness path is therefore:
+
+```text
+finish P1
+→ P4-A
+→ P6-A
+→ P2
+→ P6-B
+→ P3
+→ P4-B
+```
+
+This is an explicit sequencing amendment, not an architecture-boundary change. Detailed scope is frozen in [P4-A / P6-A Sequencing Amendment](./2026-08-18-p4a-p6a-sequencing-amendment-design.md). Browser/provider qualification spikes may occur independently, but full harness integration must respect the dependencies above.
 
 ## 5. P0 — Resource Enforcement and Hermetic Boundary
 
@@ -221,7 +244,55 @@ Add mechanical handling for:
 
 This directly addresses coding-agent test process leaks and blind retry behavior.
 
-## 10. P2 — EngineeringStateView
+## 10. P4-A — Read-only Code Intelligence foundation
+
+Reference amendment:
+
+- [P4-A / P6-A Sequencing Amendment](./2026-08-18-p4a-p6a-sequencing-amendment-design.md)
+
+P4-A is sequenced immediately after P1 and before P2. V1 is Go/gopls only and remains read-only.
+
+Implement in bounded slices:
+
+```text
+P4-A1 source presentation: path:line-range + symbol? + generation + exact SourceRef
+P4-A2 semantic affected-relation bridge with authority/coverage/generation/provenance
+P4-A3 reusable provider lifecycle/resource observation envelope for gopls
+P4-A4 practical inspect.code UX/resource/leak benchmark acceptance
+```
+
+Do not implement mutation-capable LSP actions, rename, workspace edits, code actions, or semantic refactors in P4-A. Those remain P4-B after P3.
+
+The source-presentation layer preserves exact retained SourceRef/byte identity underneath model-facing line/range coordinates. The semantic-relation bridge remains non-exhaustive where the underlying provider is non-exhaustive. P4-A3 may extract only a small provider-neutral runtime fact envelope; it MUST NOT generalize `codeintel.ProviderManager` or make DAP depend on codeintel query/pooling/session policy. Provider lifecycle work reuses existing process/resource/telemetry truth and does not create a universal provider scheduler.
+
+## 11. P6-A — DAP qualification + debug-session core
+
+P6-A is sequenced after P4-A and before P2. V1 is Go/Delve only.
+
+Start with an exact provider qualification gate covering Delve identity/version/toolchain/platform compatibility, DAP handshake, launch/attach boundary, breakpoints, execution control, threads/stack/scopes/variables, panic/exception observation, source correlation, bounded materialization, shutdown/cleanup, crash/disconnect recovery and resource convergence.
+
+Production P6-A remains blocked/`NOT_RUN` when no qualified Delve candidate is available; ordinary ShellBeam runtime must not silently install or trust an arbitrary debugger executable.
+
+Initial normalized surface is effect-classified, not described as uniformly observational:
+
+```text
+observe:            threads / stack / scopes / variables / exception / stop reason
+control_execution:  continue / step_over / step_in / step_out
+manage_breakpoint:  breakpoint.set / breakpoint.remove
+launch_process:     debug.start
+attach_process:     debug.attach
+session_lifecycle:  debug.close
+```
+
+Every non-observational action requires explicit runtime/process authority. P6-A V1 attach is limited to exact ShellBeam-owned process identity plus explicit attach authority; PID alone is never authority. Launched-session close terminates the launched target; attached-session close detaches/leaves the target alive; result truth preserves literal debuggee disposition or `unknown`.
+
+P6-A V1 explicitly defers arbitrary DAP `evaluate`, `setVariable`, write-memory/call-injection, and other target-data mutation paths. They are not classified as harmless inspection or ordinary execution control.
+
+Exact SourceRef/path location binding is separate from debuggee build/source provenance. A frame can resolve exactly to current workspace bytes while the debuggee was built from another generation; P6-A reports those dimensions independently, and P6-B evidence compatibility must consume mechanically proven debuggee source provenance rather than infer it from location resolution.
+
+P6-A owns debug-session/provider/process/source/resource/lifetime truth only. It does not yet make debugger observations verification evidence; that belongs to P6-B.
+
+## 12. P2 — EngineeringStateView
 
 Reference design:
 
@@ -260,26 +331,22 @@ Before introducing a durable envelope identity, measure whether `inspect.enginee
 
 Only add a durable envelope handle if resume/handoff/baseline pinning cannot be solved cleanly without it.
 
-## 11. P2A — Affected relation quality expansion
+## 13. P2A — Affected relation integration
 
-The initial affected engine will be incomplete by design.
+The initial affected engine will be incomplete by design. P2 consumes P4-A semantic relations rather than redefining their source/authority model.
 
-Expand relation providers only where they buy measurable value:
+Additional relation providers may be added only where they buy measurable value:
 
-- Go package/import graph;
-- semantic references/call hierarchy;
 - explicit config/project mappings;
 - runtime trace as advisory relation;
 - hermetic proven-input relation when available;
 - artifact/command mappings.
 
-Do not claim universal dependency completeness.
+Do not claim universal dependency completeness. Every provider preserves basis, authority, coverage, generation, and provenance.
 
-Each provider must expose basis, authority, coverage, generation, and provenance.
+## 14. P2B — Source/location projection
 
-## 12. P2B — Source/location UX
-
-Improve current semantic-code UX so models usually receive:
+P2 consumes P4-A source presentation so EngineeringStateView usually exposes:
 
 ```text
 path:line-range
@@ -289,11 +356,9 @@ source generation
 opaque exact SourceRef underneath
 ```
 
-instead of depending primarily on opaque refs + byte offsets.
+P2 does not introduce a second source-addressing model. Exact identity remains owned by SourceRef/source truth; presentation remains a projection.
 
-Preserve exact identity; improve presentation only.
-
-## 13. P3 — Mutation Transaction
+## 15. P3 — Mutation Transaction
 
 Add the transaction envelope before adding sophisticated editing capabilities.
 
@@ -335,7 +400,7 @@ Qualification must cover:
 - shadow filesystem;
 - model-driven fix recommendations inside ShellBeam.
 
-## 14. P3A — Evidence invalidation loop
+## 16. P3A — Evidence invalidation loop
 
 Once mutations are transactional, connect them to verification state:
 
@@ -355,21 +420,27 @@ This is the deterministic loop ShellBeam should own.
 
 The reasoning model still decides the next engineering action.
 
-## 15. P4 — Code Intelligence evolution
+## 17. P4-B — Mutation-capable Code Intelligence evolution
 
-Current Go semantic support is useful but model-facing UX/provider breadth can improve.
+P4-A has already handled read-only Go/gopls source UX, semantic relations and provider-runtime integration before P2.
 
-Priorities:
+P4-B begins only after P3 Mutation Transaction semantics exist.
 
-1. source location ergonomics;
-2. stable affected-relation outputs from existing semantic facts;
-3. provider lifecycle/resource integration;
-4. TypeScript/Python/Rust/etc only when real usage warrants qualification;
-5. mutation-capable LSP actions only through Mutation Transaction semantics.
+Candidates:
+
+```text
+rename
+workspace edits
+qualified code actions
+semantic refactor providers
+additional language providers where measured need justifies qualification
+```
+
+Every source-mutating semantic action runs through Mutation Transaction preconditions/authority/effect attribution/post-source observation. No LSP capability becomes a source-mutation side door.
 
 Do not turn code intelligence into authoritative build/test evidence.
 
-## 16. P5 — Browser provider
+## 18. P5 — Browser provider
 
 Reuse official/mature Playwright behind the provider boundary.
 
@@ -396,7 +467,7 @@ Reuse official/mature Playwright behind the provider boundary.
 - stable target/addressing contract;
 - browser facts remain provider observations/evidence rather than a new ontology.
 
-### Why after P1-P3
+### Why full integration remains after P1-P3
 
 A browser provider becomes dramatically more useful when it plugs into:
 
@@ -410,37 +481,26 @@ affected user journey
 
 rather than being merely another automation tool.
 
-## 17. P6 — DAP/debugger provider
+## 19. P6-B — DAP harness/evidence integration
 
-Reuse DAP + mature adapters such as Delve/debugpy/js-debug/CodeLLDB.
+P6-A has already qualified Go/Delve and established the debug-session/provider core. P6-B comes after the initial P2 projection and integrates qualified debugger observations into verification/evidence semantics.
 
-### Desired normalized surface
+Add only where policy explicitly declares the need:
 
 ```text
-start/attach under explicit process authority
-breakpoints
-continue/step
-stop reason
-threads
-stack frames
-variables/locals
-evaluate
-exceptions
-source correlation
+obligation -> exact debug provider binding
+debug observation evidence/provenance
+source/environment compatibility
+quiescence/lifecycle requirement for evidence completion
+stale invalidation across source generations
+EngineeringStateView debug evidence/deep refs
 ```
 
-### ShellBeam-owned envelope
+P6-B does not automatically decide to start a debugger. The model/user still owns that engineering action under the P1 no-auto-execution boundary unless a future separately reviewed policy changes it.
 
-- process/session ownership;
-- source generation/SourceRef correlation;
-- resource/lifetime authority;
-- bounded output/variable materialization;
-- provider qualification;
-- evidence/provenance where a debug observation is used to support an obligation.
+Other DAP ecosystems such as debugpy/js-debug/CodeLLDB require their own qualification before entering the trusted provider path.
 
-ShellBeam does not implement debugger internals.
-
-## 18. P7 — Selective Git semantics
+## 20. P7 — Selective Git semantics
 
 Do not build a Git replacement.
 
@@ -458,7 +518,7 @@ normalized mutation receipts for selected Git operations
 
 Git planning/rebase strategy remains reasoning-agent work.
 
-## 19. P7A — Project Readiness/Environment usability
+## 21. P7A — Project Readiness/Environment usability
 
 Practical benchmarking found Project Readiness/Environment facts less usable than other ShellBeam capabilities.
 
@@ -471,7 +531,7 @@ After core harness semantics stabilize, improve:
 
 This work should support, not precede, the verification semantics.
 
-## 20. P8 — Project knowledge/memory: deliberately deferred
+## 22. P8 — Project knowledge/memory: deliberately deferred
 
 Repro capsules, evidence, events, and EngineeringStateView are not conversation memory.
 
@@ -481,7 +541,7 @@ Reconsider only if practical use shows repeated loss of high-value explicit engi
 
 If ever introduced, prefer a substrate where the reasoning model/user explicitly writes bounded project knowledge with provenance rather than daemon inference from conversations.
 
-## 21. Multi-agent coordination: continue to defer autonomy
+## 23. Multi-agent coordination: continue to defer autonomy
 
 Mutation scopes remain useful for advisory coordination.
 
@@ -489,7 +549,7 @@ Do not add hidden agent workers, task scheduler, or distributed planner as part 
 
 If multiple reasoning agents use ShellBeam, common truth/policy/evidence primitives should be the coordination substrate.
 
-## 22. What should remain external/model-owned
+## 24. What should remain external/model-owned
 
 The following remain outside ShellBeam unless a future architecture review explicitly changes the boundary:
 
@@ -506,7 +566,7 @@ commit/PR narrative
 final claim that the user's task is done
 ```
 
-## 23. What ShellBeam should increasingly own
+## 25. What ShellBeam should increasingly own
 
 ```text
 source/workspace identity
@@ -521,7 +581,7 @@ authority honesty
 bounded engineering-state projections
 ```
 
-## 24. Practical evaluation program
+## 26. Practical evaluation program
 
 Every major phase should be benchmarked on real day-to-day coding tasks, not only unit/contract tests.
 
@@ -544,7 +604,7 @@ manual user intervention
 
 Do not optimize the harness solely for fewer tests or fewer calls if correctness coverage degrades.
 
-## 25. Verification semantics benchmark scenarios
+## 27. Verification semantics benchmark scenarios
 
 Initial practical scenarios SHOULD include:
 
@@ -565,7 +625,7 @@ Initial practical scenarios SHOULD include:
 14. template update -> pinned repository policy unchanged;
 15. policy file changes from P1 to weaker P2 -> P2 remains proposed until an external activation event; P1/meta-policy still governs the self-amending change.
 
-## 26. Provider benchmark scenarios
+## 28. Provider benchmark scenarios
 
 Browser/DAP/patch providers SHOULD be tested for:
 
@@ -580,7 +640,7 @@ Browser/DAP/patch providers SHOULD be tested for:
 - parallel sessions under bounded resource policy;
 - host workspace/source mutation only where explicitly authorized.
 
-## 27. Migration strategy
+## 29. Migration strategy
 
 Prefer additive capability negotiation and opt-in project policy.
 
@@ -589,15 +649,19 @@ Suggested rollout:
 ```text
 Stage A: read-only policy/affected/evidence inspection
 Stage B: starter-template materialization + waivers
-Stage C: engineering-state aggregate projection
-Stage D: optional verification execution helper under explicit caller choice
-Stage E: mutation transactions
-Stage F: provider expansion
+Stage C: P4-A read-only Code Intelligence/source/provider-runtime evolution
+Stage D: P6-A qualified Go/Delve debug-session core
+Stage E: engineering-state aggregate projection
+Stage F: P6-B debugger evidence/harness integration
+Stage G: mutation transactions
+Stage H: P4-B mutation-capable semantic providers + later provider expansion
 ```
+
+Optional verification execution helpers remain separately reviewed and caller/model-owned; this sequencing amendment does not introduce an automatic verification scheduler.
 
 Automatic verification execution, if ever introduced, should be a later explicitly reviewed step after read-only semantics prove trustworthy.
 
-## 28. Documentation/product ergonomics
+## 30. Documentation/product ergonomics
 
 The final product should make the system understandable to both frontier agents and humans.
 
@@ -645,7 +709,7 @@ confidence = 0.87 therefore skipped tests
 
 unless a future explicit probabilistic policy design is approved.
 
-## 29. Definition of architectural success
+## 31. Definition of architectural success
 
 This roadmap succeeds when a frontier coding model connected through ShellBeam can spend materially less context/quota/time reconstructing machine state and running unnecessary verification while gaining stronger, inspectable guarantees about what was actually changed and verified.
 
@@ -662,7 +726,7 @@ The model reasons.
 ShellBeam makes engineering state, authority, effects, and evidence hard to misunderstand.
 ```
 
-## 30. Review gate
+## 32. Review gate
 
 Before implementation planning begins, reviewers should explicitly approve or amend:
 
@@ -677,6 +741,8 @@ Before implementation planning begins, reviewers should explicitly approve or am
 - declared/enforced/observed authority model;
 - sequencing relative to the merged Resource Enforcement contract and frozen Hermetic Boundary contract;
 - Browser/DAP as providers rather than independent platforms;
+- P4-A/P6-A-before-P2 sequencing with P4-B still downstream of P3;
+- arbitrary DAP evaluate/target-state mutation excluded from P6-A observation V1;
 - deliberate deferral of planner/memory/multi-agent autonomy.
 
 Only after that review should the approved specs be split into implementation plans/tasks.
