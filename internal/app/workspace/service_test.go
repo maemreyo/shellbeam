@@ -8,8 +8,42 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	core "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
+
+func TestInspectReconcilesWorkspaceAndReturnsTypedMissingRoot(t *testing.T) {
+	root := t.TempDir()
+	service, ws, git := addressFixture(t, root)
+	delete(git.resolvedRoots, ws.GitDir)
+	if err := os.RemoveAll(root); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := service.Inspect(context.Background(), string(ws.ID))
+	if !errors.Is(err, failure.WorkspaceRootMissing) || !errors.Is(err, ErrWorkspaceRootMissing) {
+		t.Fatalf("err=%v", err)
+	}
+	public := failure.Public(err)
+	if public.Details["workspace_id"] != string(ws.ID) || public.Details["reason"] != "root_missing" {
+		t.Fatalf("public=%#v", public)
+	}
+}
+
+func TestInspectReconcilesMovedRegisteredWorkspaceRoot(t *testing.T) {
+	oldRoot := t.TempDir()
+	newRoot := t.TempDir()
+	service, ws, git := addressFixture(t, oldRoot)
+	git.resolvedRoots[ws.GitDir] = newRoot
+
+	got, err := service.Inspect(context.Background(), string(ws.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Root != newRoot {
+		t.Fatalf("got=%#v", got)
+	}
+}
 
 func TestWorkspaceAttachReusesGitNativeIdentityAcrossMove(t *testing.T) {
 	ctx := context.Background()
@@ -344,6 +378,7 @@ type fakeGit struct {
 	addCalls      []addCall
 	removeCalls   []removeCall
 	listCalls     int
+	inspectCalls  int
 	resolvedRoots map[string]string
 }
 
@@ -363,6 +398,7 @@ func (f *fakeGit) observe(input string, observation GitObservation) {
 }
 
 func (f *fakeGit) Inspect(_ context.Context, path string) (GitObservation, error) {
+	f.inspectCalls++
 	observation, ok := f.observations[path]
 	if !ok {
 		return GitObservation{}, errors.New("not a git worktree")

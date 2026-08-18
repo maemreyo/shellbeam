@@ -83,6 +83,26 @@ func TestFailureLegacyMappingAndRetryability(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStateFailureCodesAreStableAndSecretSafe(t *testing.T) {
+	for _, code := range []Code{WorkspaceStale, WorkspaceRootMissing} {
+		public := Public(New(code, map[string]string{
+			"workspace_id": "ws_01K00000000000000000000000",
+			"reason":       "root_mismatch",
+			"path":         "/Users/alice/private",
+		}, errors.New("private /Users/alice/private")))
+		if public.Code != code || public.Message == "" || public.Details["workspace_id"] == "" || public.Details["reason"] == "" {
+			t.Fatalf("public=%#v", public)
+		}
+		data, err := json.Marshal(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "/Users/alice/private") {
+			t.Fatalf("workspace state failure leaked path: %s", data)
+		}
+	}
+}
+
 func TestFailurePublicCodeSet(t *testing.T) {
 	for _, code := range []Code{
 		InvalidInput,

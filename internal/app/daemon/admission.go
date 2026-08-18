@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
@@ -52,7 +54,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
 	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
-	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
+	if req.ProtocolVersion != 2 {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
 	}
@@ -61,18 +63,56 @@ func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (ope
 		return operation.Intent{}, invalidIntentFailure(err)
 	}
 	if s.resolver == nil {
-		return operation.Intent{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "workspace_addressing"}, nil)
+		if req.WorkspaceID != "" {
+			return operation.Intent{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "workspace_addressing"}, nil)
+		}
+		intent.ResolvedCWD = req.CWD
+		return intent, nil
 	}
-	resolved, err := s.resolver.ResolveAddress(ctx, address)
+	var (
+		resolved workspace.ResolvedAddress
+		err      error
+	)
+	if req.WorkspaceID != "" {
+		resolved, err = s.resolver.ResolveAddress(ctx, address)
+	} else {
+		admissionResolver, ok := s.resolver.(AdmissionWorkspaceResolver)
+		if !ok {
+			intent.ResolvedCWD = req.CWD
+			return intent, nil
+		}
+		resolved, err = admissionResolver.ResolveAdmissionAddress(ctx, address)
+	}
 	if err != nil {
-		return operation.Intent{}, failure.Normalize(err)
+		return operation.Intent{}, normalizeWorkspaceResolutionFailure(err)
 	}
-	if resolved.WorkspaceID != address.WorkspaceID || resolved.CWD == "" {
+	if resolved.CWD == "" {
+		return operation.Intent{}, failure.New(failure.Internal, nil, fmt.Errorf("workspace resolver returned empty cwd"))
+	}
+	if req.WorkspaceID != "" && resolved.WorkspaceID != address.WorkspaceID {
 		return operation.Intent{}, failure.New(failure.Internal, nil, fmt.Errorf("workspace resolver identity mismatch"))
 	}
-	intent.CWD = resolved.LogicalCWD
+	if resolved.WorkspaceID != "" {
+		intent.WorkspaceID = string(resolved.WorkspaceID)
+		intent.CWD = resolved.LogicalCWD
+	}
 	intent.ResolvedCWD = resolved.CWD
 	return intent, nil
+}
+
+func normalizeWorkspaceResolutionFailure(err error) error {
+	var stateErr *workspaceapp.WorkspaceStateError
+	if !errors.As(err, &stateErr) {
+		return failure.Normalize(err)
+	}
+	code := failure.WorkspaceStale
+	if errors.Is(stateErr, workspaceapp.ErrWorkspaceRootMissing) {
+		code = failure.WorkspaceRootMissing
+	}
+	return failure.New(code, map[string]string{
+		"workspace_id": string(stateErr.WorkspaceID),
+		"reason":       stateErr.Reason,
+	}, err)
 }
 
 func validateHermeticAdmission(catalog capability.Catalog, runtime HermeticRuntime, req StartRequest) error {
@@ -170,12 +210,9 @@ func validateStartMetadata(req StartRequest) error {
 		if req.ProtocolVersion != 2 {
 			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "evidence", "required_version": "2"}, nil)
 		}
-		normalized, err := req.Evidence.Normalize()
+		_, err := req.Evidence.Normalize()
 		if err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, err)
-		}
-		if len(normalized.ExpectedOutputs) > 0 && req.WorkspaceID == "" {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("evidence expected outputs require workspace"))
 		}
 		if wantsProjectCommand(req) {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, fmt.Errorf("typed project commands use frozen project evidence metadata"))
@@ -184,9 +221,37 @@ func validateStartMetadata(req StartRequest) error {
 	return nil
 }
 
+func evidenceExpectedOutputsRequireWorkspace(req StartRequest) bool {
+	if req.Evidence == nil {
+		return false
+	}
+	normalized, err := req.Evidence.Normalize()
+	return err == nil && len(normalized.ExpectedOutputs) > 0
+}
+
+func (s *Service) validatePreResolutionWorkspaceRequirements(req StartRequest) error {
+	if !evidenceExpectedOutputsRequireWorkspace(req) || req.WorkspaceID != "" {
+		return nil
+	}
+	if _, ok := s.resolver.(AdmissionWorkspaceResolver); ok {
+		return nil
+	}
+	return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("evidence expected outputs require workspace"))
+}
+
+func validateResolvedWorkspaceRequirements(req StartRequest, intent operation.Intent) error {
+	if evidenceExpectedOutputsRequireWorkspace(req) && intent.WorkspaceID == "" {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("evidence expected outputs require workspace"))
+	}
+	return nil
+}
+
 func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest, id operation.ID) (operation.Reservation, operation.ExecutionSpec, error) {
 	intent, err := s.resolveStartIntent(ctx, req)
 	if err != nil {
+		return operation.Reservation{}, operation.ExecutionSpec{}, err
+	}
+	if err := validateResolvedWorkspaceRequirements(req, intent); err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, err
 	}
 	mode, err := intent.ExecutionMode()

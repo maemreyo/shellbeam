@@ -53,7 +53,16 @@ func (s *Service) Inspect(ctx context.Context, labelOrID string) (core.Workspace
 	if err != nil {
 		return core.Workspace{}, err
 	}
-	return resolveWorkspace(workspaces, labelOrID)
+	record, err := resolveWorkspace(workspaces, labelOrID)
+	if err != nil {
+		return core.Workspace{}, err
+	}
+	root, err := s.currentWorkspaceRoot(ctx, record)
+	if err != nil {
+		return core.Workspace{}, err
+	}
+	record.Root = root
+	return record, nil
 }
 
 func (s *Service) Attach(ctx context.Context, path, label string) (core.Workspace, error) {
@@ -61,6 +70,10 @@ func (s *Service) Attach(ctx context.Context, path, label string) (core.Workspac
 	if err != nil {
 		return core.Workspace{}, err
 	}
+	return s.attachObservation(ctx, observation, label)
+}
+
+func (s *Service) attachObservation(ctx context.Context, observation GitObservation, label string) (core.Workspace, error) {
 	repositories, err := s.registry.ListRepositories(ctx)
 	if err != nil {
 		return core.Workspace{}, err

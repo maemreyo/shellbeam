@@ -111,7 +111,7 @@ func TestA26RealDaemonNoHiddenWorkPrivacyAndMCPSafeSummary(t *testing.T) {
 		Action: "start", OperationID: "a26-no-hidden-work", CWD: "/tmp", Argv: []string{"/bin/sh", "-c", "true"},
 	})
 	assertA1ChildSuccess(t, ordinary)
-	assertA26NoProbeCalls(t, fixture.probeLog)
+	assertA26OnlyWorkspaceDiscovery(t, fixture.probeLog)
 	assertA26NoForbidden(t, string(readA26Subtree(t, filepath.Join(fixture.stateDir, "mutation-scopes"))), fixture.forbidden, "durable state")
 	payload, err := json.Marshal([]any{setResult, released.Mutation, mcpResult.StructuredContent})
 	if err != nil {
@@ -196,12 +196,17 @@ func callA26PrivacyMCP(t *testing.T, fixture a26PrivacyFixture) *mcpgo.CallToolR
 	return result
 }
 
-func assertA26NoProbeCalls(t *testing.T, probeLog string) {
+func assertA26OnlyWorkspaceDiscovery(t *testing.T, probeLog string) {
 	t.Helper()
-	if data, err := os.ReadFile(probeLog); err == nil && len(data) > 0 {
-		t.Fatalf("A2.6/ordinary path invoked guarded executable: %q", data)
-	} else if err != nil && !os.IsNotExist(err) {
+	data, err := os.ReadFile(probeLog)
+	if err != nil {
+		if os.IsNotExist(err) {
+			t.Fatal("A2.6 cwd-only admission skipped required workspace discovery")
+		}
 		t.Fatal(err)
+	}
+	if got := string(data); got != "git\n" {
+		t.Fatalf("A2.6 ordinary path invoked unexpected guarded executables: %q", got)
 	}
 }
 
