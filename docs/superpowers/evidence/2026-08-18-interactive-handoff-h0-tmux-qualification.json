@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "gate_kind": "provider_qualification",
+  "spec_commit": "5351215de2c02ac61ac82751c1680a35744047af",
+  "required_platforms": [
+    "darwin",
+    "linux"
+  ],
+  "required_probe_ids": [
+    "P0",
+    "P1",
+    "P2",
+    "P3",
+    "P4",
+    "P5",
+    "P6",
+    "P7",
+    "P8",
+    "P9",
+    "P10",
+    "P11",
+    "P12",
+    "P13",
+    "P14",
+    "P15"
+  ],
+  "genuine_gate_ids": [
+    "P3",
+    "P4",
+    "P5",
+    "P6",
+    "P14",
+    "P15"
+  ],
+  "platform_reports": [
+    {
+      "goos": "darwin",
+      "goarch": "arm64",
+      "tmux_path": "/opt/homebrew/Cellar/tmux/3.6a/bin/tmux",
+      "tmux_version": "tmux 3.6a",
+      "tmux_sha256": "70cbf6697ac288f6fd7cfb6ea22016dc0f7d02043c10ddf5ec47b02d5c5495ef",
+      "verdict": "PASS",
+      "report_path": ".build/interactive-handoff-h0/darwin/report.json",
+      "report_sha256": "8bce845214ac688f8e76818dc304866154c7b8163f8e5b69907dec79ad6ca0ca"
+    },
+    {
+      "goos": "linux",
+      "goarch": "unknown",
+      "tmux_path": "",
+      "tmux_version": "NOT_RUN",
+      "tmux_sha256": "",
+      "verdict": "NOT_RUN",
+      "report_path": ".build/interactive-handoff-h0/linux/report.json",
+      "report_sha256": "e90a600884e9e5a8fd98aa430ae024f19bcd2a5f1bb13d8d2d712929d789c070"
+    }
+  ],
+  "provider_id": "tmux_control_mode",
+  "provider_version": 1,
+  "input_fence_mechanism": "unqualified",
+  "observation_topology": "unqualified",
+  "control_adapter": "raw_control_mode",
+  "h1_allowed": false
+}
