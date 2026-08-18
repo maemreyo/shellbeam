@@ -234,6 +234,8 @@ git -c core.hooksPath=.githooks commit -m "feat: define delegated session author
 ### Task 3: Bind `session_mode` into operation identity and durable reservation schema 5
 
 **Files:**
+- Modify: `internal/core/delegatedsession/types.go`
+- Modify: `internal/core/delegatedsession/types_test.go`
 - Modify: `internal/core/operation/intent.go`
 - Modify: `internal/core/operation/project_command.go`
 - Create: `internal/core/operation/delegated_identity.go`
@@ -508,6 +510,8 @@ Cases:
 ```text
 H1 capability absent + delegated start -> feature_unavailable before reservation/provider work
 delegated + tty/persistent legacy field -> invalid_input
+delegated + explicit ordinary evidence contract -> invalid_input before reservation/provider work
+unknown session_mode -> feature_unavailable before reservation/provider work
 direct/B1 -> exact existing route
 ```
 
