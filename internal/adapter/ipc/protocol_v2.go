@@ -23,6 +23,7 @@ import (
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
@@ -75,6 +76,7 @@ type RequestV2 struct {
 	TimeoutMode              operation.TimeoutMode             `json:"timeout_mode,omitempty"`
 	TraceMode                trace.Mode                        `json:"trace_mode,omitempty"`
 	ResourceLimits           *operation.ResourceLimits         `json:"limits,omitempty"`
+	Hermetic                 *hermeticcore.Request             `json:"hermetic,omitempty"`
 	YieldMS                  int64                             `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes           int                               `json:"max_output_bytes,omitempty"`
 	SessionID                string                            `json:"session_id,omitempty"`
@@ -288,6 +290,14 @@ func validateStartRequestV2(v RequestV2) error {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "limits"}, err)
 		}
 	}
+	if v.Hermetic != nil {
+		if err := v.Hermetic.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, err)
+		}
+		if v.TTY || v.Persistent || (v.StdinMode != "" && v.StdinMode != operation.StdinModeClosed) {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin"))
+		}
+	}
 	if v.OperationID == "" {
 		return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_start_field"}, fmt.Errorf("missing start field"))
 	}
@@ -302,7 +312,7 @@ func validateStartRequestV2(v RequestV2) error {
 		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command conflicts with raw execution fields"))
 		}
-		intent := operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS}
+		intent := operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Hermetic: v.Hermetic}
 		if err := intent.Validate(); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, err)
 		}

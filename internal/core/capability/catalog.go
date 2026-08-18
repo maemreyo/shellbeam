@@ -35,6 +35,7 @@ const (
 	FeatureRichLocalMedia         Feature = "rich_local_media"
 	FeatureInputTracing           Feature = "input_tracing"
 	FeatureResourceEnforcement    Feature = "resource_enforcement"
+	FeatureHermeticBoundaryV1     Feature = "hermetic_boundary_v1"
 )
 
 type Limits struct {
@@ -164,6 +165,7 @@ type Catalog struct {
 	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
 	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
 	ResourceEnforcement               *ResourceEnforcementSupport `json:"resource_enforcement,omitempty"`
+	HermeticBoundary                  *HermeticBoundarySupport    `json:"hermetic_boundary,omitempty"`
 	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
 	Media                             *MediaSupport               `json:"media,omitempty"`
 	InputTracing                      *InputTracingSupport        `json:"input_tracing,omitempty"`
@@ -197,6 +199,7 @@ var targetFeatures = []Feature{
 	FeatureRichLocalMedia,
 	FeatureInputTracing,
 	FeatureResourceEnforcement,
+	FeatureHermeticBoundaryV1,
 }
 
 func TargetFeatures() []Feature {
@@ -255,6 +258,10 @@ func (c Catalog) Clone() Catalog {
 	if c.ResourceEnforcement != nil {
 		enforcement := *c.ResourceEnforcement
 		out.ResourceEnforcement = &enforcement
+	}
+	if c.HermeticBoundary != nil {
+		hermetic := *c.HermeticBoundary
+		out.HermeticBoundary = &hermetic
 	}
 	if c.SafetyCheckpoints != nil {
 		support := *c.SafetyCheckpoints
@@ -378,6 +385,17 @@ func (c Catalog) WithResourceEnforcement(support ResourceEnforcementSupport) Cat
 	out.Features[FeatureResourceEnforcement] = Available
 	copy := support
 	out.ResourceEnforcement = &copy
+	return out
+}
+
+func (c Catalog) WithHermeticBoundary(support HermeticBoundarySupport) Catalog {
+	out := c.Clone()
+	if !support.ValidV1() {
+		return out
+	}
+	out.Features[FeatureHermeticBoundaryV1] = Available
+	copy := support
+	out.HermeticBoundary = &copy
 	return out
 }
 

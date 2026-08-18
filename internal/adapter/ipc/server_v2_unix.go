@@ -45,7 +45,7 @@ func (s *Server) dispatchV2(ctx context.Context, req RequestV2, resp *ResponseV2
 	var err error
 	switch req.Action {
 	case "start":
-		view, callErr := s.actions.Start(ctx, app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, Evidence: req.Evidence, CWD: req.CWD, TTY: req.TTY, Persistent: req.Persistent, SessionName: req.SessionName, TimeoutMS: req.TimeoutMS, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone()})
+		view, callErr := s.actions.Start(ctx, app.StartRequest{ProtocolVersion: 2, OperationID: req.OperationID, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, WorkspaceHint: req.WorkspaceHint, StructuredAdapter: req.StructuredAdapter, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMapV2(req.Params), Command: req.Command, Argv: append([]string(nil), req.Argv...), Intent: req.Intent, Evidence: req.Evidence, CWD: req.CWD, TTY: req.TTY, Persistent: req.Persistent, SessionName: req.SessionName, TimeoutMS: req.TimeoutMS, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, YieldMS: req.YieldMS, MaxOutputBytes: req.MaxOutputBytes, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()})
 		err = callErr
 		if err == nil {
 			result, resultErr := view.StructuredResult()

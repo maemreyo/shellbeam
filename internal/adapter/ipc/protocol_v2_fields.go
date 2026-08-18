@@ -7,7 +7,7 @@ func actionFieldsV2(action string) []string {
 	case "read_media":
 		return []string{"consumer_media", "media_contract_fingerprint", "media"}
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "hermetic", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":

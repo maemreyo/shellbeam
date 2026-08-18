@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -27,11 +28,12 @@ type Intent struct {
 	// StdinMode and TimeoutMode are the caller's raw words, kept unresolved so
 	// the request fingerprint can describe the request rather than the policy
 	// version that happened to be in force.
-	StdinMode            StdinMode       `json:"stdin_mode,omitempty"`
-	TimeoutMode          TimeoutMode     `json:"timeout_mode,omitempty"`
-	TraceMode            trace.Mode      `json:"-"`
-	TraceExecutionDigest string          `json:"-"`
-	ResourceLimits       *ResourceLimits `json:"-"`
+	StdinMode            StdinMode             `json:"stdin_mode,omitempty"`
+	TimeoutMode          TimeoutMode           `json:"timeout_mode,omitempty"`
+	TraceMode            trace.Mode            `json:"-"`
+	TraceExecutionDigest string                `json:"-"`
+	ResourceLimits       *ResourceLimits       `json:"-"`
+	Hermetic             *hermeticcore.Request `json:"-"`
 	// Resolved and TimeoutSource are the contract the daemon settled on; they
 	// belong to the execution fingerprint only.
 	Resolved      *ResolvedExecutionPolicy `json:"-"`
@@ -65,6 +67,9 @@ func (i Intent) Fingerprint() (string, error) {
 	if i.ResourceLimits != nil {
 		return "", fmt.Errorf("resource limits require v2")
 	}
+	if i.Hermetic != nil {
+		return "", fmt.Errorf("hermetic execution requires v2")
+	}
 	return hashIntent(1, "request", i.Command, "", i.CWD, i.TTY, i.TimeoutMS, "", nil)
 }
 
@@ -93,6 +98,10 @@ func (i Intent) RequestFingerprint() (string, error) {
 		return "", err
 	}
 	base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
+	if err != nil {
+		return "", err
+	}
+	base, err = hermeticcore.BindFingerprint("request", base, i.Hermetic)
 	if err != nil {
 		return "", err
 	}
@@ -129,6 +138,10 @@ func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error)
 		return "", err
 	}
 	base, err = bindResourceFingerprint("execution", base, i.ResourceLimits)
+	if err != nil {
+		return "", err
+	}
+	base, err = hermeticcore.BindFingerprint("execution", base, i.Hermetic)
 	if err != nil {
 		return "", err
 	}
@@ -171,6 +184,14 @@ func (i Intent) validateCommon() error {
 	if i.ResourceLimits != nil {
 		if err := i.ResourceLimits.Validate(); err != nil {
 			return err
+		}
+	}
+	if i.Hermetic != nil {
+		if err := i.Hermetic.Validate(); err != nil {
+			return err
+		}
+		if i.TTY || i.Persistent || (i.StdinMode != "" && i.StdinMode != StdinModeClosed) {
+			return fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin")
 		}
 	}
 	if err := i.validatePersistent(); err != nil {

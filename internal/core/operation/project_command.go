@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -25,15 +26,16 @@ const (
 var typedProjectIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 type TypedRequestIntent struct {
-	WorkspaceID      string            `json:"workspace_id"`
-	ProjectCommandID string            `json:"project_command_id"`
-	Params           map[string]string `json:"params,omitempty"`
-	TTY              bool              `json:"tty"`
-	TimeoutMS        int64             `json:"timeout_ms"`
-	Persistent       bool              `json:"persistent,omitempty"`
-	SessionName      string            `json:"session_name,omitempty"`
-	TraceMode        trace.Mode        `json:"trace_mode,omitempty"`
-	ResourceLimits   *ResourceLimits   `json:"resource_limits,omitempty"`
+	WorkspaceID      string                `json:"workspace_id"`
+	ProjectCommandID string                `json:"project_command_id"`
+	Params           map[string]string     `json:"params,omitempty"`
+	TTY              bool                  `json:"tty"`
+	TimeoutMS        int64                 `json:"timeout_ms"`
+	Persistent       bool                  `json:"persistent,omitempty"`
+	SessionName      string                `json:"session_name,omitempty"`
+	TraceMode        trace.Mode            `json:"trace_mode,omitempty"`
+	ResourceLimits   *ResourceLimits       `json:"resource_limits,omitempty"`
+	Hermetic         *hermeticcore.Request `json:"hermetic,omitempty"`
 }
 
 type TypedIntentClaim struct {
@@ -65,6 +67,14 @@ func (i TypedRequestIntent) Validate() error {
 	if i.ResourceLimits != nil {
 		if err := i.ResourceLimits.Validate(); err != nil {
 			return err
+		}
+	}
+	if i.Hermetic != nil {
+		if err := i.Hermetic.Validate(); err != nil {
+			return err
+		}
+		if i.TTY || i.Persistent {
+			return fmt.Errorf("hermetic v1 requires non-tty, non-persistent execution")
 		}
 	}
 	if !i.Persistent && i.SessionName != "" {
@@ -127,6 +137,10 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 	sum := sha256.Sum256(encoded)
 	base := hex.EncodeToString(sum[:])
 	base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
+	if err != nil {
+		return "", err
+	}
+	base, err = hermeticcore.BindFingerprint("request", base, i.Hermetic)
 	if err != nil {
 		return "", err
 	}

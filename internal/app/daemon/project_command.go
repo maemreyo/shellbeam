@@ -73,7 +73,7 @@ func typedRequestIntent(req StartRequest) (operation.TypedRequestIntent, string,
 	}
 	intent := operation.TypedRequestIntent{
 		WorkspaceID: req.WorkspaceID, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMap(req.Params),
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(),
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone(),
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
@@ -135,7 +135,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 	})
 	resolvedIntent := operation.Intent{
 		Argv: append([]string(nil), binding.ResolvedArgv...), WorkspaceID: req.WorkspaceID,
-		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, ResourceLimits: req.ResourceLimits.Clone(),
+		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone(),
 	}
 	executionFingerprint, err := resolvedIntent.ExecutionFingerprint(spec.Executable)
 	if err != nil {
