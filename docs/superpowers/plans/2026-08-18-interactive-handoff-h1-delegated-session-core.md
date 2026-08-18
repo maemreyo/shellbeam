@@ -495,6 +495,12 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 ### Task 6: Route delegated start/output/write/kill through daemon with epoch admission
 
 **Files:**
+- Modify: `internal/app/delegatedsession/ports.go`
+- Modify: `internal/app/delegatedsession/service.go`
+- Modify: `internal/adapter/delegatedtmux/control.go`
+- Modify: `internal/adapter/delegatedtmux/control_test.go`
+- Modify: `internal/adapter/delegatedtmux/provider_session.go`
+- Modify: `internal/adapter/delegatedtmux/provider_native_test.go`
 - Create: `internal/app/daemon/delegated_port.go`
 - Create: `internal/app/daemon/delegated_start.go`
 - Create: `internal/app/daemon/delegated_start_test.go`
@@ -511,6 +517,7 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 - `StartRequest.SessionMode` selects delegated service.
 - `WriteRequest.AuthorityEpoch` and `KillRequest.AuthorityEpoch` are required only for delegated sessions.
 - Start/poll/control views return current `AuthorityEpoch` for delegated sessions.
+- `DelegatedRuntime.Wait` is event-driven: the qualified tmux provider uses a per-pane Control Mode format subscription (`refresh-client -B` / `%subscription-changed`) for `pane_dead|pane_dead_status`; daemon code must not add a periodic terminal polling loop. The initial subscription value closes the race where the pane exited before watcher registration.
 
 - [ ] **Step 1: RED-test admission and no fallback.**
 
