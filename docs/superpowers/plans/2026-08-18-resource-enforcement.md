@@ -192,7 +192,7 @@ git commit -m "feat: transport resource limits to execution"
 **Interfaces:**
 - Produces: `process.NewOwnerFromEnvironment()` returning an `Owner` plus qualified enforcement support/availability.
 - Zero-value `Owner{}` retains ordinary no-limit behavior and cannot hard-enforce limits.
-- Linux provider creates one `job-*` child below the dedicated root, configures `memory.max`, `memory.oom.group`, `pids.max`, opens the cgroup directory FD, and returns a domain object.
+- Linux provider creates one `job-*` child below the dedicated root, configures `memory.max`, `memory.swap.max=0`, `memory.oom.group`, `pids.max`, opens the cgroup directory FD, and returns a domain object.
 
 - [ ] **Step 1: Write failing provider tests**
 
@@ -211,7 +211,7 @@ Requirements:
 - configuration absent => unavailable without probing/mutation;
 - configured path qualification requires the current daemon PID directly in reserved sibling `manager` and rejects child cgroups beneath `manager`;
 - configured path qualification creates/removes only a bounded empty probe child and stale owned `job-*` siblings;
-- require cgroup-v2 control files and `memory`/`pids` child-controller availability;
+- require cgroup-v2 control files and `memory`/`pids` child-controller availability, including writable `memory.swap.max` on a probe leaf for hard memory semantics;
 - require `cgroup.kill` for crash/recovery cleanup;
 - startup reconciliation only touches `job-*` children under the dedicated configured root;
 - no raw cgroup path enters public errors.

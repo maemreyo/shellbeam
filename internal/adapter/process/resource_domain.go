@@ -175,6 +175,9 @@ func (p *linuxCgroupProvider) prepare(limits operation.ResourceLimits) (_ *prepa
 		}
 	}()
 	if limits.MemoryBytes > 0 {
+		if err := p.ops.writeFile(filepath.Join(path, "memory.swap.max"), "0"); err != nil {
+			return nil, resourceProviderFailure("memory_swap_limit_failed")
+		}
 		if err := p.ops.writeFile(filepath.Join(path, "memory.max"), strconv.FormatInt(limits.MemoryBytes, 10)); err != nil {
 			return nil, resourceProviderFailure("memory_limit_failed")
 		}

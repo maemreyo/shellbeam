@@ -154,10 +154,11 @@ fi
 # the actual clone3(CLONE_INTO_CGROUP) atomic-birth path.
 probe="$resource_root/probe-script"
 mkdir "$probe" || fail "probe_create_failed"
-for control in memory.max memory.oom.group pids.max cgroup.procs cgroup.kill cgroup.events memory.events pids.events cgroup.type; do
+for control in memory.max memory.swap.max memory.oom.group pids.max cgroup.procs cgroup.kill cgroup.events memory.events pids.events cgroup.type; do
   [[ -e "$probe/$control" ]] || fail "probe_control_missing"
 done
 printf 'max' > "$probe/memory.max" || fail "probe_memory_write_failed"
+printf '0' > "$probe/memory.swap.max" || fail "probe_memory_swap_write_failed"
 printf '0' > "$probe/memory.oom.group" || fail "probe_memory_group_write_failed"
 printf 'max' > "$probe/pids.max" || fail "probe_pids_write_failed"
 /bin/sleep 30 &

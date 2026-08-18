@@ -234,7 +234,7 @@ func probeResourceProviderRoot(root string, ops resourceControlOps, nextName res
 			_ = cleanupResourceDir(ops, probe)
 		}
 	}()
-	for _, name := range []string{"memory.max", "memory.oom.group", "pids.max", "cgroup.kill", "cgroup.events", "memory.events", "pids.events", "cgroup.type"} {
+	for _, name := range []string{"memory.max", "memory.swap.max", "memory.oom.group", "pids.max", "cgroup.kill", "cgroup.events", "memory.events", "pids.events", "cgroup.type"} {
 		if !resourceRegularFile(ops, filepath.Join(probe, name)) {
 			return resourceProviderFailure("probe_control_unavailable")
 		}
@@ -242,7 +242,7 @@ func probeResourceProviderRoot(root string, ops resourceControlOps, nextName res
 	if !resourceFileEquals(ops, probe, "cgroup.type", "domain") {
 		return resourceProviderFailure("probe_domain_unavailable")
 	}
-	for name, value := range map[string]string{"memory.max": "max", "memory.oom.group": "0", "pids.max": "max"} {
+	for name, value := range map[string]string{"memory.max": "max", "memory.swap.max": "0", "memory.oom.group": "0", "pids.max": "max"} {
 		if err := ops.writeFile(filepath.Join(probe, name), value); err != nil {
 			return resourceProviderFailure("probe_configure_failed")
 		}

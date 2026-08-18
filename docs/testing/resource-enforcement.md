@@ -6,6 +6,8 @@ When `SHELLBEAM_RESOURCE_CGROUP_ROOT` is not already supplied, the script acts a
 
 The native integration lane covers:
 
+- a memory-limited leaf proving `memory.swap.max=0` is writable so the RAM ceiling cannot be escaped into per-job swap;
+
 - shell, argv, and PTY children observing a `job-*` cgroup in their first `/proc/self/cgroup` read;
 - a descendant process exceeding `memory.max`, with `memory.oom.group=1`, producing typed `resource_limit/memory` truth while preserving the root child's literal SIGKILL evidence;
 - a descendant fork storm incrementing `pids.events:max`, followed by terminal whole-job teardown;

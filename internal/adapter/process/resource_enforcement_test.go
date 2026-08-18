@@ -433,6 +433,7 @@ func (f *fakeCgroupFS) mkdir(path string) error {
 	f.kinds[path] = pathDirectory
 	for name, value := range map[string]string{
 		"memory.max":       "max",
+		"memory.swap.max":  "max",
 		"memory.oom.group": "0",
 		"pids.max":         "max",
 		"cgroup.kill":      "",

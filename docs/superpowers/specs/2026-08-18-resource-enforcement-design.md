@@ -114,7 +114,7 @@ Before admitting a request with limits, the provider proves all requested mechan
 2. ShellBeam has a writable/delegated subtree whose process-empty root contains the reserved `manager` cgroup;
 3. the current daemon PID is a direct member of `manager`, so the daemon and target `job-*` leaves share the delegated root as their containment boundary;
 4. required controllers are enabled (`memory`, `pids`);
-5. the provider can create an operation-owned leaf cgroup;
+5. the provider can create an operation-owned leaf cgroup and prove writable `memory.max`, `memory.swap.max`, `memory.oom.group`, and `pids.max` controls;
 6. `clone3(CLONE_INTO_CGROUP)` is available through Go's `syscall.SysProcAttr{UseCgroupFD:true,CgroupFD:...}` path;
 7. event files needed for final classification are readable;
 8. cleanup primitives are usable.
@@ -128,6 +128,7 @@ Each admitted non-persistent operation gets one random/opaque `job-*` cgroup dir
 Configure before spawn:
 
 - `memory.max = memory_bytes` when requested;
+- `memory.swap.max = 0` for memory-limited workloads so anonymous memory cannot escape the V1 RAM budget into per-job swap;
 - `memory.oom.group = 1` for memory-limited workloads so an OOM event cannot intentionally leave a partially surviving job tree;
 - `pids.max = processes` when requested.
 
