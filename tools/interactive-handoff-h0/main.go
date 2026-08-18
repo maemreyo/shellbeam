@@ -16,6 +16,13 @@ import (
 	"strings"
 )
 
+var nativeProbeRegistry = map[string]nativeProbeFunc{
+	"P0": probeP0PrivateServerIdentity,
+	"P1": probeP1ExactHumanClientIdentity,
+	"P2": probeP2ExactClientFlagIsolation,
+	"P3": probeP3SameClientIngressFence,
+}
+
 type identity struct {
 	GitHead     string
 	GOOS        string
