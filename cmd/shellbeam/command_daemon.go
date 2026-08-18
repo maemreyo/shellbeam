@@ -87,6 +87,10 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	defer inputTraceRuntime.Close(context.Background())
 	catalog = inputTraceRuntime.Catalog
 	processOwner, catalog := composeResourceEnforcement(catalog, nil)
+	hermeticRuntime, catalog := composeHermeticBoundary(
+		ctx, cfg.ExperimentalHermeticBoundary, paths.StateDir, paths.RuntimeDir,
+		newHermeticWorkspaceSource(workspaceSvc, workspaceObserver), processOwner, catalog, nil,
+	)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
@@ -113,6 +117,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		MediaReader:          daemonMediaReader(),
 		InputTracePreparer:   inputTraceRuntime.Preparer,
 		InputTraceWorker:     inputTraceRuntime.Worker,
+		HermeticRuntime:      hermeticRuntime,
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
 	projectSvc := projectapp.NewWithReadiness(
