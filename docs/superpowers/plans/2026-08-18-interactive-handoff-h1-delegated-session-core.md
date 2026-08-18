@@ -329,6 +329,7 @@ git -c core.hooksPath=.githooks commit -m "feat: persist delegated session inten
 - Create: `internal/adapter/store/delegated_mutations_test.go`
 - Create: `internal/adapter/store/delegated_restart.go`
 - Create: `internal/adapter/store/delegated_restart_test.go`
+- Modify: `internal/adapter/store/repository.go`
 - Modify: `internal/app/daemon/store_port.go`
 
 **Interfaces:**
