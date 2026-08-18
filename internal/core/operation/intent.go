@@ -27,10 +27,11 @@ type Intent struct {
 	// StdinMode and TimeoutMode are the caller's raw words, kept unresolved so
 	// the request fingerprint can describe the request rather than the policy
 	// version that happened to be in force.
-	StdinMode            StdinMode   `json:"stdin_mode,omitempty"`
-	TimeoutMode          TimeoutMode `json:"timeout_mode,omitempty"`
-	TraceMode            trace.Mode  `json:"-"`
-	TraceExecutionDigest string      `json:"-"`
+	StdinMode            StdinMode       `json:"stdin_mode,omitempty"`
+	TimeoutMode          TimeoutMode     `json:"timeout_mode,omitempty"`
+	TraceMode            trace.Mode      `json:"-"`
+	TraceExecutionDigest string          `json:"-"`
+	ResourceLimits       *ResourceLimits `json:"-"`
 	// Resolved and TimeoutSource are the contract the daemon settled on; they
 	// belong to the execution fingerprint only.
 	Resolved      *ResolvedExecutionPolicy `json:"-"`
@@ -61,6 +62,9 @@ func (i Intent) Fingerprint() (string, error) {
 	if traceMode != trace.ModeOff {
 		return "", fmt.Errorf("input tracing requires v2")
 	}
+	if i.ResourceLimits != nil {
+		return "", fmt.Errorf("resource limits require v2")
+	}
 	return hashIntent(1, "request", i.Command, "", i.CWD, i.TTY, i.TimeoutMS, "", nil)
 }
 
@@ -85,6 +89,10 @@ func (i Intent) RequestFingerprint() (string, error) {
 	} else {
 		base, err = hashArgvIntent(3, "request", i.Argv, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
 	}
+	if err != nil {
+		return "", err
+	}
+	base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
 	if err != nil {
 		return "", err
 	}
@@ -117,6 +125,10 @@ func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error)
 	} else {
 		base, err = hashArgvIntent(3, "execution", i.Argv, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
 	}
+	if err != nil {
+		return "", err
+	}
+	base, err = bindResourceFingerprint("execution", base, i.ResourceLimits)
 	if err != nil {
 		return "", err
 	}
@@ -155,6 +167,11 @@ func (i Intent) validateCommon() error {
 	}
 	if i.TraceExecutionDigest != "" && !validTraceExecutionDigest(i.TraceExecutionDigest) {
 		return fmt.Errorf("invalid trace execution digest")
+	}
+	if i.ResourceLimits != nil {
+		if err := i.ResourceLimits.Validate(); err != nil {
+			return err
+		}
 	}
 	if err := i.validatePersistent(); err != nil {
 		return err
