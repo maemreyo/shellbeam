@@ -433,7 +433,7 @@ type Provider interface {
     Identity() ProviderIdentity
     ProviderRefForSession(sessionID string, createdAt time.Time) (ProviderRef, error) // pure: no probe/I/O
     Create(context.Context, CreateRequest) (CreateResult, error) // request carries the pre-reserved ProviderRef
-    Reattach(context.Context, ProviderRef) (Observation, error)
+    Reattach(context.Context, ProviderRef, OutputSink) (Observation, error)
     Write(context.Context, ProviderRef, []byte) error
     Signal(context.Context, ProviderRef, string) error
     Inspect(context.Context, ProviderRef) (Observation, error)
@@ -441,7 +441,7 @@ type Provider interface {
 }
 ```
 
-H1 `Observation.Owner` is agent or none; human attach/fence APIs are deliberately deferred to H2.
+H1 `Observation.Owner` is agent or none; human attach/fence APIs are deliberately deferred to H2. `CreateRequest` and `Reattach` carry an app-owned `OutputSink`; after daemon restart a fresh observer must bind a fresh sink before it can become current, so output continuation never depends on an in-memory pre-restart callback.
 
 - [ ] **Step 1: RED-test no provider work on non-delegated service construction/start.**
 
