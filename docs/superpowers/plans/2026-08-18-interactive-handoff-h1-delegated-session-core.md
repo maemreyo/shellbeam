@@ -514,6 +514,8 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 - Modify: `internal/app/daemon/actions.go`
 - Modify: `internal/app/daemon/service.go`
 - Modify: `internal/app/daemon/types.go`
+- Modify: `internal/adapter/store/typed_intent.go`
+- Modify: `internal/adapter/store/typed_intent_test.go`
 - Create: `internal/adapter/store/delegated_output.go`
 - Create: `internal/adapter/store/delegated_output_test.go`
 - Create: `internal/core/receipt/capture_quality.go`
