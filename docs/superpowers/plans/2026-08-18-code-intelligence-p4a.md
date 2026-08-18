@@ -4,7 +4,7 @@
 
 **Goal:** Evolve the existing Go/gopls `inspect.code` path into a read-only Machine Truth provider that exposes a bounded fast-workspace correlation cut plus exact query/target source provenance, projects only reverse/dependent semantic facts into the landed P1 affected-relation vocabulary, and publishes bounded provider lifecycle/process/resource facts for later P2/P6-A consumers.
 
-**Architecture:** Preserve the existing exact `SourceRef + byte range` contract and reuse the `DisplaySourceLocation` ergonomics already landed on `origin/main`; P4-A adds one explicit query-start **fast workspace correlation cut**, not a whole-source content identity. Exact source-byte authority remains on retained `SourceRef` bytes and bounded binder rechecks. Cross-file provider targets are revalidated locally after the single provider response, with no additional gopls query. Semantic affected projection is pure post-processing over that already-produced `codeintel.Result` and admits only reverse/dependent V1 edges. `codeintel.ProviderManager` remains the code-intelligence-specific pool/queue/cooldown owner. Shared provider work is limited to neutral fact types plus cheap process-exit resource conversion; long-lived gopls does not inherit the command sampler's 250ms process-tree polling.
+**Architecture:** Preserve the existing exact `SourceRef + byte range` contract and reuse the `DisplaySourceLocation` ergonomics already landed on `origin/main`; P4-A adds one explicit query-start **fast workspace correlation cut**, not a whole-source content identity. Exact source-byte authority remains on retained `SourceRef` bytes and bounded non-retaining `SourceBinder.CompareCurrent` rechecks. Cross-file provider targets are revalidated locally after the single provider response, with no additional gopls query. Semantic affected projection is pure post-processing over that already-produced `codeintel.Result` and admits only reverse/dependent V1 edges. `codeintel.ProviderManager` remains the code-intelligence-specific pool/queue/cooldown owner. Shared provider work is limited to neutral fact types plus cheap process-exit resource conversion; long-lived gopls does not inherit the command sampler's 250ms process-tree polling.
 
 **Tech Stack:** Go 1.26.x, existing `go.lsp.dev` LSP client, gopls, `workspace.FastSnapshot.Generation`, existing provider manager/source retention, P1 `verification.AffectedSurface` contracts, existing IPC/MCP v2, JSON Schema 2020-12, PR #12 process resource evidence (`receipt.ResourceEvidence`).
 
@@ -20,7 +20,7 @@
 - Existing `codeintel.SourceRef` remains canonical exact source identity. Old SourceRefs are never rebound to current path bytes.
 - Existing `source.DisplaySourceLocation` is the canonical model-facing path/line/range/preview projection for resolved locations. P4-A must not introduce a parallel `SourcePresentation` location object.
 - `source_generation` is a separate **fast workspace correlation cut**. It is never inserted into SourceRef identity, never used to rewrite old SourceRefs, and never treated as a content digest.
-- The P4-A `SourceCut` is the fresh `workspace.FastSnapshot.Generation` observed **before** provider execution. Its comparison semantics are one-way: `G_start != G_current` proves fast-workspace divergence; `G_start == G_current` MUST NOT prove that source bytes are unchanged. Exact byte freshness comes only from exact retained `SourceRef` bytes plus binder recheck, or from a future explicitly requested `ExactSourceSnapshot` contract.
+- The P4-A `SourceCut` is the fresh `workspace.FastSnapshot.Generation` observed **before** provider execution. Its comparison semantics are one-way: `G_start != G_current` proves fast-workspace divergence; `G_start == G_current` MUST NOT prove that source bytes are unchanged. Exact byte freshness comes only from exact retained `SourceRef` bytes plus bounded non-retaining `SourceBinder.CompareCurrent`, or from a future explicitly requested `ExactSourceSnapshot` contract.
 - Semantic projection may use only the already-returned `codeintel.Result`; it cannot call `ProviderPool.Query`, start gopls, enumerate extra symbols, recursively follow references, or synthesize missing facts.
 - Cross-file exact repository/workspace target SourceRefs are locally revalidated once, under existing result/query bounds, before `SourceCorrelation` is finalized. Both selected-source and returned-target rechecks use the same non-retaining exact comparison primitive: they read/compare/discard current bytes without `Retain`, never mint a SourceRef, never consume SourceStore budget, never perform a second provider query, and never replace the returned target SourceRef.
 - P4-A V1 affected projection admits only reverse/dependent semantic facts (`referenced_by`, `called_by`). Definition, callee, type-definition and import-target navigation remain `inspect.code` facts and are not projected into P1 `AffectedSurface` V1.
@@ -539,6 +539,44 @@ type LocationTarget struct {
 }
 ```
 
+Fingerprint construction itself is bounded work. Current production allows an 8 MiB exact source file, 128 result records, and 8 MiB of selected-source bytes; repeating an 8 MiB query endpoint in raw-byte canonical JSON for many target pairs would otherwise create request-scale work far larger than the response budget. P4-A therefore extends `ServiceLimits` with one request-local source-pair fingerprint work budget:
+
+```go
+type ServiceLimits struct {
+    // existing fields remain unchanged
+    Delta                         workspace.DeltaLimits
+    Result                        core.ResultLimits
+    MaxSelectedSources            int
+    MaxSelectedSourceBytes        int64
+    MaxSourcePairFingerprintBytes int64
+    MaxDuration                   time.Duration
+}
+
+type sourcePairFingerprintBudget struct {
+    remaining int64
+}
+
+func (b *sourcePairFingerprintBudget) TryCharge(queryBytes, targetBytes int) bool
+```
+
+V1 production composition sets `MaxSourcePairFingerprintBytes: 16 << 20`: exactly twice the existing 8 MiB `MaxSelectedSourceBytes` and enough for one pair containing two maximum-size 8 MiB endpoints. `NewService` validates the field in `1..64<<20`; tests may use smaller limits. This is a **per-inspect request** budget created fresh before pair construction; it is not global state and does not survive a request.
+
+For every previously unseen exact source pair, compute `charge = int64(len(query.Bytes)) + int64(len(target.Bytes))` with overflow-safe arithmetic and call `TryCharge` **before** `json.Marshal` or SHA-256. Repeated records for the same exact request-local `(query SourceRefID, target SourceRefID, query path, target path)` may reuse the already-computed pair fingerprint without another charge; those opaque IDs are cache keys only and never semantic identity. A failed charge performs zero marshal/hash work for that pair. Because the only unbounded-size JSON fields are the two charged `[]byte` fields, Go's base64 encoding and the subsequent single SHA-256 pass are a constant-factor expansion of source bytes already admitted by this budget; path/fixed-field sizes remain bounded by existing source/path contracts.
+
+Budget exhaustion is fail-conservative and observable:
+
+```text
+pair charge would exceed remaining budget
+  -> ExactSourcePairFingerprint = ""
+  -> preserve literal SourceCorrelation (it may still be current)
+  -> result.Status = partial
+  -> diagnostic_code = source_pair_fingerprint_budget_exceeded
+  -> P4-A2 omits that record from AffectedRelation projection
+  -> semantic_dependents domain coverage = partial because otherwise-eligible pairs were omitted by the request-local work budget
+```
+
+The service must not fall back to SourceRef ULIDs, fast generation, path-only provenance, or an unbudgeted alternate hash when the budget is exhausted.
+
 Canonical fingerprint input and encoding are closed for P4-A V1:
 
 ```go
@@ -555,7 +593,7 @@ type exactSourcePairFingerprintInput struct {
 func exactSourcePairFingerprint(exactSourcePairFingerprintInput) (string, error)
 ```
 
-The helper validates repository/workspace IDs and both already-normalized safe repository-relative logical paths, then calls `encoding/json.Marshal` on **that exact closed struct** (no maps, no `omitempty`, no extra fields). Go JSON's deterministic `[]byte` base64 representation is therefore part of schema version 1. Hash the resulting JSON bytes with SHA-256 and return `csp_` + 64 lowercase hex characters. Any field-set/order/encoding change requires a reviewed schema-version bump; executors may not substitute a different canonicalization.
+The helper is called only after the request-local work budget successfully charges that exact pair. It validates repository/workspace IDs and both already-normalized safe repository-relative logical paths, then calls `encoding/json.Marshal` on **that exact closed struct** (no maps, no `omitempty`, no extra fields). Go JSON's deterministic `[]byte` base64 representation is therefore part of schema version 1. Hash the resulting JSON bytes with SHA-256 and return `csp_` + 64 lowercase hex characters. Any field-set/order/encoding change requires a reviewed schema-version bump; executors may not substitute a different canonicalization.
 
 It deliberately excludes `QuerySourceRefID`, target `SourceRefID`, timestamps, provider incarnation and fast workspace generation. Two independently allocated SourceRefs over identical exact bytes therefore produce the same pair fingerprint; a byte change in either endpoint changes it. The fingerprint is **not** a public per-file content hash, cannot resolve source bytes, and must never be described as `source_content_digest` or `ExactSourceSnapshot`. It exists only as stable provenance for one semantic source-pair derivation, preserving the E29 rule against inventing deterministic per-file hashes merely to identify locations.
 
@@ -636,7 +674,7 @@ CompareCurrent == SourceSame
   -> CorrelationCurrent
 
 CompareCurrent == SourceChanged
-  -> CorrelationChangedDuringQuery
+  -> CorrelationSourceChangedDuringQuery
 
 CompareCurrent == SourceUnavailable
 or comparison cannot complete
@@ -655,7 +693,7 @@ if barriersDiffer(before, after) || selectedNonCurrent {
 }
 ```
 
-`selectedNonCurrent` is false only when every selected source was rechecked `CorrelationCurrent`; it is true for any `CorrelationChangedDuringQuery`, `CorrelationUnknown`, incomplete/bounded recheck, or comparison error. Presence of current entries in the map alone never degrades the result.
+`selectedNonCurrent` is false only when every selected source was rechecked `CorrelationCurrent`; it is true for any `CorrelationSourceChangedDuringQuery`, `CorrelationUnknown`, incomplete/bounded recheck, or comparison error. Presence of current entries in the map alone never degrades the result.
 
 If either selected or target collection/recheck hits the existing result bound, query deadline, or cannot finish a candidate, affected candidates become `CorrelationUnknown` and the code result degrades to `partial`; it never upgrades unknown to current. No freshness recheck path is allowed to call `Bind` merely to compare bytes. Exact source-pair fingerprints may be populated only when **both** query/selected and target correlations are `CorrelationCurrent`; selected `unknown|changed` therefore prevents a fingerprint and prevents P4-A2 relation projection.
 
@@ -694,6 +732,9 @@ TestInspectCodeSelectedCompareCurrentUnavailableIsUnknownPartialAndProducesNoSou
 TestInspectCodeSelectedRecheckDoesNotRetainDuplicateSourceRefs
 TestInspectCodeCrossFileRecheckDoesNotRetainDuplicateSourceRefs
 TestSourcePairFingerprintUsesExactClosedV1CanonicalJSON
+TestSourcePairFingerprintWorkChargeUsesQueryPlusTargetBytesAndRejectsOverflow
+TestSourcePairFingerprintBudgetExhaustionSkipsMarshalHashAndDegradesPartial
+TestSourcePairFingerprintRepeatedExactPairUsesRequestLocalCacheWithoutRecharge
 TestSourcePairFingerprintStableAcrossOpaqueSourceRefReallocation
 TestSourcePairFingerprintChangesWhenEitherExactEndpointBytesChange
 TestInspectCodeOldSourceRefStillResolvesRetainedBytesAfterWorkspaceChanges
@@ -706,14 +747,14 @@ Use a two-file fake provider fixture (`target.go`, `caller.go`). The provider re
 - [ ] **Step 3: Run RED**
 
 ```bash
-go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./cmd/shellbeam -run 'SourceCut|FastGeneration|QuerySourceRef|SourcePair|CompareCurrent|CrossFile|SelectedRecheck|SelectedCompareCurrent|InspectCode.*Generation|DisplaySourceLocation' -count=1
+go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./cmd/shellbeam -run 'SourceCut|FastGeneration|QuerySourceRef|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|SelectedRecheck|SelectedCompareCurrent|InspectCode.*Generation|DisplaySourceLocation' -count=1
 ```
 
 Expected: new SourceCut/query-source/non-retaining tri-state correlation/source-pair contracts are missing.
 
 - [ ] **Step 4: Implement source cut, query-source identity and bounded target recheck**
 
-Reuse the existing daemon `workspaceObserver`; do not create a second observer. Extend the existing `SourceBinder` with `CompareCurrent`; do not create a source-ref-to-path resolver service. Implement the safe read/compare path in `sourcefs.Binder` without calling `Retain`. Keep target revalidation and source-pair fingerprint construction in `internal/app/codeintel`, not the gopls adapter and not the verification projector.
+Reuse the existing daemon `workspaceObserver`; do not create a second observer. Extend the existing `SourceBinder` with `CompareCurrent`; do not create a source-ref-to-path resolver service. Implement the safe read/compare path in `sourcefs.Binder` without calling `Retain`. Add `MaxSourcePairFingerprintBytes` to `ServiceLimits`, set production composition in `cmd/shellbeam/code_intelligence.go` to `16 << 20`, and construct one `sourcePairFingerprintBudget` per inspect request. Keep target revalidation, request-local pair-cache/budget accounting, and source-pair fingerprint construction in `internal/app/codeintel`, not the gopls adapter and not the verification projector.
 
 For resolved locations, preserve the PR #12 contract already required by Task 0: `DisplaySourceLocation` is generated from retained/synchronized bytes where exact. A missing PR #12 display primitive is a Task-0 `plan_binding_mismatch`, not an implementation branch inside Task 1.
 
@@ -725,8 +766,8 @@ Add `$defs.code_source_cut` once in each applicable v2 schema with the existing 
 
 ```bash
 gofmt -w internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel internal/adapter/codeintel/sourcefs cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go
-go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam ./api/schema -run 'Generation|SourceCut|QuerySourceRef|SourcePair|CompareCurrent|CrossFile|InspectCode|DisplaySourceLocation|CodeIntelligence' -count=1
-go test -race ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam -run 'SourceCut|SourcePair|CompareCurrent|CrossFile|CodeIntelligence' -count=1
+go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam ./api/schema -run 'Generation|SourceCut|QuerySourceRef|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|InspectCode|DisplaySourceLocation|CodeIntelligence' -count=1
+go test -race ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam -run 'SourceCut|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|CodeIntelligence' -count=1
 go run ./tools/devctl test --dirty --base "$P4A_EXECUTION_BASE" --json
 git add internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel internal/adapter/codeintel/sourcefs cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go api/schema/ipc-v2.json api/schema/mcp-output-v2.json api/schema/a1_inspect_test.go
 git diff --cached --check
@@ -951,6 +992,7 @@ TestCodeIntelUnsupportedImportKindsHaveNoAffectedMapping
 TestCodeIntelProviderReportedOrAdvisoryTargetIsNotAffected
 TestCodeIntelChangedOrUnknownTargetIsNotAffected
 TestCodeIntelSelectedUnknownProducesNoSemanticRelation
+TestCodeIntelFingerprintBudgetExhaustionOmitsSemanticRelationAndDegradesCoverage
 TestCodeIntelAffectedRelationProvenanceUsesStableExactSourcePairNotOpaqueSourceRefIDs
 TestCodeIntelProviderDerivationIdentityUsesExactClosedFieldSetAndExcludesIncarnationCoverage
 TestCodeIntelAffectedRelationIDStableAcrossOpaqueSourceRefReallocationWhenExactBytesAndGenerationUnchanged
@@ -1812,9 +1854,11 @@ Also prove:
 old SourceRef still resolves retained old bytes
 new query may produce a new SourceRef without rebinding the old one
 old code result retains its original query/target SourceRef deep handles
-unchanged exact endpoint bytes across newly allocated SourceRefs keep relation identity stable
+unchanged exact endpoint bytes across newly allocated SourceRefs keep relation identity stable **only while SourceGeneration and every other P1 RelationID input are also unchanged**
+changed SourceGeneration changes RelationID even when endpoint bytes and all other derivation inputs are unchanged
 changed exact endpoint bytes produce a new source-pair fingerprint and relation identity even when fast generation is equal
 changed/unknown record remains visible as code fact but is omitted from P1 affected projection
+source-pair fingerprint work budget exhaustion leaves current code facts visible, marks result partial, emits source_pair_fingerprint_budget_exceeded, and omits only unproven semantic relations
 ```
 
 - [ ] **Step 3: Add provider close/quiescence/resource acceptance**
@@ -1965,7 +2009,7 @@ git -c core.hooksPath=.githooks commit -m "test: qualify p4a code intelligence f
 | Go/gopls only | Global + Tasks 0/7 | real gopls acceptance; no extra provider |
 | Reuse exact SourceRef | Task 1 | old SourceRef/G1 retention test |
 | Model-facing path:line ergonomics | Task 1 | preserve existing `DisplaySourceLocation` instead of parallel model |
-| Fast workspace generation separate from exact source bytes | Task 1 | one-way `SourceCut` comparison + exact SourceRef/binder recheck tests |
+| Fast workspace generation separate from exact source bytes | Task 1 | one-way `SourceCut` comparison + bounded non-retaining `CompareCurrent` tests |
 | Cross-file/current changed-during-query honesty | Tasks 1/2/7 | bounded target recheck; changed/unknown record retained but not projected |
 | True affected-edge direction | Task 2 | references/callers reverse dependents only; path→path P1 projection |
 | authority × coverage × fast generation × exact provenance | Task 2 | path selectors + stable exact source-pair provenance; opaque SourceRefs excluded from RelationID |
@@ -2012,7 +2056,7 @@ Before execution approval, all answers must be mechanically supportable from thi
 1. Does Task 0 require an actual terminal P1 checkpoint PASS bound to the exact P1 final HEAD/source fingerprint? **Yes; `devctl test` is not a substitute, and unverifiable durable evidence gets at most one checkpoint rerun.**
 2. Does P4-A create a second path/line presentation model? **No; it reuses `DisplaySourceLocation`.**
 3. Is `SourceCut.Generation` an exact source-content identity? **No; it is only a fast workspace correlation cut. Inequality proves divergence; equality proves nothing about bytes.**
-4. Where does exact byte freshness come from? **Retained SourceRef bytes plus bounded binder recheck; a future `ExactSourceSnapshot` only when explicitly required.**
+4. Where does exact byte freshness come from? **Retained SourceRef bytes plus bounded non-retaining `SourceBinder.CompareCurrent`; a future `ExactSourceSnapshot` only when explicitly required.**
 5. Can a cross-file exact target become `current` without being in the original selected source set? **Yes, but only after bounded local retained/current byte revalidation; no second provider query.**
 6. Does local cross-file revalidation replace/rebind the returned target SourceRef? **No; it only labels correlation.**
 7. Does one `inspect.code` request still cause one provider query? **Yes.**
