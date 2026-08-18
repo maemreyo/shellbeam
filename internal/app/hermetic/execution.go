@@ -15,9 +15,10 @@ import (
 // canonical child contract; provider wrapper mechanics live only in the
 // PreparedExecution returned by ExecutionProvider.
 type PrepareExecutionRequest struct {
-	Request core.Request
-	Capture CapturedView
-	Target  operation.ExecutionSpec
+	Request    core.Request
+	Capture    CapturedView
+	LogicalCWD string
+	Target     operation.ExecutionSpec
 }
 
 type ProviderCommand struct {

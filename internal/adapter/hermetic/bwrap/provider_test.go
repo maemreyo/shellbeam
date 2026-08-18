@@ -40,9 +40,9 @@ func TestPrepareBuildsFrozenTopologyAndExactEnvironment(t *testing.T) {
 		"--clearenv",
 		"--setenv", "PATH", "/usr/bin:/bin",
 		"--setenv", "HOME", "/homeless",
-		"--setenv", "PWD", "/work",
+		"--setenv", "PWD", "/work/input",
 		"--setenv", "LANG", "C.UTF-8",
-		"--chdir", "/work", "--", "/bin/sh", "-lc", "go test ./...",
+		"--chdir", "/work/input", "--", "/bin/sh", "-lc", "go test ./...",
 	}
 	if !reflect.DeepEqual(got.Command.Argv, wantPrefix) {
 		t.Fatalf("provider argv mismatch\n got=%q\nwant=%q", got.Command.Argv, wantPrefix)
@@ -194,7 +194,7 @@ func newProviderFixture(t *testing.T) providerFixture {
 	return providerFixture{config: cfg, ops: ops, capture: capture}
 }
 func (f providerFixture) request(target operation.ExecutionSpec) app.PrepareExecutionRequest {
-	return app.PrepareExecutionRequest{Request: core.Request{Version: 1, Mode: core.ModeRequired, RepoInputs: []string{"go.mod"}, Network: core.NetworkOff, Environment: core.EnvironmentFixedAllowlist, Stdin: core.StdinClosed, Writes: core.WritesEphemeralDiscard}, Capture: f.capture, Target: target}
+	return app.PrepareExecutionRequest{LogicalCWD: ".", Request: core.Request{Version: 1, Mode: core.ModeRequired, RepoInputs: []string{"go.mod"}, Network: core.NetworkOff, Environment: core.EnvironmentFixedAllowlist, Stdin: core.StdinClosed, Writes: core.WritesEphemeralDiscard}, Capture: f.capture, Target: target}
 }
 func hex64(ch byte) string {
 	b := make([]byte, 64)
@@ -220,5 +220,45 @@ func TestPrepareRequalifiesIdentityAndFailsClosedOnPostStartupDrift(t *testing.T
 	}
 	if len(entries) != 0 {
 		t.Fatalf("identity drift created private execution state: %v", entries)
+	}
+}
+
+func TestPrepareMapsLogicalCWDInsideImmutableInputViewAndRejectsEscape(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(fixture.capture.PrivateRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(fixture.capture.PrivateRoot, "internal/app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	req := fixture.request(operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Command: "true", StdinMode: operation.StdinModeClosed})
+	req.LogicalCWD = "internal/app"
+	got, err := provider.Prepare(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/work/input/internal/app"
+	var pwd, chdir string
+	for i := 0; i < len(got.Command.Argv); i++ {
+		if got.Command.Argv[i] == "--setenv" && i+2 < len(got.Command.Argv) && got.Command.Argv[i+1] == "PWD" {
+			pwd = got.Command.Argv[i+2]
+		}
+		if got.Command.Argv[i] == "--chdir" && i+1 < len(got.Command.Argv) {
+			chdir = got.Command.Argv[i+1]
+		}
+	}
+	if pwd != want || chdir != want {
+		t.Fatalf("pwd=%q chdir=%q want=%q argv=%q", pwd, chdir, want, got.Command.Argv)
+	}
+	for _, bad := range []string{"../outside", "/absolute", "internal/../../outside"} {
+		req := fixture.request(operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Command: "true", StdinMode: operation.StdinModeClosed})
+		req.LogicalCWD = bad
+		if _, err := provider.Prepare(context.Background(), req); err == nil {
+			t.Fatalf("logical cwd escape %q accepted", bad)
+		}
 	}
 }

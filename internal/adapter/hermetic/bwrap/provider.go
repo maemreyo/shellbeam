@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -87,6 +88,13 @@ func (p *Provider) Prepare(ctx context.Context, req app.PrepareExecutionRequest)
 	if err != nil {
 		return app.PreparedExecution{}, err
 	}
+	sandboxCWD, err := sandboxWorkingDirectory(req.LogicalCWD)
+	if err != nil {
+		return app.PreparedExecution{}, err
+	}
+	if err := validateCapturedWorkingDirectory(req.Capture.PrivateRoot, req.LogicalCWD); err != nil {
+		return app.PreparedExecution{}, err
+	}
 	manifestDigest, err := req.Capture.Manifest.Digest()
 	if err != nil {
 		return app.PreparedExecution{}, err
@@ -109,7 +117,7 @@ func (p *Provider) Prepare(ctx context.Context, req app.PrepareExecutionRequest)
 	if err := os.Mkdir(scratchRoot, 0o700); err != nil {
 		return app.PreparedExecution{}, err
 	}
-	argv := p.providerArgv(req.Capture.PrivateRoot, scratchRoot, target)
+	argv := p.providerArgv(req.Capture.PrivateRoot, scratchRoot, sandboxCWD, target)
 	prepared := app.PreparedExecution{
 		BoundaryID:            boundaryID,
 		Provider:              p.provider,
@@ -242,7 +250,7 @@ func (p *Provider) resolveToolchainExecutable(name string) (string, error) {
 	return "", fmt.Errorf("hermetic target executable unavailable in qualified toolchain")
 }
 
-func (p *Provider) providerArgv(captureRoot, scratchRoot string, target []string) []string {
+func (p *Provider) providerArgv(captureRoot, scratchRoot, sandboxCWD string, target []string) []string {
 	args := []string{
 		p.config.BubblewrapPath,
 		"--unshare-user",
@@ -258,12 +266,49 @@ func (p *Provider) providerArgv(captureRoot, scratchRoot string, target []string
 		"--clearenv",
 		"--setenv", "PATH", fixedPath,
 		"--setenv", "HOME", fixedHome,
-		"--setenv", "PWD", sandboxRoot,
+		"--setenv", "PWD", sandboxCWD,
 		"--setenv", "LANG", fixedLang,
-		"--chdir", sandboxRoot,
+		"--chdir", sandboxCWD,
 		"--",
 	}
 	return append(args, target...)
+}
+
+func sandboxWorkingDirectory(logical string) (string, error) {
+	if logical == "" || strings.Contains(logical, "\\") || path.IsAbs(logical) || path.Clean(logical) != logical || logical == ".." || strings.HasPrefix(logical, "../") || strings.Contains(logical, "/../") {
+		return "", fmt.Errorf("invalid hermetic logical cwd")
+	}
+	if logical == "." {
+		return sandboxInput, nil
+	}
+	return path.Join(sandboxInput, logical), nil
+}
+
+func validateCapturedWorkingDirectory(root, logical string) error {
+	if _, err := sandboxWorkingDirectory(logical); err != nil {
+		return err
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("invalid hermetic capture root")
+	}
+	candidate := resolvedRoot
+	if logical != "." {
+		candidate = filepath.Join(resolvedRoot, filepath.FromSlash(logical))
+	}
+	resolved, err := filepath.EvalSymlinks(candidate)
+	if err != nil {
+		return fmt.Errorf("hermetic logical cwd is absent from captured input")
+	}
+	rel, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil || filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("hermetic logical cwd escapes captured input")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("hermetic logical cwd is not a captured directory")
+	}
+	return nil
 }
 
 func validateConfig(cfg Config) error {
