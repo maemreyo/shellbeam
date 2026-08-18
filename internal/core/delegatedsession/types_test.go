@@ -3,6 +3,7 @@ package delegatedsession
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClosedDelegatedSessionVocabularyAndValidation(t *testing.T) {
@@ -59,12 +60,11 @@ func TestProviderIdentityAndBindingValidation(t *testing.T) {
 		})
 	}
 
+	now := time.Date(2026, 8, 18, 1, 0, 0, 0, time.UTC)
 	binding := Binding{
-		SessionID:    "01M0H1DELEGATEDSESSION000001",
-		OperationID:  "h1-op-1",
-		Provider:     provider,
-		Epoch:        1,
-		DesiredOwner: OwnerAgent,
+		SchemaVersion: BindingSchemaVersion, SessionID: "01M0H1DELEGATEDSESSION000001", OperationID: "h1-op-1",
+		SessionMode: ModeDelegatedInteractive, AuthorityEpoch: 1, DesiredOwner: OwnerAgent,
+		ProviderID: provider.ID, ProviderVersion: provider.Version, Lifecycle: LifecycleProvisioning, CreatedAt: now, UpdatedAt: now,
 	}
 	if err := binding.Validate(); err != nil {
 		t.Fatalf("valid binding rejected: %v", err)
@@ -72,8 +72,8 @@ func TestProviderIdentityAndBindingValidation(t *testing.T) {
 	cases := map[string]func(*Binding){
 		"session":   func(v *Binding) { v.SessionID = "bad/session" },
 		"operation": func(v *Binding) { v.OperationID = "" },
-		"provider":  func(v *Binding) { v.Provider.Version = 0 },
-		"epoch":     func(v *Binding) { v.Epoch = 0 },
+		"provider":  func(v *Binding) { v.ProviderVersion = 0 },
+		"epoch":     func(v *Binding) { v.AuthorityEpoch = 0 },
 		"owner":     func(v *Binding) { v.DesiredOwner = "unknown" },
 	}
 	for name, mutate := range cases {

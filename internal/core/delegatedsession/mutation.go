@@ -2,6 +2,7 @@ package delegatedsession
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 )
@@ -58,9 +59,53 @@ func (m MutationIdentity) Validate() error {
 	return nil
 }
 
+const MutationRecordSchemaVersion = 1
+
+type MutationState string
+
+const (
+	MutationReserved       MutationState = "reserved"
+	MutationDelivered      MutationState = "delivered"
+	MutationCompleted      MutationState = "completed"
+	MutationFailed         MutationState = "failed"
+	MutationOutcomeUnknown MutationState = "outcome_unknown"
+)
+
+func (s MutationState) Validate() error {
+	switch s {
+	case MutationReserved, MutationDelivered, MutationCompleted, MutationFailed, MutationOutcomeUnknown:
+		return nil
+	default:
+		return fmt.Errorf("invalid delegated mutation state")
+	}
+}
+
 type MutationRecord struct {
-	Identity MutationIdentity `json:"identity"`
-	Outcome  string           `json:"outcome,omitempty"`
+	SchemaVersion int              `json:"schema_version"`
+	Identity      MutationIdentity `json:"identity"`
+	State         MutationState    `json:"state"`
+	Outcome       string           `json:"outcome,omitempty"`
+	CreatedAt     time.Time        `json:"created_at"`
+	UpdatedAt     time.Time        `json:"updated_at"`
+}
+
+func (r MutationRecord) Validate() error {
+	if r.SchemaVersion != MutationRecordSchemaVersion {
+		return fmt.Errorf("invalid delegated mutation record schema")
+	}
+	if err := r.Identity.Validate(); err != nil {
+		return err
+	}
+	if err := r.State.Validate(); err != nil {
+		return err
+	}
+	if r.Outcome != "" && !validOpaque(r.Outcome, 256) {
+		return fmt.Errorf("invalid delegated mutation outcome")
+	}
+	if r.CreatedAt.IsZero() || r.UpdatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) {
+		return fmt.Errorf("invalid delegated mutation timestamps")
+	}
+	return nil
 }
 
 type MutationLookup interface {

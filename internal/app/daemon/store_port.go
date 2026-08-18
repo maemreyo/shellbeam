@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"context"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -37,6 +38,17 @@ type Store interface {
 	AppendOutput(context.Context, operation.SessionID, []byte) (int, StoreResult)
 	ReadOutput(context.Context, operation.SessionID, int64, int) ([]byte, int64, error)
 	Compact(context.Context, operation.SessionID) StoreResult
+}
+
+type DelegatedSessionStore interface {
+	ReserveDelegatedBinding(context.Context, delegated.Binding, delegated.ProviderRef) (delegated.Binding, bool, StoreResult)
+	AdvanceDelegatedBinding(context.Context, delegated.Binding) StoreResult
+	LoadDelegatedBinding(context.Context, operation.SessionID) (delegated.Binding, error)
+	LoadDelegatedProviderRef(context.Context, operation.SessionID) (delegated.ProviderRef, error)
+	LookupDelegatedMutation(context.Context, delegated.MutationIdentity) (delegated.MutationRecord, bool, error)
+	ReserveDelegatedMutation(context.Context, delegated.MutationIdentity) (delegated.MutationRecord, bool, StoreResult)
+	CompleteDelegatedMutation(context.Context, delegated.MutationIdentity, delegated.MutationState, string) (delegated.MutationRecord, StoreResult)
+	ListDelegatedRecoveryCandidates(context.Context) ([]delegated.Binding, error)
 }
 
 type PersistentSessionStore interface {

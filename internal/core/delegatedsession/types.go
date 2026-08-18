@@ -1,10 +1,15 @@
 package delegatedsession
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 const (
 	ModeDelegatedInteractive = "delegated_interactive"
 	MaxProviderIDBytes       = 128
+	BindingSchemaVersion     = 1
+	ProviderRefSchemaVersion = 1
 )
 
 func ValidateMode(mode string) error {
@@ -26,28 +31,104 @@ func (p ProviderIdentity) Validate() error {
 	return nil
 }
 
+type Lifecycle string
+
+const (
+	LifecycleProvisioning Lifecycle = "provisioning"
+	LifecycleLive         Lifecycle = "live"
+	LifecycleTerminal     Lifecycle = "terminal"
+	LifecycleLost         Lifecycle = "lost"
+)
+
+func (l Lifecycle) Validate() error {
+	switch l {
+	case LifecycleProvisioning, LifecycleLive, LifecycleTerminal, LifecycleLost:
+		return nil
+	default:
+		return fmt.Errorf("invalid delegated session lifecycle")
+	}
+}
+
 type Binding struct {
-	SessionID    string           `json:"session_id"`
-	OperationID  string           `json:"operation_id"`
-	Provider     ProviderIdentity `json:"provider"`
-	Epoch        AuthorityEpoch   `json:"authority_epoch"`
-	DesiredOwner Owner            `json:"desired_owner"`
+	SchemaVersion   int            `json:"schema_version"`
+	SessionID       string         `json:"session_id"`
+	OperationID     string         `json:"operation_id"`
+	SessionName     string         `json:"session_name,omitempty"`
+	SessionMode     string         `json:"session_mode"`
+	AuthorityEpoch  AuthorityEpoch `json:"authority_epoch"`
+	DesiredOwner    Owner          `json:"desired_owner"`
+	ProviderID      string         `json:"provider_id"`
+	ProviderVersion int            `json:"provider_version"`
+	Lifecycle       Lifecycle      `json:"lifecycle"`
+	CreatedAt       time.Time      `json:"created_at"`
+	UpdatedAt       time.Time      `json:"updated_at"`
+}
+
+func (b Binding) ProviderIdentity() ProviderIdentity {
+	return ProviderIdentity{ID: b.ProviderID, Version: b.ProviderVersion}
 }
 
 func (b Binding) Validate() error {
-	if !validOpaque(b.SessionID, 128) || !validOpaque(b.OperationID, 128) {
+	if b.SchemaVersion != BindingSchemaVersion || !validOpaque(b.SessionID, 128) || !validOpaque(b.OperationID, 128) {
 		return fmt.Errorf("invalid delegated session binding")
 	}
-	if err := b.Provider.Validate(); err != nil {
+	if b.SessionName != "" && !validSessionName(b.SessionName) {
+		return fmt.Errorf("invalid delegated session name")
+	}
+	if err := ValidateMode(b.SessionMode); err != nil {
 		return err
 	}
-	if err := b.Epoch.Validate(); err != nil {
+	if err := b.ProviderIdentity().Validate(); err != nil {
+		return err
+	}
+	if err := b.AuthorityEpoch.Validate(); err != nil {
 		return err
 	}
 	if err := b.DesiredOwner.Validate(); err != nil {
 		return err
 	}
+	if err := b.Lifecycle.Validate(); err != nil {
+		return err
+	}
+	if b.CreatedAt.IsZero() || b.UpdatedAt.IsZero() || b.UpdatedAt.Before(b.CreatedAt) {
+		return fmt.Errorf("invalid delegated session timestamps")
+	}
 	return nil
+}
+
+type ProviderRef struct {
+	SchemaVersion   int       `json:"schema_version"`
+	SessionID       string    `json:"session_id"`
+	ProviderID      string    `json:"provider_id"`
+	ProviderVersion int       `json:"provider_version"`
+	Ref             string    `json:"ref"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+func (r ProviderRef) Validate() error {
+	if r.SchemaVersion != ProviderRefSchemaVersion || !validOpaque(r.SessionID, 128) || !validOpaque(r.Ref, 256) {
+		return fmt.Errorf("invalid delegated provider ref")
+	}
+	if err := (ProviderIdentity{ID: r.ProviderID, Version: r.ProviderVersion}).Validate(); err != nil {
+		return err
+	}
+	if r.CreatedAt.IsZero() || r.UpdatedAt.IsZero() || r.UpdatedAt.Before(r.CreatedAt) {
+		return fmt.Errorf("invalid delegated provider ref timestamps")
+	}
+	return nil
+}
+
+func validSessionName(v string) bool {
+	if len(v) < 1 || len(v) > 128 {
+		return false
+	}
+	for _, r := range v {
+		if r < 0x20 || r == 0x7f || r == '/' || r == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 func validOpaque(v string, max int) bool {

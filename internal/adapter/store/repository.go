@@ -38,6 +38,7 @@ type Limits struct {
 	MaxReproAge                   time.Duration
 	MaxMutationScopesPerActivity  int
 	MaxMutationScopesPerWorkspace int
+	MaxDelegatedMutationRecords   int
 }
 type Repository struct {
 	root                     string
@@ -55,6 +56,7 @@ type Repository struct {
 	checkpointMu             sync.Mutex
 	mutationScopeMu          sync.Mutex
 	persistentSessionMu      sync.Mutex
+	delegatedSessionMu       sync.Mutex
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
 	observationHighWatermark uint64
@@ -96,6 +98,7 @@ const (
 	defaultMaxReproAge                   = 30 * 24 * time.Hour
 	defaultMaxMutationScopesPerActivity  = 16
 	defaultMaxMutationScopesPerWorkspace = 64
+	defaultMaxDelegatedMutationRecords   = 4096
 )
 
 func normalizeTelemetryLimits(limits Limits) Limits {
@@ -132,6 +135,9 @@ func normalizeTelemetryLimits(limits Limits) Limits {
 	if limits.MaxMutationScopesPerWorkspace == 0 {
 		limits.MaxMutationScopesPerWorkspace = defaultMaxMutationScopesPerWorkspace
 	}
+	if limits.MaxDelegatedMutationRecords == 0 {
+		limits.MaxDelegatedMutationRecords = defaultMaxDelegatedMutationRecords
+	}
 	return limits
 }
 
@@ -140,7 +146,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 	if !filepath.IsAbs(root) {
 		return nil, fmt.Errorf("state root must be absolute")
 	}
-	if limits.MaxSessions < 1 || limits.ControlReserve < 1 || limits.MaxTelemetrySamples < 1 || limits.MaxTelemetryBytes < 1 || limits.MaxTelemetryKeys < 1 || limits.MaxTelemetryKeysPerRepository < 1 || limits.MaxTelemetrySamplesPerKey < 1 || limits.MaxTelemetryAge < 0 || limits.MaxReproCapsules < 1 || limits.MaxReproBytes < 1 || limits.MaxReproAge < 0 || limits.MaxMutationScopesPerActivity < 1 || limits.MaxMutationScopesPerWorkspace < limits.MaxMutationScopesPerActivity {
+	if limits.MaxSessions < 1 || limits.ControlReserve < 1 || limits.MaxTelemetrySamples < 1 || limits.MaxTelemetryBytes < 1 || limits.MaxTelemetryKeys < 1 || limits.MaxTelemetryKeysPerRepository < 1 || limits.MaxTelemetrySamplesPerKey < 1 || limits.MaxTelemetryAge < 0 || limits.MaxReproCapsules < 1 || limits.MaxReproBytes < 1 || limits.MaxReproAge < 0 || limits.MaxMutationScopesPerActivity < 1 || limits.MaxMutationScopesPerWorkspace < limits.MaxMutationScopesPerActivity || limits.MaxDelegatedMutationRecords < 1 {
 		return nil, fmt.Errorf("invalid limits")
 	}
 	if info, err := os.Lstat(root); err == nil {
@@ -194,6 +200,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initPersistentSessionStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initDelegatedSessionStore(); err != nil {
 		return nil, err
 	}
 	if err := repository.initAdmissionLedger(); err != nil {
