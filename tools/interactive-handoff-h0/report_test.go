@@ -217,3 +217,69 @@ func TestWriteFileAtomicProducesExactBytes(t *testing.T) {
 		t.Fatalf("got %q want %q", got, want)
 	}
 }
+
+func TestRenderMarkdownSurfacesQualificationDecisionAndLoadBearingFacts(t *testing.T) {
+	reports := passingNativeReports(t)
+	for i := range reports {
+		qualifyProviderFacts(&reports[i].Report, candidatePerSessionObserver)
+		p7 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P7")]
+		p7.Facts = map[string]string{"negative_control_without_E": "mutated", "attach_with_E": "preserved", "switch_with_E": "preserved", "control_reconnect_with_E": "preserved"}
+		p8 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P8")]
+		p8.Facts = map[string]string{"signal_transport": "tmux_wait-for", "foreground_child_received_key": "false"}
+		p9 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P9")]
+		p9.Facts = map[string]string{"detach_while_readonly": "reachable", "ingress_proxy_introduced": "false"}
+		p12 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P12")]
+		p12.Facts = map[string]string{"all_control_clients_off_backpressures": "true", "human_display_prevents_backpressure": "true", "cross_client_total_ordering_claimed": "false"}
+		reports[i] = bindReport(t, reports[i].Report)
+	}
+	gate := gateFromReports(reports)
+	markdown, err := renderMarkdown(gate, reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(markdown)
+	for _, want := range []string{
+		"Final H0 verdict: `PASS`",
+		"Input fence mechanism: `same_client_readonly_fence`",
+		"Observation topology: `per_session_observer`",
+		"negative control without `-E`: `mutated`",
+		"attach with `-E`: `preserved`",
+		"OOB transport: `tmux_wait-for`",
+		"read-only detach to local control: `reachable`",
+		"all-control-off backpressure: `true`",
+		"human display prevents backpressure: `true`",
+		reports[0].Path,
+		reports[1].Path,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("markdown missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestRenderMarkdownReportsMissingNativeLaneAsNotRun(t *testing.T) {
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	reports[0] = bindReport(t, reports[0].Report)
+	for i := range reports[1].Report.Results {
+		reports[1].Report.Results[i].Status = StatusNotRun
+		reports[1].Report.Results[i].Summary = "native Linux runner unavailable"
+		reports[1].Report.Results[i].Facts = nil
+	}
+	reports[1].Report.Verdict = StatusNotRun
+	reports[1] = bindReport(t, reports[1].Report)
+	gate := gateFromReports(reports)
+	if gate.H1Allowed {
+		t.Fatal("H1 allowed with Linux NOT_RUN")
+	}
+	markdown, err := renderMarkdown(gate, reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(markdown)
+	for _, want := range []string{"Final H0 verdict: `NOT_RUN`", "H1_ALLOWED: `false`", "native Linux qualification remains required"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("markdown missing %q\n%s", want, text)
+		}
+	}
+}

@@ -370,6 +370,7 @@ func renderMarkdown(gate QualificationGate, reports []BoundReport) ([]byte, erro
 	fmt.Fprintf(&b, "- Spec commit: `%s`\n", gate.SpecCommit)
 	fmt.Fprintf(&b, "- Provider: `%s` v%d\n", gate.ProviderID, gate.ProviderVersion)
 	fmt.Fprintf(&b, "- H1_ALLOWED: `%t`\n", gate.H1Allowed)
+	renderQualificationSummary(&b, gate, reports)
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "## Optional wrapper qualification")
 	fmt.Fprintln(&b)
@@ -383,6 +384,7 @@ func renderMarkdown(gate QualificationGate, reports []BoundReport) ([]byte, erro
 	for _, binding := range gate.PlatformReports {
 		fmt.Fprintf(&b, "| %s/%s | `%s` | %s | `%s` |\n", binding.GOOS, binding.GOARCH, binding.TmuxVersion, binding.Verdict, binding.ReportSHA256)
 	}
+	renderLoadBearingEvidence(&b, reports)
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "## P0–P15")
 	for _, bound := range reports {
