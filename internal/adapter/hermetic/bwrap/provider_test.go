@@ -1,0 +1,224 @@
+package bwrap
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	app "github.com/maemreyo/shellbeam/internal/app/hermetic"
+	core "github.com/maemreyo/shellbeam/internal/core/hermetic"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
+)
+
+func TestPrepareBuildsFrozenTopologyAndExactEnvironment(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := provider.Prepare(context.Background(), fixture.request(operation.ExecutionSpec{
+		Mode:      operation.ExecutionModeShell,
+		Shell:     "/host/ignored-shell",
+		Command:   "go test ./...",
+		CWD:       "/host/worktree",
+		StdinMode: operation.StdinModeClosed,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := []string{
+		fixture.config.BubblewrapPath,
+		"--unshare-user", "--unshare-all", "--die-with-parent", "--disable-userns", "--assert-userns-disabled",
+		"--ro-bind", fixture.config.ToolchainRoot, "/",
+		"--dev", "/dev", "--tmpfs", "/tmp",
+		"--ro-bind", fixture.capture.PrivateRoot, "/work/input",
+		"--bind", got.ScratchRoot, "/work/scratch",
+		"--clearenv",
+		"--setenv", "PATH", "/usr/bin:/bin",
+		"--setenv", "HOME", "/homeless",
+		"--setenv", "PWD", "/work",
+		"--setenv", "LANG", "C.UTF-8",
+		"--chdir", "/work", "--", "/bin/sh", "-lc", "go test ./...",
+	}
+	if !reflect.DeepEqual(got.Command.Argv, wantPrefix) {
+		t.Fatalf("provider argv mismatch\n got=%q\nwant=%q", got.Command.Argv, wantPrefix)
+	}
+	if got.Command.Executable != fixture.config.BubblewrapPath || got.Command.Dir != "/" || len(got.Command.Env) != 0 || got.Command.StdinMode != operation.StdinModeClosed {
+		t.Fatalf("provider command=%#v", got.Command)
+	}
+	if got.Provider != fixture.config.ProviderIdentity || got.Toolchain != fixture.config.ToolchainIdentity || got.CaptureManifestSHA256 == "" {
+		t.Fatalf("prepared identities=%#v", got)
+	}
+	if got.BoundaryID == "" || got.PrivateStateRoot == "" || got.ScratchRoot == "" {
+		t.Fatalf("missing private execution identity: %#v", got)
+	}
+}
+
+func TestPrepareResolvesBareArgvOnlyAgainstFixedToolchainPath(t *testing.T) {
+	fixture := newProviderFixture(t)
+	fixture.ops.executables["/usr/bin/go"] = true
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := provider.Prepare(context.Background(), fixture.request(operation.ExecutionSpec{
+		Mode:      operation.ExecutionModeArgv,
+		Argv:      []string{"go", "test", "./..."},
+		CWD:       "/host/worktree",
+		StdinMode: operation.StdinModeClosed,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tail := got.Command.Argv[len(got.Command.Argv)-4:]
+	if !reflect.DeepEqual(tail, []string{"--", "/usr/bin/go", "test", "./..."}) {
+		t.Fatalf("target argv=%q", tail)
+	}
+	if fixture.ops.lookPathCalls != 0 {
+		t.Fatal("provider used ambient host PATH")
+	}
+}
+
+func TestPrepareRejectsAmbientTraceEnvTTYOrOpenStdinBeforePrivateState(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []operation.ExecutionSpec{
+		{Mode: operation.ExecutionModeShell, Command: "true", TTY: true, StdinMode: operation.StdinModeClosed},
+		{Mode: operation.ExecutionModeShell, Command: "true", StdinMode: operation.StdinModeStream},
+		{Mode: operation.ExecutionModeShell, Command: "true", StdinMode: operation.StdinModeClosed, EnvironmentAdditions: []operation.EnvironmentEntry{{Key: "SHELLBEAM_TRACE_ID", Value: "trace"}}},
+	}
+	for i, target := range cases {
+		if _, err := provider.Prepare(context.Background(), fixture.request(target)); err == nil {
+			t.Fatalf("case %d accepted incompatible target", i)
+		}
+	}
+	entries, err := os.ReadDir(fixture.config.RuntimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("refused prepare left private state: %v", entries)
+	}
+}
+
+func TestProviderQualificationFailurePreventsAnyPrepareState(t *testing.T) {
+	fixture := newProviderFixture(t)
+	fixture.ops.qualifyErr = errors.New("identity drift")
+	if _, err := newWithOps(context.Background(), fixture.config, fixture.ops); err == nil {
+		t.Fatal("provider qualification drift accepted")
+	}
+	entries, err := os.ReadDir(fixture.config.RuntimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("qualification failure created state: %v", entries)
+	}
+}
+
+func TestDiscardOnlyRemovesOwnedBoundaryState(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := provider.Prepare(context.Background(), fixture.request(operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Command: "true", StdinMode: operation.StdinModeClosed}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Discard(context.Background(), prepared); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(prepared.PrivateStateRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("private state survived discard: %v", err)
+	}
+	forged := prepared
+	forged.PrivateStateRoot = filepath.Join(fixture.config.RuntimeRoot, "other")
+	if err := provider.Discard(context.Background(), forged); err == nil {
+		t.Fatal("forged private state ownership accepted")
+	}
+}
+
+type fakeOps struct {
+	provider      core.ProviderIdentity
+	toolchain     core.ToolchainIdentity
+	executables   map[string]bool
+	qualifyErr    error
+	lookPathCalls int
+}
+
+func (o *fakeOps) Qualify(context.Context, Config) (core.ProviderIdentity, core.ToolchainIdentity, error) {
+	if o.qualifyErr != nil {
+		return core.ProviderIdentity{}, core.ToolchainIdentity{}, o.qualifyErr
+	}
+	return o.provider, o.toolchain, nil
+}
+func (o *fakeOps) ToolchainExecutable(_ string, sandboxPath string) bool {
+	return o.executables[sandboxPath]
+}
+
+type providerFixture struct {
+	config  Config
+	ops     *fakeOps
+	capture app.CapturedView
+}
+
+func newProviderFixture(t *testing.T) providerFixture {
+	t.Helper()
+	root := t.TempDir()
+	runtimeRoot := filepath.Join(root, "runtime")
+	toolchainRoot := filepath.Join(root, "toolchain")
+	captureRoot := filepath.Join(root, "capture")
+	for _, dir := range []string{runtimeRoot, toolchainRoot, captureRoot} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	providerID := core.ProviderIdentity{Provider: core.ProviderBubblewrap, Version: core.BubblewrapVersionV1, BinarySHA256: hex64('a'), RuntimeManifestSHA256: hex64('b')}
+	toolchainID := core.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: hex64('c')}
+	cfg := Config{BubblewrapPath: "/qualified/bwrap", ToolchainRoot: toolchainRoot, RuntimeRoot: runtimeRoot, ProviderIdentity: providerID, ToolchainIdentity: toolchainID}
+	manifest := core.CaptureManifest{SchemaVersion: core.CaptureManifestSchemaVersion, WorkspaceID: workspacecore.WorkspaceID("ws_01K00000000000000000000000"), SourceGeneration: "gen_" + hex64('d'), Selectors: []string{"go.mod"}, Entries: []core.CaptureEntry{{Path: "go.mod", Size: 1, SHA256: hex64('e')}}, TotalBytes: 1}
+	manifest, err := manifest.Canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture := app.CapturedView{CaptureID: "hcap_01K00000000000000000000000", PrivateRoot: captureRoot, Manifest: manifest}
+	ops := &fakeOps{provider: providerID, toolchain: toolchainID, executables: map[string]bool{"/bin/sh": true}}
+	return providerFixture{config: cfg, ops: ops, capture: capture}
+}
+func (f providerFixture) request(target operation.ExecutionSpec) app.PrepareExecutionRequest {
+	return app.PrepareExecutionRequest{Request: core.Request{Version: 1, Mode: core.ModeRequired, RepoInputs: []string{"go.mod"}, Network: core.NetworkOff, Environment: core.EnvironmentFixedAllowlist, Stdin: core.StdinClosed, Writes: core.WritesEphemeralDiscard}, Capture: f.capture, Target: target}
+}
+func hex64(ch byte) string {
+	b := make([]byte, 64)
+	for i := range b {
+		b[i] = ch
+	}
+	return string(b)
+}
+
+func TestPrepareRequalifiesIdentityAndFailsClosedOnPostStartupDrift(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.ops.provider.BinarySHA256 = hex64('f')
+	if _, err := provider.Prepare(context.Background(), fixture.request(operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Command: "true", StdinMode: operation.StdinModeClosed})); err == nil {
+		t.Fatal("post-startup provider identity drift accepted")
+	}
+	entries, err := os.ReadDir(fixture.config.RuntimeRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("identity drift created private execution state: %v", entries)
+	}
+}
