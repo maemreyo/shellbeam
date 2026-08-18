@@ -235,8 +235,10 @@ git -c core.hooksPath=.githooks commit -m "feat: define delegated session author
 
 **Files:**
 - Modify: `internal/core/operation/intent.go`
+- Modify: `internal/core/operation/project_command.go`
 - Create: `internal/core/operation/delegated_identity.go`
 - Create: `internal/core/operation/delegated_intent_test.go`
+- Modify: `internal/core/operation/persistent_typed_intent_test.go`
 - Modify: `internal/core/operation/evidence.go`
 - Modify: `internal/core/operation/evidence_test.go`
 - Modify: `internal/core/operation/persistence.go`
@@ -266,7 +268,7 @@ delegated reservation + test/build/format/generate/release intent -> EvidenceEli
 delegated typed project-command reservation -> EvidenceEligible() == false
 ```
 
-At Go struct level use an explicit `SessionMode string` plus parse/validation through `delegatedsession`, not Boolean inference.
+At Go struct level use an explicit `SessionMode string` plus parse/validation through `delegatedsession`, not Boolean inference. Both raw `Intent` and typed `TypedRequestIntent` carry this field so project-command admission cannot lose mode identity before resolution.
 
 - [ ] **Step 3: Implement delegated request/execution fingerprint encoding.**
 
