@@ -127,6 +127,7 @@ func (s *Service) reconcilePersistentStartupCandidate(ctx context.Context, bindi
 	}
 	spec := persistentExecutionSpec(reservation)
 	live := &liveSession{
+		timeoutSource: reservation.TimeoutSource, stdinSource: reservation.StdinModeSource,
 		operationID: string(reservation.OperationID), activityID: reservation.ActivityID, sessionID: binding.SessionID,
 		reservation: reservation, spec: spec, workspace: workspaceObservation{pre: receipt.WorkspaceObservationRef{Kind: receipt.WorkspaceUnreconciled}}, state: session.Running, handle: result.Handle, spawn: result.Spawn, persistent: true, persistentReattached: true,
 		input: session.NewInputLedger(s.options.MaxQueuedInputBytes, false), kills: session.NewKillLedger(),
@@ -235,7 +236,7 @@ func persistentExecutionSpec(reservation operation.Reservation) operation.Execut
 	return operation.ExecutionSpec{
 		Mode: reservation.ExecutionMode, Shell: reservation.Shell, Executable: reservation.Executable,
 		Command: reservation.Command, Argv: append([]string(nil), reservation.Argv...), CWD: reservation.CWD,
-		TTY: reservation.TTY, TimeoutMS: reservation.TimeoutMS,
+		TTY: reservation.TTY, TimeoutMS: reservation.TimeoutMS, StdinMode: reservation.StdinMode,
 	}
 }
 

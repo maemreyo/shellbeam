@@ -21,6 +21,10 @@ func TestAbandonedReceiptPreservesPersistentV4Identity(t *testing.T) {
 		Command:                       "sleep 10",
 		CWD:                           "/tmp",
 		Shell:                         "/bin/sh",
+		TimeoutMS:                     5000,
+		StdinMode:                     operation.StdinModeClosed,
+		TimeoutSource:                 "requested",
+		StdinModeSource:               "requested",
 		Persistent:                    true,
 		SessionName:                   "dev-server",
 	}
@@ -28,6 +32,9 @@ func TestAbandonedReceiptPreservesPersistentV4Identity(t *testing.T) {
 	got := abandonedReceipt(snap, reservation, true, "new-daemon")
 	if got.SchemaVersion != 4 || !got.Persistent || got.SessionName != reservation.SessionName {
 		t.Fatalf("persistent identity lost: %#v", got)
+	}
+	if got.TimeoutMS != 5000 || got.TimeoutSource != "requested" || got.StdinMode != string(operation.StdinModeClosed) || got.StdinModeSource != "requested" {
+		t.Fatalf("persistent policy provenance lost: %#v", got)
 	}
 	if err := got.Validate(); err != nil {
 		t.Fatalf("abandoned v4 receipt invalid: %v", err)

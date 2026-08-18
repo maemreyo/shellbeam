@@ -126,6 +126,9 @@ func TestPersistentStartupReattachFailureBecomesCanonicalLostWithoutRelaunchOrPI
 	if err != nil || rec.State != session.Abandoned || rec.Outcome != session.Ambiguous || rec.FailureReason != "supervisor_auth_failed" {
 		t.Fatalf("receipt=%#v err=%v", rec, err)
 	}
+	if rec.TimeoutSource != "unlimited" || rec.StdinMode != string(operation.StdinModeStream) {
+		t.Fatalf("lost receipt policy timeout_source=%q stdin_mode=%q", rec.TimeoutSource, rec.StdinMode)
+	}
 	stored, err := store.LoadPersistentBinding(context.Background(), operation.SessionID(binding.SessionID))
 	if err != nil || stored.Lifecycle != persistentcore.LifecycleLost {
 		t.Fatalf("binding=%#v err=%v", stored, err)
@@ -160,6 +163,9 @@ func TestPersistentStartupTerminalRecoveryPublishesCanonicalTerminalWithoutRelau
 	if err != nil || rec.State != session.Completed || rec.Outcome != session.Success || rec.OutputBytes != 4 || !rec.OutputComplete {
 		t.Fatalf("receipt=%#v err=%v", rec, err)
 	}
+	if rec.TimeoutSource != "unlimited" || rec.StdinMode != string(operation.StdinModeStream) || rec.StdinModeSource != "default" {
+		t.Fatalf("reattached terminal policy timeout_source=%q stdin_mode=%q stdin_mode_source=%q", rec.TimeoutSource, rec.StdinMode, rec.StdinModeSource)
+	}
 	stored, err := store.LoadPersistentBinding(context.Background(), operation.SessionID(binding.SessionID))
 	if err != nil || stored.Lifecycle != persistentcore.LifecycleTerminal {
 		t.Fatalf("binding=%#v err=%v", stored, err)
@@ -179,6 +185,7 @@ func reserveStartupPersistent(t *testing.T, store *storeadapter.Repository, suff
 		SchemaVersion: 4, OperationID: operation.ID(operationID), SessionID: operation.SessionID(sessionID),
 		RequestFingerprint: strings.Repeat("a", 64), ExecutionFingerprint: strings.Repeat("b", 64), ObservationBindingFingerprint: strings.Repeat("c", 64),
 		ExecutionMode: operation.ExecutionModeShell, Executable: "/bin/sh", Command: "sleep 10", CWD: "/tmp", Shell: "/bin/sh",
+		StdinMode: operation.StdinModeStream, TimeoutSource: "unlimited", StdinModeSource: "default",
 		Persistent: true, SessionName: suffix, DaemonIncarnation: "old-daemon", CreatedAt: now,
 	}
 	if _, created, result := store.ReserveOperation(context.Background(), reservation); result.Err != nil || !created {

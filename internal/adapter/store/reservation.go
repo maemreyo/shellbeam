@@ -290,6 +290,31 @@ func validateHermeticReservation(v operation.Reservation) error {
 	return nil
 }
 
+func validatePersistentPolicyReservation(v operation.Reservation) error {
+	if v.StdinMode == operation.StdinModeUnset && v.TimeoutSource == "" && v.StdinModeSource == "" {
+		// Backward compatibility for V4 reservations written before policy
+		// provenance became durable. Never invent provenance for those records.
+		return nil
+	}
+	if v.StdinMode == operation.StdinModeUnset || v.TimeoutSource == "" || v.StdinModeSource == "" {
+		return fmt.Errorf("invalid persistent reservation policy provenance")
+	}
+	if err := v.StdinMode.Validate(); err != nil {
+		return fmt.Errorf("invalid persistent reservation policy provenance: %w", err)
+	}
+	switch v.TimeoutSource {
+	case "legacy", "unlimited", "default", "requested":
+	default:
+		return fmt.Errorf("invalid persistent reservation policy provenance")
+	}
+	switch v.StdinModeSource {
+	case "legacy", "default", "requested":
+	default:
+		return fmt.Errorf("invalid persistent reservation policy provenance")
+	}
+	return nil
+}
+
 func (r *Repository) ensureSessionMetadata(v operation.Reservation) app.StoreResult {
 	sdir := filepath.Join(r.root, "sessions", string(v.SessionID))
 	if err := ensurePrivateDir(sdir); err != nil {
@@ -328,6 +353,9 @@ func ensurePrivateDir(path string) error {
 }
 
 func validatePersistentReservation(v operation.Reservation) error {
+	if err := validatePersistentPolicyReservation(v); err != nil {
+		return err
+	}
 	if !v.Persistent || v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
 		return fmt.Errorf("invalid persistent reservation")
 	}
