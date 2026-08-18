@@ -8,7 +8,7 @@
 
 **Tech Stack:** repository toolchain Go 1.26.6; existing `github.com/creack/pty v1.1.24`; system tmux selected by exact absolute path; raw tmux Control Mode; optional isolated wrapper candidate `github.com/atomicstack/gotmuxcc@v0.1.4` (tag origin `440c9d00c0d094cc4dde1eb28ff3a534ceefd98b`, module sum `h1:WmFsKnomT+Zif4WxNfVH+zNu1dXLnhT0+1f1N+HJags=`), never added to root `go.mod` during H0.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` at `5351215de2c02ac61ac82751c1680a35744047af`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` at `c3fc3d57dfbb5707e1b521e6acaaf79b33300bea`.
 
 ## Global Constraints
 
@@ -793,9 +793,12 @@ shasum -a 256 docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-q
   docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md
 go run ./tools/interactive-handoff-h0 verify-gate \
   --gate-json docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json
+go run ./tools/interactive-handoff-h0 verify-gate \
+  --gate-json docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json \
+  --require-h1 --platform darwin
 ```
 
-If the verified gate derives `h1_allowed=false`, **STOP**. Do not write/execute H1 implementation under this plan. Report which exact gate/topology failed and the required architecture fork. A manually edited Markdown `H1_ALLOWED=true` never unlocks H1.
+If the verified gate derives aggregate `h1_allowed=false`, cross-platform H1 remains blocked. Under the approved Darwin-only scope amendment, H1 may proceed only if `verify-gate --require-h1 --platform darwin` exits 0. If that scoped verification fails, **STOP**. A manually edited Markdown allow line never unlocks H1.
 
 ## H0 Completion Gate
 
@@ -820,4 +823,4 @@ H0 is complete only when one exact tracked qualification result can answer all o
 17. `gotmuxcc` is either independently qualified as a replaceable adapter convenience or explicitly rejected in favor of a thin ShellBeam-owned protocol adapter; raw provider evidence remains authoritative.
 18. Native macOS and Linux status is explicit. Missing native evidence is `NOT_RUN`, not inferred.
 19. No H0 tracked change implements or advertises the public feature, changes root dependencies, or weakens existing direct/persistent/resource/hermetic semantics.
-20. The tracked machine gate validates with `gate_kind=provider_qualification` and derives `h1_allowed=true|false`; only verified `true` permits H1. Markdown is a rendering, not gate authority.
+20. The tracked machine gate validates with `gate_kind=provider_qualification`, derives aggregate `h1_allowed=true|false`, and independently derives per-platform H1 eligibility. Cross-platform H1 requires aggregate `true`; the approved current Darwin-only lane requires verified `platform_h1[darwin].allowed=true`. Markdown is a rendering, not gate authority.

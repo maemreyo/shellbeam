@@ -8,7 +8,7 @@
 
 **Tech Stack:** H1 delegated session core; H0-qualified tmux human-client/fence/control mechanism; existing Unix IPC/peer authentication, Event Journal, atomic store, ULID/ID conventions, Go 1.26.6.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H1 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h1-delegated-session-core.md`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `c3fc3d57dfbb5707e1b521e6acaaf79b33300bea`; H1 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h1-delegated-session-core.md`.
 
 ## Global Constraints
 

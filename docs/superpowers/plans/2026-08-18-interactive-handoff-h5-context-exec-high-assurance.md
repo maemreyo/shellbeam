@@ -8,7 +8,7 @@
 
 **Tech Stack:** verified H4/H2/H1 delegated handoff stack; same-binary private helper pattern; existing operation/receipt/output/evidence/structured/telemetry pipelines; Unix local IPC/authentication; exact argv process owner; fish/zsh/bash safe-boundary adapters; Go 1.26.6.
 
-**Spec:** Master: `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`. **HARD DESIGN GATE:** Task 1 must produce and obtain review approval for `docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md`; Tasks 2+ are unauthorized until that exact spec is approved. If review changes the candidate contract or wire names, amend this plan before implementation.
+**Spec:** Master: `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `c3fc3d57dfbb5707e1b521e6acaaf79b33300bea`. **HARD DESIGN GATE:** Task 1 must produce and obtain review approval for `docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md`; Tasks 2+ are unauthorized until that exact spec is approved. If review changes the candidate contract or wire names, amend this plan before implementation.
 
 ## Global Constraints
 

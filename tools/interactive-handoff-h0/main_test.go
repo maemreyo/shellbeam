@@ -155,3 +155,48 @@ func TestValidateRunPathsRejectsSymlinkEscape(t *testing.T) {
 		t.Fatal("symlink escape below H0 build root accepted")
 	}
 }
+
+func TestVerifyGateCLIRequiresQualifiedRequestedPlatform(t *testing.T) {
+	dir := t.TempDir()
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	for i := range reports[1].Report.Results {
+		reports[1].Report.Results[i].Status = StatusNotRun
+		reports[1].Report.Results[i].Summary = "native Linux runner unavailable"
+		reports[1].Report.Results[i].Facts = nil
+	}
+	reports[1].Report.Verdict = StatusNotRun
+
+	bound := make([]BoundReport, 0, len(reports))
+	for _, candidate := range reports {
+		path := filepath.Join(dir, candidate.Report.GOOS+"-report.json")
+		raw, err := marshalDeterministic(candidate.Report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(raw)
+		bound = append(bound, BoundReport{Report: candidate.Report, ReportSHA256: hex.EncodeToString(sum[:]), Path: path})
+	}
+	gate := gateFromReports(bound)
+	gatePath := filepath.Join(dir, "gate.json")
+	gateRaw, err := marshalDeterministic(gate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gatePath, gateRaw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := runVerifyGate([]string{"--gate-json", gatePath, "--require-h1", "--platform", "darwin"}); err != nil {
+		t.Fatalf("Darwin CLI gate rejected: %v", err)
+	}
+	if err := runVerifyGate([]string{"--gate-json", gatePath, "--require-h1", "--platform", "linux"}); err == nil {
+		t.Fatal("Linux CLI gate allowed while NOT_RUN")
+	}
+	if err := runVerifyGate([]string{"--gate-json", gatePath, "--require-h1"}); err == nil {
+		t.Fatal("--require-h1 without --platform accepted under platform-scoped gate")
+	}
+}

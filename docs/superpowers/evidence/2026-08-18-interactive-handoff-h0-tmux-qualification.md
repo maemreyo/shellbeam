@@ -1,13 +1,17 @@
 # Interactive Handoff H0 tmux Qualification
 
-- Spec commit: `5351215de2c02ac61ac82751c1680a35744047af`
+- Spec commit: `c3fc3d57dfbb5707e1b521e6acaaf79b33300bea`
 - Provider: `tmux_control_mode` v1
 - H1_ALLOWED: `false`
 - Final H0 verdict: `NOT_RUN`
+- H1_ALLOWED_DARWIN: `true`
+- Darwin platform fence: `tmux_same_client_switch-client_-E_-r_assume-paste-time_0`
+- Darwin platform topology: `per_session_observer`
+- H1_ALLOWED_LINUX: `false`
 - Input fence mechanism: `unqualified`
 - Observation topology: `unqualified`
 - Control adapter: `raw_control_mode`
-- Gate reason: one or more required native lanes are `NOT_RUN`; native Linux qualification remains required before H1 can open.
+- Gate reason: cross-platform qualification remains `NOT_RUN`; Darwin-only experimental H1 may advance while unqualified platforms remain unadvertised and fail-closed.
 
 ## Optional wrapper qualification
 

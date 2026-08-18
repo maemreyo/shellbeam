@@ -277,9 +277,69 @@ func TestRenderMarkdownReportsMissingNativeLaneAsNotRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(markdown)
-	for _, want := range []string{"Final H0 verdict: `NOT_RUN`", "H1_ALLOWED: `false`", "native Linux qualification remains required"} {
+	for _, want := range []string{
+		"Final H0 verdict: `NOT_RUN`",
+		"H1_ALLOWED: `false`",
+		"H1_ALLOWED_DARWIN: `true`",
+		"H1_ALLOWED_LINUX: `false`",
+		"Darwin-only experimental H1 may advance",
+		"Darwin platform fence: `same_client_readonly_fence`",
+		"Darwin platform topology: `per_session_observer`",
+	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("markdown missing %q\n%s", want, text)
 		}
+	}
+}
+
+func TestGateAllowsQualifiedDarwinWhileLinuxRemainsNotRun(t *testing.T) {
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	reports[0] = bindReport(t, reports[0].Report)
+	for i := range reports[1].Report.Results {
+		reports[1].Report.Results[i].Status = StatusNotRun
+		reports[1].Report.Results[i].Summary = "native Linux runner unavailable"
+		reports[1].Report.Results[i].Facts = nil
+	}
+	reports[1].Report.Verdict = StatusNotRun
+	reports[1] = bindReport(t, reports[1].Report)
+
+	gate := gateFromReports(reports)
+	if gate.H1Allowed {
+		t.Fatal("cross-platform H1 unexpectedly allowed")
+	}
+	darwin, ok := platformH1Qualification(gate, "darwin")
+	if !ok || !darwin.Allowed {
+		t.Fatalf("Darwin scoped H1 not allowed: %#v", gate.PlatformH1)
+	}
+	if darwin.InputFenceMechanism != "same_client_readonly_fence" || darwin.ObservationTopology != candidatePerSessionObserver {
+		t.Fatalf("Darwin qualification lost provider facts: %#v", darwin)
+	}
+	linux, ok := platformH1Qualification(gate, "linux")
+	if !ok || linux.Allowed || linux.InputFenceMechanism != "unqualified" || linux.ObservationTopology != "unqualified" {
+		t.Fatalf("Linux inherited unqualified facts: %#v", linux)
+	}
+	if err := verifyH1ForPlatform(gate, reports, "darwin"); err != nil {
+		t.Fatalf("Darwin scoped H1 rejected: %v", err)
+	}
+	if err := verifyH1ForPlatform(gate, reports, "linux"); err == nil {
+		t.Fatal("Linux scoped H1 allowed while native lane is NOT_RUN")
+	}
+}
+
+func TestVerifyGateRejectsForgedDarwinPlatformAllow(t *testing.T) {
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	reports[0].Report.Results[indexOf(reports[0].Report.Results, "P3")].Status = StatusFail
+	reports[0].Report.Verdict = StatusFail
+	reports[0] = bindReport(t, reports[0].Report)
+	gate := gateFromReports(reports)
+	for i := range gate.PlatformH1 {
+		if gate.PlatformH1[i].GOOS == "darwin" {
+			gate.PlatformH1[i].Allowed = true
+		}
+	}
+	if err := verifyGate(gate, reports); err == nil {
+		t.Fatal("forged Darwin platform allow accepted")
 	}
 }

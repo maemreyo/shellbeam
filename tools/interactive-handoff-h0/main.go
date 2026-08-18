@@ -283,13 +283,22 @@ func runRender(args []string) error {
 func runVerifyGate(args []string) error {
 	fs := flag.NewFlagSet("verify-gate", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	var gatePath string
+	var gatePath, platform string
+	var requireH1 bool
 	fs.StringVar(&gatePath, "gate-json", "", "tracked gate JSON path")
+	fs.BoolVar(&requireH1, "require-h1", false, "require H1 eligibility for one platform")
+	fs.StringVar(&platform, "platform", "", "platform required by --require-h1")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() != 0 || gatePath == "" {
 		return errors.New("verify-gate requires --gate-json")
+	}
+	if requireH1 && platform == "" {
+		return errors.New("--require-h1 requires --platform")
+	}
+	if !requireH1 && platform != "" {
+		return errors.New("--platform requires --require-h1")
 	}
 	var gate QualificationGate
 	if err := decodeStrictFile(gatePath, &gate); err != nil {
@@ -302,6 +311,9 @@ func runVerifyGate(args []string) error {
 			return fmt.Errorf("load bound report %s: %w", binding.ReportPath, err)
 		}
 		reports = append(reports, bound)
+	}
+	if requireH1 {
+		return verifyH1ForPlatform(gate, reports, platform)
 	}
 	return verifyGate(gate, reports)
 }

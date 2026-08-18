@@ -12,9 +12,9 @@ const (
 
 const (
 	reportSchemaVersion = 1
-	gateSchemaVersion   = 1
+	gateSchemaVersion   = 2
 	gateKind            = "provider_qualification"
-	frozenSpecCommit    = "5351215de2c02ac61ac82751c1680a35744047af"
+	frozenSpecCommit    = "c3fc3d57dfbb5707e1b521e6acaaf79b33300bea"
 )
 
 var genuineGateIDs = []string{"P3", "P4", "P5", "P6", "P14", "P15"}
@@ -51,20 +51,28 @@ type ReportBinding struct {
 	ReportSHA256 string `json:"report_sha256"`
 }
 
+type PlatformH1Qualification struct {
+	GOOS                string `json:"goos"`
+	Allowed             bool   `json:"allowed"`
+	InputFenceMechanism string `json:"input_fence_mechanism"`
+	ObservationTopology string `json:"observation_topology"`
+}
+
 type QualificationGate struct {
-	SchemaVersion       int             `json:"schema_version"`
-	GateKind            string          `json:"gate_kind"`
-	SpecCommit          string          `json:"spec_commit"`
-	RequiredPlatforms   []string        `json:"required_platforms"`
-	RequiredProbeIDs    []string        `json:"required_probe_ids"`
-	GenuineGateIDs      []string        `json:"genuine_gate_ids"`
-	PlatformReports     []ReportBinding `json:"platform_reports"`
-	ProviderID          string          `json:"provider_id"`
-	ProviderVersion     int             `json:"provider_version"`
-	InputFenceMechanism string          `json:"input_fence_mechanism"`
-	ObservationTopology string          `json:"observation_topology"`
-	ControlAdapter      string          `json:"control_adapter"`
-	H1Allowed           bool            `json:"h1_allowed"`
+	SchemaVersion       int                       `json:"schema_version"`
+	GateKind            string                    `json:"gate_kind"`
+	SpecCommit          string                    `json:"spec_commit"`
+	RequiredPlatforms   []string                  `json:"required_platforms"`
+	RequiredProbeIDs    []string                  `json:"required_probe_ids"`
+	GenuineGateIDs      []string                  `json:"genuine_gate_ids"`
+	PlatformReports     []ReportBinding           `json:"platform_reports"`
+	PlatformH1          []PlatformH1Qualification `json:"platform_h1"`
+	ProviderID          string                    `json:"provider_id"`
+	ProviderVersion     int                       `json:"provider_version"`
+	InputFenceMechanism string                    `json:"input_fence_mechanism"`
+	ObservationTopology string                    `json:"observation_topology"`
+	ControlAdapter      string                    `json:"control_adapter"`
+	H1Allowed           bool                      `json:"h1_allowed"`
 }
 
 type BoundReport struct {

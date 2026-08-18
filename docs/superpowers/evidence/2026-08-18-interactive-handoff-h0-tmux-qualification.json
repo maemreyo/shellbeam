@@ -1,7 +1,7 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "gate_kind": "provider_qualification",
-  "spec_commit": "5351215de2c02ac61ac82751c1680a35744047af",
+  "spec_commit": "c3fc3d57dfbb5707e1b521e6acaaf79b33300bea",
   "required_platforms": [
     "darwin",
     "linux"
@@ -52,6 +52,20 @@
       "verdict": "NOT_RUN",
       "report_path": ".build/interactive-handoff-h0/linux/report.json",
       "report_sha256": "e90a600884e9e5a8fd98aa430ae024f19bcd2a5f1bb13d8d2d712929d789c070"
+    }
+  ],
+  "platform_h1": [
+    {
+      "goos": "darwin",
+      "allowed": true,
+      "input_fence_mechanism": "tmux_same_client_switch-client_-E_-r_assume-paste-time_0",
+      "observation_topology": "per_session_observer"
+    },
+    {
+      "goos": "linux",
+      "allowed": false,
+      "input_fence_mechanism": "unqualified",
+      "observation_topology": "unqualified"
     }
   ],
   "provider_id": "tmux_control_mode",

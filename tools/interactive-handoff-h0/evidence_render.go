@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"strings"
 )
 
 func finalH0Verdict(gate QualificationGate, reports []BoundReport) Status {
@@ -44,6 +45,13 @@ func factOrUnavailable(facts map[string]string, key string) string {
 func renderQualificationSummary(w io.Writer, gate QualificationGate, reports []BoundReport) {
 	final := finalH0Verdict(gate, reports)
 	fmt.Fprintf(w, "- Final H0 verdict: `%s`\n", final)
+	for _, qualification := range gate.PlatformH1 {
+		fmt.Fprintf(w, "- H1_ALLOWED_%s: `%t`\n", strings.ToUpper(qualification.GOOS), qualification.Allowed)
+		if qualification.GOOS == "darwin" {
+			fmt.Fprintf(w, "- Darwin platform fence: `%s`\n", qualification.InputFenceMechanism)
+			fmt.Fprintf(w, "- Darwin platform topology: `%s`\n", qualification.ObservationTopology)
+		}
+	}
 	fmt.Fprintf(w, "- Input fence mechanism: `%s`\n", gate.InputFenceMechanism)
 	fmt.Fprintf(w, "- Observation topology: `%s`\n", gate.ObservationTopology)
 	fmt.Fprintf(w, "- Control adapter: `%s`\n", gate.ControlAdapter)
@@ -51,7 +59,11 @@ func renderQualificationSummary(w io.Writer, gate QualificationGate, reports []B
 	case StatusPass:
 		fmt.Fprintln(w, "- Gate reason: required native platform qualification and genuine gates passed.")
 	case StatusNotRun:
-		fmt.Fprintln(w, "- Gate reason: one or more required native lanes are `NOT_RUN`; native Linux qualification remains required before H1 can open.")
+		if qualification, ok := platformH1Qualification(gate, "darwin"); ok && qualification.Allowed {
+			fmt.Fprintln(w, "- Gate reason: cross-platform qualification remains `NOT_RUN`; Darwin-only experimental H1 may advance while unqualified platforms remain unadvertised and fail-closed.")
+		} else {
+			fmt.Fprintln(w, "- Gate reason: one or more required native lanes are `NOT_RUN`; no platform-scoped H1 lane is currently qualified.")
+		}
 	default:
 		fmt.Fprintln(w, "- Gate reason: provider qualification failed; architecture fork or requalification is required before H1 can open.")
 	}

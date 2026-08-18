@@ -8,7 +8,7 @@
 
 **Tech Stack:** Go 1.26.6 repository toolchain; current ShellBeam v2 MCP/IPC/schema/store/daemon stack; system tmux and exact H0-qualified Control Mode mechanism; optional `github.com/atomicstack/gotmuxcc` only if the tracked H0 evidence explicitly selects it.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H0 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h0-tmux-qualification.md` at/after `887c4b7240024bace5ce144624bc458f4b7742cd`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `c3fc3d57dfbb5707e1b521e6acaaf79b33300bea`; H0 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h0-tmux-qualification.md` at/after `887c4b7240024bace5ce144624bc458f4b7742cd`.
 
 ## Global Constraints
 
@@ -742,7 +742,7 @@ Search every delegated provider mutation callsite and map it in the evidence rep
 ```bash
 rg -n 'handoff\.request|TerminalLauncher|ShellIntegration|PrivacyReleaseProof' internal api cmd || true
 rg -n 'capture-pane|preferred_terminal|reptyr' internal/adapter/delegatedtmux || true
-git diff 5351215de2c02ac61ac82751c1680a35744047af --stat
+git diff c3fc3d57dfbb5707e1b521e6acaaf79b33300bea --stat
 ```
 
 Expected: no H2/H3/H4 public feature implemented and no arbitrary takeover/polling transport.

@@ -8,7 +8,7 @@
 
 **Tech Stack:** H2 authority/manual control; H1 delegated output/receipt path; H0-qualified tmux privacy topology; fish/zsh/bash native shells; existing local IPC/private command patterns; Go 1.26.6.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H4 may execute after the H2 checkpoint and does not require H3 automatic terminal presentation.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `c3fc3d57dfbb5707e1b521e6acaaf79b33300bea`; H4 may execute after the H2 checkpoint and does not require H3 automatic terminal presentation.
 
 ## Global Constraints
 

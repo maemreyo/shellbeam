@@ -8,7 +8,7 @@
 
 **Tech Stack:** H2 manual handoff + local attach; Go 1.26.6; platform-native/process/application discovery behind adapters; existing store/event/capability infrastructure; no ChatGPT App/browser extension/deep link.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H2 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h2-human-authority-manual-control.md`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `c3fc3d57dfbb5707e1b521e6acaaf79b33300bea`; H2 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h2-human-authority-manual-control.md`.
 
 ## Global Constraints
 

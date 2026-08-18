@@ -161,6 +161,7 @@ func gateFromReports(reports []BoundReport) QualificationGate {
 		RequiredProbeIDs:    requiredProbeIDs(),
 		GenuineGateIDs:      append([]string(nil), genuineGateIDs...),
 		PlatformReports:     bindings,
+		PlatformH1:          derivePlatformH1Qualifications(reports),
 		ProviderID:          "tmux_control_mode",
 		ProviderVersion:     1,
 		InputFenceMechanism: consensusProbeFact(reports, "P3", "input_fence_mechanism"),
@@ -340,6 +341,10 @@ func verifyGate(gate QualificationGate, reports []BoundReport) error {
 		if binding.ReportPath != bound.Path || binding.Verdict != bound.Report.Verdict || binding.TmuxPath != bound.Report.TmuxPath || binding.TmuxVersion != bound.Report.TmuxVersion || binding.TmuxSHA256 != bound.Report.TmuxSHA256 {
 			return fmt.Errorf("platform identity mismatch for %s", key)
 		}
+	}
+	wantPlatformH1 := derivePlatformH1Qualifications(reports)
+	if !equalPlatformH1(gate.PlatformH1, wantPlatformH1) {
+		return fmt.Errorf("platform_h1 mismatch")
 	}
 	want := deriveH1Allowed(gate, reports)
 	if gate.H1Allowed != want {
