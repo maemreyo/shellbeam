@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -190,6 +191,81 @@ func TestResourceProviderPrepareFailureCleansPartialDomain(t *testing.T) {
 	}
 }
 
+func TestResourceProcessBreachMonitorKillsJobBeforeFinalization(t *testing.T) {
+	fs := newFakeCgroupFS("/cg/shellbeam")
+	provider, err := qualifyResourceProvider(fs.root, fs, fixedResourceName("probe-fixed", "job-fixed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	domain, err := provider.prepare(operation.ResourceLimits{Processes: 4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a fork/clone attempt being refused by pids.max before monitoring
+	// starts. The first monitor observation must terminate the whole job rather
+	// than waiting for the root process to decide whether to recover from EAGAIN.
+	fs.files[filepath.Join(domain.path, "pids.events")] = "max 1\n"
+	fs.killCh = make(chan string, 1)
+	domain.startMonitoring()
+	select {
+	case killed := <-fs.killCh:
+		if killed != filepath.Join(domain.path, "cgroup.kill") {
+			t.Fatalf("monitor killed %q", killed)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("pids.max breach was not terminal before finalization")
+	}
+	breach, err := domain.finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if breach != operation.ResourceLimitProcesses {
+		t.Fatalf("breach=%q", breach)
+	}
+	if fs.hasDir(domain.path) {
+		t.Fatal("finished process-breach domain leaked")
+	}
+}
+
+func TestResourceAtomicPlacementQualificationFailsClosedAndCleansProbeJob(t *testing.T) {
+	fs := newFakeCgroupFS("/cg/shellbeam")
+	provider, err := qualifyResourceProvider(fs.root, fs, fixedResourceName("probe-fixed", "job-placement"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	called := 0
+	err = verifyResourceAtomicPlacement(provider, func(domain resourceExecutionDomain) error {
+		called++
+		return errors.New("clone3 blocked")
+	})
+	if err == nil {
+		t.Fatal("failed atomic placement probe was accepted")
+	}
+	if called != 1 {
+		t.Fatalf("atomic probe calls=%d", called)
+	}
+	if strings.Contains(err.Error(), fs.root) {
+		t.Fatalf("atomic probe error leaked cgroup root: %v", err)
+	}
+	if fs.hasDir(filepath.Join(fs.root, "job-placement")) {
+		t.Fatal("failed atomic placement probe leaked job cgroup")
+	}
+}
+
+func TestResourceAtomicPlacementQualificationAcceptsOnlyCompletedProbe(t *testing.T) {
+	fs := newFakeCgroupFS("/cg/shellbeam")
+	provider, err := qualifyResourceProvider(fs.root, fs, fixedResourceName("probe-fixed", "job-placement"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyResourceAtomicPlacement(provider, func(resourceExecutionDomain) error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if fs.hasDir(filepath.Join(fs.root, "job-placement")) {
+		t.Fatal("successful atomic placement probe leaked job cgroup")
+	}
+}
+
 func fixedResourceName(names ...string) resourceNameFunc {
 	i := 0
 	return func(prefix string) (string, error) {
@@ -222,6 +298,7 @@ type fakeCgroupFS struct {
 	files           map[string]string
 	writes          []string
 	failWriteSuffix string
+	killCh          chan string
 }
 
 func newFakeCgroupFS(root string) *fakeCgroupFS {
@@ -284,6 +361,12 @@ func (f *fakeCgroupFS) writeFile(path, value string) error {
 	}
 	f.writes = append(f.writes, path+"="+value)
 	f.files[path] = value
+	if f.killCh != nil && strings.HasSuffix(path, "/cgroup.kill") && value == "1" {
+		select {
+		case f.killCh <- path:
+		default:
+		}
+	}
 	return nil
 }
 func (f *fakeCgroupFS) mkdir(path string) error {

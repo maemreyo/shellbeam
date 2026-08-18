@@ -21,15 +21,18 @@ type Owner struct {
 	resources resourceProvider
 }
 type Handle struct {
-	cmd         *exec.Cmd
-	stdin       *os.File
-	output      *os.File
-	sink        app.OutputSink
-	redactor    *traceOutputRedactor
-	writeMu     sync.Mutex
-	wait        chan receipt.ExitEvidence
-	captureDone chan struct{}
-	closeOnce   sync.Once
+	cmd            *exec.Cmd
+	stdin          *os.File
+	output         *os.File
+	sink           app.OutputSink
+	redactor       *traceOutputRedactor
+	writeMu        sync.Mutex
+	wait           chan receipt.ExitEvidence
+	captureDone    chan struct{}
+	closeOnce      sync.Once
+	resourceMu     sync.RWMutex
+	resourceDomain resourceExecutionDomain
+	resourceBreach operation.ResourceLimitKind
 	// stdinClosed is guarded by writeMu. Both the policy close at spawn and an
 	// explicit end-of-input go through the same primitive, so the write end is
 	// closed exactly once however input ends.
@@ -48,38 +51,59 @@ func (h *Handle) endStdin() error {
 	return err
 }
 
-func (Owner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
-	if spec.TTY {
-		return startPTY(spec, sink)
+func (o Owner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	var domain resourceExecutionDomain
+	if spec.ResourceLimits != nil {
+		spawn := receipt.SpawnEvidence{ErrorCode: "resource_enforcement_failed"}
+		if o.resources == nil {
+			return nil, spawn, errors.New("resource_enforcement_unavailable")
+		}
+		var err error
+		domain, err = o.resources.prepareExecution(*spec.ResourceLimits)
+		if err != nil {
+			return nil, spawn, err
+		}
+		if domain == nil {
+			return nil, spawn, errors.New("resource_enforcement_unavailable")
+		}
 	}
-	return startNonTTY(spec, sink, commandFor)
+	if spec.TTY {
+		return startPTY(spec, sink, domain)
+	}
+	return startNonTTY(spec, sink, commandFor, domain)
 }
 
 type FrozenOwner struct{}
 
 func (FrozenOwner) Start(_ context.Context, spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+	if spec.ResourceLimits != nil {
+		return nil, receipt.SpawnEvidence{ErrorCode: "resource_enforcement_failed"}, errors.New("resource_enforcement_unavailable")
+	}
 	if spec.TTY {
 		return nil, receipt.SpawnEvidence{Attempted: true, ErrorCode: "tty_unsupported"}, errors.New("tty_unsupported")
 	}
-	return startNonTTY(spec, sink, commandForFrozen)
+	return startNonTTY(spec, sink, commandForFrozen, nil)
 }
 
-func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(operation.ExecutionSpec) (*exec.Cmd, string, error)) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(operation.ExecutionSpec) (*exec.Cmd, string, error), domain resourceExecutionDomain) (app.ProcessHandle, receipt.SpawnEvidence, error) {
 	spawn := receipt.SpawnEvidence{Attempted: true}
 	cmd, code, err := build(spec)
 	if err != nil {
 		spawn.ErrorCode = code
+		abortResourceDomain(domain)
 		return nil, spawn, err
 	}
 	cmd.Dir = spec.CWD
 	if err := applyEnvironmentAdditions(cmd, spec.EnvironmentAdditions); err != nil {
 		spawn.ErrorCode = "invalid_execution_spec"
+		abortResourceDomain(domain)
 		return nil, spawn, err
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdinR, stdinW, err := os.Pipe()
 	if err != nil {
 		spawn.ErrorCode = "stdin_pipe_failed"
+		abortResourceDomain(domain)
 		return nil, spawn, err
 	}
 	outR, outW, err := os.Pipe()
@@ -87,23 +111,44 @@ func startNonTTY(spec operation.ExecutionSpec, sink app.OutputSink, build func(o
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		spawn.ErrorCode = "output_pipe_failed"
+		abortResourceDomain(domain)
 		return nil, spawn, err
 	}
 	cmd.Stdin = stdinR
 	cmd.Stdout = outW
 	cmd.Stderr = outW
-	if err = cmd.Start(); err != nil {
+	var resourceBinding resourceSpawnBinding
+	if domain != nil {
+		resourceBinding, err = domain.bind(cmd)
+		if err != nil {
+			_ = stdinR.Close()
+			_ = stdinW.Close()
+			_ = outR.Close()
+			_ = outW.Close()
+			spawn.ErrorCode = "resource_enforcement_failed"
+			abortResourceDomain(domain)
+			return nil, spawn, err
+		}
+	}
+	if err = cmd.Start(); resourceBinding != nil {
+		_ = resourceBinding.Close()
+	}
+	if err != nil {
 		_ = stdinR.Close()
 		_ = stdinW.Close()
 		_ = outR.Close()
 		_ = outW.Close()
 		spawn.ErrorCode = startErrorCode(spec, err)
+		abortResourceDomain(domain)
 		return nil, spawn, err
 	}
 	_ = stdinR.Close()
 	_ = outW.Close()
 	spawn.Succeeded = true
-	h := &Handle{cmd: cmd, stdin: stdinW, output: outR, sink: sink, redactor: newTraceOutputRedactor(spec.EnvironmentAdditions), wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{})}
+	if domain != nil {
+		domain.startMonitoring()
+	}
+	h := &Handle{cmd: cmd, stdin: stdinW, output: outR, sink: sink, redactor: newTraceOutputRedactor(spec.EnvironmentAdditions), wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{}), resourceDomain: domain}
 	if spec.StdinMode == operation.StdinModeClosed {
 		// Deliver EOF now, so a child that reads its input finishes instead of
 		// waiting for a caller who was never going to write. Dropping the write
@@ -183,8 +228,19 @@ func (h *Handle) reap() {
 			e.Code = &code
 		}
 	}
+	if h.resourceDomain != nil {
+		breach, _ := h.resourceDomain.finish()
+		h.resourceMu.Lock()
+		h.resourceBreach = breach
+		h.resourceMu.Unlock()
+	}
 	h.wait <- e
 	close(h.wait)
+}
+func (h *Handle) ResourceLimitBreach() operation.ResourceLimitKind {
+	h.resourceMu.RLock()
+	defer h.resourceMu.RUnlock()
+	return h.resourceBreach
 }
 func (h *Handle) Wait(ctx context.Context) receipt.ExitEvidence {
 	select {
@@ -232,6 +288,12 @@ func (h *Handle) Close() error {
 	h.writeMu.Lock()
 	defer h.writeMu.Unlock()
 	return h.endStdin()
+}
+
+func abortResourceDomain(domain resourceExecutionDomain) {
+	if domain != nil {
+		_ = domain.abort()
+	}
 }
 
 // startErrorCode names why a child could not start.

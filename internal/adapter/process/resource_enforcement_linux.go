@@ -4,8 +4,10 @@ package process
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"golang.org/x/sys/unix"
 
@@ -89,6 +91,60 @@ func newResourceProviderFromEnvironment() (resourceProvider, *capability.Resourc
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := verifyResourceAtomicPlacement(provider, runResourceAtomicPlacementProbe); err != nil {
+		return nil, nil, err
+	}
 	support := provider.support()
 	return provider, &support, nil
+}
+
+type linuxResourceSpawnBinding struct{ fd int }
+
+func (b *linuxResourceSpawnBinding) Close() error {
+	if b == nil || b.fd < 0 {
+		return nil
+	}
+	err := unix.Close(b.fd)
+	b.fd = -1
+	return err
+}
+
+func bindResourceDomainToCommand(path string, cmd *exec.Cmd) (resourceSpawnBinding, error) {
+	fd, err := unix.Open(path, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, resourceProviderFailure("cgroup_fd_open_failed")
+	}
+	binding := &linuxResourceSpawnBinding{fd: fd}
+	if err := applyResourceCgroupFD(cmd, fd); err != nil {
+		_ = binding.Close()
+		return nil, err
+	}
+	return binding, nil
+}
+
+func applyResourceCgroupFD(cmd *exec.Cmd, fd int) error {
+	if cmd == nil || fd < 0 {
+		return resourceProviderFailure("cgroup_fd_invalid")
+	}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.UseCgroupFD = true
+	cmd.SysProcAttr.CgroupFD = fd
+	return nil
+}
+
+func runResourceAtomicPlacementProbe(domain resourceExecutionDomain) error {
+	cmd := exec.Command("/bin/true")
+	binding, err := domain.bind(cmd)
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		_ = binding.Close()
+		return err
+	}
+	_ = binding.Close()
+	domain.startMonitoring()
+	return cmd.Wait()
 }

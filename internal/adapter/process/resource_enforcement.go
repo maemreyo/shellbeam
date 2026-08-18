@@ -6,10 +6,12 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
@@ -21,6 +23,10 @@ const resourceCgroupRootEnv = "SHELLBEAM_RESOURCE_CGROUP_ROOT"
 const (
 	resourceCleanupBudget = 500 * time.Millisecond
 	resourceCleanupPoll   = 10 * time.Millisecond
+	// pids.max is the hard kernel boundary; this poll only determines how
+	// quickly ShellBeam turns a proven rejected fork/clone into terminal job
+	// teardown. Keep it coarser than cleanup polling to avoid hot idle loops.
+	resourceMonitorPoll = 50 * time.Millisecond
 )
 
 type resourcePathKind uint8
@@ -51,8 +57,19 @@ type resourceControlOps interface {
 
 type resourceNameFunc func(prefix string) (string, error)
 
+type resourceSpawnBinding interface {
+	Close() error
+}
+
+type resourceExecutionDomain interface {
+	bind(*exec.Cmd) (resourceSpawnBinding, error)
+	startMonitoring()
+	finish() (operation.ResourceLimitKind, error)
+	abort() error
+}
+
 type resourceProvider interface {
-	prepare(operation.ResourceLimits) (*preparedResourceDomain, error)
+	prepareExecution(operation.ResourceLimits) (resourceExecutionDomain, error)
 	support() capability.ResourceEnforcementSupport
 }
 
@@ -66,6 +83,14 @@ type preparedResourceDomain struct {
 	path     string
 	provider *linuxCgroupProvider
 	baseline resourceEventSnapshot
+	limits   operation.ResourceLimits
+
+	monitorMu      sync.Mutex
+	monitorStarted bool
+	monitorStopped bool
+	monitorStop    chan struct{}
+	monitorDone    chan struct{}
+	breach         operation.ResourceLimitKind
 }
 
 type resourceEventSnapshot struct {
@@ -193,6 +218,120 @@ func qualifyResourceProvider(root string, ops resourceControlOps, nextName resou
 	return &linuxCgroupProvider{root: root, ops: ops, nextName: nextName}, nil
 }
 
+func (p *linuxCgroupProvider) prepareExecution(limits operation.ResourceLimits) (resourceExecutionDomain, error) {
+	return p.prepare(limits)
+}
+
+func (d *preparedResourceDomain) bind(cmd *exec.Cmd) (resourceSpawnBinding, error) {
+	if d == nil || d.provider == nil || cmd == nil {
+		return nil, resourceProviderFailure("spawn_binding_invalid")
+	}
+	return bindResourceDomainToCommand(d.path, cmd)
+}
+
+func (d *preparedResourceDomain) startMonitoring() {
+	if d == nil || d.provider == nil || d.limits.Processes <= 0 {
+		return
+	}
+	d.monitorMu.Lock()
+	if d.monitorStarted {
+		d.monitorMu.Unlock()
+		return
+	}
+	d.monitorStarted = true
+	d.monitorStop = make(chan struct{})
+	d.monitorDone = make(chan struct{})
+	stop, done := d.monitorStop, d.monitorDone
+	d.monitorMu.Unlock()
+	go d.monitorProcessBreaches(stop, done)
+}
+
+func (d *preparedResourceDomain) monitorProcessBreaches(stop <-chan struct{}, done chan<- struct{}) {
+	defer close(done)
+	ticker := time.NewTicker(resourceMonitorPoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			data, err := d.provider.ops.readFile(filepath.Join(d.path, "pids.events"))
+			if err != nil {
+				// Losing the event channel means ShellBeam can no longer uphold the
+				// terminal-on-budget-attempt contract. Fail closed by terminating
+				// the owned tree; do not invent a resource kind without evidence.
+				_ = d.provider.ops.writeFile(filepath.Join(d.path, "cgroup.kill"), "1")
+				return
+			}
+			max, err := parseFlatCounter(data, "max")
+			if err != nil {
+				_ = d.provider.ops.writeFile(filepath.Join(d.path, "cgroup.kill"), "1")
+				return
+			}
+			if max > d.baseline.PidsMax {
+				d.freezeBreach(operation.ResourceLimitProcesses)
+				_ = d.provider.ops.writeFile(filepath.Join(d.path, "cgroup.kill"), "1")
+				return
+			}
+		}
+	}
+}
+
+func (d *preparedResourceDomain) stopMonitoring() {
+	if d == nil {
+		return
+	}
+	d.monitorMu.Lock()
+	if !d.monitorStarted {
+		d.monitorMu.Unlock()
+		return
+	}
+	if !d.monitorStopped {
+		close(d.monitorStop)
+		d.monitorStopped = true
+	}
+	done := d.monitorDone
+	d.monitorMu.Unlock()
+	<-done
+}
+
+func (d *preparedResourceDomain) freezeBreach(kind operation.ResourceLimitKind) {
+	if kind == "" {
+		return
+	}
+	d.monitorMu.Lock()
+	defer d.monitorMu.Unlock()
+	if kind == operation.ResourceLimitMemory || d.breach == "" {
+		d.breach = kind
+	}
+}
+
+func (d *preparedResourceDomain) frozenBreach() operation.ResourceLimitKind {
+	d.monitorMu.Lock()
+	defer d.monitorMu.Unlock()
+	return d.breach
+}
+
+func (d *preparedResourceDomain) finish() (operation.ResourceLimitKind, error) {
+	if d == nil || d.provider == nil {
+		return "", resourceProviderFailure("finalize_invalid")
+	}
+	d.stopMonitoring()
+	final, readErr := readResourceEventSnapshot(d.provider.ops, d.path)
+	if readErr == nil {
+		d.freezeBreach(classifyResourceBreach(d.baseline, final))
+	}
+	breach := d.frozenBreach()
+	cleanupErr := cleanupResourceDir(d.provider.ops, d.path)
+	if readErr != nil {
+		return breach, resourceProviderFailure("final_events_unavailable")
+	}
+	if cleanupErr != nil {
+		return breach, cleanupErr
+	}
+	return breach, nil
+}
+
 func (p *linuxCgroupProvider) prepare(limits operation.ResourceLimits) (_ *preparedResourceDomain, retErr error) {
 	if p == nil || p.ops == nil || p.nextName == nil {
 		return nil, resourceProviderFailure("provider_unavailable")
@@ -235,14 +374,36 @@ func (p *linuxCgroupProvider) prepare(limits operation.ResourceLimits) (_ *prepa
 		return nil, resourceProviderFailure("event_baseline_failed")
 	}
 	cleanup = false
-	return &preparedResourceDomain{path: path, provider: p, baseline: baseline}, nil
+	return &preparedResourceDomain{path: path, provider: p, baseline: baseline, limits: limits}, nil
 }
 
 func (d *preparedResourceDomain) abort() error {
 	if d == nil || d.provider == nil {
 		return nil
 	}
+	d.stopMonitoring()
 	return cleanupResourceDir(d.provider.ops, d.path)
+}
+
+type resourceAtomicPlacementProbe func(resourceExecutionDomain) error
+
+func verifyResourceAtomicPlacement(provider *linuxCgroupProvider, probe resourceAtomicPlacementProbe) error {
+	if provider == nil || probe == nil {
+		return resourceProviderFailure("atomic_placement_unavailable")
+	}
+	domain, err := provider.prepare(operation.ResourceLimits{Processes: 4})
+	if err != nil {
+		return resourceProviderFailure("atomic_placement_unavailable")
+	}
+	if err := probe(domain); err != nil {
+		_ = domain.abort()
+		return resourceProviderFailure("atomic_placement_unavailable")
+	}
+	breach, err := domain.finish()
+	if err != nil || breach != "" {
+		return resourceProviderFailure("atomic_placement_unavailable")
+	}
+	return nil
 }
 
 func cleanupResourceDir(ops resourceControlOps, path string) error {
