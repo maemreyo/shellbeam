@@ -22,9 +22,9 @@
 - `source_generation` is a separate **fast workspace correlation cut**. It is never inserted into SourceRef identity, never used to rewrite old SourceRefs, and never treated as a content digest.
 - The P4-A `SourceCut` is the fresh `workspace.FastSnapshot.Generation` observed **before** provider execution. Its comparison semantics are one-way: `G_start != G_current` proves fast-workspace divergence; `G_start == G_current` MUST NOT prove that source bytes are unchanged. Exact byte freshness comes only from exact retained `SourceRef` bytes plus binder recheck, or from a future explicitly requested `ExactSourceSnapshot` contract.
 - Semantic projection may use only the already-returned `codeintel.Result`; it cannot call `ProviderPool.Query`, start gopls, enumerate extra symbols, recursively follow references, or synthesize missing facts.
-- Cross-file exact repository/workspace target SourceRefs are locally revalidated once, under existing result/query bounds, before `SourceCorrelation` is finalized. This recheck may bind current path bytes but never performs a second provider query and never replaces the returned target SourceRef.
+- Cross-file exact repository/workspace target SourceRefs are locally revalidated once, under existing result/query bounds, before `SourceCorrelation` is finalized. Both selected-source and returned-target rechecks use the same non-retaining exact comparison primitive: they read/compare/discard current bytes without `Retain`, never mint a SourceRef, never consume SourceStore budget, never perform a second provider query, and never replace the returned target SourceRef.
 - P4-A V1 affected projection admits only reverse/dependent semantic facts (`referenced_by`, `called_by`). Definition, callee, type-definition and import-target navigation remain `inspect.code` facts and are not projected into P1 `AffectedSurface` V1.
-- Projected affected edges use `path -> path` subjects so P1 `MatchPaths` can consume them. Exact query/target SourceRef IDs are provenance, not path selectors or generation substitutes.
+- Projected affected edges use `path -> path` subjects so P1 `MatchPaths` can consume them. Opaque query/target SourceRef IDs remain exact deep-inspection handles, not path selectors, generation substitutes, or `RelationID` inputs; stable exact source-pair provenance binds semantic relation identity.
 - A semantic relation is emitted only for an exact mechanically derived target record whose `SourceCorrelation=current`, an exact query-source ref, and a valid fast-workspace source cut. Mixed/changed/unknown/advisory/provider-reported records remain code facts but do not receive a P1 affected relation.
 - P4-A semantic domains are conservative. V1 never claims complete semantic coverage and does not use semantic-analysis absence as mechanically complete proof of non-applicability.
 - `internal/app/codeintel.ProviderManager` retains pool size, queueing, per-provider in-flight limits, idle TTL, compatibility selection, cooldown and restart policy. No shared package gains those controls.
@@ -169,12 +169,12 @@ checkpoint.command == verify
 checkpoint.source_fingerprint == P1_SOURCE_FINGERPRINT
 checkpoint.status == passed
 checkpoint.exit_code == 0
-checkpoint.selection is present
+checkpoint.selection == full
 checkpoint.started_at and checkpoint.finished_at are present
 checkpoint receipt/reference is recorded
 ```
 
-The durable checkpoint object is the normal `tools/devctl.Evidence` JSON emitted by `devctl verify --checkpoint --json`; do not create a second checkpoint schema. `base` is retained literally as command provenance but is not interpreted as the verified HEAD. `P1_FINAL_HEAD` is the VCS identity that binds the receipt to the exact completed P1 tree.
+The durable checkpoint object is the normal `tools/devctl.Evidence` JSON emitted by `devctl verify --checkpoint --json`; do not create a second checkpoint schema. Current `devctl` does **not** persist argv or a first-class `checkpoint` verification mode in this receipt. V1 therefore proves the required terminal **full-verification checkpoint** by the semantics actually persisted: `command == verify` and `selection == full`. A `verify --dirty` receipt with `selection=affected` is insufficient even if it passed. `base` is retained literally as command provenance but is not interpreted as the verified HEAD. `P1_FINAL_HEAD` is the VCS identity that binds the receipt to the exact completed P1 tree. If a future receipt adds an authoritative verification-mode field, a later reviewed plan may bind that field directly; P4-A V1 must not infer literal argv that was not recorded.
 
 When the durable artifact passes those checks, extract its literal values into `P1_FINAL_HEAD`, `P1_SOURCE_FINGERPRINT`, `P1_CHECKPOINT_RECEIPT`, `P1_CHECKPOINT_SELECTION`, `P1_CHECKPOINT_STATUS`, and `P1_CHECKPOINT_EXIT` **before** the next command. If those values cannot be extracted mechanically, treat durable evidence as unverifiable and take the single-rerun path below; do not guess them from prose.
 
@@ -203,7 +203,7 @@ assert r['command'] == 'verify'
 assert r['status'] == 'passed'
 assert r['exit_code'] == 0
 assert r['source_fingerprint']
-assert r['selection']
+assert r['selection'] == 'full'
 assert r['started_at'] and r['finished_at']
 PY_CHECKPOINT
 P1_FINAL_HEAD="$P4A_EXECUTION_BASE"
@@ -367,6 +367,8 @@ git -c core.hooksPath=.githooks commit -m "test: freeze p4a code intelligence ba
 - Modify: `internal/app/codeintel/service_test.go`
 - Modify: `internal/app/codeintel/result_normalization.go`
 - Modify: `internal/app/codeintel/result_normalization_test.go` if split tests exist on the landed execution base; otherwise keep focused cases in `service_test.go`
+- Modify: `internal/adapter/codeintel/sourcefs/binder.go`
+- Modify: `internal/adapter/codeintel/sourcefs/binder_test.go`
 - Modify: `cmd/shellbeam/code_intelligence.go`
 - Modify: `cmd/shellbeam/command_daemon.go`
 - Modify: `cmd/shellbeam/command_daemon_test.go`
@@ -447,7 +449,7 @@ G_start == G_current
   -> MUST NOT promote stale evidence/relations to current
 
 exact byte freshness
-  -> retained SourceRef bytes + bounded current binder recheck
+  -> retained SourceRef bytes + bounded non-retaining current comparison
   -> or a future explicit ExactSourceSnapshot contract
 ```
 
@@ -485,6 +487,72 @@ func NewService(
 
 For positioned queries, after binding the query path and before calling the provider, freeze the selected exact source ID into `QuerySourceRefID`. Do not reconstruct it later from provider output.
 
+#### Non-retaining exact source comparison
+
+Current `sourcefs.Binder.Bind` is not a read-only freshness probe: it calls `SourceStore.Retain`, and `Retain` mints a new opaque `src_<ULID>` even when bytes are unchanged. Therefore Task 1 SHALL NOT use `Bind` for either the existing selected-source recheck or the new cross-file target recheck. Observation must not mutate source-retention state.
+
+Extend the existing app port rather than creating a second binder service:
+
+```go
+type SourceComparison string
+
+const (
+    SourceSame        SourceComparison = "same"
+    SourceChanged     SourceComparison = "changed"
+    SourceUnavailable SourceComparison = "unavailable"
+)
+
+type SourceBinder interface {
+    Bind(context.Context, workspace.Workspace, string) (BoundSource, error)
+    Resolve(core.SourceRefID) (BoundSource, SourceRefState)
+    CompareCurrent(context.Context, workspace.Workspace, BoundSource) (SourceComparison, error)
+}
+```
+
+`sourcefs.Binder.CompareCurrent` reuses the same safe relative-path, `openat`/no-follow, size, UTF-8, file-identity and TOCTOU checks used by `Bind`, but its terminal dataflow is exactly:
+
+```text
+open current exact source
+  -> bounded read
+  -> stable-path/identity verification
+  -> compare with expected BoundSource.Bytes
+  -> discard current bytes
+  -> ZERO SourceRetention.Retain calls
+  -> ZERO new SourceRef IDs
+  -> ZERO SourceStore eviction pressure
+```
+
+`SourceSame` means the safely re-read bytes exactly equal the expected retained bytes. A detected path/file transition or byte mismatch returns `SourceChanged`; missing/unreadable/unsupported observations return `SourceUnavailable`. Existing typed errors remain available as diagnostic causes, but callers branch on the closed comparison result rather than treating an arbitrary read failure as proof of change.
+
+Task 1 replaces current `recheckSelected`'s `binder.Bind(...)` call with this primitive as well. This is required even without cross-file projection: otherwise every ordinary selected-source freshness check would continue allocating duplicate retained SourceRefs.
+
+#### Stable exact derivation fingerprint for location pairs
+
+Opaque SourceRef allocation identity remains useful for deep inspection but is not semantic identity. For an exact positioned query plus an exact resolved location target, Task 1 computes a relation-scoped source-pair fingerprint before the pure P4-A2 projector runs:
+
+```go
+type LocationTarget struct {
+    Name                       string         `json:"name,omitempty"`
+    Relationship               string         `json:"relationship"`
+    Location                   SourceLocation `json:"location"`
+    ExactSourcePairFingerprint string         `json:"exact_source_pair_fingerprint,omitempty"`
+}
+```
+
+Canonical fingerprint input is versioned and binds only:
+
+```text
+schema/version tag
+repository_id
+workspace_id
+query logical path + exact retained query bytes
+target logical path + exact retained target bytes
+```
+
+It deliberately excludes `QuerySourceRefID`, target `SourceRefID`, timestamps, provider incarnation and fast workspace generation. Two independently allocated SourceRefs over identical exact bytes therefore produce the same pair fingerprint; a byte change in either endpoint changes it. The fingerprint is **not** a public per-file content hash, cannot resolve source bytes, and must never be described as `source_content_digest` or `ExactSourceSnapshot`. It exists only as stable provenance for one semantic source-pair derivation, preserving the E29 rule against inventing deterministic per-file hashes merely to identify locations.
+
+Populate it only when both query and target are exact repository/workspace BoundSources for the current workspace and their correlation is `current`. Missing/changed/unknown endpoints leave it empty and therefore ineligible for P4-A2 relation projection.
+
 #### Bounded cross-file target revalidation
 
 Current main can promote a cross-file gopls target into an exact returned SourceRef, but `correlationForLocation` currently recognizes only selected input refs. Task 1 fixes that **inside codeintel result truth**, before P4-A2 projection.
@@ -510,21 +578,20 @@ or retained ref is not exact, lacks safe logical path,
 or repository/workspace does not match current workspace
   -> target correlation = unknown
 
-otherwise current = binder.Bind(workspace, retained.Ref.LogicalPath)
+comparison, err = binder.CompareCurrent(workspace, retained)
 
-explicit CodeSourceChanged during exact bind
-or exact current bytes != retained target bytes
+comparison == SourceChanged
   -> source_changed_during_query
 
-exact current bind succeeds
-AND bytes == retained target bytes
+comparison == SourceSame
   -> current
 
-other bind/observation failure
+comparison == SourceUnavailable
+or other comparison/observation failure
   -> unknown
 ```
 
-`SourceRefID` equality is **not** the comparison: SourceRef IDs are retention identities and a fresh bind may allocate a new ID. Compare exact retained/current bytes under the binder contract. Preserve the original returned target SourceRef and byte range in the record; the recheck only supplies correlation truth.
+`SourceRefID` equality is **not** the comparison: SourceRef IDs are retention identities. `CompareCurrent` compares exact retained/current bytes without allocating another identity. Preserve the original returned target SourceRef and byte range in the record; revalidation only supplies correlation truth and, when both endpoints are exact/current, the stable source-pair fingerprint.
 
 Do not duplicate existing selected-source work. Build `selectedIDs` first; returned target IDs already present in `selectedIDs` continue to use the existing selected-source recheck. Only exact returned IDs outside that set enter the cross-file/local target recheck. Freeze the dataflow explicitly:
 
@@ -548,7 +615,7 @@ func correlationForLocation(
 
 `correlationForLocation` first preserves positive `selectedChanged`, then selected-current semantics, then consults `returnedTargets` for non-selected exact results; absent entries remain `CorrelationUnknown`. `normalizeRecords` receives the frozen `returnedTargets` map and never binds files itself.
 
-If target collection/recheck hits the existing result bound, query deadline, or cannot finish a candidate, affected candidates become `CorrelationUnknown` and the code result degrades to `partial`; it never upgrades unknown to current. Selected-source recheck remains in place for the original query source and selected scopes.
+If target collection/recheck hits the existing result bound, query deadline, or cannot finish a candidate, affected candidates become `CorrelationUnknown` and the code result degrades to `partial`; it never upgrades unknown to current. Selected-source recheck remains in place for the original query source and selected scopes, but it is also migrated to `CompareCurrent`; no freshness recheck path is allowed to call `Bind` merely to compare bytes.
 
 - [ ] **Step 1: Write failing core/source-cut and one-way generation tests**
 
@@ -579,6 +646,10 @@ TestInspectCodeCrossFileTargetByteChangeMarksSourceChangedDuringQueryEvenWhenFas
 TestInspectCodeCrossFileTargetRecheckFailureRemainsUnknownAndPartial
 TestInspectCodeCrossFileTargetRecheckIsBoundedByResultLimit
 TestInspectCodeCrossFileRecheckDoesNotIncreaseProviderQueryCount
+TestInspectCodeSelectedRecheckDoesNotRetainDuplicateSourceRefs
+TestInspectCodeCrossFileRecheckDoesNotRetainDuplicateSourceRefs
+TestSourcePairFingerprintStableAcrossOpaqueSourceRefReallocation
+TestSourcePairFingerprintChangesWhenEitherExactEndpointBytesChange
 TestInspectCodeOldSourceRefStillResolvesRetainedBytesAfterWorkspaceChanges
 TestResolvedRepositoryLocationsUseExistingDisplaySourceLocation
 TestProviderReportedLocationStillDoesNotInventResolvedDisplayOrSourceRef
@@ -596,22 +667,22 @@ Expected: new SourceCut/query-source/cross-file correlation contracts are missin
 
 - [ ] **Step 4: Implement source cut, query-source identity and bounded target recheck**
 
-Reuse the existing daemon `workspaceObserver`; do not create a second observer. Reuse the existing `SourceBinder.Resolve/Bind` boundary; do not create a source-ref-to-path resolver service. Keep target revalidation in `internal/app/codeintel`, not the gopls adapter and not the verification projector.
+Reuse the existing daemon `workspaceObserver`; do not create a second observer. Extend the existing `SourceBinder` with `CompareCurrent`; do not create a source-ref-to-path resolver service. Implement the safe read/compare path in `sourcefs.Binder` without calling `Retain`. Keep target revalidation and source-pair fingerprint construction in `internal/app/codeintel`, not the gopls adapter and not the verification projector.
 
 For resolved locations, preserve the PR #12 contract already required by Task 0: `DisplaySourceLocation` is generated from retained/synchronized bytes where exact. A missing PR #12 display primitive is a Task-0 `plan_binding_mismatch`, not an implementation branch inside Task 1.
 
 - [ ] **Step 5: Extend closed wire schemas additively**
 
-Add `$defs.code_source_cut` once in each applicable v2 schema with the existing repository/workspace/generation/quality/timestamp/diagnostic shape. Add optional `source_cut` and optional `query_source_ref_id` (`^src_[0-9A-HJKMNP-TV-Z]{26}$`) to the code result. Do not put `query_source_ref_id` inside `code_source_cut`, and do not change/remove existing `resolved.display` schema.
+Add `$defs.code_source_cut` once in each applicable v2 schema with the existing repository/workspace/generation/quality/timestamp/diagnostic shape. Add optional `source_cut` and optional `query_source_ref_id` (`^src_[0-9A-HJKMNP-TV-Z]{26}$`) to the code result. Extend the existing location-target object with optional `exact_source_pair_fingerprint` using the closed `^csp_[0-9a-f]{64}$` form chosen by the core helper; this is relation-scoped derivation provenance, not a SourceRef or per-file source digest. Do not put `query_source_ref_id` inside `code_source_cut`, and do not change/remove existing `resolved.display` schema.
 
 - [ ] **Step 6: Run GREEN/race and commit**
 
 ```bash
-gofmt -w internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go
-go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/gopls ./cmd/shellbeam ./api/schema -run 'Generation|SourceCut|QuerySourceRef|CrossFile|InspectCode|DisplaySourceLocation|CodeIntelligence' -count=1
-go test -race ./internal/app/codeintel ./internal/adapter/codeintel/gopls ./cmd/shellbeam -run 'SourceCut|CrossFile|CodeIntelligence' -count=1
+gofmt -w internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel internal/adapter/codeintel/sourcefs cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go
+go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam ./api/schema -run 'Generation|SourceCut|QuerySourceRef|SourcePair|CompareCurrent|CrossFile|InspectCode|DisplaySourceLocation|CodeIntelligence' -count=1
+go test -race ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam -run 'SourceCut|SourcePair|CompareCurrent|CrossFile|CodeIntelligence' -count=1
 go run ./tools/devctl test --dirty --base "$P4A_EXECUTION_BASE" --json
-git add internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go api/schema/ipc-v2.json api/schema/mcp-output-v2.json api/schema/a1_inspect_test.go
+git add internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel internal/adapter/codeintel/sourcefs cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go api/schema/ipc-v2.json api/schema/mcp-output-v2.json api/schema/a1_inspect_test.go
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "feat: bind code intelligence source correlation"
 ```
@@ -737,6 +808,7 @@ record authority == mechanical
 record SourceCorrelation == current
 record target is resolved exact SourceRef
 record target has DisplaySourceLocation with safe repository-relative path
+record target has a valid ExactSourcePairFingerprint produced by Task 1
 target display path != result.Query.Path (self-path navigation is not a widening edge)
 ```
 
@@ -751,16 +823,30 @@ to   = path:<target resolved.display.path>
 
 No `source_ref` subject is used as the affected target and no `symbol` subject is invented.
 
-Exact byte/provenance binding is separate from path selection:
+Exact byte/provenance binding is separate from path selection and from opaque SourceRef allocation identity. P1 `RelationID` hashes `ProvenanceRefs`, so P4-A MUST NOT place `src_<ULID>` values in those refs. Use only stable derivation provenance:
 
 ```text
-query_source_ref:<result.QuerySourceRefID>
-target_source_ref:<record.target.resolved.source_ref_id>
-codeintel_provider:<sha256(canonical ProviderMetadata)>
+codeintel_exact_source_pair:<record.location_target.exact_source_pair_fingerprint>
+codeintel_provider:<sha256(canonical stable provider derivation metadata)>
 codeintel_query:<sha256(canonical Query)>
 ```
 
-`RelationID` therefore changes when these exact retained identities/provenance change even if `FastSnapshot.Generation` happens to remain equal. `SourceGeneration` still records the fast-workspace correlation cut and MUST NOT be interpreted as content equality.
+The opaque exact handles remain available separately for deep inspection through `result.QuerySourceRefID` and `record.target.resolved.source_ref_id`; they are **not** inputs to `RelationID`. Provider provenance used for the relation must exclude ephemeral allocation/session fields that do not change semantic derivation; provider ID/version and any semantic config/build identity remain admissible when present.
+
+Consequences are frozen:
+
+```text
+same repository/workspace + same query/target paths + same exact endpoint bytes
++ same semantic query/provider derivation
+  -> same source-pair provenance
+  -> stable RelationID even when SourceRef ULIDs are newly allocated
+
+changed exact bytes at either endpoint
+  -> changed source-pair provenance
+  -> changed RelationID
+```
+
+This intentionally chooses stable semantic identity rather than observation-scoped relation identity. `SourceGeneration` still records the fast-workspace correlation cut and MUST NOT be interpreted as content equality. The pair fingerprint is relation-scoped provenance, not a substitute for `ExactSourceSnapshot.source_content_digest`.
 
 Provider identity remains:
 
@@ -796,8 +882,9 @@ TestCodeIntelTypeDefinitionIsNavigationOnlyNotAffected
 TestCodeIntelUnsupportedImportKindsHaveNoAffectedMapping
 TestCodeIntelProviderReportedOrAdvisoryTargetIsNotAffected
 TestCodeIntelChangedOrUnknownTargetIsNotAffected
-TestCodeIntelAffectedRelationProvenanceBindsQueryAndTargetSourceRefs
-TestCodeIntelAffectedRelationIDChangesWhenExactSourceRefProvenanceChangesEvenIfFastGenerationEqual
+TestCodeIntelAffectedRelationProvenanceUsesStableExactSourcePairNotOpaqueSourceRefIDs
+TestCodeIntelAffectedRelationIDStableAcrossOpaqueSourceRefReallocationWhenExactBytesUnchanged
+TestCodeIntelAffectedRelationIDChangesWhenEitherExactEndpointBytesChangeEvenIfFastGenerationEqual
 TestCodeIntelSemanticDependentsNeverClaimsCompleteCoverage
 TestCodeIntelProjectionEmitsNonCompleteDomainWithZeroRelations
 TestCodeIntelProjectorHasNoProviderPoolBinderOrQueryDependency
@@ -1192,7 +1279,7 @@ TestLSPSessionProviderPathDoesNotStartPeriodicProcessTreeSampler
 TestLSPSessionCloseKeepsExistingShutdownExitKillFallback
 ```
 
-The third test injects a process/resource hook counter or uses the extracted helper boundary to prove no `resourceSampleInterval` ticker belongs to LSP session.
+`TestLSPSessionProviderPathDoesNotStartPeriodicProcessTreeSampler` injects a process/resource hook counter or uses the extracted helper boundary to prove no `resourceSampleInterval` ticker belongs to LSP session.
 
 - [ ] **Step 2: Write RED gopls process/runtime tests**
 
@@ -1349,13 +1436,14 @@ Expose the provider fact used by the current query on `codeintel.Result`:
 
 ```go
 type Result struct {
-    Status          ResultStatus                     `json:"status"`
-    Query           Query                            `json:"query"`
-    SourceCut       SourceCut                        `json:"source_cut,omitzero"`
-    Selection       SelectionMetadata                `json:"selection,omitzero"`
-    Provider        ProviderMetadata                 `json:"provider,omitzero"`
-    ProviderRuntime *providerobservation.Observation `json:"provider_runtime,omitempty"`
-    Records         []Record                         `json:"records,omitempty"`
+    Status           ResultStatus                     `json:"status"`
+    Query            Query                            `json:"query"`
+    SourceCut        SourceCut                        `json:"source_cut,omitzero"`
+    QuerySourceRefID SourceRefID                      `json:"query_source_ref_id,omitempty"`
+    Selection        SelectionMetadata                `json:"selection,omitzero"`
+    Provider         ProviderMetadata                 `json:"provider,omitzero"`
+    ProviderRuntime  *providerobservation.Observation `json:"provider_runtime,omitempty"`
+    Records          []Record                         `json:"records,omitempty"`
 }
 ```
 
@@ -1621,7 +1709,7 @@ Task-1 local target recheck marks caller.go SourceCorrelation=current when retai
 references projection emits target.go -> caller.go referenced_by
 callers projection emits target.go -> caller.go called_by
 affected relation subjects are path -> path
-relation provenance contains exact query_source_ref and target_source_ref
+relation provenance contains the stable exact source-pair fingerprint and contains no opaque query/target SourceRef IDs
 semantic relation SourceGeneration equals the fast SourceCut generation but is not treated as content digest
 definition/callee/type-definition records remain inspect.code navigation facts and are absent from P1 affected relations
 semantic dependent domain/relations never claim complete coverage
@@ -1642,7 +1730,7 @@ fast workspace cut:
 
 exact target/query authority:
   old SourceRef retains old exact bytes
-  bounded binder recheck compares current path bytes to retained bytes
+  non-retaining CompareCurrent compares current path bytes to retained bytes without minting SourceRefs
 ```
 
 Include a fixture where target bytes change while the Git fast snapshot facts/generation intentionally remain equal. Assert the cross-file record becomes `source_changed_during_query` (or `unknown` if exact recheck cannot finish), never `current` because generations compare equal.
@@ -1652,8 +1740,9 @@ Also prove:
 ```text
 old SourceRef still resolves retained old bytes
 new query may produce a new SourceRef without rebinding the old one
-old semantic relation retains its original query/target SourceRef provenance
-new relation identity reflects new exact provenance even when fast generation is equal
+old code result retains its original query/target SourceRef deep handles
+unchanged exact endpoint bytes across newly allocated SourceRefs keep relation identity stable
+changed exact endpoint bytes produce a new source-pair fingerprint and relation identity even when fast generation is equal
 changed/unknown record remains visible as code fact but is omitted from P1 affected projection
 ```
 
@@ -1724,7 +1813,28 @@ if rg -n 'semantic_(definition|callee|import_target)|QueryDefinition|QueryCallee
 fi
 ```
 
-P4-A production query/action vocabulary must not gain mutation/debug actions, and completion-truth fields remain forbidden as in the existing architecture gates.
+P4-A production query/action vocabulary must not gain mutation/debug actions:
+
+```bash
+if rg -n '"(rename|workspace_edit|code_action|debug\.start|debug\.attach|evaluate|setVariable|writeMemory)"' \
+  internal/core/codeintel internal/app/codeintel cmd/shellbeam/code_intelligence.go \
+  api/schema/ipc-v2.json api/schema/mcp-output-v2.json; then
+  echo 'mutation/debug vocabulary leaked into P4-A production surface' >&2
+  exit 1
+fi
+```
+
+Completion-truth fields remain forbidden on the P4-A production surface:
+
+```bash
+if rg -n '(task_complete|work_complete|safe_to_finish)' \
+  internal/core/codeintel internal/app/codeintel cmd/shellbeam/code_intelligence.go \
+  api/schema/ipc-v2.json api/schema/mcp-output-v2.json; then
+  echo 'task-completion truth leaked into P4-A production surface' >&2
+  exit 1
+fi
+```
+
 
 - [ ] **Step 6: Run fresh targeted + repository verification**
 
@@ -1787,7 +1897,7 @@ git -c core.hooksPath=.githooks commit -m "test: qualify p4a code intelligence f
 | Fast workspace generation separate from exact source bytes | Task 1 | one-way `SourceCut` comparison + exact SourceRef/binder recheck tests |
 | Cross-file/current changed-during-query honesty | Tasks 1/2/7 | bounded target recheck; changed/unknown record retained but not projected |
 | True affected-edge direction | Task 2 | references/callers reverse dependents only; path→path P1 projection |
-| authority × coverage × fast generation × exact provenance | Task 2 | path selectors + query/target SourceRef provenance identity tests |
+| authority × coverage × fast generation × exact provenance | Task 2 | path selectors + stable exact source-pair provenance; opaque SourceRefs excluded from RelationID |
 | no universal semantic completeness | Task 2/7 | semantic dependents bounded/partial/unknown, never complete |
 | no automatic semantic fan-out | Tasks 2/6 | projector has no ProviderPool + query-count acceptance |
 | provider-neutral fact envelope only | Task 3 | reflection negative-policy test |
@@ -1837,7 +1947,7 @@ Before execution approval, all answers must be mechanically supportable from thi
 7. Does one `inspect.code` request still cause one provider query? **Yes.**
 8. Which navigation facts enter P1 affected projection V1? **Only exact mechanical reverse dependents: referenced-by and called-by.**
 9. Can definition, callee, type-definition or import-target navigation widen P1 affected paths in V1? **No.**
-10. Are affected endpoints usable by P1 `MatchPaths`? **Yes; projected subjects are path→path, while exact query/target SourceRefs are provenance.**
+10. Are affected endpoints usable by P1 `MatchPaths`? **Yes; projected subjects are path→path. Opaque query/target SourceRefs remain separate deep handles, while RelationID provenance uses the stable exact source-pair fingerprint.**
 11. Can changed/unknown/advisory/provider-reported code facts become P1 affected relations? **No.**
 12. Can semantic absence prove universal non-applicability? **No; P4-A semantic-dependent coverage is never complete V1.**
 13. Does provider-neutral code own pool/queue/cooldown/session policy? **No.**

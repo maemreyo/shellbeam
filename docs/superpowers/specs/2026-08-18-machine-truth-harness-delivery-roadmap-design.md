@@ -1,7 +1,7 @@
 # ShellBeam Machine Truth Harness Delivery Roadmap Design
 
 Date: 2026-08-18
-Status: approved architecture roadmap; sequencing amendment proposed for P4-A/P6-A-before-P2 ordering pending review
+Status: approved architecture roadmap; P4-A/P6-A-before-P2 sequencing amendment approved/frozen; execution remains gated by each node's approved plan and prerequisite evidence
 Baseline: latest `origin/main` at final semantic-freeze refresh, `33fe40999910a08410204993b9edb8f7e58698a5`
 Scope: prioritized work needed to evolve ShellBeam into the Machine Truth Harness defined by the 2026-08-18 architecture specs
 

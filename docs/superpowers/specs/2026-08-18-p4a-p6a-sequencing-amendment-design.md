@@ -109,15 +109,22 @@ P4-A SHOULD make the normal model-facing `inspect.code` output usable as `path:l
 
 P4-A may translate qualified existing semantic facts into the affected-relation vocabulary frozen by P1.
 
-Initial candidates:
+P4-A V1 affected projection is deliberately narrower than the full navigation vocabulary:
 
 ```text
-reference
-caller
+AFFECTED / reverse dependent edges
+reference -> referenced_by
+caller    -> called_by
+
+NAVIGATION-ONLY in P4-A V1
+definition
+type-definition
 callee
 resolved import target
-definition/type-definition where useful for navigation, not blast-radius inflation by default
+import declaration
 ```
+
+Only the reverse/dependent facts may enter P1 `AffectedSurface` V1. Forward dependency/navigation facts remain available through `inspect.code` but SHALL NOT widen path-based verification obligations. A future affected mapping for imports or other navigation requires a separately reviewed producer/direction contract.
 
 The bridge SHALL preserve:
 
