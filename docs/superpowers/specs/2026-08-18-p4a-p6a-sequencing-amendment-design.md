@@ -1,7 +1,7 @@
 # ShellBeam P4-A / P6-A Sequencing Amendment Design
 
 Date: 2026-08-18
-Status: proposed sequencing amendment; does not alter frozen Machine Truth / Verification / Engineering-State semantics
+Status: approved/frozen sequencing checkpoint; execution of each DAG node remains gated by its own approved plan and prerequisite evidence; does not alter frozen Machine Truth / Verification / Engineering-State semantics
 Scope: reorder read-only Code Intelligence and narrow DAP provider work ahead of EngineeringStateView and Mutation Transaction implementation while preserving mutation/evidence/authority boundaries
 
 ## 1. Decision
