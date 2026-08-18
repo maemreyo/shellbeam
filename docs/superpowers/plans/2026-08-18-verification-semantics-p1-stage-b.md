@@ -87,6 +87,7 @@ Durable P1 additions remain only Stage-A policy snapshots/activation/waiver auth
 
 **Files:**
 - Create: `internal/core/verification/evidence.go`
+- Modify: `internal/core/evidence/types.go` only to define the closed `RerunReason` / `VerificationAttemptIntent` value types needed by the candidate contract; operation-authority plumbing remains Task 2
 - Create: `internal/core/verification/evidence_test.go`
 - Create: `internal/adapter/verification/evidence_source.go`
 - Create: `internal/adapter/verification/evidence_source_test.go`
@@ -208,7 +209,9 @@ raw evidence without that typed binding
 
 There are no invented "generic provider classes" for raw `test/build/...`. A current policy requirement may classify an **exact bound project command** as a stronger semantic provider class during `RequirementEvaluation`; that is a derived evaluation binding, not a mutation/elevation of the immutable evidence candidate. Stage B MUST NOT infer stronger semantics from `VerificationKind`, command names, argv, or historical behavior.
 
-Candidate source sets `SourceGeneration` from `Record.Source.PostGeneration` when present, otherwise `PreGeneration`; `SourceContentDigest` comes only from the existing source binding; `ProjectBindingDigest`/`ManifestDigest` come from `Record.Command`; environment fields come only from `Record.EnvironmentBinding`. It loads the immutable operation reservation by `OperationID` to obtain `VerificationAttempt`. `SemanticContractDigest` is the existing immutable `Record.ContractDigest` because attempt provenance is stored outside `evidence.Contract`; it MUST equal the reservation evidence-contract digest when that reservation is available. A mismatch is corruption/unknown compatibility, never a new semantic cohort invented by P1.
+Candidate source sets `SourceGeneration` from `Record.Source.PostGeneration` when present, otherwise `PreGeneration`; `SourceContentDigest` comes only from the existing source binding; `ProjectBindingDigest`/`ManifestDigest` come from `Record.Command`; environment fields come only from `Record.EnvironmentBinding`. Task 1 defines the closed `RerunReason` / `VerificationAttemptIntent` value types so the candidate contract compiles, but current Evidence Ledger records carry no attempt authority and therefore `Attempt` remains nil/unknown in Task 1. `SemanticContractDigest` is the existing immutable `Record.ContractDigest`.
+
+Task 2 owns the first reservation-authority join by `OperationID`: after attempt provenance is frozen into `operation.Reservation`, `internal/adapter/verification/evidence_source.go` is extended to populate `VerificationAttempt` and prove that `SemanticContractDigest` equals the reservation evidence-contract digest. A mismatch is corruption/unknown compatibility, never a new semantic cohort invented by P1. This ordering avoids inventing attempt provenance before the immutable reservation can actually bind it.
 
 - [ ] **Step 4: Bound reads and pagination**
 
@@ -237,7 +240,7 @@ git -c core.hooksPath=.githooks commit -m "feat: adapt evidence for verification
 - Create: `internal/app/verification/stability.go`
 - Create: `internal/app/verification/stability_test.go`
 - Reuse: Stage-A `internal/core/verification/policy.go` stability/flake vocabulary; only focused evaluator tests change
-- Modify: `internal/core/evidence/types.go` and focused tests to define pre-execution rerun intent vocabulary
+- Extend: `internal/core/evidence/types.go` focused tests for the pre-execution rerun intent vocabulary defined in Task 1
 - Modify: `internal/core/operation/intent.go`, `internal/core/operation/project_command.go`, and `internal/core/operation/persistence.go` only to bind that intent into observation/request/reservation identity
 - Modify: `internal/adapter/store/reservation.go` and focused reservation replay/compatibility tests
 - Modify: `internal/app/daemon/types.go` and the existing start reservation builders
