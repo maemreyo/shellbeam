@@ -17,7 +17,9 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
-type Owner struct{}
+type Owner struct {
+	resources resourceProvider
+}
 type Handle struct {
 	cmd         *exec.Cmd
 	stdin       *os.File
