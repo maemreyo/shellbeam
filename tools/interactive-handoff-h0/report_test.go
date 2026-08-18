@@ -107,6 +107,28 @@ func qualifyProviderFacts(report *Report, candidate string) {
 	report.Results[indexOf(report.Results, "P4")].Facts["observation_topology"] = "unqualified"
 }
 
+func TestWrapperQualificationIsAdvisoryAndDoesNotChangeMachineGate(t *testing.T) {
+	reports := passingNativeReports(t)
+	for i := range reports {
+		qualifyProviderFacts(&reports[i].Report, candidatePerSessionObserver)
+		reports[i] = bindReport(t, reports[i].Report)
+	}
+	gate := gateFromReports(reports)
+	if !gate.H1Allowed || gate.ControlAdapter != "raw_control_mode" {
+		t.Fatalf("raw machine gate changed by wrapper advisory: %#v", gate)
+	}
+	markdown, err := renderMarkdown(gate, reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(markdown)
+	for _, want := range []string{wrapperCandidate, wrapperVerdict, wrapperReason, wrapperRecommendation, "advisory; not part of `H1_ALLOWED`"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("markdown missing %q\n%s", want, text)
+		}
+	}
+}
+
 func TestGateJSONRoundTripIsDeterministic(t *testing.T) {
 	reports := passingNativeReports(t)
 	gate := gateFromReports(reports)

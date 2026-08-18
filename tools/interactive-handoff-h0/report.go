@@ -14,6 +14,13 @@ import (
 	"strings"
 )
 
+const (
+	wrapperCandidate      = "github.com/atomicstack/gotmuxcc@v0.1.4"
+	wrapperVerdict        = "FAIL"
+	wrapperReason         = "P5_FIRST_BYTE_PRIVACY+PANE_OUTPUT_PARSE_ERROR"
+	wrapperRecommendation = "own thin Control Mode adapter"
+)
+
 func validateStatus(s Status) error {
 	switch s {
 	case StatusPass, StatusFail, StatusNotRun:
@@ -363,6 +370,13 @@ func renderMarkdown(gate QualificationGate, reports []BoundReport) ([]byte, erro
 	fmt.Fprintf(&b, "- Spec commit: `%s`\n", gate.SpecCommit)
 	fmt.Fprintf(&b, "- Provider: `%s` v%d\n", gate.ProviderID, gate.ProviderVersion)
 	fmt.Fprintf(&b, "- H1_ALLOWED: `%t`\n", gate.H1Allowed)
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "## Optional wrapper qualification")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "- Candidate: `%s`\n", wrapperCandidate)
+	fmt.Fprintf(&b, "- Verdict: `%s` (advisory; not part of `H1_ALLOWED`)\n", wrapperVerdict)
+	fmt.Fprintf(&b, "- Reason: `%s`\n", wrapperReason)
+	fmt.Fprintf(&b, "- Recommendation: `%s`\n", wrapperRecommendation)
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "| Platform | tmux | Verdict | Report SHA-256 |")
 	fmt.Fprintln(&b, "|---|---|---|---|")
