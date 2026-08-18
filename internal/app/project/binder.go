@@ -93,11 +93,8 @@ func bindTarget(load core.LoadResult, commandID string) (core.Manifest, core.Com
 	if !ok || commandID == "" {
 		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotFound, map[string]string{"command": commandID}, fmt.Errorf("project command not found"))
 	}
-	if len(command.Params) == 0 {
-		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotParameterized, map[string]string{"command": commandID}, fmt.Errorf("project command is not parameterized"))
-	}
 	if len(command.Argv) == 0 || command.Shell != "" {
-		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotParameterized, map[string]string{"command": commandID}, fmt.Errorf("parameterized project command must use argv"))
+		return core.Manifest{}, core.Command{}, failure.New(failure.ProjectCommandNotParameterized, map[string]string{"command": commandID}, fmt.Errorf("typed project command must use argv"))
 	}
 	return manifest, command, nil
 }

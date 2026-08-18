@@ -840,9 +840,10 @@ type VerificationWaiverIntent struct {
 }
 
 type WaiverRevocationIntent struct {
-    WaiverID   string
-    Authority  string
-    Actor      string
+    RepositoryID string // resolved by PolicyService from workspace_id; never trusted as a public caller-supplied authority selector
+    WaiverID     string
+    Authority    string
+    Actor        string
 }
 ```
 
@@ -1026,7 +1027,7 @@ After successful activation, that activation is the repository's current effecti
 
 - [ ] **Step 4: Implement waiver validity without evidence rewriting**
 
-`TestWaiverScopeExpiryPolicyDigestDeterministic` covers exact policy/rule/phase/generation/checkpoint/expiry matching. `SetWaiver` canonicalizes caller-stable `VerificationWaiverIntent` and performs `FindWaiver` before any timestamp generation. New IDs validate the referenced effective policy/rule, configured authority class, bounded reason, phase/generation/checkpoint scope, and deterministic expiry; the store stamps `CreatedAt` once. Same ID/same intent returns the original record/time; same ID/different intent conflicts. If a matching revocation already exists, replay returns `WaiverWriteResult{Replayed:true, Active:false}` and never removes/replaces the revocation. Waiver reason is required and bounded to 1..1024 UTF-8 bytes; actor is bounded as above. `RevokeWaiver` applies the same lookup/fingerprint-first rule with `WaiverRevocationIntent`: stamp `RevokedAt` once on first-create, create-once durable revocation, same-intent replay returns original timestamp. `ActiveWaivers(...)` returns current waiver facts but never changes evidence status.
+`TestWaiverScopeExpiryPolicyDigestDeterministic` covers exact policy/rule/phase/generation/checkpoint/expiry matching. `SetWaiver` canonicalizes caller-stable `VerificationWaiverIntent` and performs `FindWaiver` before any timestamp generation. New IDs validate the referenced effective policy/rule, configured authority class, bounded reason, phase/generation/checkpoint scope, and deterministic expiry; the store stamps `CreatedAt` once. Same ID/same intent returns the original record/time; same ID/different intent conflicts. If a matching revocation already exists, replay returns `WaiverWriteResult{Replayed:true, Active:false}` and never removes/replaces the revocation. Waiver reason is required and bounded to 1..1024 UTF-8 bytes; actor is bounded as above. `RevokeWaiver` resolves `RepositoryID` from the request's `workspace_id`, then applies the same lookup/fingerprint-first rule with `WaiverRevocationIntent`; repository scope participates in the intent fingerprint so identical `WaiverID` values in different repositories cannot cross-revoke. Stamp `RevokedAt` once on first-create, create-once durable revocation, same-intent replay returns original timestamp. `ActiveWaivers(...)` returns current waiver facts but never changes evidence status.
 
 - [ ] **Step 5: Run GREEN/race and commit**
 

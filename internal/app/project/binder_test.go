@@ -185,7 +185,7 @@ required=true
 	}
 }
 
-func TestBinderRejectsNonV2UnknownUnparameterizedAndParameterizedShell(t *testing.T) {
+func TestBinderRejectsNonV2UnknownAndParameterizedShell(t *testing.T) {
 	v1 := bindProjectLoad(t, "schema_version=1\n[commands.test]\nargv=[\"true\"]\n")
 	if _, err := NewBinder(fakeWorkspaceLookup{values: []workspace.Workspace{bindWorkspace()}}, &fakeLoader{result: v1}, &fakePathValidator{}, &fakePackageValidator{}).Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}); err == nil {
 		t.Fatal("v1 manifest accepted typed bind")
@@ -195,8 +195,8 @@ func TestBinderRejectsNonV2UnknownUnparameterizedAndParameterizedShell(t *testin
 	if _, err := binder.Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "missing"}); err == nil {
 		t.Fatal("unknown command accepted")
 	}
-	if _, err := binder.Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}); err == nil {
-		t.Fatal("unparameterized command accepted")
+	if _, err := binder.Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}); err != nil {
+		t.Fatalf("fixed zero-parameter argv rejected: %v", err)
 	}
 	// Parser rejects parameterized shell manifests; binder must never invent shell interpolation.
 	if _, err := core.Parse([]byte("schema_version=2\n[commands.test]\nshell=\"echo {name}\"\ncwd=\".\"\n[commands.test.params.name]\nkind=\"string\"\nrequired=true\n")); err == nil {
@@ -360,13 +360,6 @@ required=true
 		{"unknown", NewBinder(workspaceLookup, &fakeLoader{result: valid}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test", Params: map[string]string{"name": "ok", "extra": "x"}}, failure.ParameterUnknown},
 		{"invalid", NewBinder(workspaceLookup, &fakeLoader{result: valid}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test", Params: map[string]string{"name": "line\nbreak"}}, failure.ParameterInvalid},
 	}
-	unparameterized := bindProjectLoad(t, "schema_version=2\n[commands.test]\nargv=[\"true\"]\ncwd=\".\"\n")
-	cases = append(cases, struct {
-		name    string
-		binder  *Binder
-		request BindRequest
-		code    failure.Code
-	}{"not parameterized", NewBinder(workspaceLookup, &fakeLoader{result: unparameterized}, &fakePathValidator{}, &fakePackageValidator{}), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}, failure.ProjectCommandNotParameterized})
 	packageLoad := bindProjectLoad(t, `schema_version=2
 [commands.test]
 argv=["go","test","{pkg}"]
@@ -425,5 +418,50 @@ provider="go"
 	command.ExpectedOutputs[0].Path = "dist/mutated.json"
 	if got.ExpectedOutputs[0].Path != "dist/report.json" {
 		t.Fatalf("binding aliased mutable manifest output: %#v", got.ExpectedOutputs)
+	}
+}
+
+func TestBinderBindsV2FixedArgvWithoutParameters(t *testing.T) {
+	load := bindProjectLoad(t, "schema_version=2\n[commands.test]\nargv=[\"go\",\"test\",\"./...\"]\ncwd=\".\"\nkind=\"test\"\nsource_scope=\"full\"\n")
+	binder := NewBinder(fakeWorkspaceLookup{values: []workspace.Workspace{bindWorkspace()}}, &fakeLoader{result: load}, &fakePathValidator{}, &fakePackageValidator{})
+	got, err := binder.Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Parameters) != 0 || len(got.ResolvedArgv) != 3 || got.ResolvedArgv[2] != "./..." {
+		t.Fatalf("binding=%#v", got)
+	}
+	wantFP, err := core.ParameterFingerprint(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ParameterFingerprint != wantFP {
+		t.Fatalf("fp=%q want=%q", got.ParameterFingerprint, wantFP)
+	}
+	a, err := got.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := binder.Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := again.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != b {
+		t.Fatalf("digest changed %s %s", a, b)
+	}
+}
+
+func TestBinderFixedArgvStillRejectsV1AndShellForms(t *testing.T) {
+	v1 := bindProjectLoad(t, "schema_version=1\n[commands.test]\nargv=[\"true\"]\n")
+	if _, err := NewBinder(fakeWorkspaceLookup{values: []workspace.Workspace{bindWorkspace()}}, &fakeLoader{result: v1}, nil, nil).Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}); err == nil {
+		t.Fatal("v1 accepted")
+	}
+	shell := bindProjectLoad(t, "schema_version=2\n[commands.test]\nshell=\"true\"\ncwd=\".\"\n")
+	if _, err := NewBinder(fakeWorkspaceLookup{values: []workspace.Workspace{bindWorkspace()}}, &fakeLoader{result: shell}, nil, nil).Bind(context.Background(), BindRequest{WorkspaceID: string(bindWorkspace().ID), CommandID: "test"}); err == nil {
+		t.Fatal("shell accepted")
 	}
 }

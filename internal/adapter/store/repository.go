@@ -57,6 +57,7 @@ type Repository struct {
 	persistentSessionMu      sync.Mutex
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
+	verificationMu           sync.Mutex
 	observationHighWatermark uint64
 	observationWake          chan struct{}
 	writer                   atomicWriter
@@ -194,6 +195,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initPersistentSessionStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initVerificationStore(); err != nil {
 		return nil, err
 	}
 	if err := repository.initAdmissionLedger(); err != nil {
