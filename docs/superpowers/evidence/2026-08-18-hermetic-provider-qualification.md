@@ -140,4 +140,21 @@ toolchain, dependency, or source input.**
   implement Tasks 1+.
 - Native gate unavailable => `NOT_RUN`; do not implement Tasks 1+.
 
+### Native run 1 finding — targeted LSM prerequisite discovered
+
+PR #11 native run `32100496656` built the exact upstream provider successfully,
+but the first sandbox smoke failed on the ordinary Ubuntu runner with
+`bwrap: loopback: Failed RTM_NEWADDR: Operation not permitted`. This is a hard
+`FAIL`, not provider evidence.
+
+The failure matches Ubuntu/AppArmor unprivileged-user-namespace restrictions:
+bubblewrap needs temporary namespace capabilities during setup (including
+`CAP_NET_ADMIN` for loopback), while the sandbox child must not retain them. The
+next qualification attempt therefore uses the targeted distro-provided
+`bwrap-userns-restrict` profile bound to `/usr/bin/bwrap` and installs the exact
+A0 binary at that path. It does **not** disable AppArmor, change the global
+user-namespace sysctl, or run ordinary sandbox commands as root. The AppArmor
+package/profile version and SHA-256 are evidence inputs and must be requalified
+on drift.
+
 Until a fresh native run is attached below, the decision remains `PENDING_NATIVE`.

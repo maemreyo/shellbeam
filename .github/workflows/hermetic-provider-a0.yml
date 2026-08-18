@@ -25,7 +25,8 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            build-essential meson ninja-build pkg-config libcap-dev libselinux1-dev strace
+            build-essential meson ninja-build pkg-config libcap-dev libselinux1-dev strace \
+            apparmor-profiles apparmor-utils
 
       - name: Build exact upstream bubblewrap provider
         run: |
@@ -54,9 +55,36 @@ jobs:
             printf 'runner=%s\n' "$(uname -srmo)"
           } > .build/hermetic-a0/source-build.txt
 
+      - name: Qualify Ubuntu AppArmor boundary without global weakening
+        run: |
+          set -euo pipefail
+          built="$GITHUB_WORKSPACE/.build/hermetic-a0-provider/bwrap"
+          built_sha="$(sha256sum "$built" | awk '{print $1}')"
+          sudo install -m 0755 "$built" /usr/bin/bwrap
+          test "$(sha256sum /usr/bin/bwrap | awk '{print $1}')" = "$built_sha"
+          restrict='unavailable'
+          if [[ -r /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            restrict="$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns)"
+          fi
+          profile="$(find /etc/apparmor.d /usr/share/apparmor -type f -name 'bwrap-userns-restrict' -print 2>/dev/null | head -1 || true)"
+          {
+            printf 'apparmor_restrict_unprivileged_userns=%s\n' "$restrict"
+            printf 'apparmor_package=%s\n' "$(dpkg-query -W -f='${Version}' apparmor 2>/dev/null || true)"
+            printf 'apparmor_profiles_package=%s\n' "$(dpkg-query -W -f='${Version}' apparmor-profiles 2>/dev/null || true)"
+          } > .build/hermetic-a0/apparmor-identity.txt
+          if [[ "$restrict" == 1 ]]; then
+            test -n "$profile"
+            printf 'apparmor_profile_sha256=%s\n' "$(sha256sum "$profile" | awk '{print $1}')" >> .build/hermetic-a0/apparmor-identity.txt
+            sudo apparmor_parser -r "$profile"
+            sudo aa-status > .build/hermetic-a0/apparmor-status.txt || true
+          else
+            printf 'apparmor_profile_sha256=not_required\n' >> .build/hermetic-a0/apparmor-identity.txt
+          fi
+          /usr/bin/bwrap --version
+
       - name: Run native provider qualification matrix
         env:
-          HERMETIC_A0_BWRAP: ${{ github.workspace }}/.build/hermetic-a0-provider/bwrap
+          HERMETIC_A0_BWRAP: /usr/bin/bwrap
         run: ./scripts/test-hermetic-provider-a0.sh
 
       - name: Upload bounded A0 evidence
