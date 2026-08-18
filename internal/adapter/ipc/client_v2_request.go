@@ -40,16 +40,7 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	case "inspect.activity":
 		req.ActivityID = in.ActivityID
 	case "inspect.sessions":
-		req.SessionName = in.SessionInspect.SessionName
-		req.ActivityID = in.SessionInspect.ActivityID
-		req.WorkspaceID = in.SessionInspect.WorkspaceID
-		req.State = in.SessionInspect.State
-		if in.SessionInspect.PersistentOnly != nil {
-			value := *in.SessionInspect.PersistentOnly
-			req.PersistentOnly = &value
-		}
-		req.MaxRecords = in.SessionInspect.Limit
-		req.Continuation = in.SessionInspect.Cursor
+		applySessionInspectV2(req, in)
 	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		applyMutationScopeV2(req, in)
 	case "inspect.events":
@@ -95,6 +86,19 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		req.Signal = in.Kill.Signal
 	}
 
+}
+
+func applySessionInspectV2(req *RequestV2, in bridge.Request) {
+	req.SessionName = in.SessionInspect.SessionName
+	req.ActivityID = in.SessionInspect.ActivityID
+	req.WorkspaceID = in.SessionInspect.WorkspaceID
+	req.State = in.SessionInspect.State
+	if in.SessionInspect.PersistentOnly != nil {
+		value := *in.SessionInspect.PersistentOnly
+		req.PersistentOnly = &value
+	}
+	req.MaxRecords = in.SessionInspect.Limit
+	req.Continuation = in.SessionInspect.Cursor
 }
 
 func applyCheckpointBridgeRequestV2(req *RequestV2, in bridge.Request) {

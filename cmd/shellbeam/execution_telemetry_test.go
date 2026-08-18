@@ -92,8 +92,11 @@ func TestTelemetryDaemonCollectsOnlyAfterTerminalAndRestartDoesNotDuplicate(t *t
 		t.Fatalf("compatible samples=%d err=%v", available, err)
 	}
 	stop()
+	assertTelemetryPersistsAcrossRestart(t, stateDir, runtimeDir, store, record)
+}
 
-	// Inspect the persisted history with the application service before restart.
+func assertTelemetryPersistsAcrossRestart(t *testing.T, stateDir, runtimeDir string, store *storeadapter.Repository, record core.PerformanceRecord) {
+	t.Helper()
 	inspector, err := telemetryapp.New(store)
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +117,7 @@ func TestTelemetryDaemonCollectsOnlyAfterTerminalAndRestartDoesNotDuplicate(t *t
 		t.Fatalf("restart telemetry=%#v found=%v err=%v", after, found, err)
 	}
 	afterKey, _ := core.CompatibilityKey(after)
-	available, err = reopened.CountCompatiblePerformance(context.Background(), afterKey)
+	available, err := reopened.CountCompatiblePerformance(context.Background(), afterKey)
 	if err != nil || available != 1 {
 		t.Fatalf("restart duplicated telemetry samples=%d err=%v", available, err)
 	}

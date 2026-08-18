@@ -210,6 +210,10 @@ func (r Receipt) Validate() error {
 	default:
 		return fmt.Errorf("unsupported receipt schema")
 	}
+	return r.validateCommonEvidence()
+}
+
+func (r Receipt) validateCommonEvidence() error {
 	if r.InputDeliveredBytes > r.InputAcceptedBytes {
 		return fmt.Errorf("delivered input exceeds accepted")
 	}
