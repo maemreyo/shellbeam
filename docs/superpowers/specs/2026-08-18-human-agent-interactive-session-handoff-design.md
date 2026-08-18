@@ -1,6 +1,6 @@
 # ShellBeam Human–Agent Interactive Session Handoff Design
 
-**Status:** draft for review and external debate; not implementation-approved
+**Status:** frozen master architecture; approved for H0 provider-qualification planning only; feature implementation not yet approved
 
 **Execution/design base:** `33fe40999910a08410204993b9edb8f7e58698a5` (`main`, 2026-08-18)
 
@@ -72,23 +72,28 @@ The feature SHALL preserve ShellBeam's existing evidence-first and fail-closed p
 
 ## 2. Decision summary
 
-The recommended design is:
+The frozen design is:
 
 1. **tmux is the initial delegated interactive-session provider.** ShellBeam SHALL use tmux Control Mode as the application integration protocol rather than implementing a terminal multiplexer or arbitrary PTY takeover layer.
 2. ShellBeam SHALL run delegated sessions on a **ShellBeam-private tmux server/socket**, not the user's normal tmux server, and SHALL start it with a controlled configuration rather than loading arbitrary user tmux configuration.
-3. Existing `tty=true, persistent=false` remains the current direct PTY path. Existing `persistent=true, tty=false` remains B1.0 persistent non-TTY supervision. A negotiated future capability MAY define `persistent=true, tty=true` as the new delegated persistent interactive path; older daemons continue to reject it.
-4. ShellBeam core SHALL separate three provider dimensions:
-   - `InteractiveSessionProvider` — tmux/session mechanics;
+3. Delegated execution is selected explicitly with `session_mode="delegated_interactive"`. When `session_mode` is present, legacy `tty`/`persistent` fields are absent; when it is absent, existing `tty`/`persistent` semantics remain unchanged. Unsupported peers fail closed before spawn.
+4. ShellBeam core SHALL keep three provider dimensions orthogonal:
+   - `InteractiveSessionProvider` — tmux/session mechanics and ingress-fence capability;
    - `TerminalLauncherProvider` — Ghostty/iTerm2/WezTerm/kitty/Terminal.app/etc.;
    - `ShellIntegrationProvider` — fish/zsh/bash/Nushell/etc.
-5. Terminal selection SHALL be **automatic and contextual**, with no required static `preferred_terminal`. Exact request-origin terminal identity wins when available; frontmost/recent-terminal activity is a fallback, not the sole source.
-6. Human/agent input ownership SHALL be explicit. A human client is writable only during `HUMAN_OWNED`; after safe reclaim it becomes tmux `read-only`/observer even if the window stays open.
-7. Secret-bearing handoff SHALL create a **private output interval**. Model-visible output capture is disabled for the delegated pane while the human may type secret material. No private bytes, hashes, or deterministic secret-derived values are persisted or returned.
-8. Readiness SHALL be event-driven and scoped to an active handoff. There are no busy loops, per-session pollers, or permanent shell hooks. Safe-boundary hooks are installed temporarily and removed immediately after completion/cancel/expiry.
-9. Supported shell adapters MAY prove typed predicates such as "environment variable is exported and non-empty" without returning its value. Unsupported shells degrade to manual completion; ShellBeam never guesses Bash syntax for an unknown shell.
-10. Simple interactive CLI input (`y/n`, Enter, menu choice, control bytes) can remain agent-driven while the agent owns the session. Secret, consequential, unknown, or complex interactions can hand off to the human.
-11. Arbitrary adoption of an already-running external Ghostty/fish PTY is **not** part of V1. A future Linux-only experimental provider may investigate reptyr-like adoption, but it is not the product foundation and cannot supply macOS parity.
-12. The shipped product SHALL have no dependency on the ShellBeam source checkout path, developer Homebrew layout, or this machine's shell/terminal configuration.
+   Human-control actions are a separate semantic capability and need not require a fourth Go interface.
+5. Terminal selection SHALL be automatic and contextual, with no required static `preferred_terminal`. Existing session affinity wins; then active/recent supported terminal evidence; a bridge-launch terminal is only a freshness-bounded hint, not timeless request origin.
+6. Human/agent authority SHALL use a durable `authority_epoch`. A transfer rotates the epoch as soon as transfer intent is durably accepted. Previously accepted mutations replay their durable outcomes; previously unseen stale-epoch mutations never execute.
+7. **Owner state, ingress fencing, transfer boundary, privacy release, capture state, and provider-observed authority are distinct correctness dimensions.** Combined names such as `HUMAN_OWNED`, `RECLAIM_PENDING`, or `PRIVATE_ABORTED` are derived status/UX projections, not the canonical durable state.
+8. Secret-bearing handoff SHALL create a private output interval before human write authority. `TransferBoundary` is sufficient for a new owner to begin input; `PrivacyReleaseProof` is separately required before model-visible capture resumes.
+9. Privacy is defined over **every model-visible observation path**, not over a presumed pane-local tmux primitive. H0 SHALL qualify a topology that prevents private session A from leaking while not silently suppressing unrelated public sessions B/C, including reconnect/observer replacement faults.
+10. Readiness SHALL be event-driven and scoped to an active handoff. There are no busy loops, per-session pollers, permanent shell hooks, or capture-pane polling. Shell adapters provide automatic readiness; manual HumanControl remains shell-independent.
+11. HumanControl actions (`ready`, `abort`, `status`, and state-appropriate `resume`/`terminate`/optional `request_control`) MUST remain **locally reachable** without sending control text into the delegated pane. The design does not require arbitrary key bindings to work inside a read-only tmux client.
+12. Infrastructure attachment is presentation, not environment synchronization. Human attach, switch, daemon reattach, and control observation SHALL preserve the delegated session environment unless a future explicit environment-sync capability says otherwise; the tmux provider must qualify `-E`/equivalent behavior.
+13. A human may leave a terminal open after reclaim only when the exact human ingress is fenced. For tmux V1 this may project as a passive read-only observer; ShellBeam does not promise cross-terminal copy-mode/history navigation semantics.
+14. Simple interactive CLI input (`y/n`, Enter, menu choice, control bytes) can remain agent-driven while the agent owns the session. Secret, consequential, unknown, or complex interactions can hand off to the human.
+15. Arbitrary adoption of an already-running external Ghostty/fish PTY is **not** part of V1. A future Linux-only experimental provider may investigate reptyr-like adoption, but it is not the product foundation and cannot supply macOS parity.
+16. The shipped product SHALL have no dependency on the ShellBeam source checkout path, developer Homebrew layout, or this machine's shell/terminal configuration.
 
 ---
 
@@ -250,7 +255,27 @@ A declared time interval during which terminal output for a delegated pane is in
 
 `AGENT_OWNED` and `HUMAN_OWNED` are ShellBeam control-plane arbitration states. They are not Unix user/security identities. Both parties operate inside the current local user's trust boundary.
 
-### 7.7 Capability verification
+### 7.7 Authority epoch
+
+A monotonically changing authorization lifetime for delegated-session mutations. `input_offset` remains the ordering/idempotency coordinate for agent-submitted input; `authority_epoch` determines whether a previously unseen control mutation still has authority to execute.
+
+### 7.8 Ingress fence
+
+A proof that no **new** input from a specified authority can be admitted after the fence point. It does not claim that already-delivered bytes have drained through the kernel PTY or foreground application.
+
+### 7.9 Transfer boundary
+
+A proof or explicitly typed attestation sufficient to let the next owner begin input without racing the previous interaction. Its quality may be `shell_boundary`, `process_boundary`, `provider_ordered`, or `human_attested`; the exact admitted qualities are capability/policy decisions.
+
+### 7.10 Privacy release proof
+
+A proof that future output may become model-visible again without exposing bytes from a private interval. A human `ready` signal by itself may establish a transfer boundary for a manual flow but SHALL NOT by itself establish privacy release for a secret flow.
+
+### 7.11 HumanControl capability
+
+A shell-independent local control surface for human actions such as ready, abort, status, resume, terminate, or optional request-control. Required actions must remain locally reachable in the authority states where they are needed without injecting control text into the delegated pane.
+
+### 7.12 Capability verification
 
 A real post-handoff command proving that the desired authority works, for example `tunnel-client doctor`. It is stronger than merely observing that an environment variable exists.
 
@@ -346,22 +371,19 @@ Terminal emulator choice and shell language are orthogonal. There SHALL NOT be p
 
 ### 10.1 `InteractiveSessionProvider`
 
-Conceptual port:
+Conceptual semantic capabilities:
 
-```go
-type InteractiveSessionProvider interface {
-    Probe(ctx context.Context) Capability
-    Create(ctx context.Context, spec SessionSpec) (ProviderSession, error)
-    AttachControl(ctx context.Context, ref ProviderRef) (ControlHandle, error)
-    Write(ctx context.Context, h ControlHandle, input []byte) error
-    SetOutputMode(ctx context.Context, h ControlHandle, mode OutputMode) error
-    SetHumanClientWritable(ctx context.Context, client ClientRef, writable bool) error
-    Inspect(ctx context.Context, ref ProviderRef) (ProviderState, error)
-    Close(ctx context.Context, ref ProviderRef) error
-}
+```text
+probe/create/inspect/close exact provider session
+attach model-visible control observer(s)
+write agent input under current authority
+set/observe exact human-client writability
+FenceHumanIngress(session, client, authority_epoch) -> IngressFenceProof
+establish/release privacy observation under qualified topology
+preserve delegated environment across attach/switch/reattach
 ```
 
-The exact Go shape belongs in the implementation plan. Core semantics SHALL NOT mention tmux commands directly.
+The exact Go shape belongs in H1 planning after H0 qualification. Core semantics SHALL NOT mention tmux commands directly and SHALL NOT require the provider to claim application-level quiescence that it cannot prove.
 
 ### 10.2 `TerminalLauncherProvider`
 
@@ -391,41 +413,63 @@ ephemeral_install
 cleanup
 ```
 
-No adapter may silently run syntax for a different shell family.
+Shell integration produces automatic readiness/transfer/privacy evidence where qualified. It does not own manual HumanControl. No adapter may silently run syntax for a different shell family.
+
+### 10.4 HumanControl semantics
+
+HumanControl is a first-class semantic capability even if implemented by the interactive-session provider and local attach wrapper rather than a fourth Go interface.
+
+Required actions are state-dependent:
+
+```text
+human writable:        ready, abort, status
+human fenced/private:  resume, terminate, status
+agent-owned observer:  status, optional request_control
+```
+
+"Reachable" means the user has a local control path that cannot be mistaken for delegated pane stdin. H0/H2 may qualify tmux-native bindings while writable, detach-to-local-control while read-only/fenced, or an attach-side ingress/control gate. The master design does not precommit the transport.
 
 ---
 
 ## 11. Session classes and compatibility
 
-The product SHALL distinguish these execution classes:
+Legacy execution remains defined by existing fields when `session_mode` is absent:
 
-| Request | Meaning before this feature | Meaning after negotiated feature |
-|---|---|---|
-| `tty=false, persistent=false` | direct pipe process | unchanged |
-| `tty=true, persistent=false` | direct PTY process | unchanged |
-| `tty=false, persistent=true` | B1.0 persistent non-TTY supervisor | unchanged |
-| `tty=true, persistent=true` | explicitly rejected | delegated persistent interactive session, only after capability negotiation |
+| Legacy request | Meaning |
+|---|---|
+| `tty=false, persistent=false` | direct pipe process |
+| `tty=true, persistent=false` | direct PTY process |
+| `tty=false, persistent=true` | B1.0 persistent non-TTY supervisor |
+| `tty=true, persistent=true` | remains rejected |
 
-This mapping is attractive because it reuses the already-reserved semantic gap rather than adding a second overlapping persistence flag.
-
-Hard rule:
+The new delegated class is explicit:
 
 ```text
-old bridge/daemon or unqualified provider
-+ persistent=true
-+ tty=true
-=> feature_unavailable / persistent_tty_unsupported BEFORE spawn
+session_mode = delegated_interactive
 ```
 
-There is no fallback to direct PTY because that would promise a handoff/continuity capability the direct PTY cannot provide.
+Rules:
 
-A later review may instead choose an explicit `interaction_mode=delegated` field. That naming decision is intentionally listed as an open debate item in Section 61; all deeper semantics in this document are independent of the final wire spelling.
+```text
+session_mode absent
+    -> existing tty/persistent schema and behavior
+
+session_mode present
+    -> legacy tty/persistent fields MUST be absent
+    -> named mode is the single semantic source of truth
+
+session_mode=delegated_interactive
+    -> negotiated capability required
+    -> no fallback to direct PTY or B1.0 persistent non-TTY
+```
+
+An old peer that does not recognize `session_mode` fails closed under schema/capability negotiation before spawn. Future modes such as `adopted_interactive` or `remote_delegated` may obtain explicit vocabulary without overloading Boolean axes.
 
 ---
 
 ## 12. Delegated-session start semantics
 
-Conceptual request if the `persistent+tty` spelling is retained:
+Conceptual request:
 
 ```json
 {
@@ -433,15 +477,14 @@ Conceptual request if the `persistent+tty` spelling is retained:
   "operation_id": "op-tunnel-shell",
   "command": "exec fish",
   "cwd": "/absolute/project/path",
-  "tty": true,
-  "persistent": true,
+  "session_mode": "delegated_interactive",
   "session_name": "tunnel-dev"
 }
 ```
 
 Rules:
 
-- capability negotiation MUST prove delegated PTY support before the request is admitted;
+- capability negotiation MUST prove delegated-interactive support before the request is admitted;
 - ordinary request fingerprint/idempotency semantics still apply;
 - the reservation is durable before provider/session creation;
 - retry of the same `operation_id` MUST resolve the same delegated session or exact failure; it never creates a second shell;
@@ -449,6 +492,7 @@ Rules:
 - tmux server/session/pane details remain private provider metadata;
 - public identity remains ShellBeam `session_id`; tmux IDs are provider facts, not public control authority;
 - `session_name` retains the B1.0 human-friendly alias semantics and does not become authorization;
+- the delegated session has a durable `authority_epoch` initialized at creation and rotated on accepted ownership-transfer intent;
 - the session is persistent across ShellBeam daemon restart only while the exact provider session remains alive and can be re-proven;
 - host reboot is outside the guarantee.
 
@@ -518,9 +562,9 @@ Conceptual shape:
 
 This waits on daemon state/event notification, not a polling loop. The hard maximum wait is capability-advertised. Timeout returns current handoff state and is retry-safe.
 
-### 13.3 `handoff.cancel`
+### 13.3 `handoff.abort`
 
-Cancels a pending handoff under a stable request identity. Cancellation removes ephemeral shell integrations and revokes human write ownership where possible. It does not kill the delegated session unless a separate normal session kill is requested.
+Aborts further human handoff authority under a stable request identity. Abort is not rollback: bytes already sent to the PTY/application cannot be undone. For a secret/private handoff, abort fences further human ingress but does **not** by itself return control to the agent or release model-visible capture. The handoff remains fail-closed until an admissible transfer/privacy boundary is proven, the human resumes locally, or the session is explicitly terminated. It does not kill the delegated session by itself.
 
 ### 13.4 `inspect.handoff`
 
@@ -530,83 +574,154 @@ No action returns human keystrokes or secret content.
 
 ---
 
-## 14. Handoff state machine
+## 14. Canonical handoff state model
+
+The canonical durable state is **orthogonal dimensions**, not one giant cross-product enum.
+
+Conceptual record:
 
 ```text
-AGENT_OWNED
+HandoffState
+    phase
+    authority_epoch
+
+    desired_owner
+    provider_owner_state
+
+    agent_ingress
+    human_ingress
+
+    transfer_boundary
+
+    privacy_state
+    privacy_release
+    capture_state
+
+    human_client
+    provider_generation
+```
+
+Hard distinction:
+
+```text
+OWNER
+!= INGRESS FENCE
+!= TRANSFER BOUNDARY
+!= PRIVACY RELEASE
+!= CAPTURE STATE
+!= PROVIDER AUTHORITY
+```
+
+Names such as `AGENT_OWNED`, `HUMAN_OWNED`, `AGENT_FENCING`, `HUMAN_FENCING`, `RECLAIM_PENDING`, `RECLAIM_BLOCKED`, or `PRIVATE_ABORTED` MAY be exposed as derived UX/status projections over this canonical record. They are not the source of correctness truth.
+
+Typical transfer projection:
+
+```text
+AGENT_OWNED(epoch=N)
     |
-    | handoff.request accepted + durably bound
+    | transfer intent durably accepted; epoch becomes N+1
     v
-HANDOFF_REQUESTED
-    |
-    | provider/session qualified
-    | terminal selected
-    | privacy barrier armed if required
+AGENT_FENCING
+    | agent ingress fenced
+    | admissible transfer boundary established
     v
 HUMAN_CONNECTING
-    |
-    | exact terminal client attached
-    | designated client made writable
+    | secret privacy established first if required
     v
 HUMAN_OWNED
     |
-    | completion predicate satisfied at safe boundary
-    | OR manual-ready accepted
-    v
-RECLAIM_PENDING
+    +-- ready --> HUMAN_FENCING --> transfer/provider reconciliation --> agent authority
     |
-    | shell integration cleaned
-    | human client toggled read-only
-    | private output barrier ended at a fresh boundary
-    v
-AGENT_OWNED
+    +-- abort --> HUMAN_FENCING --> derived PRIVATE_ABORTED if privacy remains private
 ```
 
-Exceptional states:
+For secret flows, agent input authority may become safe before model-visible output becomes safe. Public capture therefore follows `PrivacyReleaseProof`, not merely the owner projection.
 
-```text
-CANCELLED
-EXPIRED
-CLIENT_LOST
-SESSION_LOST
-PROVIDER_FAILED
-RECLAIM_BLOCKED
-```
-
-A state transition is durable before a later external mutation relies on it. Handoff events are journaled as metadata-only state transitions.
+A durable desired transition and an external provider mutation are not atomic. On restart/recovery ShellBeam reconciles durable desired authority, current epoch, and fresh provider observation; mismatch means fail closed rather than "probably owned".
 
 ---
 
-## 15. Input ownership and arbitration
+## 15. Input ownership, generations, and arbitration
 
 The central invariant is:
 
-> At most one ShellBeam-recognized actor class has writable interactive input authority at a time.
+> At most one ShellBeam-recognized actor class has admitted writable interactive input authority at a time, and no previously unseen mutation from an expired authority generation may execute.
 
-### 15.1 Agent-owned
+### 15.1 Idempotency before authority
 
-- agent `write` input is accepted under existing retry/input semantics extended for delegated sessions;
-- designated human terminal clients are read-only/observer;
-- ordinary terminal output remains visible to human observers;
-- the model may inspect bounded session/handoff state.
+Delegated control mutation admission follows this order:
 
-### 15.2 Human-owned
+```text
+mutation M arrives
+    |
+    v
+lookup exact durable mutation identity
+    |
+    +-- known -> replay exact prior outcome; do not execute again
+    |
+    +-- unknown
+           |
+           v
+       authority_epoch == current?
+           | no -> stale_control_generation
+           v yes
+       current authority permits mutation?
+           | no -> session_control_not_owned
+           v yes
+       durably reserve mutation
+           |
+           v
+       provider delivery
+```
 
-- designated human client is writable;
-- model-originated `write` to that session fails with a typed ownership failure;
-- model-originated interactive key injection is not queued for later replay;
-- normal agent `kill`/signal behavior SHALL NOT silently race human interaction; exact emergency/kill policy must be explicit in implementation planning;
-- human input bytes are not copied into ShellBeam's agent input ledger.
+For agent input, `input_offset` remains the ordering/idempotency coordinate of **agent-submitted** input and is not a terminal byte offset. Human bytes are intentionally absent from that ledger. `authority_epoch` is the authorization lifetime.
 
-### 15.3 Reclaim while the window remains open
+Every previously unseen mutation capable of changing delegated-session control or lifetime SHALL pass its applicable generation/authority policy. The implementation plan MUST enumerate at least write, resize, signal, kill, handoff transitions, HumanControl signals, and provider-authority mutations so one lane cannot bypass generation semantics.
 
-On reclaim ShellBeam targets the exact tmux human client and enables the tmux read-only client flag. Read-only is an arbitration/convenience primitive inside the same trusted user boundary, not a sandbox.
+### 15.2 Epoch rotation
 
-If the provider cannot prove the exact client became read-only, ownership does not silently transition to `AGENT_OWNED`; it remains `RECLAIM_BLOCKED` or detaches that client under an explicitly documented fallback.
+When ownership-transfer intent is durably accepted, ShellBeam rotates `authority_epoch` **before** granting the next actor authority. Previously accepted old-epoch mutations remain replayable from durable state; previously unseen old-epoch mutations are stale immediately.
 
-### 15.4 Multiple clients
+### 15.3 Ingress fencing
 
-Only the designated handoff client may be writable during `HUMAN_OWNED`. Other ShellBeam-known human clients remain read-only. Same-UID users with direct access to the private tmux socket remain inside ShellBeam's existing trusted-user threat model; ShellBeam does not claim protection against a local user deliberately bypassing arbitration.
+`FenceHumanIngress`/equivalent proves only:
+
+```text
+no NEW human input can be admitted after the fence point
+```
+
+It does not claim that pre-fence bytes have drained through tmux, the PTY, kernel tty queues, or the foreground application. Agent ingress has the symmetric requirement when transferring to the human.
+
+The provider must qualify this ingress-fence semantic. If native tmux primitives cannot prove it, H0 is an architecture fork gate and ShellBeam may need an attach-side ingress gate before requalification.
+
+### 15.4 Transfer boundary
+
+A transfer boundary separately establishes when the new owner may begin input. Qualified producers may include shell/prompt boundaries, foreground-process boundaries, provider-ordered boundaries, or explicit human attestation under a policy that permits it.
+
+Human `ready` can therefore support unknown-shell/TUI manual handback without pretending to be a secret-output proof.
+
+### 15.5 Provider authority reconciliation
+
+Conceptually:
+
+```text
+EffectiveAuthority =
+    Intersect(
+        DurableDesiredAuthority,
+        ProviderObservedAuthority,
+        CurrentAuthorityEpoch
+    )
+```
+
+On mismatch:
+
+```text
+agent_write  = denied
+human_write  = denied unless explicitly re-proven safe
+public_capture = denied when privacy is ambiguous
+```
+
+No PID/name/process guess substitutes for exact provider proof.
 
 ---
 
@@ -624,46 +739,48 @@ Human terminal process alive
 
 Therefore completion is an ownership transition, not a terminal detach event.
 
-A later handoff SHOULD reuse/reveal the existing attached terminal client when the terminal provider can do so reliably. Otherwise it may launch another exact client and keep all non-designated clients read-only.
+A later handoff SHOULD reuse/reveal the existing attached terminal client when the terminal provider can do so reliably. Otherwise it may launch another exact client and keep all non-designated clients fenced/read-only. In V1, `observer` means **passive live observation**; ShellBeam does not promise tmux copy-mode, history navigation, arbitrary key bindings, or terminal-emulator scroll behavior as a cross-provider contract.
 
 ---
 
-## 17. Terminal resolution: no required preferred-terminal setting
+## 17. Terminal resolution: session affinity plus freshness
 
-A static `preferred_terminal=ghostty` is not the primary design because users may switch among several terminal emulators throughout the day.
+A static `preferred_terminal=ghostty` is not the primary design because users may switch among terminal emulators throughout the day.
 
 The resolver SHALL use contextual evidence in this order:
 
-1. **Existing handoff client for this delegated session**, if still alive and revealable.
-2. **Exact request-origin terminal hint** from the local bridge/tunnel process context, when locally validated and supported.
-3. **Currently active supported terminal application**, when the foreground application is itself a terminal.
-4. **Most recently activated supported terminal application**, from one event-driven local activity registry.
+1. **Existing human client for this delegated session**, if still alive and revealable.
+2. **Currently active supported terminal application**, when the foreground application is itself a terminal.
+3. **Most recently activated supported terminal application**, from a qualified event-driven local activity registry.
+4. **Fresh validated bridge/session affinity hint**, when available.
 5. **Single unambiguous running supported terminal**, when exactly one candidate exists.
 6. **Qualified platform fallback launcher**, when the platform provides a deterministic safe default.
 7. Otherwise return `terminal_launcher_unavailable` and expose the exact local attach command as degraded UX.
 
 The resolver SHALL NOT simply ask "what app is frontmost?" because during a ChatGPT Web request the frontmost application is commonly the browser.
 
-### 17.1 Request-origin hint
+### 17.1 Bridge-launch terminal hint
 
-The ShellBeam MCP bridge/tunnel child often inherits terminal facts and process ancestry from the terminal in which the tunnel was started. A private compatibility extension MAY report bounded terminal-origin hints such as:
+The long-lived ShellBeam bridge/tunnel process may inherit terminal facts and process ancestry from the terminal in which it was launched. That is **bridge-launch affinity**, not proof of the terminal that originated a later ChatGPT request.
+
+A bounded hint may include:
 
 ```text
-terminal program family
+observed_at
+terminal_identity
 terminal version?
 controlling tty identity?
-locally observed process/application identity?
+evidence_source
+freshness
 ```
 
-These are UX-selection hints, never execution authorization.
-
-A raw environment string such as `TERM_PROGRAM` is not sufficient by itself to authorize execution of an application path. The terminal provider resolves only known application identities/binaries through local platform discovery.
+These are UX-selection hints, never execution authorization or timeless preference. A raw environment string such as `TERM_PROGRAM` is not sufficient to authorize execution of an application path.
 
 ### 17.2 Recent-terminal activity
 
 On platforms with a qualified native activation-event API, ShellBeam may keep a tiny in-memory registry of recent supported terminal activations. The event source is shared and event-driven; it is not one watcher per terminal or per session and performs no timer polling.
 
-Persistent storage of a detailed app-usage history is unnecessary. At most the minimal current/recent terminal identity needed for UX selection should be retained, and it may remain memory-only.
+Persistent detailed app-usage history is unnecessary. At most the minimal current/recent terminal identity needed for UX selection should be retained, with freshness metadata, and it may remain memory-only.
 
 ---
 
@@ -723,6 +840,7 @@ Rules:
 
 - the launcher resolves the current installed ShellBeam executable using runtime identity (for example `os.Executable()` or an equivalent installed-path mechanism), not the repository path;
 - the local attach command authenticates to the existing daemon with normal same-user local IPC rules;
+- attachment is presentation, not environment synchronization: attach/switch/reattach MUST preserve the delegated session environment unless an explicit future environment-sync capability is selected; tmux qualification must prove `attach-session -E`, `switch-client -E`, or equivalent behavior;
 - `handoff_id` selects an already-durably-bound pending handoff and cannot create arbitrary execution;
 - the attach helper does not receive secret values;
 - terminal title/status may identify the ShellBeam session/handoff in human-friendly text but never display secret values.
@@ -845,7 +963,7 @@ Existing hooks are composed, not replaced.
 
 ---
 
-## 24. Requirement predicates and readiness
+## 24. Requirement predicates, transfer boundaries, and privacy release
 
 A requirement watcher is created only for an active handoff.
 
@@ -877,7 +995,21 @@ command history line containing the value
 
 The variable name itself may be known to the requesting agent because the failing CLI already identified the prerequisite. The privacy invariant concerns values and deterministic secret-derived material.
 
-### 24.1 Presence is not validity
+### 24.1 Transfer boundary is not privacy release
+
+A completion/readiness event answers one or more typed questions; it is not automatically all authority/privacy proof at once.
+
+```text
+TransferBoundary
+    -> sufficient for the next owner to begin input under the selected policy
+
+PrivacyReleaseProof
+    -> sufficient for future output to become model-visible again
+```
+
+A shell prompt after a known command may produce both. A foreground-process exit may produce a process boundary. A human `ready` action may be accepted as a `human_attested` transfer boundary for manual/unknown-shell flows, but **human attestation alone SHALL NOT release secret/private capture** because an application may emit sensitive output later.
+
+### 24.2 Presence is not validity
 
 ```text
 secret material present != capability works
@@ -919,7 +1051,7 @@ The readiness notification may invoke the installed ShellBeam binary once to sen
 
 A notifier/control helper launched from a secret-bearing delegated shell MUST NOT inherit the delegated shell environment wholesale. The shell adapter SHALL launch it with a minimal allowlisted environment sufficient only for local IPC/runtime resolution; the watched credential and unrelated shell exports are excluded. If a shell/provider combination cannot construct such an environment safely, it SHALL use an already-open local IPC descriptor or degrade to manual completion rather than spawning a helper that inherits secret-bearing state.
 
-`handoff.wait` waits on a daemon condition/event channel and consumes effectively zero CPU while idle.
+`handoff.wait` waits on a daemon condition/event channel and consumes effectively zero CPU while idle. Manual HumanControl is shell-independent and SHALL NOT rely on typing `shellbeam handoff ready` into pane stdin; its transport is qualified separately and leaves no permanent watcher.
 
 ---
 
@@ -935,38 +1067,90 @@ If a human types:
 export CONTROL_PLANE_API_KEY=<secret>
 ```
 
-into a normal echoed terminal line, the PTY may render the typed bytes. A control-mode observer could then receive those bytes as pane output even though the model never explicitly asked to read the environment.
+into a normal echoed terminal line, the PTY may render the typed bytes. A model-visible Control Mode observer could receive those bytes even though the model never explicitly asked to read the environment. Therefore merely "not calling env" is insufficient.
 
-Therefore merely "not calling env" is insufficient.
+### 26.2 Privacy is an observation-path contract
 
-### 26.2 Secret handoff behavior
+The master design SHALL NOT assume that tmux provides a pane-scoped "make private" primitive. For tmux, `no-output` is a **client-scoped** Control Mode flag. H0 must therefore qualify the observer topology/mechanism rather than smuggling a topology assumption into core semantics.
 
-Before granting `HUMAN_OWNED` for `privacy=secret`, ShellBeam SHALL establish a private-output barrier for that pane/control client.
+For every private delegated session:
+
+- every model-visible observation path is identified;
+- privacy is established **before** any such path can receive private bytes;
+- making private session A private cannot leak A through another observer/path;
+- making A private cannot silently suppress correctly public B/C output;
+- observer replacement, overlap, reconnect, and daemon recovery cannot create an exposure window;
+- no private interval is reconstructed from tmux history, `capture-pane`, or replay.
+
+H0 may qualify, for example:
+
+```text
+A. one model-visible Control Mode observer per delegated session
+B. shared observer plus a daemon privacy demux that drops private pane output before persistence/model exposure
+C. another provider mechanism with equivalent proven semantics
+```
+
+The master design freezes the isolation requirements, not A/B/C.
+
+### 26.3 Entering a secret interval
+
+Before granting human write authority for `privacy=secret`:
+
+```text
+agent ingress fenced
+    -> privacy observation established and acknowledged
+    -> exact human ingress enabled
+```
 
 During the private interval:
 
 - terminal/pane interaction remains visible locally to the human;
-- model-visible `%output`/equivalent capture is disabled or discarded before persistence;
+- model-visible output for the private session is suppressed under the qualified topology;
 - human input bytes are not recorded in the agent input ledger;
 - no raw private bytes are persisted in ordinary output logs, receipts, Event Journal, evidence, repro, or telemetry;
-- terminal history remains local provider state and is never used as a recovery source across the private barrier.
+- terminal history remains local provider state and is never a recovery source across the private barrier.
 
-### 26.3 Ending the private interval
+### 26.4 Ready/reclaim
 
-The barrier ends only after:
+Human ready and automatic readiness are **completion candidates**, not automatic privacy release.
 
-1. a typed completion predicate or manual-ready signal succeeds;
-2. a safe shell/process boundary is established for the selected completion strategy;
-3. the human client is successfully made read-only or detached;
-4. public output capture is resumed from a **new forward-only boundary**.
+Safe control transfer requires:
 
-ShellBeam SHALL NOT run `capture-pane` or any replay operation that can reintroduce bytes from inside the private interval into model-visible output.
+```text
+old-owner IngressFenceProof
++ admissible TransferBoundary
++ ProviderAuthorityReconciled
+```
 
-### 26.4 Crash/restart during a private interval
+Public capture resumes only after:
 
-If the daemon/control observer restarts while a secret interval is active, the recovered session must preserve an explicit privacy barrier. It may resume observing only future output after re-establishing ownership/boundary state. It SHALL NOT reconstruct the missing interval from tmux history.
+```text
+PrivacyReleaseProof
++ a new forward-only observation boundary
++ privacy topology re-established as public
+```
 
-If safe recovery cannot be proven, the transcript remains incomplete with an explicit privacy/ambiguity reason; privacy wins over completeness.
+Therefore a manual/unknown TUI may return input authority to the agent under a permitted human-attested transfer boundary while capture remains private until an independent privacy-release proof exists. This is preferable to either exposing output unsafely or making manual fallback impossible.
+
+### 26.5 Abort handoff
+
+`handoff.abort` means **stop further human authority**, not "undo interaction" and not "return to agent".
+
+For a secret interval, after abort and human ingress fencing, the derived status may be `PRIVATE_ABORTED` with:
+
+```text
+human_write = false
+agent_write = false unless/until transfer authority is separately proven
+model_capture = false
+```
+
+The flow exits only through an admissible transfer/privacy proof, local resume, or explicit local termination. Already-sent bytes may remain in PTY/application state and are never presumed reversible.
+
+### 26.6 Crash/restart during a private interval
+
+If the daemon/control observer restarts while a secret interval is active, durable privacy remains private. Every replacement model-visible observation path must be private **from its first possible output byte** before reconciliation. An observer must not attach publicly, receive output, and only then enable suppression.
+
+If exact privacy topology/authority cannot be re-proven, agent input and public capture remain denied and the transcript records an explicit private/ambiguous omission. Privacy wins over completeness.
 
 ---
 
@@ -1118,31 +1302,42 @@ Socket/runtime permissions must follow existing user-only local-state rules.
 
 The private provider SHOULD start tmux with no arbitrary user config (`-f` controlled/empty configuration or equivalent) and then set only reviewed options.
 
-The provider must qualify:
+H0 qualification must cover:
 
-- control mode;
-- stable IDs;
-- client flags/read-only toggle;
-- output suppression/private interval mechanism;
-- flow control;
-- required formats;
-- supported `TERM`/terminfo behavior;
-- session/pane lifecycle queries;
-- daemon restart reattachment mechanics.
+```text
+Control Mode and stable IDs
+exact client identity
+read-only/write-enable control
+FenceHumanIngress feasibility
+privacy suppression topology/scope
+private-from-first-byte observer attach/reconnect
+multi-session privacy isolation
+observer replacement/overlap faults
+flow control/backpressure and ACK/output ordering
+attach/switch/reattach environment preservation (-E/equivalent)
+terminal sizing/ignore-size behavior
+session/pane lifecycle and daemon restart reattachment
+HumanControl reachability in writable and fenced/read-only states
+resource/socket/process/goroutine leak behavior
+```
 
 ### 31.3 Lazy startup
 
-No tmux server starts merely because ShellBeam daemon starts. The provider starts lazily on first delegated-session use or an explicit doctor/qualification action.
+No tmux server starts merely because ShellBeam daemon starts. The provider starts lazily on first delegated-session use or an explicit doctor/qualification action. Ordinary command admission performs zero tmux work.
 
-Ordinary command admission performs zero tmux work.
+### 31.4 Control Mode, not `capture-pane` polling
 
-### 31.4 Control mode, not `capture-pane` polling
+Control Mode output is the live transport. `capture-pane` may be used only for explicitly safe bounded resynchronization outside private intervals. It is never a periodic transport loop and never crosses a private interval.
 
-Control Mode output is the live transport. `capture-pane` may be used only for explicitly safe bounded resynchronization outside private intervals. It is never a periodic transport loop.
+### 31.5 Human client flags and reachability
 
-### 31.5 Human client flags
+The designated human client is toggled writable/read-only by exact client identity when the provider qualifies that behavior. Read-only is only an ingress/arbitration primitive, not a proof that previously delivered bytes are quiescent and not a security boundary.
 
-The designated human client is toggled writable/read-only by exact client identity. When read-only, it should also avoid perturbing active pane sizing where supported/appropriate.
+Required HumanControl actions must remain locally reachable in their required state. H0/H2 may use tmux-native OOB bindings while writable and detach to a ShellBeam local control surface while fenced/read-only. A ShellBeam-owned ingress proxy is a fallback architecture fork only if simpler qualified mechanisms cannot meet the contract.
+
+### 31.6 Attachment does not synchronize environment
+
+Human attach, observer/control attach, switch, and daemon recovery attach to an existing delegated session SHALL preserve its session environment. The tmux provider must use `attach-session -E`, `switch-client -E`, or an equivalent qualified mechanism wherever tmux would otherwise apply `update-environment`.
 
 ---
 
@@ -1199,15 +1394,26 @@ Delegated interactive sessions may outlive the ShellBeam daemon because the priv
 
 Reattachment SHALL be fail-closed:
 
-- canonical ShellBeam durable binding identifies the delegated `session_id` and provider identity;
+- canonical ShellBeam durable state identifies delegated `session_id`, `authority_epoch`, desired owner/ingress/privacy/capture dimensions, and provider identity/generation;
 - provider-private metadata binds exact tmux server/session/pane identity plus a high-entropy ShellBeam session marker/token where needed;
 - daemon restart reconnects only when the exact live provider session matches the canonical binding;
+- recovery obtains fresh provider observation rather than inferring authority from the last persisted phase;
 - process name/PID/TTY guesses never substitute for provider proof;
-- if the provider session is absent, incompatible, or ambiguous, ShellBeam reports `SESSION_LOST`/ambiguous rather than signaling a guessed process;
-- active private-output intervals remain privacy barriers across recovery;
-- human-client writable/read-only state must be re-established conservatively before model input resumes.
+- every replacement model-visible observer for a durable private session is private from first output byte under the qualified privacy topology;
+- attach/switch/reattach preserves delegated session environment;
+- if desired authority, provider-observed authority, current epoch, or privacy state disagree, agent write/public capture remain fenced until exact reconciliation succeeds;
+- private intervals are never reconstructed from tmux history.
 
-Host reboot remains outside the continuity guarantee.
+Conceptually:
+
+```text
+durable desired state
++ fresh provider observation
++ current authority_epoch
+= derived effective authority/capture
+```
+
+Mismatch produces a fenced/ambiguous state, not heuristic continuation. Host reboot remains outside the continuity guarantee.
 
 ---
 
@@ -1286,7 +1492,7 @@ Conceptual shape:
       "host_reboot_continuity": false
     },
     "terminal_resolution": {
-      "origin_hint": true,
+      "bridge_affinity_hint": true,
       "recent_activity": true,
       "auto_launch": true
     },
@@ -1298,8 +1504,19 @@ Conceptual shape:
         "environment_exported_nonempty": true
       }
     ],
+    "authority": {
+      "authority_epoch": true,
+      "human_ingress_fence": true
+    },
+    "human_control": {
+      "local_ready": true,
+      "local_abort": true,
+      "fenced_state_reachable": true
+    },
     "privacy": {
       "secret_private_interval": true,
+      "privacy_release_separate": true,
+      "observer_topology_qualified": true,
       "human_input_persisted": false
     },
     "limits": {
@@ -1387,27 +1604,36 @@ transport_incomplete
 provider_lost
 ```
 
-If existing `output_complete` cannot represent this without semantic ambiguity, the new capability needs an additive capture-quality field. It MUST NOT label a transcript byte-complete when bytes were intentionally suppressed for privacy.
+For any transcript with intentionally omitted private bytes:
 
-Private omission is not execution failure. It is a transcript/evidence-quality fact.
+```text
+output_complete = false
+capture_quality = private_intervals_omitted
+```
 
-Evidence consumers that require complete command output must reject or explicitly tolerate `private_intervals_omitted` rather than silently treating hidden output as absent.
+The legacy Boolean remains mathematically truthful: the transcript is not byte-complete. The additive quality explains that the incompleteness is intentional privacy rather than transport failure. Direct-session legacy meaning remains unchanged.
+
+Private omission is not execution failure. Evidence consumers that require complete command output must reject or explicitly tolerate `private_intervals_omitted` rather than silently treating hidden output as absent.
 
 ---
 
 ## 41. Event Journal and durable metadata
 
-Handoff events may include:
+Handoff events/durable metadata may include:
 
 ```text
 handoff_id
 session_id
-reason
-privacy class
-state transition
+authority_epoch
+phase/derived status
+desired owner and ingress fence states
+provider generation and provider-observed authority quality
+reason / privacy class
 terminal provider id/version
 shell provider id/version/quality
-completion kind
+transfer-boundary kind/quality
+privacy-release state/quality
+capture state/quality
 requirement satisfied boolean
 human client attached/read-only boolean
 private interval started/ended
@@ -1426,7 +1652,7 @@ raw environment
 password/OTP text
 ```
 
-Friendly terminal application identity is acceptable operational metadata when needed for diagnostics, but app-usage history should remain minimal.
+Friendly terminal application identity is acceptable operational metadata when needed for diagnostics, but app-usage history should remain minimal/freshness-bounded.
 
 ---
 
@@ -1448,8 +1674,13 @@ handoff_not_pending
 handoff_expired
 handoff_client_lost
 session_control_not_owned
+stale_control_generation
+ingress_fence_unproven
+transfer_boundary_unproven
 handoff_reclaim_blocked
 private_output_barrier_failed
+privacy_release_unproven
+privacy_topology_ambiguous
 requirement_unsupported
 requirement_not_satisfied
 ```
@@ -1457,10 +1688,13 @@ requirement_not_satisfied
 Requirements:
 
 - provider absence fails before claiming delegated semantics;
+- exact retry of a previously accepted mutation replays prior outcome before current-epoch authorization is considered;
+- a previously unseen stale-epoch mutation never executes;
 - unknown launch outcome is not success;
-- shell integration failure degrades to manual completion where safe, rather than executing wrong shell syntax;
-- inability to establish a secret private-output barrier prevents secret handoff from becoming writable;
-- inability to make the human client read-only prevents silent agent reclaim;
+- shell integration failure degrades to manual HumanControl where safe rather than executing wrong shell syntax;
+- inability to establish private-from-first-byte observation prevents secret human write authority;
+- inability to prove ingress fencing prevents silent ownership transfer;
+- inability to prove privacy release prevents public capture even if input authority can otherwise transfer;
 - no failure branch exposes secret values for diagnostics.
 
 ---
@@ -1524,7 +1758,7 @@ Required native qualification includes:
 
 ### 44.3 Unsupported combinations
 
-Unsupported terminal/shell combinations remain explicit capability states. ShellBeam shall prefer a manual attach/manual-ready fallback over guessing.
+Unsupported terminal/shell combinations remain explicit capability states. ShellBeam shall prefer a manual attach plus shell-independent local HumanControl fallback over guessing.
 
 ---
 
@@ -1582,59 +1816,85 @@ No stale fish hook is injected into a zsh parser.
 
 ---
 
-## 48. Human completion strategies
+## 48. Human completion and local control strategies
+
+Human completion is shell-independent at the semantic layer.
 
 ### 48.1 Automatic typed readiness
 
-Used when a qualified shell adapter can prove a closed condition at a safe boundary, such as exported/non-empty environment presence.
+A qualified shell adapter may emit a typed requirement result and boundary evidence, for example exported/non-empty environment presence at a safe prompt boundary. This is a convenience/automation path, not the only way a handoff can complete.
 
-### 48.2 Manual local ready
+### 48.2 Local HumanControl
 
-The human can signal completion through a ShellBeam-local mechanism when automatic shell readiness is unavailable.
+The human can signal state through a ShellBeam-local control path that does **not** send text into delegated pane stdin.
 
-Conceptual UX:
+Required semantic actions by state include:
 
 ```text
-shellbeam handoff ready
+human writable:        ready, abort, status
+human fenced/private:  resume, terminate, status
+agent-owned observer:  status, optional request_control
 ```
 
-The attach environment can carry the opaque handoff identity so the user does not need to type it.
+A provider need not make every action an arbitrary key binding inside a read-only tmux client. "Locally reachable" may mean tmux-native OOB controls while writable and detaching to a ShellBeam local control surface while fenced/read-only. Only if simpler mechanisms fail qualification should H0/H2 introduce an attach-side ingress proxy.
 
-### 48.3 Chat-level "done"
+HumanControl signals SHALL be bound to at least:
 
-The agent may also ask the human to say they are finished when no local completion primitive is reliable. This is the least automatic fallback and does not upgrade the capability claim.
+```text
+session_id
+handoff_id
+authority_epoch
+```
 
-### 48.4 Foreground child still running
+so a stale `ready`/`resume` from an older handoff cannot complete a later generation. Signals are retry-safe/idempotent under their stable identity.
 
-If the human interaction happens inside a long-running foreground child and the shell prompt does not return, automatic shell-prompt completion may be impossible. A typed external capability signal or manual handback is required. ShellBeam MUST NOT guess completion merely because terminal input became idle.
+### 48.3 Manual ready quality
+
+A human `ready` action may establish a `human_attested` `TransferBoundary` under a policy that permits manual handback, including unknown shells/TUIs. It does not by itself establish `PrivacyReleaseProof` for secret/private output.
+
+### 48.4 Chat-level "done"
+
+The agent may ask the human to say they are finished when no local completion primitive is available. This is the least automatic fallback and does not silently upgrade proof quality. A chat acknowledgement cannot bypass ingress/provider/privacy gates.
+
+### 48.5 Foreground child still running
+
+If the human interaction happens inside a long-running foreground child and the shell prompt does not return, automatic shell-prompt completion may be impossible. Local HumanControl remains available independently of shell parsing. ShellBeam MUST NOT guess completion merely because terminal input became idle.
 
 ---
 
-## 49. Automatic terminal opening flow
+## 49. Automatic terminal opening and handback flow
 
 Normative sequence:
 
 ```text
-1. Agent requests handoff with stable handoff_id.
+1. Agent requests handoff with stable handoff_id under authority_epoch N.
 2. Daemon durably binds handoff to exact delegated session.
-3. Daemon validates session ownership/provider capability.
-4. For secret privacy, arm private-output barrier BEFORE writable human attach.
-5. Resolve terminal context automatically.
-6. Create/reveal one terminal client for this handoff.
-7. Attach client to exact private tmux session/pane.
-8. Identify exact tmux client.
-9. Make only that client writable.
-10. Publish HUMAN_OWNED.
-11. Wait event-driven for completion.
-12. Enter RECLAIM_PENDING.
-13. Disable/remove shell watcher.
-14. Make exact human client read-only.
-15. End private-output barrier at safe forward boundary.
-16. Publish AGENT_OWNED.
-17. Agent verifies real capability and continues.
+3. Transfer intent is accepted; authority_epoch rotates to N+1.
+4. Reject new old-epoch agent mutations; replay already-known old mutations only.
+5. Fence agent ingress and establish an admissible transfer boundary.
+6. Validate provider/session and required HumanControl/privacy capabilities.
+7. Resolve terminal context using session affinity + freshness.
+8. Create/reveal one terminal client for this handoff without environment sync.
+9. For secret privacy, establish every model-visible observation path private and ACK it BEFORE human write enable.
+10. Identify exact human client and enable only that human ingress.
+11. Derived status may publish HUMAN_OWNED.
+12. Wait event-driven for automatic readiness or local HumanControl.
+
+READY PATH
+13. Treat readiness as a completion candidate.
+14. Fence human ingress; prove exact ingress fence.
+15. Establish an admissible TransferBoundary for agent control.
+16. Reconcile provider authority + epoch; then agent input may resume under the next epoch/owner transition.
+17. Independently require PrivacyReleaseProof before public capture resumes.
+18. Resume model-visible output only from a new forward-only boundary.
+
+ABORT PATH
+13a. Fence human ingress.
+14a. Do not infer rollback, agent ownership, or privacy release.
+15a. Remain fail-closed/private until local resume, explicit local termination, or separately admissible transfer/privacy proofs.
 ```
 
-A failed step cannot be skipped merely to make UX appear seamless.
+A failed step cannot be skipped merely to make UX appear seamless. Control authority and capture visibility may transition at different times because `TransferBoundary != PrivacyReleaseProof`.
 
 ---
 
@@ -1748,36 +2008,65 @@ Performance telemetry must not introduce polling solely to measure the feature.
 
 ## 55. Testing strategy
 
-### 55.1 Pure state-machine tests
+### 55.1 Core authority/state tests
 
-Cover:
+Cover the orthogonal durable dimensions rather than only a combined enum:
 
-- every ownership transition;
-- duplicate/retry `handoff_id`;
-- cancel/expiry;
-- client lost during each state;
-- provider lost;
-- read-only reclaim failure;
-- private barrier failure;
-- shell watcher success/failure;
-- manual fallback;
-- no agent writes accepted while human-owned.
+- owner projection versus agent/human ingress states;
+- `authority_epoch` rotation at durable transfer intent;
+- idempotency-before-authority: known old-epoch retry replays exact outcome;
+- unseen stale-epoch mutation fails `stale_control_generation`;
+- generation policy for write, resize, signal, kill, handoff transition, HumanControl, and provider-authority mutations;
+- durable desired versus fresh provider-observed authority mismatch fails closed;
+- ready establishes only its declared transfer/privacy qualities;
+- abort does not imply rollback/reclaim/privacy release;
+- client/provider loss during every material phase;
+- no agent writes admitted while human authority is effective.
 
-### 55.2 tmux protocol/provider tests
+### 55.2 H0 tmux protocol/provider qualification matrix
 
-Use parser/protocol fixtures for deterministic unit coverage and native tmux tests for actual behavior:
+Native/protocol fixtures SHALL cover all H0 probes:
 
-- create/destroy private server/session;
-- stable IDs;
-- Control Mode command correlation;
-- output and flow control;
-- `no-output`/private barrier behavior;
-- writable/read-only client toggle;
-- multiple clients;
-- terminal resize arbitration;
-- pane/session/client death;
-- daemon/control connection reconnect;
-- no `capture-pane` replay across privacy barrier.
+```text
+P0  private server/socket/config
+P1  stable exact client identity
+P2  exact read-only/write-enable control
+P3  FenceHumanIngress proof
+
+P4  privacy suppression scope/topology
+P5  private-from-first-byte observer attach
+P6  private recovery without history replay
+P7  attach/switch/reattach without environment mutation
+
+P8  HUMAN_OWNED OOB HumanControl
+P9  fenced/read-only HumanControl reachability
+
+P10 resize/client-size isolation
+P11 crash/reconnect
+P12 control ACK/output ordering semantics
+P13 repeated attach/fence/reclaim leak/resource stress
+P14 multi-session privacy isolation
+P15 observer replacement/overlap privacy fault
+```
+
+P3/P4/P5/P6/P14/P15 are genuine architecture gates. A failure requires a changed provider mechanism/topology and requalification; it cannot be rationalized as "probably safe".
+
+For P14, run at least:
+
+```text
+A = private/noisy secret canary session
+B = noisy public session
+C = noisy public session
+```
+
+and prove both:
+
+```text
+A never reaches any model-visible path
+B/C remain correctly observable and are not silently suppressed by A's privacy state
+```
+
+P15 faults observer/control replacement and overlap at every attach/reconnect boundary and proves no first-byte exposure window.
 
 ### 55.3 Shell adapter matrix
 
@@ -1797,11 +2086,12 @@ Tests include:
 - session-local install/remove;
 - exported/non-empty readiness;
 - empty/unset variable remains unsatisfied;
-- safe boundary required;
+- exact boundary quality emitted;
+- `TransferBoundary` and `PrivacyReleaseProof` are independently represented;
 - nested shell drift -> degrade;
 - no persistent dotfile mutation;
 - no secret value in hook argv/output/state;
-- notifier/control helper environment is minimally allowlisted and excludes the watched secret even after it is exported.
+- notifier/control helper environment is minimally allowlisted and excludes watched secret material.
 
 ### 55.4 Secret-canary tests
 
@@ -1820,14 +2110,16 @@ logs
 provider reconnect/resync output
 ```
 
-The test should deliberately type a visible `export KEY=<canary>` during a private interval to prove output suppression rather than relying only on hidden-input UX.
+Deliberately type a visible `export KEY=<canary>` during a private interval to prove suppression rather than relying only on hidden-input UX. Include delayed post-input output so human `ready` cannot accidentally be treated as privacy release.
 
 ### 55.5 Terminal resolver tests
 
 Cover:
 
-- exact request-origin terminal beats recent-terminal fallback;
+- existing client for this session beats all other candidates;
+- active supported terminal beats recent/fresh bridge affinity;
 - browser frontmost does not erase recent terminal context;
+- stale bridge-launch ancestry does not become timeless preference;
 - multiple installed/running terminals;
 - no stored preference required;
 - unsupported terminal degrades;
@@ -1841,17 +2133,18 @@ Each promoted terminal launcher requires native evidence on its target OS. CI ma
 
 ### 55.7 Resource/leak stress
 
-At least 100 repeated handoff cycles under native tmux should verify bounded:
+At least 100 repeated delegated-session/handoff/fence/reclaim/close cycles under native tmux should verify bounded:
 
 ```text
 CPU while idle
 RSS trend
 FD count
 goroutine count
-tmux clients/panes/sessions
+tmux control clients/human clients/panes/sessions
 helper process count
 runtime files/sockets
 shell hook residue
+terminal activity subscriptions
 ```
 
 No test may substitute "sleep and assume" for inspecting the relevant resources.
@@ -1861,89 +2154,109 @@ No test may substitute "sleep and assume" for inspecting the relevant resources.
 Fault at every important boundary:
 
 ```text
-after durable handoff bind before GUI launch
-after GUI launch before client proof
-after human writable before requirement watcher
+after durable transfer intent/epoch rotation before ingress fence
+after GUI launch before exact client proof
+after private observer attach before human writable
+after human writable before readiness watcher
 inside private output interval
-after readiness before read-only toggle
-after read-only toggle before public capture resume
-after reclaim before response
+after ready before human ingress fence
+after ingress fence before transfer boundary
+after transfer boundary before provider reconciliation
+after provider reconciliation before privacy release
+after privacy release before public observer resume
+during observer replacement/overlap
+after final reclaim before response
 ```
 
-Each fault must have a deterministic privacy-safe recovery state.
+Each fault must have deterministic authority-safe and privacy-safe recovery.
 
 ---
 
 ## 56. Dependency/provider qualification gate
 
-Before implementation can claim the tmux path production-capable, an A0-style qualification must record:
+Before any public delegated-interactive capability is implemented, H0 must record exact evidence for P0-P15 in Section 55.2, including:
 
 ```text
 exact tmux executable/version identity
-Control Mode protocol features used
 minimum/maximum tested versions
+Control Mode protocol features actually used
 Darwin evidence
 Linux evidence
 private socket/config behavior
-read-only client semantics
-no-output/private interval semantics
-flow control
-terminfo/default-terminal behavior
+exact client identity and write/read-only control
+FenceHumanIngress result
+privacy observer topology and scope
+private-from-first-byte behavior
+multi-session privacy isolation
+observer replacement/overlap behavior
+attach/switch/reattach -E/equivalent environment preservation
+HumanControl reachability by authority state
+flow control and ACK/output ordering
+terminfo/default-terminal/resize behavior
 restart/reconnect behavior
 resource/leak behavior
 ```
 
-If a Go wrapper is used, record exact module version/SHA, license, maintenance review, and removal plan.
+The architecture does **not** precommit whether privacy uses one model-visible Control Mode client per delegated session, a shared observer plus daemon privacy demux, or another qualified mechanism.
 
-No dependency is added merely because it makes the first prototype shorter.
+If P3 (`FenceHumanIngress`) fails under native tmux semantics, H0 must investigate an attach-side ShellBeam ingress gate and then re-run qualification. If privacy gates P4/P5/P6/P14/P15 fail, H0 must change observer topology/provider mechanism and requalify. No dependency/topology is accepted merely because it makes the first prototype shorter.
+
+If a Go Control Mode wrapper such as `gotmuxcc` is considered, record exact module version/SHA, license, maintenance/security review, malformed-protocol behavior, removal/replacement plan, and prove it does not weaken any P0-P15 result. The architecture depends on Control Mode semantics, not the wrapper.
 
 ---
 
 ## 57. Rollout strategy
 
-Recommended staged rollout:
+Implementation is a DAG of separately reviewable slices, not one H0->H5 mega-plan.
 
 ### H0 — provider qualification only
 
-- prove tmux Control Mode mechanics;
-- prove private server/config/socket;
-- prove read-only client reclaim;
-- prove no-output private interval;
-- no public MCP capability yet.
+- execute P0-P15 from Section 55.2;
+- decide HOW tmux satisfies the frozen master semantics;
+- record PASS/FAIL and any architecture fork;
+- **no public MCP delegated-interactive capability and no feature implementation beyond qualification fixtures/probes.**
 
-### H1 — delegated persistent TTY core
+### H1 — delegated-session core protocol
 
-- create/inspect/control delegated interactive sessions;
-- no automatic human handoff yet;
-- capability-gated and experimental.
+Only after H0 PASS for a viable provider mechanism:
 
-### H2 — human ownership + manual attach
+- `session_mode="delegated_interactive"` schema/capability contract;
+- delegated session durable identity/provider binding;
+- `authority_epoch` and idempotency-before-authority;
+- mutation generation taxonomy/policy;
+- desired-versus-observed provider reconciliation;
+- no automatic terminal launch or shell-aware privacy automation yet.
 
-- exact handoff state machine;
-- local `shellbeam session attach`;
-- read-only reclaim;
-- manual-ready fallback.
+### H2 — human authority + manual attach/control
+
+- local attach with no environment synchronization;
+- exact human/agent ingress fencing;
+- local HumanControl ready/abort/status/resume/terminate reachability;
+- manual transfer boundaries;
+- derived status projections and fail-closed recovery.
 
 ### H3 — automatic terminal resolver/launcher
 
-- request-origin terminal hint;
-- recent terminal event provider;
-- promoted launcher adapters.
+- session affinity + active/recent terminal evidence;
+- freshness-bounded bridge-launch hint;
+- promoted launcher adapters;
+- idempotent GUI launch/reveal behavior.
 
 ### H4 — shell-aware readiness + secret privacy
 
 - fish/zsh/bash adapters;
-- private output intervals;
-- secret-canary acceptance;
-- automatic safe reclaim without closing terminal.
+- typed `TransferBoundary` and `PrivacyReleaseProof` producers;
+- qualified private-output topology;
+- secret-canary and multi-session privacy acceptance;
+- automatic reclaim without closing the human terminal where proven.
 
-### H5 — broader shells/terminals and context-exec evidence, only if justified
+### H5 — high-assurance context execution + broader providers
 
+- receipt-producing context execution if a separately reviewed evidence contract justifies it;
 - Nushell/other shell adapters;
-- additional terminal providers;
-- stronger receipt-producing command semantics if needed.
+- additional terminal/session providers.
 
-Each stage remains removable/disableable through capability intersection.
+Context-exec is **not** required for the first experimental handoff UX, but it is a candidate stable/high-assurance gate because important post-secret commands otherwise remain in weaker interactive-transcript evidence semantics.
 
 ---
 
@@ -1951,15 +2264,23 @@ Each stage remains removable/disableable through capability intersection.
 
 No second MCP tool is introduced.
 
-Older clients/bridges:
+Legacy clients/bridges:
 
-- continue using ordinary start/poll/write/kill;
-- do not receive delegated interactive capability;
-- cannot accidentally send `persistent=true + tty=true` unless they already do, in which case existing rejection remains safe.
+- continue using ordinary `start/poll/write/kill` and legacy `tty`/`persistent` fields;
+- do not receive delegated-interactive capability;
+- legacy `persistent=true + tty=true` remains rejected.
+
+New delegated request:
+
+```text
+session_mode=delegated_interactive
+```
+
+When `session_mode` is present, legacy `tty`/`persistent` fields are absent. There is no precedence rule between old and new spelling because a request has one semantic source of truth.
 
 New bridge + old daemon:
 
-- negotiation reports delegated handoff unavailable;
+- unknown/new schema or negotiation reports delegated handoff unavailable before spawn;
 - ordinary execution remains unchanged.
 
 Old bridge + new daemon:
@@ -2008,93 +2329,73 @@ Diagnostics do not print environment values, tmux private tokens, or secret-bear
 
 The following are hard invariants for any implementation plan:
 
-1. No required static preferred-terminal setting.
-2. Terminal, shell, and session provider identities are orthogonal.
+1. No required static preferred-terminal setting; terminal resolution uses session affinity + freshness.
+2. Terminal, shell, and interactive-session provider identities remain orthogonal.
 3. Unknown shell never receives guessed shell syntax.
-4. No permanent dotfile mutation.
-5. No shell polling loop.
-6. No `capture-pane` polling transport.
-7. Secret handoff cannot become writable before private output suppression is established.
-8. Secret values/hashes never enter ordinary model-visible state.
-9. ShellBeam notifier/control helpers never inherit a secret-bearing delegated shell environment wholesale.
-10. Human and agent are not writable concurrently under ShellBeam-controlled UX.
-11. Human terminal may remain open after reclaim only when exact client write-disable is proven.
-12. Read-only client control is an arbitration primitive, not a security claim.
-13. Private intervals are never replayed into model output after reconnect.
-14. Presence of a credential is not proof of validity; capability verification remains separate.
-15. Ordinary direct commands pay zero delegated-session provider work.
-16. Missing tmux/terminal/shell capability is explicit, not guessed or silently downgraded.
-17. `persistent=true + tty=true` never falls back to direct PTY when delegated semantics were requested.
-18. Source checkout paths and developer-machine package layouts never enter product contracts.
-19. Arbitrary existing external PTY adoption is outside V1.
-20. Interactive shell transcript is not silently upgraded to ordinary receipt/evidence authority.
-21. Host reboot continuity is not claimed.
+4. No permanent dotfile or user tmux-config mutation.
+5. No shell polling loop, capture-pane polling transport, or per-requirement resident watcher.
+6. `session_mode="delegated_interactive"` is explicit; when present, legacy `tty`/`persistent` fields are absent.
+7. Owner, ingress fence, transfer boundary, privacy release, capture state, and provider authority are distinct correctness dimensions.
+8. `authority_epoch` rotates when ownership-transfer intent is durably accepted.
+9. Idempotency is checked before current authority: exact accepted retry replays prior outcome; unseen stale-generation mutation never executes.
+10. Every delegated control/lifetime mutation is covered by an explicit generation/authority policy.
+11. Secret human write cannot begin before every model-visible observation path is private from first possible byte.
+12. Secret values/hashes never enter ordinary model-visible or durable ShellBeam state.
+13. `TransferBoundary` may allow new input authority; `PrivacyReleaseProof` separately governs resumption of model-visible output.
+14. Human `ready` alone is not a secret privacy-release proof.
+15. Human `abort` revokes further human authority but does not imply rollback, agent reclaim, or privacy release.
+16. HumanControl actions required by a state remain locally reachable without injecting them into delegated pane stdin.
+17. Human and agent ingress are never concurrently admitted under ShellBeam-controlled UX.
+18. Human terminal may remain open after reclaim only when exact human ingress is fenced; V1 observer means passive live observation, not guaranteed tmux UI navigation.
+19. Read-only client control is an arbitration primitive, not a security boundary or PTY-quiescence proof.
+20. Private intervals are never replayed into model output after reconnect/recovery.
+21. Privacy topology must isolate private A without silently suppressing public B/C, including observer replacement/overlap.
+22. Attachment/switch/reattach is presentation, not environment synchronization; existing delegated session environment is preserved.
+23. Presence of a credential is not proof of validity; capability verification remains separate.
+24. Ordinary direct commands pay zero delegated-session provider work.
+25. Missing/unqualified tmux, terminal, shell, HumanControl, fence, or privacy capability is explicit and fail-closed.
+26. Source checkout paths and developer-machine package layouts never enter product contracts.
+27. Arbitrary existing external PTY adoption is outside V1.
+28. Interactive shell transcript is not silently upgraded to ordinary receipt/evidence authority.
+29. Host reboot continuity is not claimed.
+30. Resource Enforcement/Hermetic semantics are not silently extended to delegated sessions.
 
 ---
 
-## 61. Open debate questions
+## 61. Resolved design decisions and H0-open qualification choices
 
-These are deliberately left for review rather than hidden as implementation choices.
+Semantic debate is frozen at the master-architecture level.
 
-### Q1. Wire spelling for delegated sessions
-
-Should the new mode use the natural currently-rejected combination:
+### 61.1 Resolved master decisions
 
 ```text
-persistent=true + tty=true
+wire mode                = session_mode=delegated_interactive
+legacy coexistence       = session_mode present => tty/persistent absent
+provider foundation      = optional qualified tmux Control Mode
+Go wrapper               = qualification choice, protocol semantics owned by ShellBeam
+output truth              = output_complete=false + additive capture_quality for private omission
+initial stable shells     = fish/zsh/bash; Nushell separately qualified
+terminal support          = capability-qualified, not a fixed count gate
+kill while human-owned    = no ordinary model bypass; transfer/fence first
+Linux recent-terminal     = optional provider, not correctness dependency
+context-exec              = not experimental-handoff prerequisite; candidate stable/high-assurance gate
+HumanControl              = shell-independent and locally reachable
+privacy                   = TransferBoundary != PrivacyReleaseProof
+canonical state           = orthogonal durable dimensions; combined states are derived projections
+attachment                = presentation, not environment synchronization
 ```
 
-or add an explicit field such as:
+### 61.2 H0 choices deliberately left open
 
-```text
-interaction_mode=delegated
-```
+H0 must measure rather than speculate about:
 
-Recommendation: prefer `persistent+tty` if capability negotiation and receipt schemas remain unambiguous; choose an explicit field only if future interactive providers need semantics not captured by those axes.
+1. whether native tmux can prove `FenceHumanIngress`; if not, whether an attach-side ingress gate is required;
+2. which privacy observer topology satisfies P4/P5/P6/P14/P15;
+3. which OOB HumanControl transport is simplest while preserving reachability in writable and fenced/read-only states;
+4. whether a candidate Go Control Mode library passes the exact provider qualification gate;
+5. exact supported tmux version range and optional use of newer-version primitives.
 
-### Q2. Is tmux an acceptable external product dependency?
-
-Recommendation: yes as an optional qualified provider, not an ordinary-command dependency. Do not silently install it.
-
-### Q3. Go Control Mode library
-
-Should ShellBeam adopt `gotmuxcc` after qualification or own a small protocol adapter?
-
-Recommendation: qualify the library first; the architecture depends on the protocol, not the wrapper.
-
-### Q4. Public output semantics
-
-Should intentional private intervals set existing `output_complete=false`, or should a new additive capture-quality field distinguish intentional privacy from transport loss while preserving legacy meaning?
-
-Recommendation: add explicit capture quality rather than overload a boolean ambiguously; preserve legacy direct-session semantics exactly.
-
-### Q5. Initial terminal support gate
-
-How many GUI terminal launchers must be qualified before the feature is considered generally useful rather than experimental?
-
-Recommendation: Ghostty + one other macOS terminal and at least one Linux terminal for first experimental release; broaden before stable claim.
-
-### Q6. Initial shell matrix
-
-Recommendation: fish/zsh/bash are the stable initial adapters; Nushell is separate/version-qualified; unknown shells retain manual fallback.
-
-### Q7. Receipt-producing commands inside delegated context
-
-Is advisory shell command boundary + exit status enough for the first handoff release, or must a context-exec child path preserve ordinary receipt semantics before agent continuation is considered complete?
-
-Recommendation: do not block the human-handoff UX on a full context-exec subsystem, but prohibit using advisory interactive output as mechanical verification evidence. Add context-exec only under a separately reviewed evidence contract.
-
-### Q8. Human-owned kill semantics
-
-Should a model-requested `kill` be rejected while human-owned, or should there be a narrow emergency termination action?
-
-Recommendation: reject ordinary model mutations during human ownership in the first version; the human/local CLI can terminate explicitly. Add emergency semantics only with an explicit policy design.
-
-### Q9. Linux recent-terminal detection
-
-Wayland/X11/desktop variability may make "most recently active terminal" less uniformly observable than macOS.
-
-Recommendation: make request-origin terminal identity the primary cross-platform mechanism; recent-activity detection is a qualified optional provider and manual/single-terminal fallback remains explicit.
+These are implementation/provider qualification choices. A failure may force a provider mechanism/topology change, but does not reopen the frozen semantic contract unless H0 proves the contract itself impossible.
 
 ---
 
@@ -2104,34 +2405,41 @@ The feature is not complete merely because an agent can type into tmux.
 
 A stable release claim requires all of the following:
 
-1. delegated session provider is version/capability-qualified on native macOS and Linux;
+1. H0 P0-P15 has native evidence on the advertised platforms/provider versions, with genuine gates passing;
 2. ordinary direct ShellBeam start path shows no tmux/handoff work when unused;
-3. public schema/IPC/capability negotiation rejects unsupported delegated TTY before spawn;
+3. public schema/IPC/capability negotiation uses explicit `session_mode=delegated_interactive` and rejects unsupported mode before spawn;
 4. start retry cannot duplicate delegated shells;
-5. automatic terminal resolution works without a required preferred-terminal setting for the advertised providers;
-6. terminal launcher retry cannot create duplicate windows after a proven attach;
-7. fish/zsh/bash adapters preserve existing hooks and leave no permanent dotfile changes;
-8. unsupported/nested shells degrade safely;
-9. human writable ownership and agent writable ownership never overlap under normal ShellBeam control;
-10. human terminal can remain open and is proven read-only after reclaim;
-11. yes/no/Enter/raw interactive input works while agent-owned;
-12. secret handoff establishes private output before human write access;
-13. secret canary never appears in model-visible/durable ordinary ShellBeam state;
-14. automatic exported/non-empty readiness works without closing the terminal for qualified shells;
-15. readiness performs no polling and leaves no resident helper process;
-16. capability validity is rechecked by the agent separately from secret presence where appropriate;
-17. private output intervals remain private across daemon reconnect/recovery;
-18. output/evidence quality honestly records intentional private omission;
-19. tmux server/client/session/provider loss fails closed without PID/name-based takeover;
-20. closing a GUI terminal client does not kill the delegated session by definition;
-21. host reboot remains explicitly unsupported;
-22. stress tests show no meaningful resource creep after repeated handoffs;
-23. installed-product tests pass from a location with no source checkout and non-Homebrew paths;
-24. no production path contains developer-machine absolute paths;
-25. `doctor` exposes actionable capability/provider state without secrets;
-26. no second MCP tool or ChatGPT App dependency is introduced;
-27. interactive transcript facts are not mislabeled as ordinary verification evidence;
-28. external arbitrary-PTY adoption remains visibly outside the stable V1 contract.
+5. authority epoch/idempotency-before-authority prevents stale control mutations across handoff cycles;
+6. mutation generation taxonomy covers write/resize/signal/kill/handoff/HumanControl/provider-authority lanes;
+7. durable desired versus provider-observed authority reconciles fail-closed across daemon restart;
+8. automatic terminal resolution works without required preferred-terminal settings for advertised providers;
+9. terminal launcher retry cannot create duplicate windows after a proven attach;
+10. terminal attach/switch/reattach does not mutate delegated session environment;
+11. fish/zsh/bash adapters preserve existing hooks and leave no permanent dotfile changes;
+12. unsupported/nested shells degrade safely to shell-independent HumanControl;
+13. human and agent ingress never overlap under ShellBeam-controlled UX;
+14. human terminal can remain open only with exact ingress fence; observer contract remains honest/passive;
+15. yes/no/Enter/raw interactive input works while agent-owned;
+16. secret handoff establishes private-from-first-byte observation before human write access;
+17. secret canary never appears in model-visible/durable ordinary ShellBeam state;
+18. private A does not leak and does not silently suppress public B/C;
+19. observer replacement/reconnect creates no exposure window;
+20. `TransferBoundary` and `PrivacyReleaseProof` remain independently represented/enforced;
+21. manual ready supports unknown shell/TUI transfer without being treated as secret privacy release;
+22. abort fences human authority without pretending to undo already-sent bytes or reclaim automatically;
+23. HumanControl required actions remain locally reachable in writable and fenced/read-only states;
+24. readiness performs no polling and leaves no resident helper process;
+25. capability validity is rechecked separately from secret presence where appropriate;
+26. output/evidence quality records `output_complete=false` plus intentional private omission quality;
+27. tmux server/client/session/provider loss fails closed without PID/name-based takeover;
+28. closing a GUI terminal client does not kill the delegated session by definition;
+29. stress tests show no meaningful resource creep after repeated handoffs;
+30. installed-product tests pass without source checkout and developer-specific package paths;
+31. `doctor` exposes actionable capability/provider/H0 state without secrets;
+32. no second MCP tool or ChatGPT App dependency is introduced;
+33. interactive transcript facts are not mislabeled as ordinary verification evidence;
+34. arbitrary external-PTY adoption remains outside the stable V1 contract;
+35. host reboot continuity remains explicitly unsupported.
 
 ---
 
@@ -2141,7 +2449,7 @@ The product abstraction is not "Ghostty integration" and not "API-key export sup
 
 It is:
 
-> **Delegated Interactive Sessions with Human–Agent Handoff** — a local execution context that ShellBeam owns from creation, can present in the terminal the user is actually using, can temporarily delegate to a human for sensitive/interactive work, and can safely reclaim for the agent without reconstructing shell state or transferring credentials through the model.
+> **Delegated Interactive Sessions with Human–Agent Handoff** — a transferable interactive-authority protocol over a ShellBeam-owned local execution context: ShellBeam can present the same context in the terminal the user is actually using, delegate bounded input authority to a human, fence and reconcile that authority across retries/restarts, preserve private output independently from control transfer, and safely continue without reconstructing shell state or transmitting credentials through the model.
 
 The reuse boundary is equally important:
 
