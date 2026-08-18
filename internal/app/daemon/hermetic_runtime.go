@@ -41,6 +41,7 @@ func (s *Service) prepareHermeticExecution(ctx context.Context, req StartRequest
 		BoundaryID:            prepared.BoundaryID,
 		Request:               canonical,
 		CaptureManifestSHA256: prepared.CaptureManifestSHA256,
+		CaptureContentSHA256:  prepared.CaptureContentSHA256,
 		Provider:              prepared.Provider,
 		Toolchain:             prepared.Toolchain,
 	}

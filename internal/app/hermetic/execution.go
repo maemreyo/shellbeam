@@ -74,6 +74,7 @@ type PreparedExecution struct {
 	Provider              core.ProviderIdentity
 	Toolchain             core.ToolchainIdentity
 	CaptureManifestSHA256 string
+	CaptureContentSHA256  string
 	Command               ProviderCommand
 	PrivateStateRoot      string
 	ScratchRoot           string
@@ -90,8 +91,8 @@ func (p PreparedExecution) ValidatePrivate() error {
 	if err := boundary.Validate(); err != nil {
 		return err
 	}
-	if !validSHA256(p.CaptureManifestSHA256) {
-		return fmt.Errorf("invalid hermetic capture manifest digest")
+	if !validSHA256(p.CaptureManifestSHA256) || !validSHA256(p.CaptureContentSHA256) {
+		return fmt.Errorf("invalid hermetic capture digest")
 	}
 	if err := p.Command.ValidatePrivate(); err != nil {
 		return err

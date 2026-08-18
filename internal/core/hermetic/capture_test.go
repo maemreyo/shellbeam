@@ -107,3 +107,40 @@ func TestCaptureManifestRejectsDuplicatesBadAccountingAndUnsafePaths(t *testing.
 		}
 	}
 }
+
+func TestCaptureContentDigestIgnoresWorkspaceGenerationButBindsSelectedContent(t *testing.T) {
+	manifest := CaptureManifest{
+		SchemaVersion:    CaptureManifestSchemaVersion,
+		WorkspaceID:      workspacecore.WorkspaceID("ws_01K00000000000000000000000"),
+		SourceGeneration: "gen_" + strings.Repeat("a", 64),
+		Selectors:        []string{"go.mod", "internal/**"},
+		Entries: []CaptureEntry{
+			{Path: "go.mod", Size: 1, SHA256: strings.Repeat("c", 64)},
+			{Path: "internal/b.go", Size: 2, SHA256: strings.Repeat("b", 64)},
+		},
+		TotalBytes: 3,
+	}
+	first, err := manifest.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedGeneration := manifest
+	changedGeneration.SourceGeneration = "gen_" + strings.Repeat("f", 64)
+	second, err := changedGeneration.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second {
+		t.Fatalf("outside-scope generation changed content digest: %s != %s", first, second)
+	}
+	changedContent := manifest
+	changedContent.Entries = append([]CaptureEntry(nil), manifest.Entries...)
+	changedContent.Entries[0].SHA256 = strings.Repeat("a", 64)
+	third, err := changedContent.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if third == first {
+		t.Fatal("selected content change did not change content digest")
+	}
+}

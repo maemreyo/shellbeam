@@ -122,6 +122,32 @@ func (m CaptureManifest) Canonical() (CaptureManifest, error) {
 	return out, nil
 }
 
+type captureContentDigestPayload struct {
+	SchemaVersion int            `json:"schema_version"`
+	Selectors     []string       `json:"selectors"`
+	Entries       []CaptureEntry `json:"entries"`
+	TotalBytes    int64          `json:"total_bytes"`
+}
+
+// ContentDigest binds only the declared immutable repo-input selection and its
+// captured bytes/mode facts. Workspace identity/generation are intentionally
+// excluded so a change outside the proven scope cannot invalidate this digest.
+func (m CaptureManifest) ContentDigest() (string, error) {
+	canonical, err := m.Canonical()
+	if err != nil {
+		return "", err
+	}
+	payload := captureContentDigestPayload{
+		SchemaVersion: 1, Selectors: canonical.Selectors, Entries: canonical.Entries, TotalBytes: canonical.TotalBytes,
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
 func (m CaptureManifest) Digest() (string, error) {
 	canonical, err := m.Canonical()
 	if err != nil {

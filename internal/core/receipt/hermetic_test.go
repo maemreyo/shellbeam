@@ -53,6 +53,7 @@ func hermeticReceiptFixture(version int) Receipt {
 		BoundaryID:            "hb_01K00000000000000000000000",
 		Request:               hermetic.Request{Version: 1, Mode: hermetic.ModeRequired, RepoInputs: []string{"go.mod"}, Network: hermetic.NetworkOff, Environment: hermetic.EnvironmentFixedAllowlist, Stdin: hermetic.StdinClosed, Writes: hermetic.WritesEphemeralDiscard},
 		CaptureManifestSHA256: digest64('d'),
+		CaptureContentSHA256:  digest64('e'),
 		Provider:              hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: digest64('a'), RuntimeManifestSHA256: digest64('b')},
 		Toolchain:             hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: digest64('c')},
 	}

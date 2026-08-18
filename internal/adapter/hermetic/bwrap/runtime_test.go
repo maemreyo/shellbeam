@@ -176,7 +176,7 @@ func runtimeFixture(t *testing.T) (*runtimeCaptureFake, *runtimeProviderFake, he
 	ctx := validRuntimeCapture(t)
 	providerID := core.ProviderIdentity{Provider: core.ProviderBubblewrap, Version: core.BubblewrapVersionV1, BinarySHA256: hex64('a'), RuntimeManifestSHA256: hex64('b')}
 	toolchain := core.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: hex64('c')}
-	prepared := hermeticapp.PreparedExecution{BoundaryID: "hb_01K00000000000000000000077", Provider: providerID, Toolchain: toolchain, CaptureManifestSHA256: mustManifestDigest(t, ctx.Manifest), Command: hermeticapp.ProviderCommand{Executable: "/private/bwrap", Argv: []string{"/private/bwrap", "--json-status-fd", "3", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed, StatusFD: 3}, PrivateStateRoot: "/private/hb_01K00000000000000000000077", ScratchRoot: "/private/hb_01K00000000000000000000077/scratch"}
+	prepared := hermeticapp.PreparedExecution{BoundaryID: "hb_01K00000000000000000000077", Provider: providerID, Toolchain: toolchain, CaptureManifestSHA256: mustManifestDigest(t, ctx.Manifest), CaptureContentSHA256: mustContentDigest(t, ctx.Manifest), Command: hermeticapp.ProviderCommand{Executable: "/private/bwrap", Argv: []string{"/private/bwrap", "--json-status-fd", "3", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed, StatusFD: 3}, PrivateStateRoot: "/private/hb_01K00000000000000000000077", ScratchRoot: "/private/hb_01K00000000000000000000077/scratch"}
 	return &runtimeCaptureFake{view: ctx}, &runtimeProviderFake{prepared: prepared}, prepared
 }
 func validRuntimeCapture(t *testing.T) hermeticapp.CapturedView {
@@ -188,6 +188,15 @@ func validRuntimeCapture(t *testing.T) hermeticapp.CapturedView {
 	}
 	return hermeticapp.CapturedView{CaptureID: "hcap_01K00000000000000000000077", PrivateRoot: "/private/hcap_01K00000000000000000000077", Manifest: manifest}
 }
+func mustContentDigest(t *testing.T, manifest core.CaptureManifest) string {
+	t.Helper()
+	digest, err := manifest.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return digest
+}
+
 func mustManifestDigest(t *testing.T, manifest core.CaptureManifest) string {
 	t.Helper()
 	d, err := manifest.Digest()

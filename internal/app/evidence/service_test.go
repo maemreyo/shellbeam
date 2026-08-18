@@ -4,12 +4,14 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/project"
@@ -197,7 +199,97 @@ func TestE27InputTraceBindingCannotNarrowEvidenceSourceValidity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Source != before.Source || after.Result != before.Result || after.Terminal != before.Terminal {
+	if after.Source != before.Source || after.Result != before.Result || after.Terminal != before.Terminal || after.ProvenInputScope != nil || before.ProvenInputScope != nil {
 		t.Fatalf("trace narrowed evidence before=%#v after=%#v", before, after)
+	}
+}
+
+func TestHermeticAuthoritativeCompletionPromotesProvenScopeEvenWhenVerificationFails(t *testing.T) {
+	workspaceID := "ws_01K00000000000000000000000"
+	repo := rawEvidenceServiceRepo(t, t.TempDir(), workspaceID, &core.Contract{VerificationKind: core.VerificationTest})
+	binding := evidenceHermeticBinding()
+	repo.reservation.HermeticBoundary = binding.Clone()
+	repo.terminal.HermeticBinding = binding.Clone()
+	repo.terminal.HermeticResult = evidenceHermeticResult(binding, hermetic.ContinuityComplete)
+	one := 1
+	repo.terminal.State, repo.terminal.Outcome, repo.terminal.Exit = session.Failed, session.Failure, receipt.ExitEvidence{Reaped: true, Code: &one}
+	repo.snapshot.State, repo.snapshot.Outcome = session.Failed, session.Failure
+
+	record, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal)
+	if err != nil || !created {
+		t.Fatalf("record=%#v created=%v err=%v", record, created, err)
+	}
+	if record.Result != core.ResultFail || record.ProvenInputScope == nil {
+		t.Fatalf("failed verification lost boundary scope: %#v", record)
+	}
+	if record.ProvenInputScope.CaptureContentSHA256 != binding.CaptureContentSHA256 || record.ProvenInputScope.CaptureManifestSHA256 != binding.CaptureManifestSHA256 || len(record.ProvenInputScope.RepoInputs) != 1 || record.ProvenInputScope.RepoInputs[0] != "go.mod" {
+		t.Fatalf("promoted scope=%#v", record.ProvenInputScope)
+	}
+}
+
+func TestHermeticLostCompletionNeverPromotesProvenScope(t *testing.T) {
+	repo := rawEvidenceServiceRepo(t, t.TempDir(), "ws_01K00000000000000000000000", &core.Contract{VerificationKind: core.VerificationTest})
+	binding := evidenceHermeticBinding()
+	repo.reservation.HermeticBoundary = binding.Clone()
+	repo.terminal.HermeticBinding = binding.Clone()
+	repo.terminal.HermeticResult = evidenceHermeticResult(binding, hermetic.ContinuityLost)
+	record, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal)
+	if err != nil || !created {
+		t.Fatalf("record=%#v created=%v err=%v", record, created, err)
+	}
+	if record.ProvenInputScope != nil {
+		t.Fatalf("lost boundary promoted scope: %#v", record.ProvenInputScope)
+	}
+}
+
+func TestHermeticReservationReceiptAuthorityMismatchIsRejectedBeforeEvidencePersistence(t *testing.T) {
+	repo := rawEvidenceServiceRepo(t, t.TempDir(), "ws_01K00000000000000000000000", &core.Contract{VerificationKind: core.VerificationTest})
+	reservationBinding := evidenceHermeticBinding()
+	receiptBinding := reservationBinding.Clone()
+	receiptBinding.CaptureContentSHA256 = strings.Repeat("9", 64)
+	repo.reservation.HermeticBoundary = reservationBinding.Clone()
+	repo.terminal.HermeticBinding = receiptBinding
+	repo.terminal.HermeticResult = evidenceHermeticResult(receiptBinding, hermetic.ContinuityComplete)
+	if _, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal); err == nil || created {
+		t.Fatalf("mismatched hermetic authority accepted created=%v err=%v", created, err)
+	}
+	if len(repo.records) != 0 {
+		t.Fatalf("mismatched authority persisted evidence: %#v", repo.records)
+	}
+}
+
+func evidenceHermeticBinding() *hermetic.BoundaryBinding {
+	return &hermetic.BoundaryBinding{
+		SchemaVersion:         hermetic.BoundaryBindingSchemaV1,
+		BoundaryID:            "hb_01K00000000000000000000055",
+		Request:               hermetic.Request{Version: 1, Mode: hermetic.ModeRequired, RepoInputs: []string{"go.mod"}, Network: hermetic.NetworkOff, Environment: hermetic.EnvironmentFixedAllowlist, Stdin: hermetic.StdinClosed, Writes: hermetic.WritesEphemeralDiscard},
+		CaptureManifestSHA256: strings.Repeat("4", 64), CaptureContentSHA256: strings.Repeat("5", 64),
+		Provider:  hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: strings.Repeat("6", 64), RuntimeManifestSHA256: strings.Repeat("7", 64)},
+		Toolchain: hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: strings.Repeat("8", 64)},
+	}
+}
+
+func evidenceHermeticResult(binding *hermetic.BoundaryBinding, continuity hermetic.Continuity) *hermetic.BoundaryResult {
+	return &hermetic.BoundaryResult{SchemaVersion: hermetic.BoundaryResultSchemaV1, BoundaryID: binding.BoundaryID, Provider: binding.Provider, Toolchain: binding.Toolchain, EstablishedPreExec: true, Continuity: continuity}
+}
+
+func TestE27InputTraceCannotAlterHermeticProvenScope(t *testing.T) {
+	repo := rawEvidenceServiceRepo(t, t.TempDir(), "ws_01K00000000000000000000000", &core.Contract{VerificationKind: core.VerificationTest})
+	boundary := evidenceHermeticBinding()
+	repo.reservation.HermeticBoundary = boundary.Clone()
+	repo.terminal.HermeticBinding = boundary.Clone()
+	repo.terminal.HermeticResult = evidenceHermeticResult(boundary, hermetic.ContinuityComplete)
+	before, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal)
+	if err != nil || !created || before.ProvenInputScope == nil {
+		t.Fatalf("before=%#v created=%v err=%v", before, created, err)
+	}
+	traceBinding := inputtrace.InstrumentationBinding{SchemaVersion: inputtrace.SchemaVersion, TraceID: "trace_01K00000000000000000000001", Mode: inputtrace.ModeBestEffort, Status: inputtrace.BindingActive, Provider: inputtrace.ProviderIdentity{ID: "dyld-interpose", Version: 1, CapabilityVersion: 1}, Platform: "darwin", InstrumentationFingerprint: strings.Repeat("f", 64), InstrumentationEffect: inputtrace.EffectEnvironmentAffecting, Coverage: inputtrace.CoverageMatrix{FilesystemReads: inputtrace.CoveragePartial, FilesystemMetadataQueries: inputtrace.CoveragePartial, DirectoryEnumerations: inputtrace.CoveragePartial, FilesystemWrites: inputtrace.CoveragePartial, ExecutedBinaries: inputtrace.CoveragePartial, LoadedLibraries: inputtrace.CoveragePartial, EnvironmentNamesObserved: inputtrace.CoverageUnsupported, NetworkAttempts: inputtrace.CoverageUnsupported, ChildProcesses: inputtrace.CoveragePartial}}
+	repo.reservation.Trace = &traceBinding
+	after, _, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), repo.terminal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.ProvenInputScope == nil || !reflect.DeepEqual(before.ProvenInputScope, after.ProvenInputScope) {
+		t.Fatalf("trace altered hermetic scope before=%#v after=%#v", before.ProvenInputScope, after.ProvenInputScope)
 	}
 }

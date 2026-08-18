@@ -99,6 +99,10 @@ func (p *Provider) Prepare(ctx context.Context, req app.PrepareExecutionRequest)
 	if err != nil {
 		return app.PreparedExecution{}, err
 	}
+	contentDigest, err := req.Capture.Manifest.ContentDigest()
+	if err != nil {
+		return app.PreparedExecution{}, err
+	}
 	boundaryID := p.newBoundaryID()
 	if !validBoundaryID(boundaryID) {
 		return app.PreparedExecution{}, fmt.Errorf("invalid hermetic boundary identity")
@@ -123,6 +127,7 @@ func (p *Provider) Prepare(ctx context.Context, req app.PrepareExecutionRequest)
 		Provider:              p.provider,
 		Toolchain:             p.toolchain,
 		CaptureManifestSHA256: manifestDigest,
+		CaptureContentSHA256:  contentDigest,
 		Command: app.ProviderCommand{
 			Executable:     p.config.BubblewrapPath,
 			Argv:           argv,

@@ -59,7 +59,7 @@ func validHermeticReservationForSchema(version int, binding hermetic.BoundaryBin
 }
 
 func storeHermeticBinding() hermetic.BoundaryBinding {
-	return hermetic.BoundaryBinding{SchemaVersion: 1, BoundaryID: "hb_01K00000000000000000000000", Request: hermetic.Request{Version: 1, Mode: hermetic.ModeRequired, RepoInputs: []string{"go.mod"}, Network: hermetic.NetworkOff, Environment: hermetic.EnvironmentFixedAllowlist, Stdin: hermetic.StdinClosed, Writes: hermetic.WritesEphemeralDiscard}, CaptureManifestSHA256: storeDigest('d'), Provider: hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: storeDigest('a'), RuntimeManifestSHA256: storeDigest('b')}, Toolchain: hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: storeDigest('c')}}
+	return hermetic.BoundaryBinding{SchemaVersion: 1, BoundaryID: "hb_01K00000000000000000000000", Request: hermetic.Request{Version: 1, Mode: hermetic.ModeRequired, RepoInputs: []string{"go.mod"}, Network: hermetic.NetworkOff, Environment: hermetic.EnvironmentFixedAllowlist, Stdin: hermetic.StdinClosed, Writes: hermetic.WritesEphemeralDiscard}, CaptureManifestSHA256: storeDigest('d'), CaptureContentSHA256: storeDigest('e'), Provider: hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: storeDigest('a'), RuntimeManifestSHA256: storeDigest('b')}, Toolchain: hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: storeDigest('c')}}
 }
 func storeDigest(ch byte) string {
 	b := make([]byte, 64)

@@ -15,12 +15,13 @@ type BoundaryBinding struct {
 	BoundaryID            string            `json:"boundary_id"`
 	Request               Request           `json:"request"`
 	CaptureManifestSHA256 string            `json:"capture_manifest_sha256"`
+	CaptureContentSHA256  string            `json:"capture_content_sha256"`
 	Provider              ProviderIdentity  `json:"provider"`
 	Toolchain             ToolchainIdentity `json:"toolchain"`
 }
 
 func (b BoundaryBinding) Validate() error {
-	if b.SchemaVersion != BoundaryBindingSchemaV1 || !boundaryIDPattern.MatchString(b.BoundaryID) || !validSHA256(b.CaptureManifestSHA256) {
+	if b.SchemaVersion != BoundaryBindingSchemaV1 || !boundaryIDPattern.MatchString(b.BoundaryID) || !validSHA256(b.CaptureManifestSHA256) || !validSHA256(b.CaptureContentSHA256) {
 		return fmt.Errorf("invalid hermetic boundary binding identity")
 	}
 	canonical, err := b.Request.Canonical()
@@ -59,4 +60,26 @@ func ValidateBoundaryCompletion(binding BoundaryBinding, result BoundaryResult) 
 		return fmt.Errorf("hermetic boundary result does not match frozen binding")
 	}
 	return nil
+}
+
+func ProvenInputScopeFromCompletion(binding BoundaryBinding, result BoundaryResult) (ProvenInputScope, bool, error) {
+	if err := ValidateBoundaryCompletion(binding, result); err != nil {
+		return ProvenInputScope{}, false, err
+	}
+	if !result.Authoritative() {
+		return ProvenInputScope{}, false, nil
+	}
+	scope := ProvenInputScope{
+		SchemaVersion:         ProvenInputScopeSchemaV1,
+		RepoInputs:            append([]string(nil), binding.Request.RepoInputs...),
+		CaptureManifestSHA256: binding.CaptureManifestSHA256,
+		CaptureContentSHA256:  binding.CaptureContentSHA256,
+		Provider:              binding.Provider, Toolchain: binding.Toolchain,
+		Environment: binding.Request.Environment, Stdin: binding.Request.Stdin, Network: binding.Request.Network,
+		AmbientInputs: []AmbientInputClass{AmbientClock, AmbientRandomness},
+	}
+	if err := scope.Validate(); err != nil {
+		return ProvenInputScope{}, false, err
+	}
+	return scope, true, nil
 }

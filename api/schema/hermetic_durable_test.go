@@ -22,6 +22,14 @@ func TestHermeticDurableBindingIsClosedOnOperationV2V3(t *testing.T) {
 	if err := resolvedSchema(t, OperationV3).Validate(v3); err != nil {
 		t.Fatalf("operation v3 rejected hermetic binding: %v", err)
 	}
+	missingContent := cloneProjectCommandMap(v2)
+	missingBindingContent := durableHermeticBindingSchemaValue()
+	delete(missingBindingContent, "capture_content_sha256")
+	missingContent["hermetic_boundary"] = missingBindingContent
+	if err := resolvedSchema(t, OperationV2).Validate(missingContent); err == nil {
+		t.Fatal("operation v2 accepted hermetic binding without capture content digest")
+	}
+
 	bad := cloneProjectCommandMap(v2)
 	leaky := durableHermeticBindingSchemaValue()
 	leaky["private_state_root"] = "/private/hb"
@@ -92,7 +100,7 @@ func TestHermeticStartSchemaRequiresRegisteredWorkspaceAuthority(t *testing.T) {
 
 func durableHermeticBindingSchemaValue() map[string]any {
 	return map[string]any{
-		"schema_version": 1.0, "boundary_id": "hb_01K00000000000000000000000", "request": validHermeticSchemaValue(), "capture_manifest_sha256": strings.Repeat("d", 64),
+		"schema_version": 1.0, "boundary_id": "hb_01K00000000000000000000000", "request": validHermeticSchemaValue(), "capture_manifest_sha256": strings.Repeat("d", 64), "capture_content_sha256": strings.Repeat("e", 64),
 		"provider":  map[string]any{"provider": "bubblewrap", "version": "0.11.2", "binary_sha256": strings.Repeat("a", 64), "runtime_manifest_sha256": strings.Repeat("b", 64)},
 		"toolchain": map[string]any{"id": "go-1.26.6-linux-amd64", "manifest_sha256": strings.Repeat("c", 64)},
 	}

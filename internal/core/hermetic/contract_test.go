@@ -129,6 +129,7 @@ func TestProviderBoundaryAndProvenScopeContracts(t *testing.T) {
 		SchemaVersion:         ProvenInputScopeSchemaV1,
 		RepoInputs:            []string{"cmd/**", "go.mod"},
 		CaptureManifestSHA256: strings.Repeat("e", 64),
+		CaptureContentSHA256:  strings.Repeat("f", 64),
 		Provider:              provider,
 		Toolchain:             toolchain,
 		Environment:           EnvironmentFixedAllowlist,
@@ -138,6 +139,11 @@ func TestProviderBoundaryAndProvenScopeContracts(t *testing.T) {
 	}
 	if err := scope.Validate(); err != nil {
 		t.Fatal(err)
+	}
+	noncanonicalScope := scope
+	noncanonicalScope.RepoInputs = []string{"go.mod", "cmd/**"}
+	if err := noncanonicalScope.Validate(); err == nil {
+		t.Fatal("noncanonical proven input scope accepted")
 	}
 }
 

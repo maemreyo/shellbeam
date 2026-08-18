@@ -3,6 +3,7 @@ package hermetic
 import (
 	"fmt"
 	"regexp"
+	"slices"
 )
 
 const (
@@ -59,6 +60,7 @@ type ProvenInputScope struct {
 	SchemaVersion         int                 `json:"schema_version"`
 	RepoInputs            []string            `json:"repo_inputs"`
 	CaptureManifestSHA256 string              `json:"capture_manifest_sha256"`
+	CaptureContentSHA256  string              `json:"capture_content_sha256"`
 	Provider              ProviderIdentity    `json:"provider"`
 	Toolchain             ToolchainIdentity   `json:"toolchain"`
 	Environment           EnvironmentMode     `json:"environment"`
@@ -68,11 +70,15 @@ type ProvenInputScope struct {
 }
 
 func (s ProvenInputScope) Validate() error {
-	if s.SchemaVersion != ProvenInputScopeSchemaV1 || !validSHA256(s.CaptureManifestSHA256) {
+	if s.SchemaVersion != ProvenInputScopeSchemaV1 || !validSHA256(s.CaptureManifestSHA256) || !validSHA256(s.CaptureContentSHA256) {
 		return fmt.Errorf("invalid proven input scope identity")
 	}
-	if _, err := normalizeRepoInputs(s.RepoInputs); err != nil {
+	canonicalInputs, err := normalizeRepoInputs(s.RepoInputs)
+	if err != nil {
 		return err
+	}
+	if !slices.Equal(canonicalInputs, s.RepoInputs) {
+		return fmt.Errorf("noncanonical proven input scope")
 	}
 	if err := s.Provider.Validate(); err != nil {
 		return err

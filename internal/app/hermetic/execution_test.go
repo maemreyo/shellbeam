@@ -34,12 +34,18 @@ func TestPreparedExecutionCarriesOnlyPrivateLaunchStateAndFrozenAuthorityInputs(
 		Provider:              provider,
 		Toolchain:             toolchain,
 		CaptureManifestSHA256: repeatHex("d"),
+		CaptureContentSHA256:  repeatHex("e"),
 		Command:               ProviderCommand{Executable: "/private/bwrap", Argv: []string{"/private/bwrap", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed, StatusFD: 3},
 		PrivateStateRoot:      "/private/hb_01K00000000000000000000000",
 		ScratchRoot:           "/private/hb_01K00000000000000000000000/scratch",
 	}
 	if err := prepared.ValidatePrivate(); err != nil {
 		t.Fatalf("valid prepared execution rejected: %v", err)
+	}
+	missingContent := prepared
+	missingContent.CaptureContentSHA256 = ""
+	if err := missingContent.ValidatePrivate(); err == nil {
+		t.Fatal("prepared execution accepted missing capture content digest")
 	}
 	broken := prepared
 	broken.Command.StdinMode = operation.StdinModeStream

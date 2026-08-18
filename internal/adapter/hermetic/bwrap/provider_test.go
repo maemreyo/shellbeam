@@ -51,7 +51,11 @@ func TestPrepareBuildsFrozenTopologyAndExactEnvironment(t *testing.T) {
 	if got.Command.Executable != fixture.config.BubblewrapPath || got.Command.Dir != "/" || len(got.Command.Env) != 0 || got.Command.StdinMode != operation.StdinModeClosed {
 		t.Fatalf("provider command=%#v", got.Command)
 	}
-	if got.Provider != fixture.config.ProviderIdentity || got.Toolchain != fixture.config.ToolchainIdentity || got.CaptureManifestSHA256 == "" {
+	wantContentDigest, err := fixture.capture.Manifest.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Provider != fixture.config.ProviderIdentity || got.Toolchain != fixture.config.ToolchainIdentity || got.CaptureManifestSHA256 == "" || got.CaptureContentSHA256 != wantContentDigest {
 		t.Fatalf("prepared identities=%#v", got)
 	}
 	if got.BoundaryID == "" || got.PrivateStateRoot == "" || got.ScratchRoot == "" {
