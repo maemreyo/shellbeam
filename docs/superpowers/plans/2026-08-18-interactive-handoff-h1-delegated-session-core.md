@@ -497,10 +497,11 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 **Files:**
 - Modify: `internal/app/delegatedsession/ports.go`
 - Modify: `internal/app/delegatedsession/service.go`
-- Modify: `internal/adapter/delegatedtmux/control.go`
-- Modify: `internal/adapter/delegatedtmux/control_test.go`
 - Modify: `internal/adapter/delegatedtmux/provider_session.go`
 - Modify: `internal/adapter/delegatedtmux/provider_native_test.go`
+- Create: `internal/adapter/delegatedtmux/process_wait_darwin.go`
+- Create: `internal/adapter/delegatedtmux/process_wait_darwin_test.go`
+- Create: `internal/adapter/delegatedtmux/process_wait_linux.go`
 - Create: `internal/app/daemon/delegated_port.go`
 - Create: `internal/app/daemon/delegated_start.go`
 - Create: `internal/app/daemon/delegated_start_test.go`
@@ -517,7 +518,9 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 - `StartRequest.SessionMode` selects delegated service.
 - `WriteRequest.AuthorityEpoch` and `KillRequest.AuthorityEpoch` are required only for delegated sessions.
 - Start/poll/control views return current `AuthorityEpoch` for delegated sessions.
-- `DelegatedRuntime.Wait` is event-driven: the qualified tmux provider uses a per-pane Control Mode format subscription (`refresh-client -B` / `%subscription-changed`) for `pane_dead|pane_dead_status`; daemon code must not add a periodic terminal polling loop. The initial subscription value closes the race where the pane exited before watcher registration.
+- `DelegatedRuntime.Wait` is event-driven and Darwin-scoped: the provider first proves the exact current pane identity, then registers a kernel `kqueue` `EVFILT_PROC/NOTE_EXIT` watcher on that exact pane PID. After the kernel exit event it queries the already-qualified tmux provider once for `pane_dead|pane_dead_status` and re-verifies provider generation/session/window/pane identity before publishing terminal truth. A second exact tmux inspection immediately after watcher registration closes the inspect→watch race. If kqueue registration observes an already-gone process, the provider immediately re-inspects tmux rather than polling. Daemon code must not add a periodic terminal polling loop.
+
+Qualification note: direct native probing against the bound tmux 3.6a provider showed `refresh-client -B` emits the initial `%subscription-changed ... : 0|` value but did not emit a later pane-death update even when exact tmux inspection reported `pane_dead=1` with exit status. Therefore format subscriptions are not used as the sole terminal wakeup primitive for H1.
 
 - [ ] **Step 1: RED-test admission and no fallback.**
 
