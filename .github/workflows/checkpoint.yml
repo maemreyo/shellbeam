@@ -21,8 +21,13 @@ jobs:
           cache: true
       - run: ./scripts/check-json-mode.sh
       - run: go run ./tools/devctl verify --checkpoint --base '${{ github.event.pull_request.base.sha || github.event.before }}' --json
+      - name: Native resource enforcement acceptance
+        if: matrix.os == 'ubuntu-latest'
+        run: ./scripts/test-resource-enforcement-native.sh
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: evidence-${{ matrix.os }}
-          path: .build/receipts/
+          path: |
+            .build/receipts/
+            .build/resource-enforcement-native/
