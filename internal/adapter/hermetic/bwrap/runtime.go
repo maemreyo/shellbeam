@@ -45,9 +45,35 @@ type Runtime struct {
 	owned        map[string]runtimeOwned
 }
 
-func NewRuntime(capture *hermeticapp.CaptureService, provider hermeticapp.ExecutionProvider, starter privateStarter) *Runtime {
-	return newRuntime(capture, provider, starter, defaultProviderStatusBudget)
+func NewRuntime(ctx context.Context, capture *hermeticapp.CaptureService, provider hermeticapp.ExecutionProvider, starter privateStarter) (*Runtime, error) {
+	return newQualifiedRuntime(ctx, capture, provider, starter, defaultProviderStatusBudget)
 }
+
+type runtimeSweeper interface {
+	Sweep(context.Context) error
+}
+
+func newQualifiedRuntime(ctx context.Context, capture runtimeCapture, provider hermeticapp.ExecutionProvider, starter privateStarter, budget time.Duration) (*Runtime, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	captureSweeper, ok := capture.(runtimeSweeper)
+	if !ok {
+		return nil, fmt.Errorf("hermetic capture recovery unavailable")
+	}
+	providerSweeper, ok := provider.(runtimeSweeper)
+	if !ok {
+		return nil, fmt.Errorf("hermetic boundary recovery unavailable")
+	}
+	if err := captureSweeper.Sweep(ctx); err != nil {
+		return nil, fmt.Errorf("hermetic capture recovery failed")
+	}
+	if err := providerSweeper.Sweep(ctx); err != nil {
+		return nil, fmt.Errorf("hermetic boundary recovery failed")
+	}
+	return newRuntime(capture, provider, starter, budget), nil
+}
+
 func newRuntime(capture runtimeCapture, provider hermeticapp.ExecutionProvider, starter privateStarter, budget time.Duration) *Runtime {
 	return &Runtime{capture: capture, provider: provider, starter: starter, statusBudget: budget, owned: make(map[string]runtimeOwned)}
 }

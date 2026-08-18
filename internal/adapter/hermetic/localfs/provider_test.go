@@ -251,3 +251,56 @@ func assertNoCaptureResidue(t *testing.T, private string) {
 		}
 	}
 }
+
+func TestSweepRemovesOnlyStaleOwnedCaptureDirectoriesAndIsIdempotent(t *testing.T) {
+	_, private := captureFixture(t)
+	stale := filepath.Join(private, "hcap_01K00000000000000000000000")
+	if err := os.MkdirAll(filepath.Join(stale, "root", "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, filepath.Join(stale, "root", "nested", "x"), "stale", 0o600)
+	foreign := filepath.Join(private, "keep-me")
+	if err := os.Mkdir(foreign, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	provider := New(private)
+	if err := provider.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale owned capture survived: %v", err)
+	}
+	if _, err := os.Lstat(foreign); err != nil {
+		t.Fatalf("foreign sibling was removed: %v", err)
+	}
+	if err := provider.Sweep(context.Background()); err != nil {
+		t.Fatalf("idempotent sweep failed: %v", err)
+	}
+}
+
+func TestSweepFailsClosedOnOwnedLookingSymlinkOrFileWithoutTouchingTarget(t *testing.T) {
+	for _, kind := range []string{"symlink", "file"} {
+		t.Run(kind, func(t *testing.T) {
+			_, private := captureFixture(t)
+			name := filepath.Join(private, "hcap_01K00000000000000000000000")
+			target := filepath.Join(t.TempDir(), "sentinel")
+			mustWrite(t, target, "do-not-touch", 0o600)
+			if kind == "symlink" {
+				if err := os.Symlink(target, name); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(name, []byte("collision"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := New(private).Sweep(context.Background()); err == nil {
+				t.Fatal("unsafe owned-looking entry accepted")
+			}
+			if got := string(mustRead(t, target)); got != "do-not-touch" {
+				t.Fatalf("external target changed: %q", got)
+			}
+			if _, err := os.Lstat(name); err != nil {
+				t.Fatalf("ambiguous entry was modified: %v", err)
+			}
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	hermeticapp "github.com/maemreyo/shellbeam/internal/app/hermetic"
 	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
 type preparedHermetic struct {
@@ -52,11 +53,14 @@ func (s *Service) prepareHermeticExecution(ctx context.Context, req StartRequest
 	return &preparedHermetic{execution: prepared, binding: binding}, nil
 }
 
-func (s *Service) discardHermetic(prepared *preparedHermetic) {
+func (s *Service) discardHermetic(prepared *preparedHermetic) *receipt.HermeticCleanup {
 	if prepared == nil || s.options.HermeticRuntime == nil {
-		return
+		return nil
 	}
-	_ = s.options.HermeticRuntime.Discard(context.Background(), prepared.execution)
+	if err := s.options.HermeticRuntime.Discard(context.Background(), prepared.execution); err != nil {
+		return &receipt.HermeticCleanup{Status: receipt.HermeticCleanupIncomplete, Reason: "discard_failed"}
+	}
+	return nil
 }
 
 func lostHermeticResult(binding *hermeticcore.BoundaryBinding) *hermeticcore.BoundaryResult {

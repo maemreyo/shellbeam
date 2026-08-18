@@ -288,3 +288,60 @@ func TestPrepareMapsLogicalCWDInsideImmutableInputViewAndRejectsEscape(t *testin
 		}
 	}
 }
+
+func TestSweepRemovesOnlyStaleOwnedBoundaryDirectoriesAndIsIdempotent(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(fixture.config.RuntimeRoot, "hb_01K00000000000000000000000")
+	if err := os.MkdirAll(filepath.Join(stale, "scratch", "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stale, "scratch", "nested", "x"), []byte("stale"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	foreign := filepath.Join(fixture.config.RuntimeRoot, "keep-me")
+	if err := os.Mkdir(foreign, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Sweep(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale owned boundary survived: %v", err)
+	}
+	if _, err := os.Lstat(foreign); err != nil {
+		t.Fatalf("foreign sibling was removed: %v", err)
+	}
+	if err := provider.Sweep(context.Background()); err != nil {
+		t.Fatalf("idempotent sweep failed: %v", err)
+	}
+}
+
+func TestSweepFailsClosedOnOwnedLookingBoundarySymlink(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "sentinel")
+	if err := os.WriteFile(target, []byte("do-not-touch"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(fixture.config.RuntimeRoot, "hb_01K00000000000000000000000")
+	if err := os.Symlink(target, entry); err != nil {
+		t.Fatal(err)
+	}
+	if err := provider.Sweep(context.Background()); err == nil {
+		t.Fatal("owned-looking symlink accepted")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "do-not-touch" {
+		t.Fatalf("target changed data=%q err=%v", data, err)
+	}
+	if _, err := os.Lstat(entry); err != nil {
+		t.Fatalf("ambiguous entry was modified: %v", err)
+	}
+}

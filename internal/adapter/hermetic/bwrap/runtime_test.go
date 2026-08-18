@@ -21,6 +21,8 @@ type runtimeCaptureFake struct {
 	view       hermeticapp.CapturedView
 	captureErr error
 	discards   int
+	sweepErr   error
+	sweeps     int
 }
 
 func (f *runtimeCaptureFake) Capture(context.Context, string, core.Request) (hermeticapp.CapturedView, error) {
@@ -30,11 +32,17 @@ func (f *runtimeCaptureFake) Discard(context.Context, hermeticapp.CapturedView) 
 	f.discards++
 	return nil
 }
+func (f *runtimeCaptureFake) Sweep(context.Context) error {
+	f.sweeps++
+	return f.sweepErr
+}
 
 type runtimeProviderFake struct {
 	prepared     hermeticapp.PreparedExecution
 	prepareErr   error
 	discardCalls int
+	sweepErr     error
+	sweeps       int
 }
 
 func (f *runtimeProviderFake) Prepare(context.Context, hermeticapp.PrepareExecutionRequest) (hermeticapp.PreparedExecution, error) {
@@ -43,6 +51,10 @@ func (f *runtimeProviderFake) Prepare(context.Context, hermeticapp.PrepareExecut
 func (f *runtimeProviderFake) Discard(context.Context, hermeticapp.PreparedExecution) error {
 	f.discardCalls++
 	return nil
+}
+func (f *runtimeProviderFake) Sweep(context.Context) error {
+	f.sweeps++
+	return f.sweepErr
 }
 
 type runtimeStarterFake struct {
@@ -321,3 +333,42 @@ func (s *capturingRuntimeSink) Append(_ context.Context, data []byte) error {
 }
 func (s *capturingRuntimeSink) CaptureFailed(error) {}
 func (s *capturingRuntimeSink) String() string      { s.mu.Lock(); defer s.mu.Unlock(); return string(s.b) }
+
+func TestQualifiedRuntimeSweepsCaptureThenBoundaryBeforeBecomingUsable(t *testing.T) {
+	capture, provider, _ := runtimeFixture(t)
+	runtime, err := newQualifiedRuntime(context.Background(), capture, provider, &runtimeStarterFake{}, time.Second)
+	if err != nil || runtime == nil {
+		t.Fatalf("runtime=%#v err=%v", runtime, err)
+	}
+	if capture.sweeps != 1 || provider.sweeps != 1 {
+		t.Fatalf("capture sweeps=%d provider sweeps=%d", capture.sweeps, provider.sweeps)
+	}
+}
+
+func TestQualifiedRuntimeFailsClosedWhenEitherCrashSweepFails(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		captureFail  bool
+		providerFail bool
+	}{
+		{name: "capture", captureFail: true},
+		{name: "provider", providerFail: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			capture, provider, _ := runtimeFixture(t)
+			if tc.captureFail {
+				capture.sweepErr = errors.New("capture sweep failed /private/leak")
+			}
+			if tc.providerFail {
+				provider.sweepErr = errors.New("boundary sweep failed /private/leak")
+			}
+			runtime, err := newQualifiedRuntime(context.Background(), capture, provider, &runtimeStarterFake{}, time.Second)
+			if err == nil || runtime != nil {
+				t.Fatalf("unsafe runtime=%#v err=%v", runtime, err)
+			}
+			if tc.captureFail && provider.sweeps != 0 {
+				t.Fatalf("provider swept after capture failure: %d", provider.sweeps)
+			}
+		})
+	}
+}

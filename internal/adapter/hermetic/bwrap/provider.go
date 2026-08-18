@@ -147,6 +147,40 @@ func (p *Provider) Prepare(ctx context.Context, req app.PrepareExecutionRequest)
 	return prepared, nil
 }
 
+func (p *Provider) Sweep(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p == nil || !cleanAbsolute(p.config.RuntimeRoot) {
+		return fmt.Errorf("invalid hermetic runtime root")
+	}
+	info, err := os.Lstat(p.config.RuntimeRoot)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("invalid hermetic runtime root")
+	}
+	entries, err := os.ReadDir(p.config.RuntimeRoot)
+	if err != nil {
+		return fmt.Errorf("hermetic boundary sweep unavailable")
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !validBoundaryID(entry.Name()) {
+			continue
+		}
+		owned := filepath.Join(p.config.RuntimeRoot, entry.Name())
+		ownedInfo, err := os.Lstat(owned)
+		if err != nil || !ownedInfo.IsDir() || ownedInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unsafe hermetic boundary residue")
+		}
+		if err := removePrivateState(owned); err != nil {
+			return fmt.Errorf("hermetic boundary sweep failed")
+		}
+	}
+	return nil
+}
+
 func (p *Provider) Discard(ctx context.Context, prepared app.PreparedExecution) error {
 	if err := ctx.Err(); err != nil {
 		return err

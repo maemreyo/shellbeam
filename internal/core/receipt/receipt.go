@@ -97,6 +97,22 @@ func (c ResourceCleanup) Validate() error {
 	}
 }
 
+type HermeticCleanupStatus string
+
+const HermeticCleanupIncomplete HermeticCleanupStatus = "incomplete"
+
+type HermeticCleanup struct {
+	Status HermeticCleanupStatus `json:"status"`
+	Reason string                `json:"reason"`
+}
+
+func (c HermeticCleanup) Validate() error {
+	if c.Status != HermeticCleanupIncomplete || c.Reason != "discard_failed" {
+		return fmt.Errorf("invalid hermetic cleanup metadata")
+	}
+	return nil
+}
+
 type Receipt struct {
 	SchemaVersion                 int             `json:"schema_version"`
 	OperationID                   string          `json:"operation_id"`
@@ -132,6 +148,7 @@ type Receipt struct {
 	StdinModeSource     string                    `json:"stdin_mode_source,omitempty"`
 	FailureReason       string                    `json:"failure_reason,omitempty"`
 	ResourceCleanup     *ResourceCleanup          `json:"resource_cleanup,omitempty"`
+	HermeticCleanup     *HermeticCleanup          `json:"hermetic_cleanup,omitempty"`
 	HermeticBinding     *hermetic.BoundaryBinding `json:"hermetic_boundary,omitempty"`
 	HermeticResult      *hermetic.BoundaryResult  `json:"hermetic_result,omitempty"`
 	WorkspaceProvenance *WorkspaceProvenance      `json:"workspace_provenance,omitempty"`
@@ -158,6 +175,19 @@ func (r Receipt) validateResourceCleanup() error {
 	}
 }
 
+func (r Receipt) validateHermeticCleanup() error {
+	if r.HermeticCleanup == nil {
+		return nil
+	}
+	if r.SchemaVersion != 2 && r.SchemaVersion != 3 {
+		return fmt.Errorf("hermetic cleanup metadata requires ephemeral v2 or v3 receipt")
+	}
+	if r.HermeticBinding == nil {
+		return fmt.Errorf("hermetic cleanup metadata requires boundary binding")
+	}
+	return r.HermeticCleanup.Validate()
+}
+
 func (r Receipt) validateHermeticBoundary() error {
 	if r.HermeticBinding == nil && r.HermeticResult == nil {
 		return nil
@@ -176,6 +206,9 @@ func (r Receipt) Validate() error {
 		return err
 	}
 	if err := r.validateHermeticBoundary(); err != nil {
+		return err
+	}
+	if err := r.validateHermeticCleanup(); err != nil {
 		return err
 	}
 	switch r.SchemaVersion {

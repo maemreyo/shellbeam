@@ -42,6 +42,10 @@ type CaptureProvider interface {
 	Discard(context.Context, CapturedView) error
 }
 
+type CaptureSweeper interface {
+	Sweep(context.Context) error
+}
+
 type CaptureService struct {
 	workspace WorkspaceSource
 	provider  CaptureProvider
@@ -50,6 +54,23 @@ type CaptureService struct {
 
 func NewCaptureService(workspace WorkspaceSource, provider CaptureProvider, limits core.CaptureLimits) *CaptureService {
 	return &CaptureService{workspace: workspace, provider: provider, limits: limits}
+}
+
+func (s *CaptureService) Sweep(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s == nil || s.provider == nil {
+		return fmt.Errorf("hermetic capture unavailable")
+	}
+	sweeper, ok := s.provider.(CaptureSweeper)
+	if !ok {
+		return fmt.Errorf("hermetic capture recovery unavailable")
+	}
+	if err := sweeper.Sweep(ctx); err != nil {
+		return fmt.Errorf("hermetic capture recovery failed")
+	}
+	return nil
 }
 
 func (s *CaptureService) Capture(ctx context.Context, workspaceID string, request core.Request) (CapturedView, error) {

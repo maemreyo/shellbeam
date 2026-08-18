@@ -269,7 +269,7 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	// it takes, which can be minutes. Holding a dead child's stdin open for
 	// that whole time is what turned a stalled store into a descriptor leak.
 	s.releaseProcessResources(l)
-	s.discardHermetic(l.hermeticPrepared)
+	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
@@ -367,7 +367,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	// it takes, which can be minutes. Holding a dead child's stdin open for
 	// that whole time is what turned a stalled store into a descriptor leak.
 	s.releaseProcessResources(l)
-	s.discardHermetic(l.hermeticPrepared)
+	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)

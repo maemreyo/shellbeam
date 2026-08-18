@@ -111,6 +111,40 @@ func (p *Provider) copySelected(ctx context.Context, privateRoot string, req app
 	return manifest.Canonical()
 }
 
+func (p *Provider) Sweep(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if p == nil || !filepath.IsAbs(p.privateRoot) || filepath.Clean(p.privateRoot) != p.privateRoot {
+		return fmt.Errorf("invalid hermetic private root")
+	}
+	info, err := os.Lstat(p.privateRoot)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("invalid hermetic private root")
+	}
+	entries, err := os.ReadDir(p.privateRoot)
+	if err != nil {
+		return fmt.Errorf("hermetic capture sweep unavailable")
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !validCaptureID(entry.Name()) {
+			continue
+		}
+		owned := filepath.Join(p.privateRoot, entry.Name())
+		ownedInfo, err := os.Lstat(owned)
+		if err != nil || !ownedInfo.IsDir() || ownedInfo.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("unsafe hermetic capture residue")
+		}
+		if err := discardCaptureDir(owned); err != nil {
+			return fmt.Errorf("hermetic capture sweep failed")
+		}
+	}
+	return nil
+}
+
 func (p *Provider) Discard(ctx context.Context, view app.CapturedView) error {
 	if err := ctx.Err(); err != nil {
 		return err

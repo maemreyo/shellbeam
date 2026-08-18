@@ -51,6 +51,7 @@ type fakeHermeticRuntime struct {
 	prepareCalls int
 	startCalls   int
 	discardCalls int
+	discardErr   error
 	prepareErr   error
 	startErr     error
 	spawn        receipt.SpawnEvidence
@@ -80,7 +81,7 @@ func (r *fakeHermeticRuntime) Start(context.Context, hermeticapp.PreparedExecuti
 }
 func (r *fakeHermeticRuntime) Discard(context.Context, hermeticapp.PreparedExecution) error {
 	r.discardCalls++
-	return nil
+	return r.discardErr
 }
 
 type hermeticDaemonHandle struct {
@@ -266,5 +267,33 @@ func TestTypedHermeticRuntimePersistsV3BoundaryAndUsesFrozenProjectLogicalCWD(t 
 	}
 	if terminal.Receipt == nil || terminal.Receipt.SchemaVersion != 3 || terminal.Receipt.ProjectCommand == nil || terminal.Receipt.HermeticBinding == nil || terminal.Receipt.HermeticResult == nil || !terminal.Receipt.HermeticResult.Authoritative() {
 		t.Fatalf("typed terminal=%#v", terminal.Receipt)
+	}
+}
+
+func TestHermeticTerminalCleanupFailureIsBoundedWithoutRewritingExitOrBoundaryTruth(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state-cleanup-fail"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: daemonDigest('a'), RuntimeManifestSHA256: daemonDigest('b')}
+	toolchain := hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: daemonDigest('c')}
+	prepared := hermeticapp.PreparedExecution{BoundaryID: "hb_01K00000000000000000000060", Provider: provider, Toolchain: toolchain, CaptureManifestSHA256: daemonDigest('d'), CaptureContentSHA256: daemonDigest('e'), Command: hermeticapp.ProviderCommand{Executable: "/private/bwrap", Argv: []string{"/private/bwrap", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed, StatusFD: 3}, PrivateStateRoot: "/private/hb_01K00000000000000000000060", ScratchRoot: "/private/hb_01K00000000000000000000060/scratch"}
+	zero := 0
+	runtime := &fakeHermeticRuntime{prepared: prepared, discardErr: errors.New("remove /private/hb_secret: permission denied"), handle: &hermeticDaemonHandle{result: hermetic.BoundaryResult{SchemaVersion: 1, BoundaryID: prepared.BoundaryID, Provider: provider, Toolchain: toolchain, EstablishedPreExec: true, Continuity: hermetic.ContinuityComplete}, exit: receipt.ExitEvidence{Reaped: true, Code: &zero}}}
+	catalog := capability.Baseline(capability.Limits{}).WithHermeticBoundary(daemonHermeticSupport())
+	svc := app.NewServiceWithWorkspaceResolver(st, &fakeOwner{}, &fakeAddressResolver{cwd: "/repo"}, app.Options{Incarnation: "h-cleanup", Shell: "/bin/sh", MaxQueuedInputBytes: 100, Capabilities: catalog, HermeticRuntime: runtime})
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "hermetic-cleanup-fail", WorkspaceID: "ws_01K00000000000000000000000", CWD: ".", Command: "true", Hermetic: daemonHermeticAdmissionRequest(), YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := waitForTerminal(t, svc, started.SessionID)
+	if terminal.Receipt == nil || terminal.Receipt.HermeticCleanup == nil {
+		t.Fatalf("cleanup metadata missing: %#v", terminal.Receipt)
+	}
+	if terminal.Receipt.HermeticCleanup.Status != receipt.HermeticCleanupIncomplete || terminal.Receipt.HermeticCleanup.Reason != "discard_failed" {
+		t.Fatalf("cleanup leaked/overclaimed: %#v", terminal.Receipt.HermeticCleanup)
+	}
+	if terminal.Receipt.Exit.Code == nil || *terminal.Receipt.Exit.Code != 0 || terminal.Receipt.Exit.Signal != "" || terminal.Receipt.HermeticResult == nil || !terminal.Receipt.HermeticResult.Authoritative() {
+		t.Fatalf("cleanup rewrote execution truth: %#v", terminal.Receipt)
 	}
 }
