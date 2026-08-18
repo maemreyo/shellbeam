@@ -228,8 +228,9 @@ func TestResourceEnforcementNativeRepeatedBoundedJobsHaveZeroCreep(t *testing.T)
 		}
 		assertNoNativeJobChildren(t, root)
 	}
-	if nativeCgroupPopulated(t, root) {
-		t.Fatal("delegated resource root remained populated after 100 jobs")
+	manager := filepath.Join(root, "manager")
+	if !nativeCgroupPopulated(t, manager) {
+		t.Fatal("reserved manager cgroup unexpectedly became empty during native lane")
 	}
 }
 

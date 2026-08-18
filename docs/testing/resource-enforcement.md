@@ -2,7 +2,7 @@
 
 Resource Enforcement V1 is not considered Linux-ready from cross-compilation or unit tests alone. The hard acceptance gate is `scripts/test-resource-enforcement-native.sh` on a Linux cgroup-v2 host.
 
-The script provisions a dedicated empty cgroup child for the current test user when `SHELLBEAM_RESOURCE_CGROUP_ROOT` is not already supplied, enables the `memory` and `pids` controllers for its children, proves the unprivileged user can create/configure/kill/remove a leaf, exports the root, and always attempts cleanup. Provisioning failure is a test failure. A non-Linux host reports `NOT_RUN` with a nonzero exit code; it is never counted as Linux evidence.
+When `SHELLBEAM_RESOURCE_CGROUP_ROOT` is not already supplied, the script acts as the CI operator/bootstrapper: it provisions a process-empty delegated root, enables `memory` and `pids`, creates the reserved `manager` child, and uses `sudo` only to place the current test shell into `manager`. From that point the resource provider and tests run unprivileged. The harness proves that the test user can create/configure/kill/remove a sibling leaf and migrate a descendant from `manager` into it before the provider separately proves the atomic `clone3(CLONE_INTO_CGROUP)` path. Cleanup moves the bootstrap shell back to its original cgroup before removing the temporary delegation. Provisioning failure is a test failure. A non-Linux host reports `NOT_RUN` with a nonzero exit code; it is never counted as Linux evidence.
 
 The native integration lane covers:
 
@@ -11,7 +11,7 @@ The native integration lane covers:
 - a descendant fork storm incrementing `pids.events:max`, followed by terminal whole-job teardown;
 - an ordinary no-limit child creating no operation cgroup even while it is still running;
 - startup reconciliation of a stale populated `job-*` cgroup and its live descendant;
-- 100 bounded operations with zero residual `job-*` directories or populated delegated root;
+- 100 bounded operations with zero residual `job-*` directories while the reserved `manager` remains the only intentionally populated sibling;
 - CPU-time and persistent-session hard-limit requests failing before spawn.
 
 Evidence is written under `.build/resource-enforcement-native/`: bounded environment facts, JSONL Go test output, and a terminal `summary.json` with `PASS`, `FAIL`, or `NOT_RUN`. Raw configured cgroup paths are intentionally not copied into the summary.

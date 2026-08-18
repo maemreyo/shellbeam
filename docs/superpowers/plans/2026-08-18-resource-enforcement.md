@@ -4,7 +4,7 @@
 
 **Goal:** Add an experimental Linux cgroup-v2 hard resource-enforcement capability for non-persistent `local_shell start` requests, supporting `memory_bytes` and `processes` without changing ordinary no-limit execution behavior.
 
-**Architecture:** Resource limits become a versioned operation contract that participates in request/execution identity, flows through MCP/IPC into `operation.ExecutionSpec`, and is enforced by the existing process owner. Linux creates one operation-private child under an explicitly delegated cgroup root and uses `clone3(CLONE_INTO_CGROUP)` through Go's `UseCgroupFD/CgroupFD`; Darwin advertises no hard support. Resource breach classification is derived from bounded provider state while literal OS exit/signal evidence remains unchanged.
+**Architecture:** Resource limits become a versioned operation contract that participates in request/execution identity, flows through MCP/IPC into `operation.ExecutionSpec`, and is enforced by the existing process owner. Linux uses an explicitly delegated process-empty cgroup root whose reserved `manager` child contains the daemon; each operation-private `job-*` is a sibling and uses `clone3(CLONE_INTO_CGROUP)` through Go's `UseCgroupFD/CgroupFD`. The operator establishes the manager placement; ShellBeam never reparents itself. Darwin advertises no hard support. Resource breach classification is derived from bounded provider state while literal OS exit/signal evidence remains unchanged.
 
 **Tech Stack:** Go 1.26.5, Linux cgroup v2, standard library `syscall`, existing ShellBeam MCP/IPC v2, GitHub Actions Ubuntu native gate.
 
@@ -21,6 +21,7 @@
 - No new MCP tool and no new third-party dependency.
 - Linux support requires native evidence; Darwin/cross-build cannot claim Linux support.
 - `SHELLBEAM_RESOURCE_CGROUP_ROOT` is operator/daemon configuration only, never model-facing command state.
+- The delegated root is process-empty; the operator must launch the daemon in reserved direct child `manager`. The provider never reparents or cleans `manager`.
 
 ---
 
@@ -208,7 +209,8 @@ Expected: FAIL on missing provider.
 
 Requirements:
 - configuration absent => unavailable without probing/mutation;
-- configured path qualification creates/removes only a bounded empty probe child;
+- configured path qualification requires the current daemon PID directly in reserved sibling `manager` and rejects child cgroups beneath `manager`;
+- configured path qualification creates/removes only a bounded empty probe child and stale owned `job-*` siblings;
 - require cgroup-v2 control files and `memory`/`pids` child-controller availability;
 - require `cgroup.kill` for crash/recovery cleanup;
 - startup reconciliation only touches `job-*` children under the dedicated configured root;
@@ -375,7 +377,7 @@ git commit -m "feat: qualify resource enforcement at daemon startup"
 - Modify: `.github/workflows/nightly.yml` if native stress belongs there
 
 **Interfaces:**
-- CI provisioning creates a dedicated empty cgroup child owned by the test user, enables `memory`/`pids` for its children, exports `SHELLBEAM_RESOURCE_CGROUP_ROOT`, and always cleans it.
+- CI provisioning creates a process-empty delegated root owned by the test user, enables `memory`/`pids`, creates reserved `manager`, operator-bootstraps the test shell into `manager`, exports `SHELLBEAM_RESOURCE_CGROUP_ROOT`, and always moves the shell back before cleanup.
 
 - [ ] **Step 1: Write native tests before production claims**
 

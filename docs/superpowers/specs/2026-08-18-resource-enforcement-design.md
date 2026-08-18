@@ -88,16 +88,19 @@ macOS V1 reports the same capability family with the three hard limits `unsuppor
 
 ## Approved implementation refinement: dedicated delegated cgroup root
 
-The Linux V1 provider does **not** silently reorganize the daemon process cgroup and does not assume `/sys/fs/cgroup` is writable. Hard enforcement is enabled only when the daemon is launched with an explicit provider-private configuration identifying a **dedicated delegated cgroup v2 root** for ShellBeam jobs. The initial environment binding is `SHELLBEAM_RESOURCE_CGROUP_ROOT`; it is daemon/operator configuration, not a per-command model-facing field.
+The Linux V1 provider does **not** silently reorganize the daemon process cgroup and does not assume `/sys/fs/cgroup` is writable. Hard enforcement is enabled only when the daemon is launched with an explicit provider-private configuration identifying a **dedicated delegated cgroup v2 root**. The initial environment binding is `SHELLBEAM_RESOURCE_CGROUP_ROOT`; it is daemon/operator configuration, not a per-command model-facing field.
+
+**Native-gate correction (2026-08-18):** the first Ubuntu native run proved that an unprivileged daemon outside the delegated subtree cannot satisfy the kernel containment rule for atomic placement into a child `job-*` cgroup. Therefore the delegated root has one reserved direct child named `manager`. The operator/service manager must place the ShellBeam daemon directly in `manager` **before ShellBeam starts provider qualification**. `job-*` and transient `probe-*` cgroups are siblings of `manager`. ShellBeam itself never moves/reparents the daemon, never kills/removes `manager`, and never treats `manager` as an operation resource domain.
 
 Qualification requires that the configured path:
 
 - is absolute, resolves inside the cgroup v2 mount, and is not a symlink escape;
-- is dedicated to ShellBeam resource domains and contains no unrelated child cgroups;
+- is process-empty itself and dedicated to ShellBeam resource domains;
+- contains the reserved direct `manager` cgroup, with the current daemon PID directly present in `manager/cgroup.procs`, and no child cgroups beneath `manager`;
+- contains no unrelated sibling cgroups; at qualification entry only `manager` and stale/active `job-*` siblings are valid, while `probe-*` exists only transiently when created by the current qualification attempt;
 - exposes `memory` and `pids` controllers to children;
 - permits create/configure/kill/remove of an empty probe child;
-- exposes `cgroup.kill`, `cgroup.events`, `memory.events`, and `pids.events`;
-- is not used to move/reparent the ShellBeam daemon itself.
+- exposes `cgroup.kill`, `cgroup.events`, `memory.events`, and `pids.events`.
 
 If the configuration is absent or qualification fails, `resource_enforcement` is unavailable and a request containing `limits` fails closed before child spawn. Ordinary requests with no limits remain unchanged and perform zero cgroup work.
 
@@ -108,18 +111,19 @@ If the configuration is absent or qualification fails, `resource_enforcement` is
 Before admitting a request with limits, the provider proves all requested mechanics:
 
 1. unified cgroup v2 is active;
-2. ShellBeam has a writable/delegated subtree;
-3. required controllers are enabled (`memory`, `pids`);
-4. the provider can create an operation-owned leaf cgroup;
-5. `clone3(CLONE_INTO_CGROUP)` is available through Go's `syscall.SysProcAttr{UseCgroupFD:true,CgroupFD:...}` path;
-6. event files needed for final classification are readable;
-7. cleanup primitives are usable.
+2. ShellBeam has a writable/delegated subtree whose process-empty root contains the reserved `manager` cgroup;
+3. the current daemon PID is a direct member of `manager`, so the daemon and target `job-*` leaves share the delegated root as their containment boundary;
+4. required controllers are enabled (`memory`, `pids`);
+5. the provider can create an operation-owned leaf cgroup;
+6. `clone3(CLONE_INTO_CGROUP)` is available through Go's `syscall.SysProcAttr{UseCgroupFD:true,CgroupFD:...}` path;
+7. event files needed for final classification are readable;
+8. cleanup primitives are usable.
 
 Any missing precondition returns `resource_limit_unsupported` **before child spawn**.
 
 ### Operation-owned resource domain
 
-Each admitted non-persistent operation gets one random/opaque cgroup directory under a ShellBeam-owned delegated root. The cgroup name is internal correctness machinery and is not model-facing.
+Each admitted non-persistent operation gets one random/opaque `job-*` cgroup directly under the delegated root, as a sibling of the reserved `manager` cgroup. The cgroup name is internal correctness machinery and is not model-facing. Ordinary no-limit children inherit `manager`; the provider performs no per-operation cgroup work for them.
 
 Configure before spawn:
 

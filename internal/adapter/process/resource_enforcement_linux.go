@@ -16,6 +16,7 @@ import (
 
 type osCgroupOps struct{}
 
+func (osCgroupOps) selfPID() int                        { return os.Getpid() }
 func (osCgroupOps) resolve(path string) (string, error) { return filepath.EvalSymlinks(path) }
 func (osCgroupOps) kind(path string) (resourcePathKind, error) {
 	info, err := os.Lstat(path)

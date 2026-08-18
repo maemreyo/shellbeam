@@ -98,12 +98,56 @@ func TestResourceProviderQualificationIsClosedAndCleansOwnedStaleChildren(t *tes
 	if fs.hasDir(filepath.Join(fs.root, "probe-fixed")) {
 		t.Fatal("qualification probe leaked")
 	}
+	if !fs.hasDir(filepath.Join(fs.root, "manager")) {
+		t.Fatal("qualification removed reserved manager cgroup")
+	}
 	for _, wantWrite := range []string{
 		"job-stale/cgroup.kill=1", "probe-fixed/memory.max=max", "probe-fixed/memory.oom.group=0", "probe-fixed/pids.max=max", "probe-fixed/cgroup.kill=1",
 	} {
 		if !containsSuffix(fs.writes, wantWrite) {
 			t.Fatalf("missing qualification write %q in %#v", wantWrite, fs.writes)
 		}
+	}
+}
+
+func TestResourceProviderQualificationRequiresCurrentProcessInReservedManagerCgroup(t *testing.T) {
+	tests := []struct {
+		name   string
+		edit   func(*fakeCgroupFS)
+		reason string
+	}{
+		{
+			name: "missing_manager",
+			edit: func(fs *fakeCgroupFS) {
+				fs.removeTree(filepath.Join(fs.root, "manager"))
+			},
+			reason: "manager_unavailable",
+		},
+		{
+			name: "current_process_outside_manager",
+			edit: func(fs *fakeCgroupFS) {
+				fs.files[filepath.Join(fs.root, "manager", "cgroup.procs")] = "777\n"
+			},
+			reason: "manager_not_current",
+		},
+		{
+			name: "manager_has_child_cgroup",
+			edit: func(fs *fakeCgroupFS) {
+				child := filepath.Join(fs.root, "manager", "nested")
+				fs.kinds[child] = pathDirectory
+			},
+			reason: "manager_not_leaf",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fs := newFakeCgroupFS("/cg/shellbeam")
+			tc.edit(fs)
+			_, err := qualifyResourceProvider(fs.root, fs, fixedResourceName("probe-fixed", "job-fixed"))
+			if err == nil || !strings.Contains(err.Error(), tc.reason) {
+				t.Fatalf("qualification error=%v want reason %q", err, tc.reason)
+			}
+		})
 	}
 }
 
@@ -294,6 +338,7 @@ type fakeCgroupFS struct {
 	root            string
 	resolved        string
 	cgroup2         bool
+	pid             int
 	kinds           map[string]resourcePathKind
 	files           map[string]string
 	writes          []string
@@ -302,7 +347,7 @@ type fakeCgroupFS struct {
 }
 
 func newFakeCgroupFS(root string) *fakeCgroupFS {
-	fs := &fakeCgroupFS{root: root, resolved: root, cgroup2: true, kinds: map[string]resourcePathKind{}, files: map[string]string{}}
+	fs := &fakeCgroupFS{root: root, resolved: root, cgroup2: true, pid: 4242, kinds: map[string]resourcePathKind{}, files: map[string]string{}}
 	fs.kinds[root] = pathDirectory
 	for name, value := range map[string]string{
 		"cgroup.controllers":     "memory pids\n",
@@ -318,8 +363,20 @@ func newFakeCgroupFS(root string) *fakeCgroupFS {
 		fs.kinds[path] = pathRegular
 		fs.files[path] = value
 	}
+	manager := filepath.Join(root, "manager")
+	fs.kinds[manager] = pathDirectory
+	for name, value := range map[string]string{
+		"cgroup.procs": fmt.Sprintf("%d\n", fs.pid),
+		"cgroup.type":  "domain\n",
+	} {
+		path := filepath.Join(manager, name)
+		fs.kinds[path] = pathRegular
+		fs.files[path] = value
+	}
 	return fs
 }
+
+func (f *fakeCgroupFS) selfPID() int { return f.pid }
 
 func (f *fakeCgroupFS) resolve(path string) (string, error) { return f.resolved, nil }
 func (f *fakeCgroupFS) kind(path string) (resourcePathKind, error) {
@@ -402,6 +459,16 @@ func (f *fakeCgroupFS) remove(path string) error {
 	delete(f.files, path)
 	return nil
 }
+func (f *fakeCgroupFS) removeTree(path string) {
+	prefix := strings.TrimSuffix(path, "/") + "/"
+	for candidate := range f.kinds {
+		if candidate == path || strings.HasPrefix(candidate, prefix) {
+			delete(f.kinds, candidate)
+			delete(f.files, candidate)
+		}
+	}
+}
+
 func (f *fakeCgroupFS) addChild(name string, kind resourcePathKind) {
 	path := filepath.Join(f.root, name)
 	f.kinds[path] = kind

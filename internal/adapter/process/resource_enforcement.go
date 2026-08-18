@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 )
 
 const resourceCgroupRootEnv = "SHELLBEAM_RESOURCE_CGROUP_ROOT"
+const resourceManagerCgroupName = "manager"
 
 const (
 	resourceCleanupBudget = 500 * time.Millisecond
@@ -43,6 +45,7 @@ type resourceDirEntry struct {
 }
 
 type resourceControlOps interface {
+	selfPID() int
 	resolve(string) (string, error)
 	kind(string) (resourcePathKind, error)
 	isCgroup2(string) (bool, error)
@@ -151,6 +154,9 @@ func qualifyResourceProvider(root string, ops resourceControlOps, nextName resou
 	if err != nil || !containsController(enabled, "memory") || !containsController(enabled, "pids") {
 		return nil, resourceProviderFailure("controllers_not_enabled")
 	}
+	if err := qualifyResourceManager(root, ops); err != nil {
+		return nil, err
+	}
 	entries, err := ops.readDir(root)
 	if err != nil {
 		return nil, resourceProviderFailure("root_unreadable")
@@ -161,6 +167,9 @@ func qualifyResourceProvider(root string, ops resourceControlOps, nextName resou
 		case pathRegular:
 			continue
 		case pathDirectory:
+			if entry.Name == resourceManagerCgroupName {
+				continue
+			}
 			if !validResourceName(entry.Name, "job-") {
 				return nil, resourceProviderFailure("foreign_child")
 			}
@@ -175,6 +184,39 @@ func qualifyResourceProvider(root string, ops resourceControlOps, nextName resou
 		return nil, err
 	}
 	return &linuxCgroupProvider{root: root, ops: ops, nextName: nextName}, nil
+}
+
+func qualifyResourceManager(root string, ops resourceControlOps) error {
+	manager := filepath.Join(root, resourceManagerCgroupName)
+	kind, err := ops.kind(manager)
+	if err != nil || kind != pathDirectory || !resourceFileEquals(ops, manager, "cgroup.type", "domain") {
+		return resourceProviderFailure("manager_unavailable")
+	}
+	entries, err := ops.readDir(manager)
+	if err != nil {
+		return resourceProviderFailure("manager_unavailable")
+	}
+	for _, entry := range entries {
+		if entry.Kind != pathRegular {
+			return resourceProviderFailure("manager_not_leaf")
+		}
+	}
+	pid := ops.selfPID()
+	procs, err := ops.readFile(filepath.Join(manager, "cgroup.procs"))
+	if err != nil || pid <= 0 || !containsResourcePID(procs, pid) {
+		return resourceProviderFailure("manager_not_current")
+	}
+	return nil
+}
+
+func containsResourcePID(data []byte, pid int) bool {
+	want := strconv.Itoa(pid)
+	for _, value := range strings.Fields(string(data)) {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func probeResourceProviderRoot(root string, ops resourceControlOps, nextName resourceNameFunc) error {
