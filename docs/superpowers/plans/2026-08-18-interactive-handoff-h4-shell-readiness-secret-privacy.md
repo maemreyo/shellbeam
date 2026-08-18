@@ -8,7 +8,7 @@
 
 **Tech Stack:** H2 authority/manual control; H1 delegated output/receipt path; H0-qualified tmux privacy topology; fish/zsh/bash native shells; existing local IPC/private command patterns; Go 1.26.6.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `d54b15836e7fc53fae5afc7bbd06013f90d02bf5`; H4 may execute after the H2 checkpoint and does not require H3 automatic terminal presentation.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H4 may execute after the H2 checkpoint and does not require H3 automatic terminal presentation.
 
 ## Global Constraints
 
@@ -18,7 +18,10 @@
 - No `capture-pane`/history replay across a private interval. Private bytes never become model-visible merely because daemon/control observer reconnects.
 - `TransferBoundary` and `PrivacyReleaseProof` are independent. Manual human ready may establish transfer under policy but never by itself releases secret output.
 - Public capture resumes only from a new forward-only boundary after human ingress is fenced and `PrivacyReleaseProof` is current.
-- Intentional private omission means transcript is not byte-complete: delegated result/receipt uses `output_complete=false` plus additive capture quality `private_intervals_omitted`.
+- Intentional private omission means transcript is not byte-complete: privacy-only omission yields `output_complete=false + capture_quality=partial + capture_reasons=[private_intervals_omitted]`.
+- Capture status follows corrected master semantics: `capture_quality=complete|partial|incomplete` plus monotonic `capture_reasons[]`; private omission can coexist with later `transport_gap`/`provider_lost`.
+- H4 never upgrades delegated session lifecycle receipts into ordinary verification authority, even when capture is complete. `session_lifecycle_only` remains in force until separately approved context-exec.
+- H4 must compose with H2 when H3 is absent. If H3 already exists, run the actual H2+H3+H4 composition lane; otherwise record it `NOT_RUN_COUNTERPART_ABSENT`.
 - No secret raw bytes, hashes, deterministic derived values, value length, shell history, or environment values in MCP/IPC result, receipts, Event Journal, telemetry, repro, evidence, state, logs, errors, or notifier argv.
 - Requirement `environment_exported_nonempty` returns only satisfied/not-satisfied/unavailable; presence is not credential validity. Agent must run a real post-handoff capability check separately.
 - Shell identity is current runtime identity, not `$SHELL` alone. Nested/replaced/unknown shell disables shell-aware automation rather than guessing syntax.
@@ -251,37 +254,44 @@ git -c core.hooksPath=.githooks commit -m "feat: isolate delegated private outpu
 - Modify: `internal/core/evidence/validity_test.go`
 
 **Interfaces:**
-- Capture quality closed set:
+- Consume H1 receipt-v5 composable capture contract exactly:
 
 ```text
-complete_public_capture
-private_intervals_omitted
-transport_incomplete
-provider_lost
+capture_quality = complete | partial | incomplete
+capture_reasons = private_intervals_omitted | transport_gap | provider_lost (unique bounded canonical set)
 ```
 
 - [ ] **Step 1: RED-test H1 complete path remains complete.**
 
-A delegated session with no private interval keeps `output_complete=true` + `capture_quality=complete_public_capture` and existing direct/B1 receipts stay unchanged.
+A delegated session with no private interval keeps `output_complete=true + capture_quality=complete + capture_reasons=[]`; existing direct/B1 receipts stay unchanged.
 
-- [ ] **Step 2: RED-test first private interval permanently makes byte completeness false.**
+- [ ] **Step 2: RED-test privacy omission is monotonic and composable with later failure.**
 
-After a private interval begins, even if public capture later resumes:
+After the first private interval begins, even if public capture later resumes:
 
 ```text
 output_complete=false
-capture_quality=private_intervals_omitted
+capture_quality=partial
+capture_reasons=[private_intervals_omitted]
 ```
 
-No later public output can restore byte-complete truth.
+Then inject a transport gap and provider loss. Final state must be:
 
-- [ ] **Step 3: Apply H1 receipt-v5 capture-quality contract; do not create a new receipt version.**
+```text
+output_complete=false
+capture_quality=incomplete
+capture_reasons=[private_intervals_omitted, transport_gap, provider_lost]  # canonical order
+```
 
-H1 already froze receipt v5 and the full capture-quality enum. H4 changes delegated output state so the first intentional private interval permanently yields `output_complete=false + private_intervals_omitted` in v5. Direct/B1 receipts and healthy H1 delegated receipts remain unchanged. Never overload `output_complete=true` to mean "complete except intentional omission".
+No later public output or stronger failure may erase an earlier reason.
 
-- [ ] **Step 4: Make evidence validity explicitly reject incomplete private transcript as complete verification.**
+- [ ] **Step 3: Apply H1 receipt-v5 composable contract; do not create a new receipt version.**
 
-`internal/app/evidence/worker.go` and `internal/core/evidence/validation.go` must not treat `private_intervals_omitted` as equivalent to empty/complete command output. Interactive transcript remains advisory; callers may explicitly record incomplete evidence but cannot promote it to complete verification merely because child exit was success.
+H4 only mutates delegated capture state/reasons under H1's v5 schema. Privacy-only omission is `partial`; any transport/provider uncertainty promotes quality to `incomplete` while retaining `private_intervals_omitted`. Never overload `output_complete=true` to mean "complete except intentional omission".
+
+- [ ] **Step 4: Preserve lifecycle-only evidence authority independently from capture status.**
+
+`internal/app/evidence/worker.go` and `internal/core/evidence/validation.go` must continue rejecting delegated `session_lifecycle_only` receipts as ordinary mechanical verification whether capture quality is complete, partial, or incomplete. Add a regression where a complete delegated transcript with test intent still produces no evidence record, plus private/incomplete cases. Interactive transcript remains advisory; callers may explicitly inspect lifecycle/capture truth but cannot promote it to complete verification merely because child exit was success.
 
 - [ ] **Step 5: Schema/store/receipt focused tests and commit.**
 
@@ -518,6 +528,7 @@ git -c core.hooksPath=.githooks commit -m "feat: expose secret handoff capabilit
 
 **Files:**
 - Create: `tests/integration/interactive_handoff_secret_test.go`
+- Create: `tests/integration/interactive_handoff_h4_composition_test.go`
 - Create: `cmd/shellbeam/interactive_handoff_secret_acceptance_test.go`
 - Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h4-secret-privacy.md`
 
@@ -555,11 +566,13 @@ For fish/zsh/bash: exported/non-empty satisfied, empty/unset not satisfied, exis
 
 - [ ] **Step 4: Daemon restart inside private interval.**
 
+Run actual H2+H4 with H3 absent and prove secret/privacy capability works while automatic terminal presentation remains absent/manual fallback remains valid. If tracked H3 evidence already exists, also run actual H2+H3+H4 composition and require capability/result coexistence with no cross-feature assumption; otherwise record combined lane `NOT_RUN_COUNTERPART_ABSENT`.
+
 Hard-kill daemon while human-private interaction is active. Replacement observer is private-before-receive; no capture-pane/history reconstruction; authority/privacy state reconciles fail-closed.
 
 - [ ] **Step 5: Output/evidence truth.**
 
-Private session receipt/result must show `output_complete=false` and `private_intervals_omitted`. Evidence/verification consumers refuse to mechanically call hidden transcript complete.
+Privacy-only session receipt/result must show `output_complete=false + capture_quality=partial + capture_reasons=[private_intervals_omitted]`; if later transport/provider failure occurs, quality becomes `incomplete` while preserving all prior reasons. Evidence/verification consumers still refuse ordinary authority because the receipt remains `session_lifecycle_only`, even for complete capture.
 
 - [ ] **Step 6: Fresh gates.**
 
@@ -606,12 +619,14 @@ H4 is complete only when:
 5. TransferBoundary and PrivacyReleaseProof remain distinct in state and tests;
 6. manual ready never releases secret capture by itself;
 7. public capture resumes only after human ingress fence + current privacy proof + forward-only boundary;
-8. intentional omission is truthfully `output_complete=false` + `private_intervals_omitted`;
-9. fish/zsh/bash adapters identify current shell, preserve user hooks, modify no dotfiles, and leave no resident helper;
-10. unknown/nested shell never receives guessed syntax and degrades to manual behavior;
-11. environment-export readiness emits only boolean/proof metadata and never value/hash/length;
-12. notifier/helper environment excludes secret-bearing delegated exports;
-13. abort during private interaction fences both write lanes/public capture until safe local resolution;
-14. credential presence remains distinct from real capability verification;
-15. interactive transcript remains weaker/advisory evidence and context-exec remains unavailable;
-16. native canary/restart/multi-session/resource/race/schema/devctl gates pass and H5 design gate is recorded.
+8. capture truth is composable: privacy-only omission is `partial + private_intervals_omitted`, and later transport/provider failures promote to `incomplete` without erasing prior reasons;
+9. delegated receipts remain `session_lifecycle_only` and cannot become ordinary evidence merely because capture is complete;
+10. actual H2+H4/no-H3 composition passes; if H3 is present, actual H2+H3+H4 composition also passes, otherwise combined lane is `NOT_RUN_COUNTERPART_ABSENT`;
+11. fish/zsh/bash adapters identify current shell, preserve user hooks, modify no dotfiles, and leave no resident helper;
+12. unknown/nested shell never receives guessed syntax and degrades to manual behavior;
+13. environment-export readiness emits only boolean/proof metadata and never value/hash/length;
+14. notifier/helper environment excludes secret-bearing delegated exports;
+15. abort during private interaction fences both write lanes/public capture until safe local resolution;
+16. credential presence remains distinct from real capability verification;
+17. interactive transcript remains weaker/advisory evidence and context-exec remains unavailable;
+18. native canary/restart/multi-session/resource/race/schema/devctl gates pass and H5 design gate is recorded.

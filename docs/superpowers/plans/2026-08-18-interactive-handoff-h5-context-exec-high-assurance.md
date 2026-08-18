@@ -4,24 +4,29 @@
 
 **Goal:** Close and implement a separately reviewed evidence contract for receipt-producing execution inside the exported process context of a delegated interactive shell, so post-handoff verification commands can regain strong child/output/exit evidence without transmitting credentials through the model; then provide a disciplined promotion path for broader shell/terminal/session providers.
 
-**Architecture:** H5 does **not** treat interactive transcript markers as ordinary receipts. The candidate architecture is a short-lived private re-exec mode of the installed ShellBeam binary launched by a qualified shell adapter at a safe prompt boundary; because that helper is intentionally the workload bridge, it may inherit the delegated shell's exported environment and cwd. It authenticates to the daemon with an opaque context-exec identity, fetches an exact durably reserved argv request over local IPC, owns/spawns/reaps the child, streams bounded output/evidence, and exits. The daemon promotes the result to normal evidence only under the separately reviewed contract and current delegated authority generation.
+**Architecture:** H5 does **not** treat interactive transcript markers as ordinary receipts. The candidate architecture is a short-lived private re-exec mode of the installed ShellBeam binary launched by a qualified shell adapter at a safe prompt boundary; because that helper is intentionally the workload bridge, it may inherit the delegated shell's exported environment and cwd. `context_exec_id` is correlation only, never a bearer capability. The helper proves a separately reviewed claim identity to the daemon, fetches exact durably reserved argv over local IPC, owns a **separate child output channel** (not the mixed delegated pane), spawns/reaps the child, and exits. The daemon promotes the result only under the human-approved evidence contract and current delegated authority generation.
 
 **Tech Stack:** verified H4/H2/H1 delegated handoff stack; same-binary private helper pattern; existing operation/receipt/output/evidence/structured/telemetry pipelines; Unix local IPC/authentication; exact argv process owner; fish/zsh/bash safe-boundary adapters; Go 1.26.6.
 
-**Spec:** Master: `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `d54b15836e7fc53fae5afc7bbd06013f90d02bf5`. **HARD DESIGN GATE:** Task 1 must produce and obtain review approval for `docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md`; Tasks 2+ are unauthorized until that exact spec is approved. If review changes the candidate contract or wire names, amend this plan before implementation.
+**Spec:** Master: `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`. **HARD DESIGN GATE:** Task 1 must produce and obtain review approval for `docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md`; Tasks 2+ are unauthorized until that exact spec is approved. If review changes the candidate contract or wire names, amend this plan before implementation.
 
 ## Global Constraints
 
 - H5 context-exec is not required for first experimental handoff, but no stable/high-assurance claim may use interactive transcript as a substitute for receipt-producing child evidence.
 - HARD PRECONDITION for Task 1: H4 evidence reports `H5_DESIGN_ALLOWED=true`. HARD PRECONDITION for Tasks 2+: separately reviewed context-exec evidence spec is approved with no unresolved blocker.
+- Gate authority is intentionally different from H0: H0 `h1_allowed` is machine-derived provider qualification; H5 implementation approval is a **human design approval** bound to an exact spec digest. The implementing agent may verify that approval artifact but must not author/self-set it.
 - Initial high-assurance context means **exported process environment + current shell cwd at a qualified safe boundary**. It does not claim transfer of shell-local variables, aliases, functions, job-control state, history, or arbitrary TUI state.
 - Initial public execution form is exact `argv` only. Shell-expression behavior requires an explicit argv such as `/bin/sh -lc ...`; H5 does not secretly reinterpret argv through the interactive shell.
-- The actual command/argv is never interpolated into the interactive shell launch snippet. The shell launches only the installed private helper with an opaque bounded execution ID; helper fetches the exact request over authenticated IPC.
+- Initial high-assurance child is non-interactive: non-TTY, stdin closed, own process group, helper-owned stdout/stderr pipes. If the child itself requires interactive human input, context-exec fails/degrades and the normal handoff flow is used; pane-mixed output cannot satisfy high-assurance evidence.
+- The actual command/argv is never interpolated into the interactive shell launch snippet. The shell launches only the installed private helper with a bounded public correlation ID; helper authentication/claim authority is separate and MUST NOT be derivable from that visible ID.
 - The private context helper is an intentional workload bridge and may inherit the delegated shell's exported environment. This is an explicit exception to H4's rule for infrastructure notifiers/helpers; readiness/terminal helpers remain minimally allowlisted and must not gain this authority.
 - The daemon never receives or persists inherited environment values/hashes merely because context-exec is used. Environment continuity is provenance, not captured data.
+- ShellBeam-internal helper authority, IPC metadata, claim material, and inherited control FDs are helper-private and are stripped/closed before child exec. Workload environment is the user exported context minus exact ShellBeam-internal control material.
+- H5 does **not** claim that the workload/model cannot deliberately reveal a secret available in its delegated environment. The guarantee is narrower: ShellBeam does not serialize inherited secret environment values as control metadata merely to execute in that context.
+- The receipt must capture requested `argv[0]` and the executable actually resolved/launched under the delegated PATH as an absolute executable identity. Any stronger content/digest claim must match what the approved design can mechanically bind to exec without a TOCTOU overclaim.
 - Context-exec requires current agent ownership/epoch and a qualified transfer boundary. For model-visible output/evidence it also requires public capture/privacy-release state; private/ambiguous capture cannot be silently upgraded.
 - Reserve exact context-exec identity before shell/helper launch. Lost responses/retries create at most one helper/child execution for the logical request.
-- Helper authentication binds context-exec ID, delegated session ID, authority epoch, helper generation/capability, and exact reserved request fingerprint. PID/parent process alone is not authority.
+- Helper authentication binds a claim identity distinct from public `context_exec_id`, delegated session ID, authority epoch, helper generation, and exact reserved request fingerprint. Same-user peer/executable/ancestry facts may participate only as explicitly approved; `context_exec_id` and PID/parent alone are never bearer authority.
 - Child spawn/output/exit/signal/timeout facts remain literal; provider/helper loss may make evidence incomplete/ambiguous but cannot fabricate exit status.
 - Existing Resource Enforcement/Hermetic semantics do not automatically transfer into context-exec. Advertise/apply them only after separately proven composition; otherwise capability says unavailable for that context execution.
 - No second MCP tool, background workflow engine, shell command scheduler, arbitrary existing PTY takeover, or remote execution.
@@ -50,6 +55,7 @@
 **Files:**
 - Create: `docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md`
 - Create: `docs/superpowers/evidence/2026-08-18-context-exec-design-review.md`
+- Receive from human reviewer (do not self-author): `docs/superpowers/evidence/2026-08-18-context-exec-design-approval.json`
 - Read: H4 evidence and master Sections 29/40/57/62.
 
 **Interfaces:**
@@ -78,15 +84,22 @@ helper launch: fixed installed ShellBeam private argv + opaque ID only
 helper auth/generation protocol
 reserve-before-helper-launch ordering
 exactly-once helper/child behavior
+output attribution: helper-owned child pipes/PTY distinct from mixed delegated pane; optional terminal mirror is presentation-only
+child process/job-control ownership: non-TTY/closed stdin V1, process group, signal/timeout/reap ownership
+exactly-once/retry/epoch binding including transfer-vs-in-flight-child policy
+helper authentication: public context_exec_id != claim/bearer authority
+internal capability/environment stripping before child exec
+actual executable identity resolved/launched under delegated PATH
 stdout/stderr canonicalization and output bounds
-signal/timeout/reap semantics
 helper/daemon crash matrix
 privacy-release requirement for model-visible output
-receipt schema/context provenance
+receipt schema/context provenance and explicit evidence-authority class
 which existing evidence consumers may treat result as authoritative
 resource-enforcement/hermetic non-inheritance
-secret/privacy metadata prohibitions
+secret/privacy metadata prohibitions and explicit non-claim that workload cannot reveal its own environment
 ```
+
+The six first-class review questions are therefore: output attribution, child/job-control ownership, exactly-once+epoch semantics, helper authentication identity, control-environment stripping, and actual executable identity. None may be deferred to Tasks 2+.
 
 - [ ] **Step 3: Attack the design with counterexamples.**
 
@@ -104,21 +117,35 @@ helper dies after child spawn
 agent kills while authority transfers to human
 nested shell changes after request
 argv executable not found
+background shell/job/prompt writes to delegated pane while context child runs
+context_exec_id appears in pane transcript and a second same-user process tries to claim it
+helper-only token/control FD appears in child environment or fd table
+PATH resolves a different executable than daemon/user expected
+resolved executable path changes between identity capture and exec
 ```
 
 - [ ] **Step 4: Review evidence-authority claim against current receipt/evidence contracts.**
 
-The design must state exactly why authenticated helper-owned spawn/reap is stronger than shell transcript markers, and which evidence facts are still weaker than an ordinary daemon-spawned direct command. No statement may call inherited environment "captured" or "verified values".
+The design must state exactly why authenticated helper-owned spawn/reap **plus separately owned child output pipes** is stronger than shell transcript markers, and which evidence facts remain weaker than an ordinary daemon-spawned direct command. A design where child stdout/stderr merely inherits the delegated pane is NOT approvable as strong output evidence. No statement may call inherited environment "captured" or "verified values".
+
+The design must also decide transfer concurrency: the conservative V1 candidate is that a new human handoff cannot complete while a context-exec child is active unless that child is first terminal/cancelled under its own authority; no ownership epoch silently reclassifies an ambiguous in-flight child.
 
 - [ ] **Step 5: Obtain explicit review verdict and freeze exact spec commit/hash.**
 
-Tracked review report ends with one of:
+The implementing agent writes the spec + technical review report, then **hard-stops**. A human reviewer supplies the separate tracked approval artifact; the agent must not create/edit its approval fields. Required closed shape:
 
-```text
-CONTEXT_EXEC_IMPLEMENTATION_ALLOWED=true
+```json
+{
+  "schema_version": 1,
+  "approval_kind": "human_design_review",
+  "spec_path": "docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md",
+  "spec_sha256": "<exact 64-hex digest>",
+  "verdict": "APPROVED",
+  "context_exec_implementation_allowed": true
+}
 ```
 
-or false + blockers. Do not self-promote a draft to approved merely because markdown tests pass.
+A false/missing/mismatched artifact blocks Tasks 2+. Markdown tests, an agent-authored `true`, or an unbound approval for another spec revision have no authority.
 
 - [ ] **Step 6: Verify/commit design artifacts and hard stop if not approved.**
 
@@ -126,12 +153,13 @@ or false + blockers. Do not self-promote a draft to approved merely because mark
 git diff --check
 go run ./tools/devctl check
 git add docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md docs/superpowers/evidence/2026-08-18-context-exec-design-review.md
+# Do NOT add/create the human approval artifact unless it was supplied by the human reviewer.
 git diff --cached --check
 go run ./tools/devctl commit-gate --json
 git -c core.hooksPath=.githooks commit -m "docs: design delegated context execution evidence"
 ```
 
-Tasks 2+ begin only if the tracked review explicitly approves the exact design. If review changes any candidate name/semantics below, amend this plan first.
+Tasks 2+ begin only after verifying the externally supplied human approval JSON exists, has `approval_kind=human_design_review`, its `spec_sha256` equals the exact committed spec bytes, verdict is `APPROVED`, and `context_exec_implementation_allowed=true`. If review changes any candidate name/semantics below, amend this plan first and obtain a new approval bound to the new digest.
 
 ---
 
@@ -148,7 +176,8 @@ Tasks 2+ begin only if the tracked review explicitly approves the exact design. 
 - Modify: `internal/core/failure/failure.go`
 
 **Interfaces:**
-- Produces `Request`, `ContextBinding`, `HelperBinding`, `Lifecycle`, `EvidenceQuality`, `Result` matching approved Task-1 spec.
+- Produces `Request`, `ContextBinding`, `HelperBinding`, `Lifecycle`, `EvidenceQuality`, `Result` matching the approved Task-1 spec.
+- Core contracts must keep public correlation identity separate from helper claim authority, represent helper-owned child-output attribution explicitly, and carry requested-vs-actual executable identity without persisting bearer material.
 
 - [ ] **Step 1: RED-test exact request shape.**
 
@@ -195,7 +224,16 @@ helper_lost
 ambiguous
 ```
 
-Public result distinguishes spawn evidence, exit evidence, output completeness, timeout/signal evidence, and context evidence quality.
+Public result distinguishes spawn evidence, exit evidence, output completeness, timeout/signal evidence, and context evidence quality. The approved contract must expose enough typed state to prove:
+
+```text
+public correlation id != helper claim authority
+output attribution = helper-owned child pipes (or separately approved equivalent), never mixed pane bytes
+requested executable identity != mechanically observed actual executable identity
+helper control material is not workload context
+```
+
+Do not store raw bearer/claim secret material in `HelperBinding`; persist only the approved non-secret binding/reference/digest fields needed for replay and audit.
 
 - [ ] **Step 4: Add stable failures.**
 
@@ -283,25 +321,25 @@ Run store/operation tests + devctl/commit-gate; commit `feat: persist context ex
 **Interfaces:**
 - Private helper mode conceptually: `shellbeam __context_exec --context-exec-id <opaque-id>`; exact spelling must match Task-1 approved spec and is absent from normal help.
 
-- [ ] **Step 1: RED protocol/auth tests.**
+- [ ] **Step 1: RED protocol/auth tests proving correlation is not authority.**
 
-Helper proves exact context-exec ID + session + epoch + helper generation/capability over same-user local IPC. Reject wrong/stale/replayed generation, malformed version/kind/fields, unsafe peer.
+`context_exec_id` is public correlation only. Presenting the exact visible ID without the separately approved helper-claim proof MUST fail before request fetch/spawn. Also reject wrong/stale/replayed claim generation, malformed version/kind/fields, unsafe peer, and a valid claim bound to a different session/epoch/request fingerprint. PID/parent/same-user alone cannot turn a correlation ID into bearer authority.
 
-- [ ] **Step 2: Ensure request payload arrives over IPC, not shell argv/environment.**
+- [ ] **Step 2: Ensure request and claim material stay out of presentation argv.**
 
-Helper command line contains only installed binary/private subcommand/opaque execution ID. Exact child argv/timeout/output bounds are fetched after authentication and fingerprint verification.
+Helper command line contains only installed binary/private subcommand/public correlation ID. Exact child argv/timeout/output bounds are fetched only after the approved non-bearer claim succeeds. Claim/control capability material MUST travel by the Task-1-approved private mechanism and must not be printable pane text or child argv/environment.
 
-- [ ] **Step 3: Implement inherited-context child owner.**
+- [ ] **Step 3: Split user context from ShellBeam control context before child exec.**
 
-The helper intentionally keeps inherited exported environment + inherited current working directory, then spawns exact argv directly using existing low-level process ownership conventions. It does not serialize inherited env back to daemon or logs.
+The helper intentionally inherits the delegated shell's exported user environment + current working directory. Before spawning the workload it constructs the child environment as user context **minus** all ShellBeam-internal control variables/claim material/private IPC metadata, closes helper-only control/listener FDs in the child, and proves those sentinels are absent from `/proc`/child env where the platform permits inspection. It never serializes inherited user env values back to daemon/logs.
 
-- [ ] **Step 4: Implement literal spawn/output/signal/timeout/wait evidence.**
+- [ ] **Step 4: Resolve actual executable and own a separate child output channel.**
 
-Helper owns child process group, streams bounded stdout/stderr under approved canonical semantics, handles timeout/signal, reaps child, and sends terminal record bound to context/helper generation.
+Resolve/launch `argv[0]` under the inherited delegated `PATH` using the exact mechanism approved by Task 1 and mechanically bind the actual absolute executable identity that was launched; do not report only the requested token. V1 child is non-TTY with stdin closed and its own process group. Helper owns dedicated stdout/stderr pipes (or the exact separately approved equivalent), applies bounded canonicalization, signals/timeouts/reaps the child, and sends terminal evidence bound to claim/helper generation. Any optional bytes mirrored to the delegated tmux pane are presentation-only and are NEVER the authoritative output source.
 
-- [ ] **Step 5: Secret-environment sentinel tests.**
+- [ ] **Step 5: Secret/control/output-attribution sentinel tests.**
 
-Launch helper from a test shell with `H5_SECRET=<canary>` exported. Child may use it intentionally, but daemon public/private logs/protocol metadata/state must not contain value/hash/length. A child test may return a derived success string not containing secret.
+Launch helper from a test shell with `H5_SECRET=<canary>` exported plus distinct ShellBeam-control env/FD sentinels. The workload may intentionally use the user secret, but must not receive ShellBeam control material. Run concurrent noisy shell/background output in the delegated pane and prove authoritative context-exec output contains only the helper-owned child stream. Daemon logs/protocol metadata/state must not contain secret value/hash/length or claim material.
 
 - [ ] **Step 6: Native/race/commit.**
 
@@ -380,9 +418,9 @@ context-exec capability composed
 
 Fail before helper launch otherwise.
 
-- [ ] **Step 2: Implement reserve→launch→authenticate→spawn→canonicalize ordering.**
+- [ ] **Step 2: Implement reserve→launch→claim→spawn→canonicalize ordering.**
 
-Every external mutation follows durable state; response loss uses stored/helper observation, not duplicate launch.
+Every external mutation follows durable state; response loss uses stored/helper observation, not duplicate launch. The daemon never treats `context_exec_id` alone as authentication. Canonical terminalization must bind the approved helper claim generation, actual executed identity, helper-owned child-output record, spawn/reap facts, and request fingerprint before evidence promotion.
 
 - [ ] **Step 3: RED authority transfer race.**
 
@@ -392,9 +430,9 @@ If human handoff intent rotates epoch before unseen context helper launch, stale
 
 Helper loss after child spawn may be ambiguous/incomplete; no fabricated exit. Helper reconnect/recovery is only as strong as approved design. Context-exec cannot be auto-restarted under a new helper generation unless non-spawn is proven.
 
-- [ ] **Step 5: Promote only approved evidence fields.**
+- [ ] **Step 5: Promote only approved evidence fields from attributable channels.**
 
-Child spawn/exit/output can feed ordinary evidence pipeline only when helper auth/generation/canonical record is valid. Context environment remains provenance; no claim that specific secret value was observed.
+Child spawn/exit/output can feed ordinary evidence only when helper claim/generation, actual executed identity, dedicated child-output attribution, and canonical record all satisfy the human-approved contract. Mixed tmux-pane bytes, shell prompt/background-job output, or a lifecycle-only delegated receipt are never substituted for the helper-owned child stream. Context environment remains provenance; no claim that a specific secret value was observed. If output attribution or executed identity becomes ambiguous, downgrade/fail closed rather than emitting ordinary mechanical verification authority.
 
 - [ ] **Step 6: Focused/race/commit.**
 
@@ -485,15 +523,19 @@ Stale epoch, transfer-to-human race, human-owned request, private capture, unkno
 
 Fault every boundary from durable reserve through terminal canonicalization. Record exact success/failure/ambiguous behavior required by approved evidence spec.
 
-- [ ] **Step 5: Environment/privacy anti-leak.**
+- [ ] **Step 5: Environment/privacy/control-capability anti-leak.**
 
-Scan MCP/IPC/output/receipt/Event Journal/evidence/repro/telemetry/state/logs/helper protocol metadata/argv for deterministic canary and common encodings/hashes. Child may consume secret but must not echo it in the test.
+Scan MCP/IPC/output/receipt/Event Journal/evidence/repro/telemetry/state/logs/helper protocol metadata/argv for deterministic user-secret canary and common encodings/hashes. Add separate ShellBeam-control env/FD/claim sentinels and prove the workload cannot observe them. The child may consume the user secret but must not echo it in the test.
 
-- [ ] **Step 6: Resource/hermetic truth.**
+- [ ] **Step 6: Output-attribution, non-bearer-ID, and actual-executable adversarial matrix.**
+
+Run noisy delegated-pane background output concurrently with a context-exec child and prove the authoritative receipt/output contains only the dedicated child channel. Replay the visible `context_exec_id` without valid claim proof and require pre-spawn rejection. Prepend a controlled shadow directory to delegated `PATH`, execute a named binary, and require the receipt to report the exact absolute executable actually launched; changing the requested token or executable binding under the same logical identity conflicts/fails according to the approved spec.
+
+- [ ] **Step 7: Resource/hermetic truth.**
 
 If context-exec does not explicitly compose Resource Enforcement/Hermetic provider under a separately proven contract, capability/evidence says unavailable/unproven; test prevents accidental inheritance of those claims.
 
-- [ ] **Step 7: Fresh gates and exact checkpoint.**
+- [ ] **Step 8: Fresh gates and exact checkpoint.**
 
 ```bash
 go mod verify

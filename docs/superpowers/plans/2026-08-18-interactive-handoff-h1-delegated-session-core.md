@@ -8,14 +8,16 @@
 
 **Tech Stack:** Go 1.26.6 repository toolchain; current ShellBeam v2 MCP/IPC/schema/store/daemon stack; system tmux and exact H0-qualified Control Mode mechanism; optional `github.com/atomicstack/gotmuxcc` only if the tracked H0 evidence explicitly selects it.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `d54b15836e7fc53fae5afc7bbd06013f90d02bf5`; H0 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h0-tmux-qualification.md` at/after `887c4b7240024bace5ce144624bc458f4b7742cd`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H0 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h0-tmux-qualification.md` at/after `887c4b7240024bace5ce144624bc458f4b7742cd`.
 
 ## Global Constraints
 
-- HARD PRECONDITION: tracked H0 evidence must report `H1_ALLOWED=true`; P3/P4/P5/P6/P14/P15 must be PASS on required native lanes. Otherwise stop before Task 1 production edits.
+- HARD PRECONDITION: the tracked H0 provider-qualification gate JSON must pass `interactive-handoff-h0 verify-gate`, derive `h1_allowed=true`, and bind required native P3/P4/P5/P6/P14/P15 PASS facts. A Markdown line is not authority. Otherwise stop before Task 1 production edits.
 - `session_mode` absent preserves every legacy `tty`/`persistent` meaning and fingerprint. When `session_mode` is present, `tty` and `persistent` are forbidden.
 - `session_mode="delegated_interactive"` never falls back to direct PTY or B1.0 persistent non-TTY.
 - H1 begins agent-owned and has no public human-handoff action, GUI terminal auto-launch, shell integration, secret private interval, or context-exec authority.
+- H1 delegated receipts are `session_lifecycle_only`: they may report lifecycle/output/authority facts but MUST NOT become ordinary mechanical verification evidence. `Reservation.EvidenceEligible()` is false for delegated mode, and an explicit ordinary evidence contract on delegated start is rejected before provider work.
+- Receipt v5 predefines composable capture truth (`capture_quality=complete|partial|incomplete` + bounded monotonic `capture_reasons[]`) and input-authority provenance (`agent_only|human_write_authority_granted`). H1 emits complete/no-reason + `agent_only`; H2/H4 activate later states without a schema fork.
 - Provider/session details remain private. Public authority is ShellBeam `session_id` + current `authority_epoch`, never tmux name/PID/pane guess.
 - Idempotency lookup precedes current-epoch/current-owner rejection. Known old-epoch retries replay prior durable outcomes; unknown old-epoch mutations fail `stale_control_generation`.
 - Every newly admitted delegated control/lifetime mutation is generation-bound. H1 must classify write, signal/kill, provider-authority mutation and provider-driven resize; no forgotten bypass lane.
@@ -43,6 +45,7 @@
 ### Task 1: Enforce the H0 handoff gate and freeze H1 provider identity
 
 **Files:**
+- Read: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json`
 - Read: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md`
 - Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h1-provider-binding.md`
 
@@ -55,12 +58,10 @@
 Run:
 
 ```bash
-E=docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md
-test -f "$E"
-rg -n '^H1_ALLOWED[[:space:]]*=[[:space:]]*true$' "$E"
-for gate in P3 P4 P5 P6 P14 P15; do
-  rg -n "^${gate}[[:space:]].*PASS" "$E"
-done
+G=docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json
+test -f "$G"
+go run ./tools/interactive-handoff-h0 verify-gate --gate-json "$G" --require-h1
+shasum -a 256 "$G"
 ```
 
 Expected: every command exits 0. If any fails, record the actual H0 verdict and stop H1.
@@ -83,7 +84,7 @@ Do not substitute current-machine discovery for missing H0 evidence.
 
 - [ ] **Step 3: Write the tracked H1 provider-binding evidence note.**
 
-The note must state the exact H0 evidence commit/hash, all six genuine gates, and this hard rule:
+The note must state the exact H0 gate JSON SHA-256 + commit, exact provider/version/topology, all six genuine gates, and this hard rule:
 
 ```text
 H1 code may implement only the mechanism/topology H0 qualified.
@@ -235,6 +236,8 @@ git -c core.hooksPath=.githooks commit -m "feat: define delegated session author
 - Modify: `internal/core/operation/intent.go`
 - Create: `internal/core/operation/delegated_identity.go`
 - Create: `internal/core/operation/delegated_intent_test.go`
+- Modify: `internal/core/operation/evidence.go`
+- Modify: `internal/core/operation/evidence_test.go`
 - Modify: `internal/core/operation/persistence.go`
 - Modify: `internal/adapter/store/reservation.go`
 - Create: `internal/adapter/store/delegated_reservation_test.go`
@@ -257,6 +260,9 @@ session_mode delegated_interactive + tty present/true -> invalid_input
 session_mode delegated_interactive + persistent present/true -> invalid_input
 session_mode delegated_interactive + session_name -> valid
 unknown session_mode -> feature_unavailable/invalid closed enum before reservation
+session_mode delegated_interactive + explicit evidence contract -> invalid_input before reservation/provider work
+delegated reservation + test/build/format/generate/release intent -> EvidenceEligible() == false
+delegated typed project-command reservation -> EvidenceEligible() == false
 ```
 
 At Go struct level use an explicit `SessionMode string` plus parse/validation through `delegatedsession`, not Boolean inference.
@@ -275,9 +281,9 @@ session_name
 
 Do not route delegated intent through `persistent_identity.go`.
 
-- [ ] **Step 4: Add reservation schema 5 validation/round-trip.**
+- [ ] **Step 4: Add reservation schema 5 validation/round-trip and evidence-authority closure.**
 
-Schema 5 is used only when `SessionMode=delegated_interactive`; it requires request/execution fingerprints, provider-neutral session identity, and initial `AuthorityEpoch=1`. Schemas 1–4 remain readable with existing meanings.
+Schema 5 is used only when `SessionMode=delegated_interactive`; it requires request/execution fingerprints, provider-neutral session identity, and initial `AuthorityEpoch=1`. Schemas 1–4 remain readable with existing meanings. Update `Reservation.EvidenceEligible()` so schema-5 delegated reservations are always false regardless intent/project-command metadata; explicit ordinary evidence contracts are rejected during delegated admission rather than persisted.
 
 - [ ] **Step 5: RED-test changed mode under same operation ID conflicts.**
 
@@ -553,6 +559,7 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 - Modify: `internal/core/receipt/receipt.go`
 - Modify: `internal/core/receipt/result.go`
 - Create: `internal/core/receipt/delegated_v5_test.go`
+- Create: `internal/app/daemon/delegated_evidence_test.go`
 - Modify: `api/schema/mcp-input-v2.json`
 - Modify: `api/schema/mcp-output-v2.json`
 - Modify: `api/schema/ipc-v2.json`
@@ -573,17 +580,38 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 - Create: `cmd/shellbeam/delegated_sessions_test.go`
 
 **Interfaces:**
-- Receipt schema v5 is the delegated modern receipt. It binds `session_mode`, terminal `authority_epoch`, and additive `capture_quality` while leaving receipt schemas 1–4 unchanged.
-- Closed capture-quality vocabulary is frozen now: `complete_public_capture`, `private_intervals_omitted`, `transport_incomplete`, `provider_lost`. H1 emits only `complete_public_capture` on healthy complete sessions; H4 later activates intentional private omission without another receipt-version fork.
+- Receipt schema v5 is the delegated modern receipt. It binds `session_mode`, terminal `authority_epoch`, `evidence_authority=session_lifecycle_only`, monotonic `input_authority_provenance`, and composable capture truth while leaving receipt schemas 1–4 unchanged.
+- Closed capture vocabulary is frozen now:
+
+```text
+capture_quality = complete | partial | incomplete
+capture_reasons = [] | [private_intervals_omitted] | any unique bounded set containing transport_gap or provider_lost (optionally plus private_intervals_omitted)
+input_authority_provenance = agent_only | human_write_authority_granted
+evidence_authority = session_lifecycle_only
+```
+
+- H1 emits only `output_complete=true + capture_quality=complete + capture_reasons=[] + input_authority_provenance=agent_only`. H2/H4 may monotonically add later provenance/reasons without receipt-version fork.
 - New capability: `delegated_interactive` with provider/version, daemon-restart continuity, host-reboot false, current H1 limits.
 - Modern start supports `session_mode`; modern delegated write/kill requires `authority_epoch`.
-- Modern result includes `authority_epoch`, `session_mode`, and `capture_quality` only for delegated sessions.
+- Modern result includes delegated authority/capture/provenance fields only for delegated sessions.
 
-- [ ] **Step 1: RED receipt-v5 validation/result tests.**
+- [ ] **Step 1: RED receipt-v5 validation/result tests, including simultaneous causes.**
 
-Receipt v5 requires `session_mode=delegated_interactive`, positive authority epoch, request/execution fingerprints, and valid capture quality. Healthy H1 success requires `output_complete=true + complete_public_capture`. V5 validation also permits a successful child with `output_complete=false` only when the non-complete capture quality explains the omission/loss; this is frozen for H4 but H1 runtime must not emit `private_intervals_omitted`.
+Receipt v5 requires `session_mode=delegated_interactive`, positive authority epoch, request/execution fingerprints, `evidence_authority=session_lifecycle_only`, valid provenance, and valid composable capture state. Test at least:
 
-`receipt.Result.Output` gains additive `capture_quality`; direct/B1 results remain byte-compatible/field-compatible under their existing schemas.
+```text
+complete + [] + output_complete=true -> valid
+partial + [private_intervals_omitted] + output_complete=false -> valid
+incomplete + [transport_gap] -> valid
+incomplete + [provider_lost] -> valid
+incomplete + [private_intervals_omitted, transport_gap, provider_lost] -> valid
+complete + any reason -> invalid
+partial + transport/provider reason -> invalid
+incomplete without transport_gap/provider_lost -> invalid
+duplicate/unknown/unsorted reasons -> invalid or canonicalized before persistence, never ambiguous
+```
+
+`receipt.Result.Output` gains `capture_quality` + `capture_reasons`; result/receipt project evidence authority and input-authority provenance. Direct/B1 results remain field-compatible under existing schemas.
 
 - [ ] **Step 2: RED closed-schema tests.**
 
@@ -595,6 +623,8 @@ v2 delegated + tty/persistent rejected
 unknown session_mode rejected
 legacy v1 delegated field rejected
 ordinary v2 start unchanged
+delegated start + explicit ordinary evidence contract rejected
+delegated lifecycle receipt always projects evidence_authority=session_lifecycle_only
 write/kill authority_epoch optional for legacy session syntax but schema-bounded positive integer when present
 ```
 
@@ -610,15 +640,17 @@ Do not expose private provider refs/socket/pane IDs in result or errors.
 
 - [ ] **Step 5: One-tool and legacy closure tests.**
 
+Add daemon/evidence-worker RED tests proving a delegated schema-5 reservation with test/build intent produces **no ordinary evidence record**, even when its lifecycle receipt is terminal success with complete capture. This is independent from capture completeness.
+
 Ensure one MCP tool registration remains; v1 output omits all H1 fields/features.
 
 - [ ] **Step 6: Run receipt/schema/adapter/capability tests and commit.**
 
 ```bash
-go test ./internal/core/receipt ./api/schema ./internal/adapter/ipc ./internal/adapter/mcp ./internal/core/capability -run 'Delegated|Capture|Persistent|MCP' -count=1
+go test ./internal/core/receipt ./internal/app/daemon ./api/schema ./internal/adapter/ipc ./internal/adapter/mcp ./internal/core/capability -run 'Delegated|Capture|Evidence|Persistent|MCP' -count=1
 go test -race ./internal/adapter/ipc ./internal/adapter/mcp -run 'Delegated' -count=1
 go run ./tools/devctl check
-git add internal/core/receipt api/schema internal/adapter/ipc internal/adapter/mcp internal/core/capability cmd/shellbeam
+git add internal/core/receipt internal/app/daemon/delegated_evidence_test.go api/schema internal/adapter/ipc internal/adapter/mcp internal/core/capability cmd/shellbeam
 git diff --cached --check
 go run ./tools/devctl commit-gate --json
 git -c core.hooksPath=.githooks commit -m "feat: expose delegated interactive core"
@@ -709,7 +741,7 @@ Search every delegated provider mutation callsite and map it in the evidence rep
 ```bash
 rg -n 'handoff\.request|TerminalLauncher|ShellIntegration|PrivacyReleaseProof' internal api cmd || true
 rg -n 'capture-pane|preferred_terminal|reptyr' internal/adapter/delegatedtmux || true
-git diff d54b15836e7fc53fae5afc7bbd06013f90d02bf5 --stat
+git diff 5351215de2c02ac61ac82751c1680a35744047af --stat
 ```
 
 Expected: no H2/H3/H4 public feature implemented and no arbitrary takeover/polling transport.
@@ -727,7 +759,7 @@ git diff --check
 
 - [ ] **Step 5: Write evidence, stage exact H1 scope, commit-gate, and checkpoint.**
 
-Evidence records H0 binding, exact provider/tmux identity, H1 capability/version, reservation schema 5, receipt schema 5/capture-quality contract, authority semantics, native lanes, no-tax evidence, and `H2_ALLOWED=true|false`.
+Evidence records H0 machine-gate digest, exact provider/tmux identity, H1 capability/version, reservation schema 5, receipt schema 5 composable capture/provenance/evidence-authority contract, proof that delegated terminal success never promotes to ordinary evidence, authority semantics, native lanes, no-tax evidence, and `H2_ALLOWED=true|false`.
 
 ```bash
 git add \
@@ -769,6 +801,7 @@ H1 is complete only when one exact committed tree proves:
 10. provider loss never becomes PID/name takeover or fabricated child exit;
 11. ordinary direct and B1 persistent execution do zero delegated-tmux work;
 12. modern v2 capability/schema expose H1 only; legacy remains closed;
-13. delegated receipt v5 reports `complete_public_capture` for healthy H1 output and predefines truthful non-complete qualities without H1 emitting private omission;
-14. H2/H3/H4/H5 features remain unavailable;
-15. required native/race/schema/devctl/commit-gate evidence passes and `H2_ALLOWED=true` is recorded.
+13. delegated receipt v5 uses composable `capture_quality + capture_reasons`, lifecycle-only evidence authority, and `agent_only` input-authority provenance on healthy H1 output; simultaneous later omission/failure causes are representable without schema fork;
+14. delegated reservations are never ordinary `EvidenceEligible`; explicit ordinary evidence contracts fail before provider work and terminal success cannot create a mechanical evidence record;
+15. H2/H3/H4/H5 features remain unavailable;
+16. required native/race/schema/devctl/commit-gate evidence passes and `H2_ALLOWED=true` is recorded.

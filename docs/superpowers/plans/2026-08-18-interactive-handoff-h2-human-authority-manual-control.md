@@ -8,12 +8,14 @@
 
 **Tech Stack:** H1 delegated session core; H0-qualified tmux human-client/fence/control mechanism; existing Unix IPC/peer authentication, Event Journal, atomic store, ULID/ID conventions, Go 1.26.6.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `d54b15836e7fc53fae5afc7bbd06013f90d02bf5`; H1 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h1-delegated-session-core.md`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H1 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h1-delegated-session-core.md`.
 
 ## Global Constraints
 
 - HARD PRECONDITION: tracked H1 evidence reports `H2_ALLOWED=true` and exact H1 HEAD/provider binding.
 - H2 supports `privacy=standard` + `completion.kind=manual_ready`. `privacy=secret` and shell-aware automatic completion remain `feature_unavailable` until H4.
+- `privacy=secret` MUST fail before human attach becomes writable. Standard/manual handoff provides **no secret-output protection**; local UX must say so because a human can still type sensitive text into a public-capture session.
+- Before first human writable grant, delegated `input_authority_provenance` is durably promoted from `agent_only` to `human_write_authority_granted` and never downgraded. This records possible non-agent influence without storing keystrokes.
 - Canonical correctness state is orthogonal dimensions, not one giant ownership enum. Derived names are projection only.
 - Transfer intent rotates `authority_epoch` durably before next-owner admission.
 - Agent ingress and human ingress are separately fenced. Provider read-only/writable flag alone is not a claim about application quiescence.
@@ -211,9 +213,11 @@ git -c core.hooksPath=.githooks commit -m "feat: define interactive handoff stat
 - Create: `internal/adapter/store/interactive_handoff_restart.go`
 - Create: `internal/adapter/store/interactive_handoff_restart_test.go`
 - Modify: `internal/app/daemon/store_port.go`
+- Modify: `internal/adapter/store/delegated_sessions.go`
+- Modify: `internal/adapter/store/delegated_sessions_test.go`
 
 **Interfaces:**
-- Produces atomic `ReserveHandoff`, `AdvanceHandoff`, `LoadHandoff`, `ReserveControlSignal`, `CompleteControlSignal`, `ListHandoffRecoveryCandidates`.
+- Produces atomic `ReserveHandoff`, `AdvanceHandoff`, `LoadHandoff`, `ReserveControlSignal`, `CompleteControlSignal`, `ListHandoffRecoveryCandidates`, plus `MarkHumanWriteAuthorityGranted(session_id)` as an irreversible delegated-session provenance update.
 
 - [ ] **Step 1: RED-test handoff idempotency/conflict.**
 
@@ -228,6 +232,8 @@ When transfer agent→human is accepted, persisted handoff state and delegated b
 Known exact `ready`/`abort` signal from old epoch replays prior outcome; unseen signal from old epoch is stale. Signal from current epoch but impossible phase returns `handoff_not_pending`/ownership error.
 
 - [ ] **Step 4: Persist human-client identity as provider-safe opaque ref only.**
+
+Before any provider call can make a human client writable, durably call `MarkHumanWriteAuthorityGranted`. A crash after this mark but before actual writability is conservatively recorded as possible human influence; it must never be rolled back to `agent_only`.
 
 Public state may expose `attached=true`, provider/terminal friendly identity later, but not private tmux socket/client token required for provider control.
 
@@ -338,6 +344,7 @@ FenceAgentIngress/prove provider no longer accepts agent mutation
 manual TransferBoundary policy for human grant
 attach exact human client read-only first
 prove exact client
+durably mark input_authority_provenance=human_write_authority_granted
 make exact client writable
 observe provider human owner
 publish derived HUMAN_OWNED
@@ -421,6 +428,8 @@ The attach helper receives no secret values and never gets arbitrary model comma
 
 - [ ] **Step 3: Implement local HumanControl surface.**
 
+The attach surface must visibly state for H2 standard handoff: `Model-visible output remains public; do not enter secrets here. Secret handoff is unavailable until the privacy capability is present.` This warning is local UX and contains no provider internals.
+
 Writable-state OOB path sends `ready|abort|status`; fenced/read-only path exposes `resume|terminate|status` using H0-qualified reachability. Every mutation sends exact `handoff_id + authority_epoch + control_id`.
 
 - [ ] **Step 4: RED-test stale/duplicate local controls.**
@@ -475,7 +484,7 @@ git -c core.hooksPath=.githooks commit -m "feat: add local interactive handoff a
 
 - [ ] **Step 1: RED closed-schema tests.**
 
-`handoff.request` requires stable handoff/session IDs, closed reason/privacy/completion objects. H2 runtime rejects `privacy=secret` and automatic readiness capability even if schema vocabulary recognizes future values.
+`handoff.request` requires stable handoff/session IDs, closed reason/privacy/completion objects. H2 runtime rejects `privacy=secret` and automatic readiness capability even if schema vocabulary recognizes future values. RED-test with provider/attach counters that `privacy=secret` fails **before** any human attach/write-enable/provider mutation.
 
 - [ ] **Step 2: Define bounded public state projection.**
 
@@ -585,7 +594,7 @@ Prove no control text is sent into pane stdin; abort does not kill; stale ready 
 
 - [ ] **Step 3: Environment preservation/privacy anti-leak scan.**
 
-Attach a terminal process with conflicting environment sentinel and prove delegated session environment unchanged. Assert human input sentinel does not appear in ShellBeam public logs/receipts/events/metadata; H2 does **not** claim secret-private output because terminal echo remains public.
+Attach a terminal process with conflicting environment sentinel and prove delegated session environment unchanged. Assert human input bytes are not copied into ShellBeam control metadata/events/agent input ledger, but do **not** assert the terminal transcript is secret-safe: standard handoff output is public and a fake human-typed canary may legitimately appear there. Verify local warning text, `privacy=secret` pre-writable rejection, and terminal receipt provenance `human_write_authority_granted`.
 
 - [ ] **Step 4: Fresh verification.**
 
@@ -638,5 +647,6 @@ H2 is complete only when one exact committed tree proves:
 11. restart/client-loss/provider-loss recover fail-closed from durable state + exact observation;
 12. handoff wait/expiry are event-driven/bounded with no resident per-handoff watcher;
 13. public MCP remains one tool and private local-control transport is not exposed as a second model tool;
-14. H2 does not advertise secret privacy, shell readiness, or automatic terminal launch;
-15. native/race/schema/privacy-metadata/devctl gates pass and H3/H4 gates are recorded.
+14. H2 does not advertise secret privacy, shell readiness, or automatic terminal launch, and standard local UX explicitly says output is public/not secret-protected;
+15. any session that reaches possible human writable authority durably reports `input_authority_provenance=human_write_authority_granted` without storing keystrokes;
+16. native/race/schema/privacy-metadata/devctl gates pass and H3/H4 gates are recorded.

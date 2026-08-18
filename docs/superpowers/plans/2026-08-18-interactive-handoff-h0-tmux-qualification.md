@@ -8,7 +8,7 @@
 
 **Tech Stack:** repository toolchain Go 1.26.6; existing `github.com/creack/pty v1.1.24`; system tmux selected by exact absolute path; raw tmux Control Mode; optional isolated wrapper candidate `github.com/atomicstack/gotmuxcc@v0.1.4` (tag origin `440c9d00c0d094cc4dde1eb28ff3a534ceefd98b`, module sum `h1:WmFsKnomT+Zif4WxNfVH+zNu1dXLnhT0+1f1N+HJags=`), never added to root `go.mod` during H0.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` at `d54b15836e7fc53fae5afc7bbd06013f90d02bf5`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` at `5351215de2c02ac61ac82751c1680a35744047af`.
 
 ## Global Constraints
 
@@ -24,7 +24,8 @@
 - `P3`, `P4`, `P5`, `P6`, `P14`, and `P15` are genuine gates. If any remains FAIL after the qualified native candidate mechanisms in this plan are exhausted, final H0 verdict is FAIL and H1 is blocked.
 - Native macOS and native Linux evidence are both required for an overall cross-platform H0 PASS. A missing native lane is `NOT_RUN`, never inferred from cross-build. H1 remains blocked unless a later approved scope amendment explicitly narrows platforms.
 - Current planning-host observation (`/opt/homebrew/bin/tmux`, tmux 3.6a) is not a product path/version assumption. Execution always receives an exact `--tmux /absolute/path` and re-records identity.
-- Raw `.build/interactive-handoff-h0/**` is ignored evidence scratch space. Tracked final evidence is `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md`. Native test cases skip during ordinary repository tests unless `SHELLBEAM_H0_TMUX` is set to an absolute executable; an H0 qualification lane MUST set it and treats a missing tmux as NOT_RUN/FAIL evidence, not a silent skip.
+- Raw `.build/interactive-handoff-h0/**` is ignored evidence scratch space. Tracked final evidence consists of a deterministic machine gate `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json` plus a Markdown rendering of that same gate. Native test cases skip during ordinary repository tests unless `SHELLBEAM_H0_TMUX` is set to an absolute executable; an H0 qualification lane MUST set it and treats a missing tmux as NOT_RUN/FAIL evidence, not a silent skip.
+- `H1_ALLOWED` is machine-derived only. The Markdown line is explanatory and has no authority by itself; H1 must validate the tracked gate JSON with the H0 verifier and bind its SHA-256.
 - No push, PR, merge, rebase, reset, or stash as part of this plan unless separately requested.
 - Every tracked-code task follows RED -> expected failure -> minimal GREEN -> focused/race verification -> coherent commit. Native qualification failures are recorded rather than “fixed” by weakening assertions.
 
@@ -39,6 +40,7 @@
 - `tools/interactive-handoff-h0/testdata/gotmuxcc-v0.1.4/main.go`: isolated wrapper probe source copied into `.build`; ignored by ordinary Go package discovery because it is under `testdata`.
 - `.build/interactive-handoff-h0/<platform>/`: raw logs, event traces, JSON report, temporary tmux socket/config, wrapper temp module.
 - `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md`: exact tracked qualification result, including PASS/FAIL/NOT_RUN and architecture-fork recommendation.
+- `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json`: deterministic provider-qualification gate consumed by H1; binds exact spec commit, platform report digests, provider/topology selection, P0–P15, genuine gates, and derived `h1_allowed`.
 
 ---
 
@@ -86,6 +88,28 @@ type Report struct {
 }
 ```
 
+The final renderer additionally emits a closed tracked gate:
+
+```go
+type QualificationGate struct {
+    SchemaVersion       int             `json:"schema_version"`
+    GateKind            string          `json:"gate_kind"` // "provider_qualification"
+    SpecCommit          string          `json:"spec_commit"`
+    RequiredPlatforms   []string        `json:"required_platforms"`
+    RequiredProbeIDs    []string        `json:"required_probe_ids"`
+    GenuineGateIDs      []string        `json:"genuine_gate_ids"`
+    PlatformReports     []ReportBinding `json:"platform_reports"`
+    ProviderID          string          `json:"provider_id"`
+    ProviderVersion     int             `json:"provider_version"`
+    InputFenceMechanism string          `json:"input_fence_mechanism"`
+    ObservationTopology string          `json:"observation_topology"`
+    ControlAdapter      string          `json:"control_adapter"`
+    H1Allowed           bool            `json:"h1_allowed"`
+}
+```
+
+Each `ReportBinding` carries GOOS/GOARCH, exact tmux identity, native report verdict, and SHA-256 of the raw platform report. `validateGate` recomputes `H1Allowed`; a caller cannot set it independently of the bound P0–P15/platform/provider facts.
+
 - Produces raw ordered Control Mode events with command blocks and notifications kept distinct; no parser recovery that silently drops malformed lines.
 
 - [ ] **Step 1: Write RED report-schema tests.**
@@ -105,6 +129,25 @@ func TestVerdictFailsOnGateFailureAndNotRunOnMissingNativeLane(t *testing.T) {
         t.Fatalf("verdict=%q", got)
     }
 }
+
+func TestVerifyGateRejectsCallerForgedH1Allowed(t *testing.T) {
+    reports := passingNativeReports()
+    reports[0].Results[indexOf("P3")].Status = StatusFail
+    gate := gateFromReports(reports)
+    gate.H1Allowed = true // simulate manual edit of the serialized gate
+    if err := verifyGate(gate, reports); err == nil {
+        t.Fatal("forged h1_allowed accepted")
+    }
+}
+
+func TestVerifyGateRejectsUnboundPlatformReportDigest(t *testing.T) {
+    reports := passingNativeReports()
+    gate := gateFromReports(reports)
+    gate.PlatformReports[0].ReportSHA256 = strings.Repeat("0", 64)
+    if err := verifyGate(gate, reports); err == nil {
+        t.Fatal("unbound platform report digest accepted")
+    }
+}
 ```
 
 - [ ] **Step 2: Run the RED report tests.**
@@ -112,10 +155,10 @@ func TestVerdictFailsOnGateFailureAndNotRunOnMissingNativeLane(t *testing.T) {
 Run:
 
 ```bash
-go test ./tools/interactive-handoff-h0 -run 'TestReportRequires|TestVerdictFails' -count=1
+go test ./tools/interactive-handoff-h0 -run 'TestReportRequires|TestVerdictFails|TestVerifyGate' -count=1
 ```
 
-Expected: FAIL because `Report`, validation, and verdict logic do not exist.
+Expected: FAIL because `Report`, gate derivation/verification, validation, and verdict logic do not exist. The gate verifier must recompute authority from bound native reports rather than trusting serialized `h1_allowed`.
 
 - [ ] **Step 3: Implement the closed P0–P15 schema and deterministic renderer.**
 
@@ -154,7 +197,11 @@ Task 1 CLI is exact and non-interactive:
 interactive-handoff-h0 render \
   --input .build/interactive-handoff-h0/darwin/report.json \
   --input .build/interactive-handoff-h0/linux/report.json \
+  --gate-json docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json \
   --markdown docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md
+
+interactive-handoff-h0 verify-gate \
+  --gate-json docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json
 ```
 
 Implement `collectIdentity(tmuxPath string)` now: it requires an absolute regular executable, runs `<tmux> -V`, hashes executable bytes, and records `runtime.GOOS/GOARCH`, `runtime.Version()`, plus `git rev-parse HEAD`. Task 6 adds the `run` subcommand only after P0–P15 probe functions exist, so intermediate commits never fabricate unimplemented probe results.
@@ -633,6 +680,7 @@ If raw H0 gates are FAIL, wrapper scenario may be recorded `NOT_RUN_RAW_GATE_FAI
 ### Task 8: Produce native macOS + Linux evidence, exact H0 verdict, and hard handoff gate
 
 **Files:**
+- Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json`
 - Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md`
 - Modify only if evidence generation reveals a harness bug: `tools/interactive-handoff-h0/**`
 - Raw ignored artifacts: `.build/interactive-handoff-h0/**`
@@ -668,13 +716,17 @@ Use the same committed source and exact commands with raw directory `.build/inte
 go run ./tools/interactive-handoff-h0 render \
   --input .build/interactive-handoff-h0/darwin/report.json \
   --input .build/interactive-handoff-h0/linux/report.json \
+  --gate-json docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json \
   --markdown docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md
+
+go run ./tools/interactive-handoff-h0 verify-gate \
+  --gate-json docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json
 ```
 
 The renderer must include:
 
 ```text
-frozen spec path + commit d54b158...
+frozen spec path + commit 5351215...
 platform identity and exact tmux hashes
 P0-P15 per platform
 P3/P4/P5/P6/P14/P15 gate block
@@ -686,17 +738,17 @@ wrapper candidate identity/verdict
 raw artifact locations
 final H0 verdict
 architecture fork recommendation if FAIL
-H1_ALLOWED = true|false
+H1_ALLOWED = true|false  # rendering of gate JSON only
 ```
 
-`H1_ALLOWED=true` only when required native lanes are PASS and every genuine gate is PASS.
+The gate JSON is the authority. It binds `gate_kind=provider_qualification`, exact master-spec commit, exact platform-report hashes, provider/version/topology, P0–P15, and genuine-gate IDs. `h1_allowed=true` is accepted only when `verify-gate` recomputes true from required native PASS lanes and every genuine gate PASS.
 
 - [ ] **Step 4: Run final anti-goal scans.**
 
 ```bash
-git diff --name-only d54b15836e7fc53fae5afc7bbd06013f90d02bf5...HEAD
+git diff --name-only 5351215de2c02ac61ac82751c1680a35744047af...HEAD
 rg -n 'session_mode|handoff\.request|handoff\.abort' internal api cmd || true
-git diff d54b15836e7fc53fae5afc7bbd06013f90d02bf5 -- go.mod go.sum
+git diff 5351215de2c02ac61ac82751c1680a35744047af -- go.mod go.sum
 git diff --check
 ```
 
@@ -709,7 +761,7 @@ go mod verify
 SHELLBEAM_H0_TMUX="$(command -v tmux)" go test ./tools/interactive-handoff-h0 -count=1
 SHELLBEAM_H0_TMUX="$(command -v tmux)" go test -race ./tools/interactive-handoff-h0 -count=1
 go run ./tools/devctl check
-go run ./tools/devctl test --dirty --base d54b15836e7fc53fae5afc7bbd06013f90d02bf5 --json
+go run ./tools/devctl test --dirty --base 5351215de2c02ac61ac82751c1680a35744047af --json
 git diff --check
 ```
 
@@ -719,6 +771,7 @@ Do not substitute `go test ./...` for missing native P0–P15 evidence. Full rep
 
 ```bash
 git add tools/interactive-handoff-h0 \
+  docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json \
   docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md \
   docs/superpowers/plans/2026-08-18-interactive-handoff-h0-tmux-qualification.md
 git diff --cached --check
@@ -736,10 +789,13 @@ Postcommit:
 ```bash
 git status --short --branch
 git rev-parse HEAD
-shasum -a 256 docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md
+shasum -a 256 docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json \
+  docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.md
+go run ./tools/interactive-handoff-h0 verify-gate \
+  --gate-json docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json
 ```
 
-If `H1_ALLOWED=false`, **STOP**. Do not write/execute H1 implementation under this plan. Report which exact gate/topology failed and the required architecture fork. If `H1_ALLOWED=true`, H0 is complete and a separate H1 plan may be written from the frozen master spec + H0 evidence; still do not implement H1 automatically.
+If the verified gate derives `h1_allowed=false`, **STOP**. Do not write/execute H1 implementation under this plan. Report which exact gate/topology failed and the required architecture fork. A manually edited Markdown `H1_ALLOWED=true` never unlocks H1.
 
 ## H0 Completion Gate
 
@@ -764,4 +820,4 @@ H0 is complete only when one exact tracked qualification result can answer all o
 17. `gotmuxcc` is either independently qualified as a replaceable adapter convenience or explicitly rejected in favor of a thin ShellBeam-owned protocol adapter; raw provider evidence remains authoritative.
 18. Native macOS and Linux status is explicit. Missing native evidence is `NOT_RUN`, not inferred.
 19. No H0 tracked change implements or advertises the public feature, changes root dependencies, or weakens existing direct/persistent/resource/hermetic semantics.
-20. Final evidence says exactly `H1_ALLOWED=true|false`; only `true` permits writing the separate H1 core-protocol plan.
+20. The tracked machine gate validates with `gate_kind=provider_qualification` and derives `h1_allowed=true|false`; only verified `true` permits H1. Markdown is a rendering, not gate authority.

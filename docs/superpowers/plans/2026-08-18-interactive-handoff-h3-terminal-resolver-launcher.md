@@ -8,7 +8,7 @@
 
 **Tech Stack:** H2 manual handoff + local attach; Go 1.26.6; platform-native/process/application discovery behind adapters; existing store/event/capability infrastructure; no ChatGPT App/browser extension/deep link.
 
-**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `d54b15836e7fc53fae5afc7bbd06013f90d02bf5`; H2 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h2-human-authority-manual-control.md`.
+**Spec:** `docs/superpowers/specs/2026-08-18-human-agent-interactive-session-handoff-design.md` frozen at `5351215de2c02ac61ac82751c1680a35744047af`; H2 plan `docs/superpowers/plans/2026-08-18-interactive-handoff-h2-human-authority-manual-control.md`.
 
 ## Global Constraints
 
@@ -16,6 +16,7 @@
 - Resolver ranking is: existing session client → currently active supported terminal → most recently activated supported terminal → fresh validated bridge/session affinity → exactly one running supported terminal → qualified fallback → manual attach.
 - Bridge-launch terminal is a freshness-bounded hint, not per-request origin proof and never timeless preference.
 - No required `preferred_terminal` setting and no persisted detailed application-usage history.
+- H3 must compose with H2 when H4 is absent, and must not assume secret/privacy fields/providers exist. If H4 is already present, H3 must also pass the combined H2+H3+H4 composition test; if not, its evidence records combined lane `NOT_RUN_COUNTERPART_ABSENT`, not a fake PASS.
 - Terminal provider is presentation only: it cannot create sessions, grant ownership, alter shell readiness, or carry model-provided shell snippets.
 - Launcher target is exact installed ShellBeam attach argv generated locally. No arbitrary shell interpolation and no developer source path/Homebrew-path assumption.
 - Launch/reveal is an external GUI side effect with durable `not_attempted|launching|launched_and_client_proven|launch_failed|launch_outcome_unknown` semantics.
@@ -409,6 +410,7 @@ git -c core.hooksPath=.githooks commit -m "feat: auto present human handoff term
 
 **Files:**
 - Create: `tests/integration/terminal_presentation_test.go`
+- Create: `tests/integration/interactive_handoff_h3_composition_test.go`
 - Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h3-terminal-presentation.md`
 
 **Interfaces:**
@@ -431,6 +433,8 @@ Lost handoff response, lost launcher response, duplicate `handoff.request`, exis
 Record PASS/FAIL/NOT_RUN separately for each advertised provider/platform. A provider is advertised only with native evidence appropriate to its launch/reveal claim.
 
 - [ ] **Step 5: Fresh verification.**
+
+Before the generic verification commands, run the actual H2+H3/no-H4 composition test. It must prove manual handoff remains advertised, terminal presentation adds only presentation capability, and secret/privacy capability remains unavailable. If tracked H4 evidence already exists, the same test binary must additionally instantiate production H4 composition and prove H2+H3+H4 capability/result fields coexist without precedence assumptions. Record `H3_H4_COMBINED=PASS` only in that case; otherwise `NOT_RUN_COUNTERPART_ABSENT`.
 
 ```bash
 go mod verify
@@ -466,4 +470,6 @@ H3 is complete only when:
 9. capability advertises only qualified current-machine provider subset;
 10. frontmost browser does not erase recent terminal evidence;
 11. ordinary execution pays zero H3 work and no watcher/process/resource creep appears;
-12. required native/race/devctl/provider smoke evidence passes with unavailable lanes honestly `NOT_RUN`.
+12. actual H2+H3/no-H4 composition passes and H3 capability/IPC fields make no H4 assumptions;
+13. if H4 is already present, actual H2+H3+H4 composition passes; otherwise combined lane is honestly `NOT_RUN_COUNTERPART_ABSENT`;
+14. required native/race/devctl/provider smoke evidence passes with unavailable lanes honestly `NOT_RUN`.
