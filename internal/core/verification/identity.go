@@ -70,6 +70,27 @@ func DomainID(kind AffectedDomainKind, provider *ProviderRef, generation string,
 		Refs       []string           `json:"provenance_refs"`
 	}{kind, provider, generation, refs})
 }
+func DomainIDWithoutGeneration(kind AffectedDomainKind, provider *ProviderRef, provenanceRefs []string) (string, error) {
+	if kind.Validate() != nil {
+		return "", fmt.Errorf("invalid domain identity")
+	}
+	if provider != nil {
+		if err := provider.Validate(); err != nil {
+			return "", err
+		}
+	}
+	refs, err := normalizeRefs(provenanceRefs)
+	if err != nil {
+		return "", err
+	}
+	return hashID("dom_", struct {
+		Kind            AffectedDomainKind `json:"kind"`
+		Provider        *ProviderRef       `json:"provider,omitempty"`
+		GenerationState string             `json:"generation_state"`
+		Refs            []string           `json:"provenance_refs"`
+	}{kind, provider, "unknown", refs})
+}
+
 func RelationID(in RelationIdentityInput) (string, error) {
 	if in.From.Validate() != nil || in.To.Validate() != nil || !boundedToken(in.Kind, 128) || in.Basis.Validate() != nil || in.DerivationAuthority.Validate() != nil || in.Coverage.Validate() != nil || !validGeneration(in.SourceGeneration) {
 		return "", fmt.Errorf("invalid relation identity")

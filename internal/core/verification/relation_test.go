@@ -150,3 +150,21 @@ func TestAuthorityAndCoverageMonotonicHelpers(t *testing.T) {
 		t.Fatal("coverage order wrong")
 	}
 }
+
+func TestAffectedSurfaceAllowsMissingGenerationOnlyForUnknownSurface(t *testing.T) {
+	d := AffectedDomain{Kind: DomainSourceSelection, DerivationAuthority: AuthorityMechanical, Coverage: CoverageUnknown, ProvenanceRefs: []string{"delta:unavailable"}, CapturedAt: time.Unix(1, 0).UTC()}
+	id, err := DomainIDWithoutGeneration(d.Kind, d.Provider, d.ProvenanceRefs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.DomainID = id
+	s := AffectedSurface{SchemaVersion: 1, RepositoryID: "repo_test", WorkspaceID: "ws_test", Domains: []AffectedDomain{d}, Diagnostics: []string{"source_generation_unavailable"}}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unknown surface rejected: %v", err)
+	}
+	bad := s
+	bad.Domains[0].Coverage = CoveragePartial
+	if err := bad.Validate(); err == nil {
+		t.Fatal("missing generation accepted for stronger-than-unknown domain")
+	}
+}

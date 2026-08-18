@@ -3,6 +3,7 @@ package verification
 import (
 	"context"
 
+	"github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/project"
 	core "github.com/maemreyo/shellbeam/internal/core/verification"
 	"github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -58,4 +59,26 @@ type ProjectInspector interface {
 
 type ProjectCommandResolver interface {
 	Resolve(context.Context, string, string, map[string]string) (project.CommandBinding, error)
+}
+
+type WorkspaceInspector interface {
+	Inspect(context.Context, string) (workspace.Workspace, error)
+}
+
+type WorkspaceSampler interface {
+	Sample(context.Context, workspace.WorkspaceID, workspace.DeltaLimits) workspace.DeltaSample
+}
+
+type ActivitySelector interface {
+	CompareWorkspace(context.Context, string, workspace.DeltaSample) (activity.Comparison, error)
+}
+
+type RelationResult struct {
+	Domains     []core.AffectedDomain
+	Relations   []core.AffectedRelation
+	Diagnostics []string
+}
+
+type RelationProvider interface {
+	Derive(context.Context, workspace.Workspace, string, []string) RelationResult
 }

@@ -167,8 +167,15 @@ func (d AffectedDomain) Validate() error {
 			return err
 		}
 	}
-	if !validGeneration(d.SourceGeneration) || len(d.ProvenanceRefs) == 0 {
-		return fmt.Errorf("domain requires generation and provenance")
+	if d.SourceGeneration == "" {
+		if d.Coverage != CoverageUnknown {
+			return fmt.Errorf("domain without generation must be unknown")
+		}
+	} else if !validGeneration(d.SourceGeneration) {
+		return fmt.Errorf("invalid domain generation")
+	}
+	if len(d.ProvenanceRefs) == 0 {
+		return fmt.Errorf("domain requires provenance")
 	}
 	if err := validateRefs(d.ProvenanceRefs, 128, 2048); err != nil {
 		return err
@@ -217,8 +224,20 @@ func (r AffectedRelation) Validate() error {
 	return validateStrings(r.Caveats, 32, 512)
 }
 func (s AffectedSurface) Validate() error {
-	if s.SchemaVersion != 1 || !boundedToken(s.RepositoryID, 128) || !boundedToken(s.WorkspaceID, 128) || !validGeneration(s.SourceGeneration) {
+	if s.SchemaVersion != 1 || !boundedToken(s.RepositoryID, 128) || !boundedToken(s.WorkspaceID, 128) {
 		return fmt.Errorf("invalid affected surface header")
+	}
+	if s.SourceGeneration == "" {
+		if len(s.Relations) != 0 {
+			return fmt.Errorf("surface without generation cannot carry relations")
+		}
+		for _, d := range s.Domains {
+			if d.Coverage != CoverageUnknown {
+				return fmt.Errorf("surface without generation requires unknown domains")
+			}
+		}
+	} else if !validGeneration(s.SourceGeneration) {
+		return fmt.Errorf("invalid affected surface generation")
 	}
 	if len(s.Domains) > 16 || len(s.Relations) > 512 {
 		return fmt.Errorf("affected surface limit exceeded")
