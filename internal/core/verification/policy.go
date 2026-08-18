@@ -156,7 +156,7 @@ type BoundEvidenceRequirement struct {
 }
 
 func (p PolicyContent) Validate() error {
-	if p.SchemaVersion != 1 || !boundedToken(p.PolicyID, 128) || len(p.Rules) == 0 || len(p.Rules) > 128 || len(p.Classifiers) > 128 {
+	if p.SchemaVersion != 1 || !boundedToken(p.PolicyID, 128) || len(p.Rules) > 128 || len(p.Classifiers) > 128 {
 		return fmt.Errorf("invalid policy header")
 	}
 	ids := map[string]struct{}{}

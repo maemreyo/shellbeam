@@ -133,3 +133,13 @@ func TestWaivedAndSatisfiedBelongToDifferentClosedEnums(t *testing.T) {
 		t.Fatal("satisfied parsed as disposition")
 	}
 }
+
+func TestPolicyProposalMayHaveZeroHardRules(t *testing.T) {
+	p := PolicyContent{SchemaVersion: 1, PolicyID: "starter-empty"}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("empty starter policy rejected: %v", err)
+	}
+	if _, err := PolicyDigest(p); err != nil {
+		t.Fatalf("empty starter digest: %v", err)
+	}
+}
