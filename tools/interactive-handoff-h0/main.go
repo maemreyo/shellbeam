@@ -25,6 +25,8 @@ var nativeProbeRegistry = map[string]nativeProbeFunc{
 	"P5": probeP5PrivateFromFirstByte,
 	"P6": probeP6ReconnectNoReplay,
 	"P7": probeP7EnvironmentPreservation,
+	"P8": probeP8WritableHumanControl,
+	"P9": probeP9ReadOnlyLocalControl,
 }
 
 type identity struct {
