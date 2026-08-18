@@ -87,6 +87,12 @@ const (
 	PersistentInputHistoryExhausted   Code = "persistent_input_history_exhausted"
 	PersistentKillHistoryExhausted    Code = "persistent_kill_history_exhausted"
 	PersistenceAmbiguous              Code = "persistence_ambiguous"
+	StaleControlGeneration            Code = "stale_control_generation"
+	SessionControlNotOwned            Code = "session_control_not_owned"
+	DelegatedSessionUnavailable       Code = "delegated_session_unavailable"
+	DelegatedProviderLost             Code = "delegated_provider_lost"
+	DelegatedProviderMismatch         Code = "delegated_provider_mismatch"
+	DelegatedReconcileBlocked         Code = "delegated_reconcile_blocked"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
 	MediaPathNotFound                 Code = "media_path_not_found"
 	MediaPathUnsafe                   Code = "media_path_unsafe"
@@ -221,6 +227,12 @@ var publicSpecs = map[Code]publicSpec{
 	PersistentInputHistoryExhausted:   {message: "persistent input history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistentKillHistoryExhausted:    {message: "persistent kill history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
+	StaleControlGeneration:            {message: "stale delegated session control generation", details: keys("session_id", "expected_epoch", "current_epoch")},
+	SessionControlNotOwned:            {message: "delegated session control is not owned by the caller", details: keys("session_id", "owner", "required_owner", "current_epoch")},
+	DelegatedSessionUnavailable:       {message: "delegated session unavailable", retryable: true, details: keys("session_id", "platform", "reason")},
+	DelegatedProviderLost:             {message: "delegated session provider lost", retryable: true, details: keys("session_id", "provider_id", "provider_version", "reason")},
+	DelegatedProviderMismatch:         {message: "delegated session provider mismatch", details: keys("session_id", "provider_id", "provider_version", "expected_provider_id", "expected_provider_version")},
+	DelegatedReconcileBlocked:         {message: "delegated session reconciliation blocked", retryable: true, details: keys("session_id", "provider_id", "current_epoch", "reason")},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
 	MediaPathNotFound:                 {message: "media path not found"},
 	MediaPathUnsafe:                   {message: "media path is unsafe"},
