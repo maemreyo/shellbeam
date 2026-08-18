@@ -430,7 +430,9 @@ git -c core.hooksPath=.githooks commit -m "feat: persist delegated session autho
 
 ```go
 type Provider interface {
-    Create(context.Context, CreateRequest) (CreateResult, error)
+    Identity() ProviderIdentity
+    ProviderRefForSession(sessionID string, createdAt time.Time) (ProviderRef, error) // pure: no probe/I/O
+    Create(context.Context, CreateRequest) (CreateResult, error) // request carries the pre-reserved ProviderRef
     Reattach(context.Context, ProviderRef) (Observation, error)
     Write(context.Context, ProviderRef, []byte) error
     Signal(context.Context, ProviderRef, string) error
@@ -527,8 +529,9 @@ Exact order:
 ```text
 validate negotiated mode
 freeze operation/session reservation schema 5
-reserve delegated binding epoch=1 desired_owner=agent
-create provider session
+derive deterministic provider ref from the frozen session identity (pure; no provider I/O)
+reserve delegated binding epoch=1 desired_owner=agent plus that provider ref
+create provider session using the exact pre-reserved provider ref
 prove provider current/agent authority
 mark canonical session running
 publish start view epoch=1
