@@ -507,6 +507,8 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 - Create: `internal/app/daemon/delegated_start_test.go`
 - Create: `internal/app/daemon/delegated_control.go`
 - Create: `internal/app/daemon/delegated_control_test.go`
+
+Canonical delegated output uses the existing daemon `Store.AppendOutput` port through a daemon-local sink so successful provider bytes and live-session notification/accounting are one operation. Do not add an adapter/store sink that the app layer cannot import and production would not use.
 - Modify: `internal/app/daemon/admission.go`
 - Modify: `internal/app/daemon/bindings.go`
 - Modify: `internal/app/daemon/project_command.go`
@@ -516,8 +518,6 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 - Modify: `internal/app/daemon/types.go`
 - Modify: `internal/adapter/store/typed_intent.go`
 - Modify: `internal/adapter/store/typed_intent_test.go`
-- Create: `internal/adapter/store/delegated_output.go`
-- Create: `internal/adapter/store/delegated_output_test.go`
 - Create: `internal/core/receipt/capture_quality.go`
 - Create: `internal/core/receipt/capture_quality_test.go`
 - Modify: `internal/core/receipt/receipt.go`
