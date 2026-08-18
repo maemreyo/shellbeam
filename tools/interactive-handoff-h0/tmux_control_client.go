@@ -407,6 +407,34 @@ func (f *nativeFixture) paneForSession(ctx context.Context, session string) (str
 	return ids[0], nil
 }
 
+func (f *nativeFixture) paneSize(ctx context.Context, paneID string) (int, int, error) {
+	out, err := f.tmux(ctx, "display-message", "-p", "-t", paneID, "#{pane_width}|#{pane_height}")
+	if err != nil {
+		return 0, 0, err
+	}
+	parts := strings.Split(strings.TrimSpace(string(out)), "|")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("unexpected pane size %q", out)
+	}
+	width, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	height, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, err
+	}
+	return width, height, nil
+}
+
+func (f *nativeFixture) resizeWindowManual(ctx context.Context, session string, width, height int) error {
+	if width <= 0 || height <= 0 {
+		return errors.New("window size must be positive")
+	}
+	_, err := f.tmux(ctx, "resize-window", "-t", session, "-x", strconv.Itoa(width), "-y", strconv.Itoa(height))
+	return err
+}
+
 func (f *nativeFixture) respawnPane(ctx context.Context, paneID, command string) error {
 	_, err := f.tmux(ctx, "respawn-pane", "-k", "-t", paneID, command)
 	return err

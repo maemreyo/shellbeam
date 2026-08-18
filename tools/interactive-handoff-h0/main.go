@@ -17,16 +17,19 @@ import (
 )
 
 var nativeProbeRegistry = map[string]nativeProbeFunc{
-	"P0": probeP0PrivateServerIdentity,
-	"P1": probeP1ExactHumanClientIdentity,
-	"P2": probeP2ExactClientFlagIsolation,
-	"P3": probeP3SameClientIngressFence,
-	"P4": probeP4PrivacyScope,
-	"P5": probeP5PrivateFromFirstByte,
-	"P6": probeP6ReconnectNoReplay,
-	"P7": probeP7EnvironmentPreservation,
-	"P8": probeP8WritableHumanControl,
-	"P9": probeP9ReadOnlyLocalControl,
+	"P0":  probeP0PrivateServerIdentity,
+	"P1":  probeP1ExactHumanClientIdentity,
+	"P2":  probeP2ExactClientFlagIsolation,
+	"P3":  probeP3SameClientIngressFence,
+	"P4":  probeP4PrivacyScope,
+	"P5":  probeP5PrivateFromFirstByte,
+	"P6":  probeP6ReconnectNoReplay,
+	"P7":  probeP7EnvironmentPreservation,
+	"P8":  probeP8WritableHumanControl,
+	"P9":  probeP9ReadOnlyLocalControl,
+	"P10": probeP10ResizeIsolation,
+	"P11": probeP11CrashReconnectIdentity,
+	"P12": probeP12ACKOrderingAndBackpressure,
 }
 
 type identity struct {

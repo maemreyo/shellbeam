@@ -37,6 +37,8 @@ type clientFacts struct {
 	PID      int
 	ReadOnly bool
 	Flags    string
+	Width    int
+	Height   int
 }
 
 type humanClient struct {
@@ -229,6 +231,13 @@ func (h *humanClient) writeBytes(data []byte) error {
 
 func (h *humanClient) writeString(s string) error { return h.writeBytes([]byte(s)) }
 
+func (h *humanClient) setSize(rows, cols uint16) error {
+	if rows == 0 || cols == 0 {
+		return errors.New("human PTY size must be non-zero")
+	}
+	return pty.Setsize(h.pty, &pty.Winsize{Rows: rows, Cols: cols})
+}
+
 func (h *humanClient) outputString() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -287,7 +296,7 @@ func (h *humanClient) close() error {
 }
 
 func (f *nativeFixture) clients(ctx context.Context) ([]clientFacts, error) {
-	out, err := f.tmux(ctx, "list-clients", "-F", "#{client_name}|#{client_tty}|#{client_pid}|#{client_readonly}|#{client_flags}")
+	out, err := f.tmux(ctx, "list-clients", "-F", "#{client_name}|#{client_tty}|#{client_pid}|#{client_readonly}|#{client_flags}|#{client_width}|#{client_height}")
 	if err != nil {
 		return nil, err
 	}
@@ -298,23 +307,54 @@ func (f *nativeFixture) clients(ctx context.Context) ([]clientFacts, error) {
 	lines := strings.Split(text, "\n")
 	facts := make([]clientFacts, 0, len(lines))
 	for _, line := range lines {
-		parts := strings.SplitN(line, "|", 5)
-		if len(parts) != 5 {
-			return nil, fmt.Errorf("invalid client facts %q", line)
+		fact, err := parseClientFactsLine(line)
+		if err != nil {
+			return nil, err
 		}
-		pid, err := strconv.Atoi(parts[2])
-		if err != nil || pid <= 0 {
-			return nil, fmt.Errorf("invalid client pid %q", parts[2])
-		}
-		facts = append(facts, clientFacts{
-			Name:     parts[0],
-			TTY:      parts[1],
-			PID:      pid,
-			ReadOnly: parts[3] == "1",
-			Flags:    parts[4],
-		})
+		facts = append(facts, fact)
 	}
 	return facts, nil
+}
+
+func parseClientFactsLine(line string) (clientFacts, error) {
+	parts := strings.SplitN(line, "|", 7)
+	if len(parts) != 7 {
+		return clientFacts{}, fmt.Errorf("invalid client facts %q", line)
+	}
+	pid, err := strconv.Atoi(parts[2])
+	if err != nil || pid <= 0 {
+		return clientFacts{}, fmt.Errorf("invalid client pid %q", parts[2])
+	}
+	controlMode := hasClientFlag(parts[4], "control-mode")
+	width, err := parseClientDimension(parts[5], "width", controlMode)
+	if err != nil {
+		return clientFacts{}, err
+	}
+	height, err := parseClientDimension(parts[6], "height", controlMode)
+	if err != nil {
+		return clientFacts{}, err
+	}
+	return clientFacts{Name: parts[0], TTY: parts[1], PID: pid, ReadOnly: parts[3] == "1", Flags: parts[4], Width: width, Height: height}, nil
+}
+
+func parseClientDimension(raw, name string, allowUnavailable bool) (int, error) {
+	if raw == "" && allowUnavailable {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("invalid client %s %q", name, raw)
+	}
+	return value, nil
+}
+
+func hasClientFlag(flags, want string) bool {
+	for _, flag := range strings.Split(flags, ",") {
+		if flag == want {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *nativeFixture) waitClientByPID(ctx context.Context, pid int) (clientFacts, error) {
