@@ -107,3 +107,23 @@ devctl test --dirty --base origin/main --json: PASS (selection=affected)
 ```
 
 The full package run included the long real store/cmd suites (`internal/adapter/store` 358.845s; `cmd/shellbeam` 399.182s), and the dirty-affected run completed `cmd/shellbeam` in 420.437s. These are observed local timings, not performance targets.
+
+### Stage-A checkpoint handoff before closure checkbox
+
+The first full checkpoint was run after the acceptance/progress commits and before the final Step-6 bookkeeping commit:
+
+```text
+operation_id: p1-stage-a-checkpoint-handoff-1-20260819
+session_id: 01M0BKBWNCQ3WVMC2WQCN6G0FH
+HEAD: 92c9084
+base: origin/main
+selection: full
+status: passed
+exit_code: 0
+source_fingerprint: 38817156a132c2f7fc6d451b6afcbec9643c39ac721a834899a3a09280102a20
+started_at: 2026-08-18T23:30:07.250005Z
+finished_at: 2026-08-18T23:35:30.265437Z
+traceability: PASS core=24/24 roadmap=4/4 review=11/11 deferred=7/7
+```
+
+Stage-A limitations remain explicit: it projects affected surface, policy authority, obligations, and policy gaps but does not execute verification providers, evaluate evidence sufficiency, or claim `gate_status=clear`; those belong to Stage B. Manifest-v1 and shell-form project commands remain advisory-only for P1 typed binding, and bounded/partial Go relation coverage can widen but never narrow a mandatory obligation.

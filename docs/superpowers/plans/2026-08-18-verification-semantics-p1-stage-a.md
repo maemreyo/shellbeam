@@ -1463,7 +1463,7 @@ git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "test: verify p1 verification obligations"
 ```
 
-- [ ] **Step 6: Checkpoint handoff**
+- [x] **Step 6: Checkpoint handoff**
 
 ```bash
 go run ./tools/devctl verify --checkpoint --base "${SHELLBEAM_BASE_REF:-origin/main}" --json
