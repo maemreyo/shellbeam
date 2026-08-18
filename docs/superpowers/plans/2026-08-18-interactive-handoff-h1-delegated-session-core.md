@@ -318,6 +318,10 @@ git -c core.hooksPath=.githooks commit -m "feat: persist delegated session inten
 ### Task 4: Add canonical delegated binding and generation-bound mutation ledger
 
 **Files:**
+- Modify: `internal/core/delegatedsession/types.go`
+- Modify: `internal/core/delegatedsession/types_test.go`
+- Modify: `internal/core/delegatedsession/mutation.go`
+- Modify: `internal/core/delegatedsession/mutation_test.go`
 - Create: `internal/adapter/store/delegated_session_paths.go`
 - Create: `internal/adapter/store/delegated_sessions.go`
 - Create: `internal/adapter/store/delegated_sessions_test.go`
