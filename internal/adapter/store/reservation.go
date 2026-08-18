@@ -11,6 +11,7 @@ import (
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	delegatedsession "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
@@ -169,7 +170,7 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 		}
 	}
-	if existing.Persistent != want.Persistent || existing.SessionName != want.SessionName {
+	if existing.Persistent != want.Persistent || existing.SessionMode != want.SessionMode || existing.AuthorityEpoch != want.AuthorityEpoch || existing.SessionName != want.SessionName {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
 	return existing, false, r.ensureSessionMetadata(existing)
@@ -196,6 +197,26 @@ func validateReservation(v operation.Reservation) error {
 			return fmt.Errorf("invalid reservation resource limits: %w", err)
 		}
 	}
+	if v.SchemaVersion != 5 && (v.SessionMode != "" || v.AuthorityEpoch != 0) {
+		return fmt.Errorf("invalid reservation")
+	}
+	if err := validateReservationSchema(v); err != nil {
+		return err
+	}
+	if v.EnvironmentBinding != nil {
+		if err := v.EnvironmentBinding.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation environment binding: %w", err)
+		}
+	}
+	if v.Trace != nil {
+		if err := v.Trace.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation input trace binding: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateReservationSchema(v operation.Reservation) error {
 	switch v.SchemaVersion {
 	case 1:
 		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil {
@@ -247,18 +268,12 @@ func validateReservation(v operation.Reservation) error {
 		if err := validatePersistentReservation(v); err != nil {
 			return err
 		}
+	case 5:
+		if err := validateDelegatedReservation(v); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("invalid reservation")
-	}
-	if v.EnvironmentBinding != nil {
-		if err := v.EnvironmentBinding.Validate(); err != nil {
-			return fmt.Errorf("invalid reservation environment binding: %w", err)
-		}
-	}
-	if v.Trace != nil {
-		if err := v.Trace.Validate(); err != nil {
-			return fmt.Errorf("invalid reservation input trace binding: %w", err)
-		}
 	}
 	return nil
 }
@@ -296,6 +311,53 @@ func ensurePrivateDir(path string) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0700 || !ownedByCurrent(info) {
 		return fmt.Errorf("unsafe session directory")
+	}
+	return nil
+}
+
+func validateDelegatedReservation(v operation.Reservation) error {
+	if v.SessionMode != delegatedsession.ModeDelegatedInteractive || v.AuthorityEpoch != 1 || v.Persistent || v.TTY {
+		return fmt.Errorf("invalid delegated reservation")
+	}
+	if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" || v.Evidence != nil {
+		return fmt.Errorf("invalid delegated reservation")
+	}
+	if v.SessionName != "" {
+		if err := persistentsession.ValidateSessionName(v.SessionName); err != nil {
+			return fmt.Errorf("invalid delegated reservation: %w", err)
+		}
+	}
+	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
+		return fmt.Errorf("invalid delegated reservation")
+	}
+	if v.ProjectCommand != nil {
+		if v.Intent != nil || v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || len(v.Argv) == 0 || v.Argv[0] == "" {
+			return fmt.Errorf("invalid delegated typed reservation")
+		}
+		if err := v.ProjectCommand.Validate(); err != nil {
+			return fmt.Errorf("invalid delegated typed reservation: %w", err)
+		}
+		if !slices.Equal(v.Argv, v.ProjectCommand.ResolvedArgv) || v.CWD != v.ProjectCommand.ResolvedCWD || v.LogicalCWD != v.ProjectCommand.LogicalCWD || v.WorkspaceID == "" {
+			return fmt.Errorf("invalid delegated typed reservation")
+		}
+		return nil
+	}
+	if v.Intent != nil {
+		if err := v.Intent.Validate(); err != nil {
+			return fmt.Errorf("invalid delegated reservation: %w", err)
+		}
+	}
+	switch v.ExecutionMode {
+	case operation.ExecutionModeShell:
+		if v.Command == "" || len(v.Argv) != 0 || v.Shell == "" || v.Executable == "" {
+			return fmt.Errorf("invalid delegated reservation")
+		}
+	case operation.ExecutionModeArgv:
+		if len(v.Argv) == 0 || v.Argv[0] == "" || v.Command != "" || v.Shell != "" || v.Executable == "" {
+			return fmt.Errorf("invalid delegated reservation")
+		}
+	default:
+		return fmt.Errorf("invalid delegated reservation")
 	}
 	return nil
 }

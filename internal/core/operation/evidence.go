@@ -1,11 +1,17 @@
 package operation
 
-import "github.com/maemreyo/shellbeam/internal/core/project"
+import (
+	delegatedsession "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	"github.com/maemreyo/shellbeam/internal/core/project"
+)
 
 // EvidenceEligible reports whether a persisted reservation contains enough frozen
 // verification metadata for terminal evidence derivation. It is intentionally
 // structural: callers must validate the reservation separately.
 func (r Reservation) EvidenceEligible() bool {
+	if r.SchemaVersion == 5 || r.SessionMode == delegatedsession.ModeDelegatedInteractive {
+		return false
+	}
 	if r.Evidence != nil {
 		return true
 	}

@@ -86,3 +86,14 @@ func TestProviderIdentityAndBindingValidation(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateModeIsClosed(t *testing.T) {
+	if err := ValidateMode(ModeDelegatedInteractive); err != nil {
+		t.Fatalf("delegated mode rejected: %v", err)
+	}
+	for _, mode := range []string{"", "interactive", "persistent", "DELEGATED_INTERACTIVE"} {
+		if err := ValidateMode(mode); err == nil {
+			t.Fatalf("unknown/empty mode %q accepted", mode)
+		}
+	}
+}

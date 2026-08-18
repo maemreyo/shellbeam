@@ -7,6 +7,13 @@ const (
 	MaxProviderIDBytes       = 128
 )
 
+func ValidateMode(mode string) error {
+	if mode != ModeDelegatedInteractive {
+		return fmt.Errorf("invalid delegated session mode")
+	}
+	return nil
+}
+
 type ProviderIdentity struct {
 	ID      string `json:"id"`
 	Version int    `json:"version"`
