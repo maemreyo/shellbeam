@@ -539,15 +539,23 @@ type LocationTarget struct {
 }
 ```
 
-Canonical fingerprint input is versioned and binds only:
+Canonical fingerprint input and encoding are closed for P4-A V1:
 
-```text
-schema/version tag
-repository_id
-workspace_id
-query logical path + exact retained query bytes
-target logical path + exact retained target bytes
+```go
+type exactSourcePairFingerprintInput struct {
+    SchemaVersion int                    `json:"schema_version"` // exactly 1
+    RepositoryID  workspace.RepositoryID `json:"repository_id"`
+    WorkspaceID   workspace.WorkspaceID  `json:"workspace_id"`
+    QueryPath     string                 `json:"query_path"`
+    QueryBytes    []byte                 `json:"query_bytes"`
+    TargetPath    string                 `json:"target_path"`
+    TargetBytes   []byte                 `json:"target_bytes"`
+}
+
+func exactSourcePairFingerprint(exactSourcePairFingerprintInput) (string, error)
 ```
+
+The helper validates repository/workspace IDs and both already-normalized safe repository-relative logical paths, then calls `encoding/json.Marshal` on **that exact closed struct** (no maps, no `omitempty`, no extra fields). Go JSON's deterministic `[]byte` base64 representation is therefore part of schema version 1. Hash the resulting JSON bytes with SHA-256 and return `csp_` + 64 lowercase hex characters. Any field-set/order/encoding change requires a reviewed schema-version bump; executors may not substitute a different canonicalization.
 
 It deliberately excludes `QuerySourceRefID`, target `SourceRefID`, timestamps, provider incarnation and fast workspace generation. Two independently allocated SourceRefs over identical exact bytes therefore produce the same pair fingerprint; a byte change in either endpoint changes it. The fingerprint is **not** a public per-file content hash, cannot resolve source bytes, and must never be described as `source_content_digest` or `ExactSourceSnapshot`. It exists only as stable provenance for one semantic source-pair derivation, preserving the E29 rule against inventing deterministic per-file hashes merely to identify locations.
 
@@ -596,26 +604,60 @@ or other comparison/observation failure
 Do not duplicate existing selected-source work. Build `selectedIDs` first; returned target IDs already present in `selectedIDs` continue to use the existing selected-source recheck. Only exact returned IDs outside that set enter the cross-file/local target recheck. Freeze the dataflow explicitly:
 
 ```go
-type TargetCorrelation map[core.SourceRefID]core.SourceCorrelation
+type SourceCorrelations map[core.SourceRefID]core.SourceCorrelation
+
+type TargetCorrelation = SourceCorrelations
+
+func (s *Service) recheckSelected(
+    ctx context.Context,
+    workspace workspace.Workspace,
+    selected []BoundSource,
+) (SourceCorrelations, bool /* anyNonCurrent */)
 
 func (s *Service) recheckReturnedTargets(
     ctx context.Context,
     workspace workspace.Workspace,
     response ProviderResponse,
     selectedIDs map[core.SourceRefID]struct{},
-) (TargetCorrelation, bool /* boundedOrUnknown */)
+) (SourceCorrelations, bool /* boundedOrUnknown */)
 
 func correlationForLocation(
     location core.SourceLocation,
     selectedIDs map[core.SourceRefID]struct{},
-    selectedChanged map[core.SourceRefID]bool,
-    returnedTargets TargetCorrelation,
+    selectedCorrelations SourceCorrelations,
+    returnedTargets SourceCorrelations,
 ) core.SourceCorrelation
 ```
 
-`correlationForLocation` first preserves positive `selectedChanged`, then selected-current semantics, then consults `returnedTargets` for non-selected exact results; absent entries remain `CorrelationUnknown`. `normalizeRecords` receives the frozen `returnedTargets` map and never binds files itself.
+Both selected and returned-target rechecks preserve the full closed comparison state:
 
-If target collection/recheck hits the existing result bound, query deadline, or cannot finish a candidate, affected candidates become `CorrelationUnknown` and the code result degrades to `partial`; it never upgrades unknown to current. Selected-source recheck remains in place for the original query source and selected scopes, but it is also migrated to `CompareCurrent`; no freshness recheck path is allowed to call `Bind` merely to compare bytes.
+```text
+CompareCurrent == SourceSame
+  -> CorrelationCurrent
+
+CompareCurrent == SourceChanged
+  -> CorrelationChangedDuringQuery
+
+CompareCurrent == SourceUnavailable
+or comparison cannot complete
+  -> CorrelationUnknown
+  -> result degrades to partial
+```
+
+A selected SourceRef is **never** considered current merely because it is present in `selectedIDs`; `selectedIDs` is membership/deduplication only. `correlationForLocation` first returns the exact `selectedCorrelations` value for selected refs, then consults `returnedTargets` for non-selected exact results; absent entries remain `CorrelationUnknown`. `normalizeRecords` receives both frozen correlation maps and never binds files itself.
+
+The service caller must stop using the old `len(changedRefs) != 0` rule. The replacement is literal:
+
+```go
+selectedCorrelations, selectedNonCurrent := s.recheckSelected(queryCtx, workspace, selected)
+if barriersDiffer(before, after) || selectedNonCurrent {
+    degradeSelectionForBarrier(&selection)
+}
+```
+
+`selectedNonCurrent` is false only when every selected source was rechecked `CorrelationCurrent`; it is true for any `CorrelationChangedDuringQuery`, `CorrelationUnknown`, incomplete/bounded recheck, or comparison error. Presence of current entries in the map alone never degrades the result.
+
+If either selected or target collection/recheck hits the existing result bound, query deadline, or cannot finish a candidate, affected candidates become `CorrelationUnknown` and the code result degrades to `partial`; it never upgrades unknown to current. No freshness recheck path is allowed to call `Bind` merely to compare bytes. Exact source-pair fingerprints may be populated only when **both** query/selected and target correlations are `CorrelationCurrent`; selected `unknown|changed` therefore prevents a fingerprint and prevents P4-A2 relation projection.
 
 - [ ] **Step 1: Write failing core/source-cut and one-way generation tests**
 
@@ -646,8 +688,12 @@ TestInspectCodeCrossFileTargetByteChangeMarksSourceChangedDuringQueryEvenWhenFas
 TestInspectCodeCrossFileTargetRecheckFailureRemainsUnknownAndPartial
 TestInspectCodeCrossFileTargetRecheckIsBoundedByResultLimit
 TestInspectCodeCrossFileRecheckDoesNotIncreaseProviderQueryCount
+TestInspectCodeSelectedCompareCurrentSameIsCurrentAndDoesNotDegradeSelection
+TestInspectCodeSelectedCompareCurrentChangedIsSourceChangedDuringQueryAndDegradesSelection
+TestInspectCodeSelectedCompareCurrentUnavailableIsUnknownPartialAndProducesNoSourcePairFingerprint
 TestInspectCodeSelectedRecheckDoesNotRetainDuplicateSourceRefs
 TestInspectCodeCrossFileRecheckDoesNotRetainDuplicateSourceRefs
+TestSourcePairFingerprintUsesExactClosedV1CanonicalJSON
 TestSourcePairFingerprintStableAcrossOpaqueSourceRefReallocation
 TestSourcePairFingerprintChangesWhenEitherExactEndpointBytesChange
 TestInspectCodeOldSourceRefStillResolvesRetainedBytesAfterWorkspaceChanges
@@ -660,10 +706,10 @@ Use a two-file fake provider fixture (`target.go`, `caller.go`). The provider re
 - [ ] **Step 3: Run RED**
 
 ```bash
-go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./cmd/shellbeam -run 'SourceCut|FastGeneration|QuerySourceRef|CrossFile|InspectCode.*Generation|DisplaySourceLocation' -count=1
+go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./cmd/shellbeam -run 'SourceCut|FastGeneration|QuerySourceRef|SourcePair|CompareCurrent|CrossFile|SelectedRecheck|SelectedCompareCurrent|InspectCode.*Generation|DisplaySourceLocation' -count=1
 ```
 
-Expected: new SourceCut/query-source/cross-file correlation contracts are missing.
+Expected: new SourceCut/query-source/non-retaining tri-state correlation/source-pair contracts are missing.
 
 - [ ] **Step 4: Implement source cut, query-source identity and bounded target recheck**
 
@@ -823,30 +869,52 @@ to   = path:<target resolved.display.path>
 
 No `source_ref` subject is used as the affected target and no `symbol` subject is invented.
 
-Exact byte/provenance binding is separate from path selection and from opaque SourceRef allocation identity. P1 `RelationID` hashes `ProvenanceRefs`, so P4-A MUST NOT place `src_<ULID>` values in those refs. Use only stable derivation provenance:
+Exact byte/provenance binding is separate from path selection and from opaque SourceRef allocation identity. P1 `RelationID` hashes `ProvenanceRefs`, so P4-A MUST NOT place `src_<ULID>` values in those refs. P4-A V1 freezes the provider derivation identity as well:
+
+```go
+type semanticProviderDerivationIdentity struct {
+    SchemaVersion        int    `json:"schema_version"` // exactly 1
+    ProviderID           string `json:"provider_id"`
+    ExecutableVersion    string `json:"executable_version"`
+    ConfigFingerprint    string `json:"config_fingerprint"`
+    BuildFingerprint     string `json:"build_fingerprint"`
+    BuildQuality         string `json:"build_quality"`
+    SemanticScopeQuality string `json:"semantic_scope_quality"`
+}
+
+func semanticProviderDerivationFingerprint(codeintel.ProviderMetadata) (string, error)
+```
+
+The helper copies **exactly** those six ProviderMetadata fields plus schema version, validates them with the existing metadata contract, marshals that exact closed struct with `encoding/json.Marshal` (no maps/`omitempty`), hashes the JSON with SHA-256, and returns `cpd_` + 64 lowercase hex characters. `SemanticScopeQuality` is included because current gopls uses it to declare semantic scope compatibility (`workspace_root`). `Incarnation` is excluded because it is runtime allocation identity. `Coverage` is excluded because coverage is already an independent P1 `RelationID` dimension. Timestamps/runtime IDs/query counters are excluded. There are no executor-selected "admissible" provider fields in V1.
+
+Relation provenance is therefore exactly:
 
 ```text
 codeintel_exact_source_pair:<record.location_target.exact_source_pair_fingerprint>
-codeintel_provider:<sha256(canonical stable provider derivation metadata)>
-codeintel_query:<sha256(canonical Query)>
+codeintel_provider:<semanticProviderDerivationFingerprint(result.Provider)>
+codeintel_query:<sha256(JSON-marshal of the validated closed Query struct)>
 ```
 
-The opaque exact handles remain available separately for deep inspection through `result.QuerySourceRefID` and `record.target.resolved.source_ref_id`; they are **not** inputs to `RelationID`. Provider provenance used for the relation must exclude ephemeral allocation/session fields that do not change semantic derivation; provider ID/version and any semantic config/build identity remain admissible when present.
+The opaque exact handles remain available separately for deep inspection through `result.QuerySourceRefID` and `record.target.resolved.source_ref_id`; they are **not** inputs to `RelationID`. The enclosing `inspect.code` result also preserves literal `ProviderMetadata.Incarnation` for runtime/deep inspection, but incarnation is not semantic relation identity.
 
-Consequences are frozen:
+Relation-ID stability is scoped to the contract P1 actually froze. **Holding every other P1 `RelationID` input constant, including `SourceGeneration`, authority, coverage, basis, provider ref, endpoints and kind**:
 
 ```text
 same repository/workspace + same query/target paths + same exact endpoint bytes
 + same semantic query/provider derivation
-  -> same source-pair provenance
-  -> stable RelationID even when SourceRef ULIDs are newly allocated
++ newly allocated opaque SourceRef ULIDs only
+  -> same source-pair/provider/query provenance
+  -> stable RelationID
 
 changed exact bytes at either endpoint
   -> changed source-pair provenance
   -> changed RelationID
+
+changed SourceGeneration with endpoint bytes otherwise unchanged
+  -> RelationID changes because SourceGeneration is itself a P1 identity dimension
 ```
 
-This intentionally chooses stable semantic identity rather than observation-scoped relation identity. `SourceGeneration` still records the fast-workspace correlation cut and MUST NOT be interpreted as content equality. The pair fingerprint is relation-scoped provenance, not a substitute for `ExactSourceSnapshot.source_content_digest`.
+P4-A guarantees stability against **opaque SourceRef allocation churn**, not across workspace-generation cuts. `SourceGeneration` remains the fast-workspace correlation cut and MUST NOT be interpreted as content equality. The pair fingerprint is relation-scoped provenance, not a substitute for `ExactSourceSnapshot.source_content_digest`.
 
 Provider identity remains:
 
@@ -882,9 +950,12 @@ TestCodeIntelTypeDefinitionIsNavigationOnlyNotAffected
 TestCodeIntelUnsupportedImportKindsHaveNoAffectedMapping
 TestCodeIntelProviderReportedOrAdvisoryTargetIsNotAffected
 TestCodeIntelChangedOrUnknownTargetIsNotAffected
+TestCodeIntelSelectedUnknownProducesNoSemanticRelation
 TestCodeIntelAffectedRelationProvenanceUsesStableExactSourcePairNotOpaqueSourceRefIDs
-TestCodeIntelAffectedRelationIDStableAcrossOpaqueSourceRefReallocationWhenExactBytesUnchanged
+TestCodeIntelProviderDerivationIdentityUsesExactClosedFieldSetAndExcludesIncarnationCoverage
+TestCodeIntelAffectedRelationIDStableAcrossOpaqueSourceRefReallocationWhenExactBytesAndGenerationUnchanged
 TestCodeIntelAffectedRelationIDChangesWhenEitherExactEndpointBytesChangeEvenIfFastGenerationEqual
+TestCodeIntelAffectedRelationIDChangesAcrossSourceGenerationEvenWhenExactEndpointsUnchanged
 TestCodeIntelSemanticDependentsNeverClaimsCompleteCoverage
 TestCodeIntelProjectionEmitsNonCompleteDomainWithZeroRelations
 TestCodeIntelProjectorHasNoProviderPoolBinderOrQueryDependency
@@ -902,7 +973,7 @@ Expected: new domain/basis/projector mappings are missing.
 
 - [ ] **Step 3: Implement deterministic reverse-dependent projector**
 
-Construct the P1 path subjects from the already-validated query path and exact target display path. Build sorted/deduplicated provenance refs including both SourceRef IDs before calling P1 identity helpers:
+Construct the P1 path subjects from the already-validated query path and exact target display path. Build sorted/deduplicated provenance refs **only** from the closed source-pair/provider/query derivation fingerprints defined above; never include `QuerySourceRefID`, target `SourceRefID`, provider incarnation or runtime identity in `ProvenanceRefs`. Then call the P1 identity helper:
 
 ```go
 relationID, err := verification.RelationID(verification.RelationIdentityInput{

@@ -126,18 +126,22 @@ import declaration
 
 Only the reverse/dependent facts may enter P1 `AffectedSurface` V1. Forward dependency/navigation facts remain available through `inspect.code` but SHALL NOT widen path-based verification obligations. A future affected mapping for imports or other navigation requires a separately reviewed producer/direction contract.
 
-The bridge SHALL preserve:
+The bridge SHALL preserve the relevant facts without collapsing runtime identity into semantic identity:
 
 ```text
 basis
-provider identity/version/incarnation
+stable provider derivation identity/version/config/build/scope
+  - excludes provider incarnation from P1 RelationID provenance
+exact provider incarnation remains preserved on the enclosing inspect.code Result.Provider
+  - runtime/deep-inspection fact only
+source-pair exact derivation provenance
+  - stable against opaque SourceRef allocation churn
 derivation authority
 coverage/completeness
 source generation
-provenance refs
 ```
 
-It SHALL NOT claim universal dependency completeness. Existing gopls call-hierarchy results that are mechanically derived but non-exhaustive remain non-exhaustive after translation.
+P4-A relation identity SHALL follow the frozen P1 identity dimensions: source generation remains an independent `RelationID` input, so stability against SourceRef-allocation churn does not imply stability across generation cuts. It SHALL NOT claim universal dependency completeness. Existing gopls call-hierarchy results that are mechanically derived but non-exhaustive remain non-exhaustive after translation.
 
 P4-A does not replace the narrow P1 relation provider. It adds an independently versioned semantic relation provider that P1/P2 may consume when available; unavailable/partial semantic analysis widens uncertainty instead of deleting mandatory obligations.
 
@@ -617,7 +621,7 @@ The amendment is ready for implementation planning only if reviewers agree that:
 2. P4-A is read-only and does not contain mutation-capable LSP actions;
 3. P4-A V1 is Go/gopls only unless measured need justifies another provider;
 4. exact SourceRef identity remains underneath path/line/symbol presentation;
-5. semantic affected relations preserve authority/coverage/generation/provenance and never claim universal completeness;
+5. semantic affected relations preserve authority/coverage/generation/provenance and never claim universal completeness; opaque SourceRef IDs/provider incarnation remain deep/runtime handles rather than semantic RelationID provenance, and relation stability is promised only with all other P1 identity inputs (including source generation) held constant;
 6. provider-runtime reuse is a small provider-neutral observation/authority fact envelope, not a universal provider scheduler, and P6-A does not depend on/generalize `codeintel.ProviderManager`;
 7. P6-A starts with an exact Delve qualification gate and does not assume installation;
 8. every P6-A action has one closed `DebugActionEffect`; observation is distinct from execution control, breakpoint management, launch/attach, and session lifecycle;
