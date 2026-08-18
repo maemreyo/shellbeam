@@ -86,6 +86,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	}
 	defer inputTraceRuntime.Close(context.Background())
 	catalog = inputTraceRuntime.Catalog
+	processOwner, catalog := composeResourceEnforcement(catalog, nil)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
@@ -97,7 +98,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	evidenceScheduler := &evidenceWorkerProxy{}
 	projectLoader := projectadapter.NewLoader()
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
-	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processadapter.Owner{}, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
+	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
 		DefaultTimeoutMS:     cfg.DefaultTimeoutMS,
 		MaxTimeoutMS:         cfg.MaxTimeoutMS,
