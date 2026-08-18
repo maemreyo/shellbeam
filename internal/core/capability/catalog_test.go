@@ -286,3 +286,54 @@ func TestA25ProcessCapabilityIsExplicitVersionedAndBounded(t *testing.T) {
 		t.Fatal("invalid process bounds advertised")
 	}
 }
+
+func TestResourceEnforcementAdvertisesHardSupportWithoutChangingObservation(t *testing.T) {
+	base := Baseline(Limits{}).WithExecutionTelemetry(16, 4096, 8, 4, 4, 60000, 8)
+	if base.Features[FeatureResourceEnforcement] != Unavailable || base.ResourceEnforcement != nil {
+		t.Fatalf("baseline overclaimed resource enforcement: feature=%q support=%#v", base.Features[FeatureResourceEnforcement], base.ResourceEnforcement)
+	}
+	observation := *base.ResourceObservation
+	support := ResourceEnforcementSupport{
+		Version: 1, Maturity: "experimental", Provider: "linux_cgroup_v2",
+		Scope: "owned_process_tree", Placement: "pre_exec_atomic",
+		MemoryBytes: EnforcementHard, Processes: EnforcementHard,
+		CPUTimeMS: EnforcementUnsupported, PersistentSessions: EnforcementUnsupported,
+	}
+	got := base.WithResourceEnforcement(support)
+	if got.Features[FeatureResourceEnforcement] != Available || got.ResourceEnforcement == nil {
+		t.Fatalf("resource enforcement unavailable: %#v", got)
+	}
+	if *got.ResourceObservation != observation {
+		t.Fatalf("resource observation changed when enabling enforcement: before=%#v after=%#v", observation, got.ResourceObservation)
+	}
+	if *got.ResourceEnforcement != support {
+		t.Fatalf("resource enforcement=%#v want=%#v", got.ResourceEnforcement, support)
+	}
+	clone := got.Clone()
+	if clone.ResourceEnforcement == got.ResourceEnforcement || clone.ResourceEnforcement == nil || *clone.ResourceEnforcement != support {
+		t.Fatalf("resource enforcement clone aliases or changed: source=%p clone=%p value=%#v", got.ResourceEnforcement, clone.ResourceEnforcement, clone.ResourceEnforcement)
+	}
+}
+
+func TestResourceEnforcementRejectsIncompleteOrOverclaimedSupport(t *testing.T) {
+	valid := ResourceEnforcementSupport{
+		Version: 1, Maturity: "experimental", Provider: "linux_cgroup_v2",
+		Scope: "owned_process_tree", Placement: "pre_exec_atomic",
+		MemoryBytes: EnforcementHard, Processes: EnforcementHard,
+		CPUTimeMS: EnforcementUnsupported, PersistentSessions: EnforcementUnsupported,
+	}
+	cases := []ResourceEnforcementSupport{
+		{},
+		func() ResourceEnforcementSupport { x := valid; x.Version = 0; return x }(),
+		func() ResourceEnforcementSupport { x := valid; x.Provider = ""; return x }(),
+		func() ResourceEnforcementSupport { x := valid; x.MemoryBytes = EnforcementUnsupported; return x }(),
+		func() ResourceEnforcementSupport { x := valid; x.CPUTimeMS = EnforcementHard; return x }(),
+		func() ResourceEnforcementSupport { x := valid; x.PersistentSessions = EnforcementHard; return x }(),
+	}
+	for _, support := range cases {
+		got := Baseline(Limits{}).WithResourceEnforcement(support)
+		if got.Features[FeatureResourceEnforcement] != Unavailable || got.ResourceEnforcement != nil {
+			t.Fatalf("invalid support advertised: %#v", support)
+		}
+	}
+}
