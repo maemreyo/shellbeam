@@ -58,6 +58,7 @@ type input struct {
 	StdinMode           operation.StdinMode               `json:"stdin_mode,omitempty"`
 	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
 	TraceMode           trace.Mode                        `json:"trace_mode,omitempty"`
+	ResourceLimits      *operation.ResourceLimits         `json:"limits,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
 	Selector            *outputview.Selector              `json:"selector,omitempty"`
@@ -122,6 +123,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 	if v.Action == "inspect.trace" || hasField(raw, "trace_mode") || hasField(raw, "max_resources") {
 		return fmt.Errorf("input tracing requires modern protocol")
 	}
+	if hasField(raw, "limits") {
+		return fmt.Errorf("resource limits require modern protocol")
+	}
 	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
 		return fmt.Errorf("persistent sessions require modern protocol")
 	}
@@ -134,6 +138,11 @@ func validateForVersion(version int, v input, raw []byte) error {
 }
 
 func validateV2(v input) error {
+	if v.Action == "start" && v.ResourceLimits != nil {
+		if err := v.ResourceLimits.Validate(); err != nil {
+			return err
+		}
+	}
 	switch v.Action {
 	case "read_media":
 		return validateMediaInput(v)
@@ -440,7 +449,7 @@ func validateV2FieldSet(action string, raw []byte) error {
 func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "trace_mode", "max_output_bytes"}
+		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "trace_mode", "limits", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":

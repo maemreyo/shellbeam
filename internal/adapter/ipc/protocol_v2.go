@@ -74,6 +74,7 @@ type RequestV2 struct {
 	StdinMode                operation.StdinMode               `json:"stdin_mode,omitempty"`
 	TimeoutMode              operation.TimeoutMode             `json:"timeout_mode,omitempty"`
 	TraceMode                trace.Mode                        `json:"trace_mode,omitempty"`
+	ResourceLimits           *operation.ResourceLimits         `json:"limits,omitempty"`
 	YieldMS                  int64                             `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes           int                               `json:"max_output_bytes,omitempty"`
 	SessionID                string                            `json:"session_id,omitempty"`
@@ -282,6 +283,11 @@ func validateRequestV2(v RequestV2) error {
 }
 
 func validateStartRequestV2(v RequestV2) error {
+	if v.ResourceLimits != nil {
+		if err := v.ResourceLimits.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "limits"}, err)
+		}
+	}
 	if v.OperationID == "" {
 		return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_start_field"}, fmt.Errorf("missing start field"))
 	}

@@ -49,6 +49,7 @@ type StartRequest struct {
 	StdinMode         operation.StdinMode       `json:"stdin_mode,omitempty"`
 	TimeoutMode       operation.TimeoutMode     `json:"timeout_mode,omitempty"`
 	TraceMode         trace.Mode                `json:"trace_mode,omitempty"`
+	ResourceLimits    *operation.ResourceLimits `json:"limits,omitempty"`
 	Persistent        bool                      `json:"persistent,omitempty"`
 	SessionName       string                    `json:"session_name,omitempty"`
 	YieldMS           int64                     `json:"yield_time_ms"`

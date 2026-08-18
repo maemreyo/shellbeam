@@ -44,11 +44,11 @@ func (l ResourceLimits) Validate() error {
 	return nil
 }
 
-func cloneResourceLimits(limits *ResourceLimits) *ResourceLimits {
-	if limits == nil {
+func (l *ResourceLimits) Clone() *ResourceLimits {
+	if l == nil {
 		return nil
 	}
-	copy := *limits
+	copy := *l
 	return &copy
 }
 

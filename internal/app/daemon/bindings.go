@@ -38,6 +38,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, Intent: cloneDeclaredIntent(req.Intent),
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
 		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, Shell: shell, DaemonIncarnation: s.options.Incarnation,
+		ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	switch req.ProtocolVersion {
 	case 0, 1:

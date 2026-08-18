@@ -118,3 +118,25 @@ func TestLegacyV1RejectsResourceLimits(t *testing.T) {
 		t.Fatal("v1 fingerprint accepted resource limits")
 	}
 }
+
+func TestTypedRequestResourceLimitsChangeIdentityAndValidate(t *testing.T) {
+	base := TypedRequestIntent{WorkspaceID: "ws_01K00000000000000000000000", ProjectCommandID: "test"}
+	legacy, err := base.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	limited := base
+	limited.ResourceLimits = &ResourceLimits{Processes: 8}
+	got, err := limited.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == legacy {
+		t.Fatal("typed resource limits folded into legacy request identity")
+	}
+	invalid := base
+	invalid.ResourceLimits = &ResourceLimits{}
+	if _, err := invalid.Fingerprint(); err == nil {
+		t.Fatal("typed empty resource limits fingerprinted")
+	}
+}

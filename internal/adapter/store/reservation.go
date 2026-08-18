@@ -188,6 +188,14 @@ func validateReservation(v operation.Reservation) error {
 	if v.OperationID == "" || v.SessionID == "" {
 		return fmt.Errorf("invalid reservation")
 	}
+	if v.ResourceLimits != nil {
+		if v.SchemaVersion == 1 || v.SchemaVersion == 4 {
+			return fmt.Errorf("invalid reservation")
+		}
+		if err := v.ResourceLimits.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation resource limits: %w", err)
+		}
+	}
 	switch v.SchemaVersion {
 	case 1:
 		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil {

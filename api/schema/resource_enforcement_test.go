@@ -1,6 +1,9 @@
 package schema
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestResourceEnforcementStartSchemasAreClosedAndBounded(t *testing.T) {
 	validLimits := []map[string]any{
@@ -96,5 +99,31 @@ func TestResourceEnforcementServerSchemasExposeSeparateHardCapability(t *testing
 	bad := map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.server", "server": leaky}
 	if err := resolvedSchema(t, MCPOutputV2).Validate(bad); err == nil {
 		t.Fatal("MCP output accepted undeclared enforcement implementation detail")
+	}
+}
+
+func TestResourceLimitsPersistOnlyOnModernOperationSchemas(t *testing.T) {
+	limits := map[string]any{"memory_bytes": float64(64 << 20), "processes": 8.0}
+	v2 := map[string]any{
+		"schema_version": 2.0, "operation_id": "resource-op", "session_id": "resource-session",
+		"request_fingerprint": "req", "execution_fingerprint": "exec", "command": "true", "cwd": "/tmp", "tty": false,
+		"timeout_ms": 0.0, "shell": "/bin/sh", "daemon_incarnation": "d", "resource_limits": limits,
+	}
+	if err := resolvedSchema(t, OperationV2).Validate(v2); err != nil {
+		t.Fatalf("operation v2 rejected resource limits: %v", err)
+	}
+	v3 := map[string]any{
+		"schema_version": 3.0, "operation_id": "resource-typed", "session_id": "resource-session",
+		"request_fingerprint": "req", "execution_fingerprint": "exec", "execution_mode": "argv", "executable": "/bin/true",
+		"argv": []any{"/bin/true"}, "workspace_id": "ws_01K00000000000000000000000", "logical_cwd": ".", "cwd": "/tmp",
+		"tty": false, "timeout_ms": 0.0, "daemon_incarnation": "d", "control_reservation_bytes": 0.0, "created_at": "2026-08-18T00:00:00Z", "resource_limits": limits,
+		"project_command": map[string]any{
+			"schema_version": 1.0, "manifest_digest": strings.Repeat("a", 64), "manifest_schema_version": 2.0, "command_id": "test",
+			"parameter_fingerprint": strings.Repeat("b", 64), "parameters": []any{}, "resolved_argv": []any{"/bin/true"},
+			"logical_cwd": ".", "resolved_cwd": "/tmp",
+		},
+	}
+	if err := resolvedSchema(t, OperationV3).Validate(v3); err != nil {
+		t.Fatalf("operation v3 rejected resource limits: %v", err)
 	}
 }

@@ -147,6 +147,7 @@
       "minLength": 1
     },
     "input_trace": {"$ref":"#/$defs/input_trace_binding"},
+    "resource_limits": {"type":"object","additionalProperties":false,"minProperties":1,"properties":{"memory_bytes":{"type":"integer","minimum":1},"processes":{"type":"integer","minimum":1},"cpu_time_ms":{"type":"integer","minimum":1}}},
     "structured_adapter": {
       "type": "string",
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$"

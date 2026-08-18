@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -50,7 +51,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode}
+	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone()}
 	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -72,6 +73,35 @@ func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (ope
 	intent.CWD = resolved.LogicalCWD
 	intent.ResolvedCWD = resolved.CWD
 	return intent, nil
+}
+
+func validateResourceLimits(catalog capability.Catalog, req StartRequest) error {
+	if req.ResourceLimits == nil {
+		return nil
+	}
+	if err := req.ResourceLimits.Validate(); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "limits"}, err)
+	}
+	if req.ProtocolVersion != 2 {
+		return failure.New(failure.ResourceLimitUnsupported, map[string]string{"metric": "resource_limits", "reason": "protocol_v2_required"}, nil)
+	}
+	if req.Persistent {
+		return failure.New(failure.ResourceLimitUnsupported, map[string]string{"metric": "resource_limits", "reason": "persistent"}, nil)
+	}
+	support := catalog.ResourceEnforcement
+	if catalog.Features[capability.FeatureResourceEnforcement] != capability.Available || support == nil || !support.ValidV1() {
+		return failure.New(failure.ResourceLimitUnsupported, map[string]string{"metric": "resource_limits", "reason": "provider_unavailable"}, nil)
+	}
+	if req.ResourceLimits.MemoryBytes > 0 && support.MemoryBytes != capability.EnforcementHard {
+		return failure.New(failure.ResourceLimitUnsupported, map[string]string{"metric": "memory_bytes", "reason": "hard_unsupported"}, nil)
+	}
+	if req.ResourceLimits.Processes > 0 && support.Processes != capability.EnforcementHard {
+		return failure.New(failure.ResourceLimitUnsupported, map[string]string{"metric": "processes", "reason": "hard_unsupported"}, nil)
+	}
+	if req.ResourceLimits.CPUTimeMS > 0 && support.CPUTimeMS != capability.EnforcementHard {
+		return failure.New(failure.ResourceLimitUnsupported, map[string]string{"metric": "cpu_time_ms", "reason": "hard_unsupported"}, nil)
+	}
+	return nil
 }
 
 func validateStartMetadata(req StartRequest) error {
@@ -150,7 +180,7 @@ func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest,
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
 	intent.Resolved, intent.TimeoutSource = &resolved, timeoutSourceOf(resolved)
-	spec := bindExecution(s.owner, operation.ExecutionSpec{Mode: mode, Shell: s.options.Shell, Command: req.Command, Argv: append([]string(nil), req.Argv...), CWD: executionCWD, TTY: req.TTY, TimeoutMS: resolved.TimeoutMS, StdinMode: resolved.StdinMode})
+	spec := bindExecution(s.owner, operation.ExecutionSpec{Mode: mode, Shell: s.options.Shell, Command: req.Command, Argv: append([]string(nil), req.Argv...), CWD: executionCWD, TTY: req.TTY, TimeoutMS: resolved.TimeoutMS, StdinMode: resolved.StdinMode, ResourceLimits: req.ResourceLimits.Clone()})
 	reservation, err := s.reservationForStart(req, id, intent, spec)
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
