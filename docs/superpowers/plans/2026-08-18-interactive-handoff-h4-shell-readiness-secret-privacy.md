@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- Current approved execution scope is **Darwin/macOS only**. Linux remains intended but unadvertised and fail-closed until native H0 qualification; no task may infer Linux support from Darwin evidence or cross-builds.
 - HARD PRECONDITION: H2 evidence reports `H4_ALLOWED=true`; H0 privacy gates P4/P5/P6/P14/P15 remain valid for the exact production provider version/topology.
 - Secret human writability is impossible until every model-visible observation path for that delegated session is private from the first possible human byte.
 - Privacy is defined over observation topology, not a presumed pane-local primitive. Making private session A private may neither leak A nor silently suppress public B/C.

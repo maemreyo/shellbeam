@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- Current approved execution scope is **Darwin/macOS only**. Linux remains intended but unadvertised and fail-closed until native H0 qualification; no task may infer Linux support from Darwin evidence or cross-builds.
 - HARD PRECONDITION: H2 evidence reports `H3_ALLOWED=true`.
 - Resolver ranking is: existing session client → currently active supported terminal → most recently activated supported terminal → fresh validated bridge/session affinity → exactly one running supported terminal → qualified fallback → manual attach.
 - Bridge-launch terminal is a freshness-bounded hint, not per-request origin proof and never timeless preference.
@@ -68,7 +69,7 @@ Target at minimum for a broad experimental claim:
 
 ```text
 macOS: Ghostty + one additional terminal if installed/qualifiable
-Linux: at least one promoted terminal on a native Linux lane
+Linux: deferred until native Linux H0 qualification; current Darwin-only execution must not advertise or test Linux terminal launchers as supported
 ```
 
 If the host lacks a target, mark that provider `NOT_RUN`, not PASS. H3 capability can still expose the proven subset; cross-platform stable claim remains blocked until required native evidence exists.

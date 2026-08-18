@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- Current approved execution scope is **Darwin/macOS only**. Linux remains intended but unadvertised and fail-closed until native H0 qualification; no task may infer Linux support from Darwin evidence or cross-builds.
 - H5 context-exec is not required for first experimental handoff, but no stable/high-assurance claim may use interactive transcript as a substitute for receipt-producing child evidence.
 - HARD PRECONDITION for Task 1: H4 evidence reports `H5_DESIGN_ALLOWED=true`. HARD PRECONDITION for Tasks 2+: separately reviewed context-exec evidence spec is approved with no unresolved blocker.
 - Gate authority is intentionally different from H0: H0 `h1_allowed` is machine-derived provider qualification; H5 implementation approval is a **human design approval** bound to an exact spec digest. The implementing agent may verify that approval artifact but must not author/self-set it.

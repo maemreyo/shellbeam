@@ -12,6 +12,7 @@
 
 ## Global Constraints
 
+- Current approved execution scope is **Darwin/macOS only**. Linux remains intended but unadvertised and fail-closed until native H0 qualification; no task may infer Linux support from Darwin evidence or cross-builds.
 - HARD PRECONDITION: tracked H1 evidence reports `H2_ALLOWED=true` and exact H1 HEAD/provider binding.
 - H2 supports `privacy=standard` + `completion.kind=manual_ready`. `privacy=secret` and shell-aware automatic completion remain `feature_unavailable` until H4.
 - `privacy=secret` MUST fail before human attach becomes writable. Standard/manual handoff provides **no secret-output protection**; local UX must say so because a human can still type sensitive text into a public-capture session.

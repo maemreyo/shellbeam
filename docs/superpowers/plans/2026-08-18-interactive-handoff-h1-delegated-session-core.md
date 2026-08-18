@@ -12,7 +12,8 @@
 
 ## Global Constraints
 
-- HARD PRECONDITION: the tracked H0 provider-qualification gate JSON must pass `interactive-handoff-h0 verify-gate`, derive `h1_allowed=true`, and bind required native P3/P4/P5/P6/P14/P15 PASS facts. A Markdown line is not authority. Otherwise stop before Task 1 production edits.
+- Current approved execution scope is **Darwin/macOS only**. Linux remains intended but unadvertised and fail-closed until native H0 qualification; no task may infer Linux support from Darwin evidence or cross-builds.
+- HARD PRECONDITION: the tracked H0 provider-qualification gate JSON must pass `interactive-handoff-h0 verify-gate --require-h1 --platform darwin`, derive Darwin platform eligibility `allowed=true`, and bind Darwin P0-P15 plus P3/P4/P5/P6/P14/P15 PASS facts and qualified Darwin fence/topology. Aggregate cross-platform `h1_allowed` may remain false while Linux is `NOT_RUN`. A Markdown line is not authority. Otherwise stop before Task 1 production edits.
 - `session_mode` absent preserves every legacy `tty`/`persistent` meaning and fingerprint. When `session_mode` is present, `tty` and `persistent` are forbidden.
 - `session_mode="delegated_interactive"` never falls back to direct PTY or B1.0 persistent non-TTY.
 - H1 begins agent-owned and has no public human-handoff action, GUI terminal auto-launch, shell integration, secret private interval, or context-exec authority.
@@ -50,7 +51,7 @@
 - Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h1-provider-binding.md`
 
 **Interfaces:**
-- Consumes: H0 final verdict, exact tmux executable/version/hash, P0–P15 matrix, selected privacy/control topology, wrapper verdict.
+- Consumes: Darwin H0 platform eligibility, exact Darwin tmux executable/version/hash, Darwin P0–P15 matrix, Darwin-qualified privacy/control topology, wrapper verdict; Linux remains unqualified and is not consumed by H1 implementation.
 - Produces: immutable H1 implementation inputs: provider ID/version, minimum qualified tmux version, control adapter choice, exact required H0 properties.
 
 - [ ] **Step 1: Assert H0 allows H1 before any production source edit.**
@@ -60,7 +61,7 @@ Run:
 ```bash
 G=docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json
 test -f "$G"
-go run ./tools/interactive-handoff-h0 verify-gate --gate-json "$G" --require-h1
+go run ./tools/interactive-handoff-h0 verify-gate --gate-json "$G" --require-h1 --platform darwin
 shasum -a 256 "$G"
 ```
 

@@ -22,10 +22,10 @@
 - Attachment/switch/reconnect tests use `-E`/equivalent and prove no delegated session-environment mutation.
 - `IngressFenceProof` proves no **new** old-authority input is admitted after the fence point; H0 must not claim PTY/application quiescence.
 - `P3`, `P4`, `P5`, `P6`, `P14`, and `P15` are genuine gates. If any remains FAIL after the qualified native candidate mechanisms in this plan are exhausted, final H0 verdict is FAIL and H1 is blocked.
-- Native macOS and native Linux evidence are both required for an overall cross-platform H0 PASS. A missing native lane is `NOT_RUN`, never inferred from cross-build. H1 remains blocked unless a later approved scope amendment explicitly narrows platforms.
+- Native macOS and native Linux evidence are both required for an overall cross-platform H0 PASS. A missing native lane is `NOT_RUN`, never inferred from cross-build. Approved scope amendment: H1-H4 may advance experimentally on Darwin when the machine gate independently derives Darwin PASS + all genuine gates + qualified Darwin fence/topology; Linux remains `NOT_RUN`, unadvertised, and fail-closed until native qualification.
 - Current planning-host observation (`/opt/homebrew/bin/tmux`, tmux 3.6a) is not a product path/version assumption. Execution always receives an exact `--tmux /absolute/path` and re-records identity.
 - Raw `.build/interactive-handoff-h0/**` is ignored evidence scratch space. Tracked final evidence consists of a deterministic machine gate `docs/superpowers/evidence/2026-08-18-interactive-handoff-h0-tmux-qualification.json` plus a Markdown rendering of that same gate. Native test cases skip during ordinary repository tests unless `SHELLBEAM_H0_TMUX` is set to an absolute executable; an H0 qualification lane MUST set it and treats a missing tmux as NOT_RUN/FAIL evidence, not a silent skip.
-- `H1_ALLOWED` is machine-derived only. The Markdown line is explanatory and has no authority by itself; H1 must validate the tracked gate JSON with the H0 verifier and bind its SHA-256.
+- Cross-platform `H1_ALLOWED` and per-platform H1 eligibility are machine-derived only. The Markdown rendering has no authority by itself. `verify-gate --require-h1 --platform darwin` is the approved H1-H4 entry gate; Linux must fail the same command while its native lane is `NOT_RUN`.
 - No push, PR, merge, rebase, reset, or stash as part of this plan unless separately requested.
 - Every tracked-code task follows RED -> expected failure -> minimal GREEN -> focused/race verification -> coherent commit. Native qualification failures are recorded rather than “fixed” by weakening assertions.
 
@@ -741,7 +741,7 @@ architecture fork recommendation if FAIL
 H1_ALLOWED = true|false  # rendering of gate JSON only
 ```
 
-The gate JSON is the authority. It binds `gate_kind=provider_qualification`, exact master-spec commit, exact platform-report hashes, provider/version/topology, P0–P15, and genuine-gate IDs. `h1_allowed=true` is accepted only when `verify-gate` recomputes true from required native PASS lanes and every genuine gate PASS.
+The gate JSON is the authority. It binds `gate_kind=provider_qualification`, exact master-spec commit, exact platform-report hashes, provider/version/topology, P0–P15, and genuine-gate IDs. Cross-platform `h1_allowed=true` is accepted only when every required native lane and genuine gate passes. Per-platform eligibility is derived independently from the exact bound platform report; the approved Darwin-only experimental lane may pass `verify-gate --require-h1 --platform darwin` while aggregate `h1_allowed=false` because Linux remains `NOT_RUN`.
 
 - [ ] **Step 4: Run final anti-goal scans.**
 

@@ -4,7 +4,7 @@
 
 **Execution/design base:** `33fe40999910a08410204993b9edb8f7e58698a5` (`main`, 2026-08-18)
 
-**Scope:** persistent interactive/delegated terminal sessions; automatic local terminal resolution and launch; human/agent ownership handoff; secret-safe local interaction; shell-aware readiness; interactive CLI control; macOS/Linux provider capability discovery; no ChatGPT App/UI dependency
+**Scope:** persistent interactive/delegated terminal sessions; automatic local terminal resolution and launch; human/agent ownership handoff; secret-safe local interaction; shell-aware readiness; interactive CLI control; macOS-first experimental implementation with Linux retained as an intended but unadvertised platform until native qualification; no ChatGPT App/UI dependency
 
 **Companion designs:**
 
@@ -2234,6 +2234,41 @@ If P3 (`FenceHumanIngress`) fails under native tmux semantics, H0 must investiga
 
 If a Go Control Mode wrapper such as `gotmuxcc` is considered, record exact module version/SHA, license, maintenance/security review, malformed-protocol behavior, removal/replacement plan, and prove it does not weaken any P0-P15 result. The architecture depends on Control Mode semantics, not the wrapper.
 
+### 56.1 Approved platform-scoped experimental advancement
+
+H0 keeps two distinct qualification levels:
+
+```text
+cross-platform qualification = every required native platform PASS
+platform-scoped qualification = one exact native platform PASS
+```
+
+The cross-platform gate remains authoritative for any cross-platform support claim. A missing Linux lane remains `NOT_RUN`; it is never rewritten to PASS and never inherits Darwin provider facts.
+
+For the currently approved macOS-first experimental scope, H1-H4 may advance on Darwin only when the machine gate derives all of the following from the exact Darwin report:
+
+```text
+platform = darwin
+platform_h1_allowed = true
+P0-P15 = PASS
+P3/P4/P5/P6/P14/P15 = PASS
+input_fence_mechanism = qualified on Darwin
+observation_topology = qualified on Darwin
+control_adapter = qualified on Darwin
+```
+
+A platform-scoped allow is not a manual bypass. It is derived from and bound to the native report exactly like the cross-platform gate. Unqualified platforms MUST fail closed before delegated-session spawn and MUST NOT advertise delegated-interactive capability. Linux remains an intended future platform, but while its H0 report is `NOT_RUN`, the current experimental implementation and capability advertisement are Darwin-only.
+
+The gate must therefore preserve both truths simultaneously:
+
+```text
+H1_ALLOWED (cross-platform aggregate) = false until all required platforms pass
+H1_ALLOWED_DARWIN                  = true when Darwin independently qualifies
+H1_ALLOWED_LINUX                   = false while Linux is NOT_RUN/FAIL
+```
+
+Moving Linux from `NOT_RUN` to an allowed platform requires native Linux H0 evidence and gate regeneration; it does not require reinterpretation of Darwin evidence.
+
 ---
 
 ## 57. Rollout strategy
@@ -2249,7 +2284,7 @@ Implementation is a DAG of separately reviewable slices, not one H0->H5 mega-pla
 
 ### H1 — delegated-session core protocol
 
-Only after H0 PASS for a viable provider mechanism:
+Only after H0 PASS for a viable provider mechanism on the platform being advertised; the approved current experimental implementation platform is Darwin only:
 
 - `session_mode="delegated_interactive"` schema/capability contract;
 - delegated session durable identity/provider binding;
@@ -2390,6 +2425,7 @@ The following are hard invariants for any implementation plan:
 28. Interactive shell transcript is not silently upgraded to ordinary receipt/evidence authority.
 29. Host reboot continuity is not claimed.
 30. Resource Enforcement/Hermetic semantics are not silently extended to delegated sessions.
+31. Platform-scoped experimental advancement never promotes unqualified platform evidence: delegated capability is advertised only on a platform whose machine-derived H0 platform gate is allowed.
 
 ---
 
@@ -2436,7 +2472,7 @@ The feature is not complete merely because an agent can type into tmux.
 
 A stable release claim requires all of the following:
 
-1. H0 P0-P15 has native evidence on the advertised platforms/provider versions, with genuine gates passing;
+1. H0 P0-P15 has native evidence on every advertised platform/provider version, with genuine gates passing; a cross-platform support claim additionally requires every cross-platform required lane PASS;
 2. ordinary direct ShellBeam start path shows no tmux/handoff work when unused;
 3. public schema/IPC/capability negotiation uses explicit `session_mode=delegated_interactive` and rejects unsupported mode before spawn;
 4. start retry cannot duplicate delegated shells;
