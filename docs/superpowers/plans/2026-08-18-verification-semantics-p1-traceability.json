@@ -1,0 +1,570 @@
+{
+  "schema_version": 1,
+  "baseline_plan_commit": "9cc6c99b10382e268a2f72cfcafdbc665ca4efb8",
+  "core_acceptance": [
+    {
+      "id": "core-30-01",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #1",
+      "summary": "affected derivation authority and coverage are independent",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 1: Define the closed P1 verification core contracts",
+      "step": "- [ ] **Step 1: Write failing enum/validation/digest tests**",
+      "test_or_contract": "TestAffectedRelationAuthorityCoverageIndependent"
+    },
+    {
+      "id": "core-30-02",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #2",
+      "summary": "partial/unknown affected information cannot narrow mandatory obligations",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 5: Match policy into obligations and advisory policy gaps",
+      "step": "- [ ] **Step 1: Write failing policy-match tests**",
+      "test_or_contract": "TestUncertainAffectedSurfaceCannotNarrowMandatoryObligation"
+    },
+    {
+      "id": "core-30-03",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #3",
+      "summary": "starter template changes do not alter pinned effective policy",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+      "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+      "test_or_contract": "TestPinnedPolicyUnaffectedByStarterTemplateChange"
+    },
+    {
+      "id": "core-30-04",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #4",
+      "summary": "starter profiles do not invent NFR targets",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 2: Load strict repository policy and generate starter-policy previews",
+      "step": "- [ ] **Step 4: Implement starter preview generation from existing project declarations**",
+      "test_or_contract": "TestStarterProfilesNeverInventNFRTargets"
+    },
+    {
+      "id": "core-30-05",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #5",
+      "summary": "waiver disposition remains independent of literal evidence status",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 5: Match policy into obligations and advisory policy gaps",
+      "step": "- [ ] **Step 1: Write failing policy-match tests**",
+      "test_or_contract": "TestWaiverDispositionPreservesEvidenceStatus"
+    },
+    {
+      "id": "core-30-06",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #6",
+      "summary": "gate breakdown never counts waived obligation as satisfied evidence",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 6: Fold obligation evidence into explicit gate semantics",
+      "step": "- [ ] **Step 1: Write failing gate truth-table tests**",
+      "test_or_contract": "TestGateBreakdownNeverCountsWaiverAsEvidenceSatisfied"
+    },
+    {
+      "id": "core-30-07",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #7",
+      "summary": "waiver scope/expiry/policy digest are deterministic",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 3: Persist policy snapshots, activation authority, waivers, and revocations",
+      "step": "- [ ] **Step 4: Implement waiver validity without evidence rewriting**",
+      "test_or_contract": "TestWaiverScopeExpiryPolicyDigestDeterministic"
+    },
+    {
+      "id": "core-30-08",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #8",
+      "summary": "policy-changing mutation cannot activate policy for its introducing generation",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+      "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+      "test_or_contract": "TestPolicyCannotActivateForItsIntroducingGeneration"
+    },
+    {
+      "id": "core-30-09",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #9",
+      "summary": "proposed policy cannot self-grant authority for its own activation gate",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+      "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+      "test_or_contract": "TestProposedPolicyCannotSelfGrantActivationOrWaiverAuthority"
+    },
+    {
+      "id": "core-30-10",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #10",
+      "summary": "policy gap requires mechanically attributable classification",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 5: Match policy into obligations and advisory policy gaps",
+      "step": "- [ ] **Step 2: Write failing policy-gap tests**",
+      "test_or_contract": "TestPolicyGapRequiresMechanicalClassification"
+    },
+    {
+      "id": "core-30-11",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #11",
+      "summary": "cost remains downstream of sufficiency/admissibility",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 5: Project honest verification economics after sufficiency",
+      "step": "- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**",
+      "test_or_contract": "TestCostProjectionCannotChangeSufficiency"
+    },
+    {
+      "id": "core-30-12",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #12",
+      "summary": "risk controls are literal requirements, no residual-risk score",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 3: Evaluate evidence requirements and per-obligation sufficiency",
+      "step": "- [ ] **Step 1: Write failing hard-constraint tests**",
+      "test_or_contract": "TestRiskControlsAreLiteralRequirementsWithoutResidualRisk"
+    },
+    {
+      "id": "core-30-13",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #13",
+      "summary": "cheap semantically insufficient evidence cannot satisfy stronger requirement",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 3: Evaluate evidence requirements and per-obligation sufficiency",
+      "step": "- [ ] **Step 1: Write failing hard-constraint tests**",
+      "test_or_contract": "TestCheapInsufficientEvidenceCannotSatisfyStrongerRequirement"
+    },
+    {
+      "id": "core-30-14",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #14",
+      "summary": "compatible FAIL then PASS remains inconsistent unless qualified by approved protocol",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 2: Define mechanical evidence compatibility and contradictory-history semantics",
+      "step": "- [ ] **Step 2: Write failing stability-fold tests**",
+      "test_or_contract": "TestCompatibleFailThenPassIsInconsistent"
+    },
+    {
+      "id": "core-30-15",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #15",
+      "summary": "stale evidence cannot satisfy current requirement",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 3: Evaluate evidence requirements and per-obligation sufficiency",
+      "step": "- [ ] **Step 1: Write failing hard-constraint tests**",
+      "test_or_contract": "TestStaleEvidenceCannotSatisfyCurrentRequirement"
+    },
+    {
+      "id": "core-30-16",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #16",
+      "summary": "environment-dependent evidence requires declared compatible environment",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 3: Evaluate evidence requirements and per-obligation sufficiency",
+      "step": "- [ ] **Step 1: Write failing hard-constraint tests**",
+      "test_or_contract": "TestEnvironmentDependentEvidenceRequiresDeclaredBinding"
+    },
+    {
+      "id": "core-30-17",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #17",
+      "summary": "full suite is policy/phase triggered, never automatic",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 5: Match policy into obligations and advisory policy gaps",
+      "step": "- [ ] **Step 1: Write failing policy-match tests**",
+      "test_or_contract": "TestFullSuiteExistsOnlyWhenPolicyTriggersIt"
+    },
+    {
+      "id": "core-30-18",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #18",
+      "summary": "quiescence blocks undeclared live resources and allows typed ownership transfer",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 4: Add verification quiescence without rewriting process/receipt truth",
+      "step": "- [ ] **Step 1: Write failing resource-subtraction tests**",
+      "test_or_contract": "TestQuiescenceBlocksLeaksAndAllowsTypedTransfer"
+    },
+    {
+      "id": "core-30-19",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #19",
+      "summary": "provider concurrency/resource semantics are machine-legible but choose no universal worker count",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 5: Project honest verification economics after sufficiency",
+      "step": "- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**",
+      "test_or_contract": "TestProviderExecutionSemanticsNeverChoosesUniversalConcurrency"
+    },
+    {
+      "id": "core-30-20",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #20",
+      "summary": "delegated ownership still verifies declared integration assumption",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 8: Real-daemon P1 semantic matrix",
+      "step": "- [ ] **Step 1: Write RED integration matrix**",
+      "test_or_contract": "TestDelegatedOwnershipVerifiesIntegrationAssumptionWithoutProviderStress"
+    },
+    {
+      "id": "core-30-21",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #21",
+      "summary": "policy absence stays explicit with no silently selected profile",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 6: Build the Stage-A aggregate service and one-tool APIs",
+      "step": "- [ ] **Step 1: Write failing closed-schema and no-spawn tests**",
+      "test_or_contract": "TestPolicyAbsentDoesNotSelectStarter"
+    },
+    {
+      "id": "core-30-22",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #22",
+      "summary": "first policy requires separate activation at subsequent cut",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+      "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+      "test_or_contract": "TestFirstPolicyRequiresExternalActivationSubsequentCut"
+    },
+    {
+      "id": "core-30-23",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #23",
+      "summary": "activation authority record is durable immutable/auditable fact",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+      "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+      "test_or_contract": "TestPolicyActivationIsImmutableAuditableAuthority"
+    },
+    {
+      "id": "core-30-24",
+      "spec": "docs/superpowers/specs/2026-08-18-affected-surface-verification-evidence-sufficiency-design.md",
+      "spec_requirement": "\u00a730 #24",
+      "summary": "verification subsystem never emits user-task completion truth",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 6: Build the Stage-A aggregate service and one-tool APIs",
+      "step": "- [ ] **Step 1: Write failing closed-schema and no-spawn tests**",
+      "test_or_contract": "TestVerificationSurfaceForbidsCompletionTruthFields"
+    }
+  ],
+  "roadmap": [
+    {
+      "id": "P1",
+      "spec": "docs/superpowers/specs/2026-08-18-machine-truth-harness-delivery-roadmap-design.md",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 8: Real-daemon P1 semantic matrix",
+      "step": "- [ ] **Step 1: Write RED integration matrix**",
+      "test_or_contract": "TestRequirementEvaluationBindsCurrentObligationWithoutMutatingEvidence",
+      "coverage": [
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 1: Define the closed P1 verification core contracts",
+          "step": "- [ ] **Step 1: Write failing enum/validation/digest tests**",
+          "test_or_contract": "TestAffectedRelationAuthorityCoverageIndependent",
+          "summary": "affected surface authority/coverage"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 5: Match policy into obligations and advisory policy gaps",
+          "step": "- [ ] **Step 1: Write failing policy-match tests**",
+          "test_or_contract": "TestUncertainAffectedSurfaceCannotNarrowMandatoryObligation",
+          "summary": "obligation derivation/widening"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 6: Fold obligation evidence into explicit gate semantics",
+          "step": "- [ ] **Step 1: Write failing gate truth-table tests**",
+          "test_or_contract": "TestGateBreakdownNeverCountsWaiverAsEvidenceSatisfied",
+          "summary": "explicit gate semantics"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 6: Build the Stage-A aggregate service and one-tool APIs",
+          "step": "- [ ] **Step 1: Write failing closed-schema and no-spawn tests**",
+          "test_or_contract": "TestVerificationInspectionNeverSpawnsProviders",
+          "summary": "no auto execution"
+        }
+      ]
+    },
+    {
+      "id": "P1A",
+      "spec": "docs/superpowers/specs/2026-08-18-machine-truth-harness-delivery-roadmap-design.md",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+      "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+      "test_or_contract": "TestFirstPolicyRequiresExternalActivationSubsequentCut",
+      "coverage": [
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 2: Load strict repository policy and generate starter-policy previews",
+          "step": "- [ ] **Step 4: Implement starter preview generation from existing project declarations**",
+          "test_or_contract": "TestStarterProfilesNeverInventNFRTargets",
+          "summary": "starter templates/no invented NFR"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+          "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+          "test_or_contract": "TestFirstPolicyRequiresExternalActivationSubsequentCut",
+          "summary": "first-policy activation"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 7: Stage-A real-daemon acceptance and semantic checkpoint",
+          "step": "- [ ] **Step 1: Write RED real-daemon acceptance tests**",
+          "test_or_contract": "TestProposedPolicyCannotSelfGrantActivationOrWaiverAuthority",
+          "summary": "self-amendment authority"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 3: Persist policy snapshots, activation authority, waivers, and revocations",
+          "step": "- [ ] **Step 4: Implement waiver validity without evidence rewriting**",
+          "test_or_contract": "TestWaiverScopeExpiryPolicyDigestDeterministic",
+          "summary": "waiver identity/scope/expiry"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+          "task": "### Task 5: Match policy into obligations and advisory policy gaps",
+          "step": "- [ ] **Step 2: Write failing policy-gap tests**",
+          "test_or_contract": "TestPolicyGapRequiresMechanicalClassification",
+          "summary": "mechanical policy gaps"
+        }
+      ]
+    },
+    {
+      "id": "P1B",
+      "spec": "docs/superpowers/specs/2026-08-18-machine-truth-harness-delivery-roadmap-design.md",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 5: Project honest verification economics after sufficiency",
+      "step": "- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**",
+      "test_or_contract": "TestProviderExecutionSemanticsNeverChoosesUniversalConcurrency",
+      "coverage": [
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 5: Project honest verification economics after sufficiency",
+          "step": "- [ ] **Step 1: Write failing cost-projection tests**",
+          "test_or_contract": "TestTelemetryCostProjectionPreservesObservedQuality",
+          "summary": "historical/local resource cost quality"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 5: Project honest verification economics after sufficiency",
+          "step": "- [ ] **Step 1: Write failing cost-projection tests**",
+          "test_or_contract": "TestMissingProviderModelCostRemainsUnavailable",
+          "summary": "unobservable cost remains unavailable"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 5: Project honest verification economics after sufficiency",
+          "step": "- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**",
+          "test_or_contract": "TestProviderExecutionSemanticsNeverChoosesUniversalConcurrency",
+          "summary": "parallel/shared/exclusive/workload semantics without governor"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 5: Project honest verification economics after sufficiency",
+          "step": "- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**",
+          "test_or_contract": "TestCostProjectionCannotChangeSufficiency",
+          "summary": "cost downstream of sufficiency"
+        }
+      ]
+    },
+    {
+      "id": "P1C",
+      "spec": "docs/superpowers/specs/2026-08-18-machine-truth-harness-delivery-roadmap-design.md",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 2: Define mechanical evidence compatibility and contradictory-history semantics",
+      "step": "- [ ] **Step 2: Write failing stability-fold tests**",
+      "test_or_contract": "TestRerunIntentFrozenBeforeExecutionAndDoesNotEraseContradiction",
+      "coverage": [
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 2: Define mechanical evidence compatibility and contradictory-history semantics",
+          "step": "- [ ] **Step 2: Write failing stability-fold tests**",
+          "test_or_contract": "TestCompatibleFailThenPassIsInconsistent",
+          "summary": "contradictory retry history"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 2: Define mechanical evidence compatibility and contradictory-history semantics",
+          "step": "- [ ] **Step 1: Write failing compatibility tests**",
+          "test_or_contract": "TestRerunIntentFrozenBeforeExecutionAndDoesNotEraseContradiction",
+          "summary": "pre-execution rerun provenance"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 2: Define mechanical evidence compatibility and contradictory-history semantics",
+          "step": "- [ ] **Step 2: Write failing stability-fold tests**",
+          "test_or_contract": "TestApprovedFlakeProtocolRequiresQualifiedRuns",
+          "summary": "flake qualification protocol"
+        },
+        {
+          "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+          "task": "### Task 4: Add verification quiescence without rewriting process/receipt truth",
+          "step": "- [ ] **Step 1: Write failing resource-subtraction tests**",
+          "test_or_contract": "TestQuiescenceBlocksLeaksAndAllowsTypedTransfer",
+          "summary": "quiescence and transfer"
+        }
+      ]
+    }
+  ],
+  "review_contracts": [
+    {
+      "id": "review-01",
+      "summary": "project command binding correctness",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 3: Persist policy snapshots, activation authority, waivers, and revocations",
+      "step": "- [ ] **Step 1: Write failing immutable-store tests**",
+      "test_or_contract": "TestBinderBindsV2FixedArgvWithoutParameters"
+    },
+    {
+      "id": "review-02",
+      "summary": "effective-policy-only classification authority",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 4: Derive bounded affected surface from workspace/activity facts",
+      "step": "- [ ] **Step 4: Project classifications from the exact effective policy only**",
+      "test_or_contract": "TestProposedPolicyCannotChangeEffectiveClassificationProjection"
+    },
+    {
+      "id": "review-03",
+      "summary": "affected relation semantic identity",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 1: Define the closed P1 verification core contracts",
+      "step": "- [ ] **Step 1: Write failing enum/validation/digest tests**",
+      "test_or_contract": "TestRelationIDIncludesDerivationSemantics"
+    },
+    {
+      "id": "review-04",
+      "summary": "raw evidence kind versus semantic provider class",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 1: Normalize existing Evidence Ledger records into verification candidates",
+      "step": "- [ ] **Step 1: Write failing candidate-mapping tests**",
+      "test_or_contract": "TestRawEvidenceKindDoesNotElevateProviderClass"
+    },
+    {
+      "id": "review-05",
+      "summary": "derived evaluation owns policy/rule/obligation identity",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 3: Evaluate evidence requirements and per-obligation sufficiency",
+      "step": "- [ ] **Step 1: Write failing hard-constraint tests**",
+      "test_or_contract": "TestRequirementEvaluationBindsCurrentObligationWithoutMutatingEvidence"
+    },
+    {
+      "id": "review-06",
+      "summary": "intent-first authority retry and no rollback",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 3: Persist policy snapshots, activation authority, waivers, and revocations",
+      "step": "- [ ] **Step 1: Write failing immutable-store tests**",
+      "test_or_contract": "TestActivationRetryPreservesFirstTimestampAndNeverRollsBackIndex"
+    },
+    {
+      "id": "review-07",
+      "summary": "concurrency/resource semantic vocabulary without governor",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 5: Project honest verification economics after sufficiency",
+      "step": "- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**",
+      "test_or_contract": "TestProviderExecutionSemanticsNeverChoosesUniversalConcurrency"
+    },
+    {
+      "id": "review-08",
+      "summary": "no task-complete truth boundary",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-a.md",
+      "task": "### Task 6: Build the Stage-A aggregate service and one-tool APIs",
+      "step": "- [ ] **Step 1: Write failing closed-schema and no-spawn tests**",
+      "test_or_contract": "TestVerificationSurfaceForbidsCompletionTruthFields"
+    },
+    {
+      "id": "review-09",
+      "summary": "pre-execution diagnostic rerun provenance",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 2: Define mechanical evidence compatibility and contradictory-history semantics",
+      "step": "- [ ] **Step 1: Write failing compatibility tests**",
+      "test_or_contract": "TestRerunIntentFrozenBeforeExecutionAndDoesNotEraseContradiction"
+    },
+    {
+      "id": "review-10",
+      "summary": "test/source mutation evidence honesty",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 2: Define mechanical evidence compatibility and contradictory-history semantics",
+      "step": "- [ ] **Step 2: Write failing stability-fold tests**",
+      "test_or_contract": "TestSourceMutationSeparatesEvidenceCohortsWithoutRewritingHistory"
+    },
+    {
+      "id": "review-11",
+      "summary": "conditional escalation/provider choice deferred",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 5: Project honest verification economics after sufficiency",
+      "step": "- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**",
+      "test_or_contract": "TestCostProjectionDoesNotSelectProviderAlternative"
+    }
+  ],
+  "deferred": [
+    {
+      "id": "P2",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 10: P1 completion checkpoint and anti-regression audit",
+      "step": "- [ ] **Step 5: Handoff**",
+      "test_or_contract": "TestP1ScopeDoesNotClaimP2ThroughP8"
+    },
+    {
+      "id": "P3",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 10: P1 completion checkpoint and anti-regression audit",
+      "step": "- [ ] **Step 5: Handoff**",
+      "test_or_contract": "TestP1ScopeDoesNotClaimP2ThroughP8"
+    },
+    {
+      "id": "P4",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 10: P1 completion checkpoint and anti-regression audit",
+      "step": "- [ ] **Step 5: Handoff**",
+      "test_or_contract": "TestP1ScopeDoesNotClaimP2ThroughP8"
+    },
+    {
+      "id": "P5",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 10: P1 completion checkpoint and anti-regression audit",
+      "step": "- [ ] **Step 5: Handoff**",
+      "test_or_contract": "TestP1ScopeDoesNotClaimP2ThroughP8"
+    },
+    {
+      "id": "P6",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 10: P1 completion checkpoint and anti-regression audit",
+      "step": "- [ ] **Step 5: Handoff**",
+      "test_or_contract": "TestP1ScopeDoesNotClaimP2ThroughP8"
+    },
+    {
+      "id": "P7",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 10: P1 completion checkpoint and anti-regression audit",
+      "step": "- [ ] **Step 5: Handoff**",
+      "test_or_contract": "TestP1ScopeDoesNotClaimP2ThroughP8"
+    },
+    {
+      "id": "P8",
+      "plan": "docs/superpowers/plans/2026-08-18-verification-semantics-p1-stage-b.md",
+      "task": "### Task 10: P1 completion checkpoint and anti-regression audit",
+      "step": "- [ ] **Step 5: Handoff**",
+      "test_or_contract": "TestP1ScopeDoesNotClaimP2ThroughP8"
+    }
+  ],
+  "forbidden_plan_literals": [
+    "current proposed/effective policy",
+    "corresponding generic provider class",
+    "exact policy/rule/obligation identity",
+    "type AdmissibleOption",
+    "admissible provider alternatives",
+    "checkpoint_wall_ms_approx",
+    "--base origin/main",
+    "RequiredAuthority",
+    "required_authority",
+    "byte-identical activation request"
+  ],
+  "required_boundary_literals": [
+    "ProviderClassKnown",
+    "VerificationKind",
+    "PolicyActivationIntent",
+    "IntentFingerprint",
+    "ProviderExecutionSemantics",
+    "BoundRequirementCost",
+    "TestVerificationSurfaceForbidsCompletionTruthFields",
+    "TestP1ScopeDoesNotClaimP2ThroughP8"
+  ]
+}
