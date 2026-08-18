@@ -408,18 +408,36 @@ type SourceCut struct {
     DiagnosticCode string                       `json:"diagnostic_code,omitempty"`
 }
 
+type ResultDiagnosticCode string
+
+const (
+    MaxResultDiagnosticCodes = 16
+    ResultDiagnosticSourcePairFingerprintBudgetExceeded ResultDiagnosticCode = "source_pair_fingerprint_budget_exceeded"
+)
+
 type Result struct {
-    Status           ResultStatus      `json:"status"`
-    Query            Query             `json:"query"`
-    SourceCut        SourceCut         `json:"source_cut,omitzero"`
-    QuerySourceRefID SourceRefID       `json:"query_source_ref_id,omitempty"`
-    Selection        SelectionMetadata `json:"selection,omitzero"`
-    Provider         ProviderMetadata  `json:"provider,omitzero"`
-    Records          []Record          `json:"records,omitempty"`
+    Status           ResultStatus           `json:"status"`
+    Query            Query                  `json:"query"`
+    SourceCut        SourceCut              `json:"source_cut,omitzero"`
+    QuerySourceRefID SourceRefID            `json:"query_source_ref_id,omitempty"`
+    DiagnosticCodes  []ResultDiagnosticCode `json:"diagnostic_codes,omitempty"`
+    Selection        SelectionMetadata      `json:"selection,omitzero"`
+    Provider         ProviderMetadata       `json:"provider,omitzero"`
+    Records          []Record               `json:"records,omitempty"`
 }
 ```
 
 `QuerySourceRefID` is **not** part of `SourceCut`. For a positioned query, it is the exact selected source ref used to form the provider request. It is omitted when no single exact query source exists. It grants no mutation/process authority and is validated only with existing `ParseSourceRefID` rules.
+
+`Result.DiagnosticCodes` is the canonical carrier for machine-readable **result-level** degradation reasons. It is deliberately separate from `SourceCut.DiagnosticCode` (workspace-cut observation), `providerobservation.Observation.DiagnosticCodes` (provider runtime), and `SemanticProjection.Diagnostics` (downstream projection). P4-A V1's closed result vocabulary initially contains exactly `source_pair_fingerprint_budget_exceeded`; later codes require an explicit reviewed enum/schema extension rather than arbitrary strings. `Result.Validate` requires at most `MaxResultDiagnosticCodes`, valid closed codes, no duplicates, and strictly lexicographically sorted order. Existing `ResultLimits.MaxResponseBytes` remains the aggregate byte bound.
+
+Freeze one write path in core:
+
+```go
+func (r *Result) AddDiagnosticCode(code ResultDiagnosticCode) error
+```
+
+`AddDiagnosticCode` validates the closed code, returns nil without changing the slice when it is already present, fails before mutation if adding it would exceed `MaxResultDiagnosticCodes`, otherwise inserts it in strict lexical order. It never edits `SourceCut.DiagnosticCode`, provider-runtime diagnostics or semantic-projection diagnostics. Task 1 budget exhaustion MUST call this method; repeated exhausted pairs therefore emit exactly one result code. `Result.Validate` independently rechecks the same invariants so decoded/constructed results cannot bypass them.
 
 Generation validation reuses workspace identity syntax. If the landed P1 execution base has not already exported an equivalent helper, Task 1 adds exactly:
 
@@ -461,7 +479,8 @@ non-zero SourceCut requires observed_at and valid quality;
 quality unavailable -> generation empty + diagnostic_code required;
 quality fresh|cached|stale -> repository/workspace/generation present and valid;
 SourceCut never contains path/line/symbol bytes or SourceRef IDs;
-non-empty QuerySourceRefID must be a valid SourceRefID.
+non-empty QuerySourceRefID must be a valid SourceRefID;
+Result.DiagnosticCodes has at most 16 items, contains only closed ResultDiagnosticCode values, is unique and strictly lexicographically sorted.
 ```
 
 App port stays narrow:
@@ -570,7 +589,8 @@ pair charge would exceed remaining budget
   -> ExactSourcePairFingerprint = ""
   -> preserve literal SourceCorrelation (it may still be current)
   -> result.Status = partial
-  -> diagnostic_code = source_pair_fingerprint_budget_exceeded
+  -> Result.DiagnosticCodes contains exactly one source_pair_fingerprint_budget_exceeded entry regardless of how many pairs exhaust the request budget
+  -> SourceCut.DiagnosticCode is unchanged
   -> P4-A2 omits that record from AffectedRelation projection
   -> semantic_dependents domain coverage = partial because otherwise-eligible pairs were omitted by the request-local work budget
 ```
@@ -706,6 +726,9 @@ TestSourceCutKeepsFastGenerationSeparateFromSourceRefAndExactSnapshot
 TestFastGenerationEqualityDoesNotProveSourceByteEquality
 TestSourceCutDifferentGenerationProvesFastWorkspaceDivergenceOnly
 TestResultQuerySourceRefValidatesSeparatelyFromSourceCut
+TestResultDiagnosticCodesAreClosedBoundedUniqueAndDeterministic
+TestResultAddDiagnosticCodeDeduplicatesSortsAndFailsBeforeLimitMutation
+TestResultDiagnosticCodeDoesNotUseSourceCutDiagnosticCarrier
 ```
 
 The equality test uses two exact source byte states that intentionally share the same `FastSnapshot` facts/generation and proves no API/helper interprets generation equality as byte freshness.
@@ -734,6 +757,7 @@ TestInspectCodeCrossFileRecheckDoesNotRetainDuplicateSourceRefs
 TestSourcePairFingerprintUsesExactClosedV1CanonicalJSON
 TestSourcePairFingerprintWorkChargeUsesQueryPlusTargetBytesAndRejectsOverflow
 TestSourcePairFingerprintBudgetExhaustionSkipsMarshalHashAndDegradesPartial
+TestSourcePairFingerprintBudgetExhaustionEmitsResultDiagnosticExactlyOnceWithoutTouchingSourceCutDiagnostic
 TestSourcePairFingerprintRepeatedExactPairUsesRequestLocalCacheWithoutRecharge
 TestSourcePairFingerprintStableAcrossOpaqueSourceRefReallocation
 TestSourcePairFingerprintChangesWhenEitherExactEndpointBytesChange
@@ -747,7 +771,7 @@ Use a two-file fake provider fixture (`target.go`, `caller.go`). The provider re
 - [ ] **Step 3: Run RED**
 
 ```bash
-go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./cmd/shellbeam -run 'SourceCut|FastGeneration|QuerySourceRef|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|SelectedRecheck|SelectedCompareCurrent|InspectCode.*Generation|DisplaySourceLocation' -count=1
+go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./cmd/shellbeam -run 'SourceCut|FastGeneration|QuerySourceRef|ResultDiagnostic|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|SelectedRecheck|SelectedCompareCurrent|InspectCode.*Generation|DisplaySourceLocation' -count=1
 ```
 
 Expected: new SourceCut/query-source/non-retaining tri-state correlation/source-pair contracts are missing.
@@ -760,13 +784,24 @@ For resolved locations, preserve the PR #12 contract already required by Task 0:
 
 - [ ] **Step 5: Extend closed wire schemas additively**
 
-Add `$defs.code_source_cut` once in each applicable v2 schema with the existing repository/workspace/generation/quality/timestamp/diagnostic shape. Add optional `source_cut` and optional `query_source_ref_id` (`^src_[0-9A-HJKMNP-TV-Z]{26}$`) to the code result. Extend the existing location-target object with optional `exact_source_pair_fingerprint` using the closed `^csp_[0-9a-f]{64}$` form chosen by the core helper; this is relation-scoped derivation provenance, not a SourceRef or per-file source digest. Do not put `query_source_ref_id` inside `code_source_cut`, and do not change/remove existing `resolved.display` schema.
+Add `$defs.code_source_cut` once in each applicable v2 schema with the existing repository/workspace/generation/quality/timestamp/diagnostic shape. Add optional `source_cut`, optional `query_source_ref_id` (`^src_[0-9A-HJKMNP-TV-Z]{26}$`), and optional result-level `diagnostic_codes` to the code result. The latter is exactly:
+
+```json
+"diagnostic_codes": {
+  "type":"array",
+  "maxItems":16,
+  "uniqueItems":true,
+  "items":{"enum":["source_pair_fingerprint_budget_exceeded"]}
+}
+```
+
+The wire schema enforces the closed enum, `maxItems` and uniqueness; deterministic lexical ordering is a Go core invariant enforced by `Result.Validate`/`AddDiagnosticCode` before transport. Extend the existing location-target object with optional `exact_source_pair_fingerprint` using the closed `^csp_[0-9a-f]{64}$` form chosen by the core helper; this is relation-scoped derivation provenance, not a SourceRef or per-file source digest. Do not put result `diagnostic_codes` or `query_source_ref_id` inside `code_source_cut`, and do not change/remove existing `resolved.display` schema.
 
 - [ ] **Step 6: Run GREEN/race and commit**
 
 ```bash
 gofmt -w internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel internal/adapter/codeintel/sourcefs cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go
-go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam ./api/schema -run 'Generation|SourceCut|QuerySourceRef|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|InspectCode|DisplaySourceLocation|CodeIntelligence' -count=1
+go test ./internal/core/workspace ./internal/core/codeintel ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam ./api/schema -run 'Generation|SourceCut|QuerySourceRef|ResultDiagnostic|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|InspectCode|DisplaySourceLocation|CodeIntelligence' -count=1
 go test -race ./internal/app/codeintel ./internal/adapter/codeintel/sourcefs ./internal/adapter/codeintel/gopls ./cmd/shellbeam -run 'SourceCut|SourcePair|FingerprintBudget|CompareCurrent|CrossFile|CodeIntelligence' -count=1
 go run ./tools/devctl test --dirty --base "$P4A_EXECUTION_BASE" --json
 git add internal/core/workspace/snapshot.go internal/core/workspace/snapshot_test.go internal/core/codeintel internal/app/codeintel internal/adapter/codeintel/sourcefs cmd/shellbeam/code_intelligence.go cmd/shellbeam/command_daemon.go cmd/shellbeam/command_daemon_test.go api/schema/ipc-v2.json api/schema/mcp-output-v2.json api/schema/a1_inspect_test.go
@@ -975,6 +1010,8 @@ zero matching relations may emit a non-complete semantic_dependents domain
 
 Therefore relation/domain absence cannot mechanically prove policy non-applicability.
 
+Result-level degradation reasons are consumed literally, not reconstructed from missing fields. For reverse-dependent queries, if `result.DiagnosticCodes` contains `ResultDiagnosticSourcePairFingerprintBudgetExceeded`, the projector MUST keep the semantic projection `partial`, omit relations whose source-pair fingerprint is absent, set `semantic_dependents` domain coverage to `partial`, and mirror the exact string `source_pair_fingerprint_budget_exceeded` into `SemanticProjection.Diagnostics` once. It MUST NOT infer this reason merely from an empty fingerprint, and it MUST NOT rewrite `SourceCut.DiagnosticCode` or provider-runtime diagnostics.
+
 - [ ] **Step 1: Write RED affected-direction/provenance tests**
 
 Required tests:
@@ -993,6 +1030,8 @@ TestCodeIntelProviderReportedOrAdvisoryTargetIsNotAffected
 TestCodeIntelChangedOrUnknownTargetIsNotAffected
 TestCodeIntelSelectedUnknownProducesNoSemanticRelation
 TestCodeIntelFingerprintBudgetExhaustionOmitsSemanticRelationAndDegradesCoverage
+TestCodeIntelFingerprintBudgetDiagnosticMirrorsLiteralResultReasonIntoProjectionExactlyOnce
+TestCodeIntelMissingFingerprintWithoutBudgetDiagnosticDoesNotInventBudgetReason
 TestCodeIntelAffectedRelationProvenanceUsesStableExactSourcePairNotOpaqueSourceRefIDs
 TestCodeIntelProviderDerivationIdentityUsesExactClosedFieldSetAndExcludesIncarnationCoverage
 TestCodeIntelAffectedRelationIDStableAcrossOpaqueSourceRefReallocationWhenExactBytesAndGenerationUnchanged
@@ -1553,6 +1592,7 @@ type Result struct {
     Query            Query                            `json:"query"`
     SourceCut        SourceCut                        `json:"source_cut,omitzero"`
     QuerySourceRefID SourceRefID                      `json:"query_source_ref_id,omitempty"`
+    DiagnosticCodes  []ResultDiagnosticCode           `json:"diagnostic_codes,omitempty"`
     Selection        SelectionMetadata                `json:"selection,omitzero"`
     Provider         ProviderMetadata                 `json:"provider,omitzero"`
     ProviderRuntime  *providerobservation.Observation `json:"provider_runtime,omitempty"`
@@ -1560,7 +1600,7 @@ type Result struct {
 }
 ```
 
-The service obtains `ProviderRuntime` only from `ProviderResponse.Runtime` returned by the single query. It does not ask the runtime projection to guess which provider handled the request, and it never issues a second provider query.
+The service obtains `ProviderRuntime` only from `ProviderResponse.Runtime` returned by the single query. It does not ask the runtime projection to guess which provider handled the request, and it never issues a second provider query. Task 5 MUST preserve Task 1 `DiagnosticCodes` byte-for-byte/order-for-order; provider lifecycle publication neither consumes nor rewrites result degradation reasons.
 
 - [ ] **Step 1: Write RED projection tests**
 
@@ -1573,6 +1613,7 @@ TestRuntimeProjectionReplacementGetsNewRuntimeID
 TestRuntimeProjectionRetainsTerminalFactUntilBoundedEviction
 TestRuntimeProjectionDoesNotContainProcessAuthorityOrManagerPolicy
 TestRuntimeProjectionRestartHasNoFakeContinuity
+TestResultProviderRuntimeJoinPreservesDiagnosticCodesUnchanged
 ```
 
 - [ ] **Step 2: Write RED manager lifecycle tests**
@@ -1597,7 +1638,7 @@ Use test TTLs/counters; do not wait production five-minute idle TTL.
 - [ ] **Step 3: Run RED**
 
 ```bash
-go test ./internal/app/codeintel ./internal/core/codeintel -run 'RuntimeProjection|ProviderManager.*Runtime|ProviderManager.*Lifecycle' -count=1
+go test ./internal/app/codeintel ./internal/core/codeintel -run 'RuntimeProjection|ProviderManager.*Runtime|ProviderManager.*Lifecycle|Result.*Diagnostic' -count=1
 ```
 
 Expected: sink/projection/result field missing.
@@ -1655,10 +1696,21 @@ git -c core.hooksPath=.githooks commit -m "feat: publish bounded code provider r
 
 **Interfaces:**
 
-Task 2 already created the wrapper around P1's exact `AffectedSurface`; Task 6 does not redefine it and contains no derivation logic in core codeintel. It only adds the existing wrapper to the result:
+Task 2 already created the wrapper around P1's exact `AffectedSurface`; Task 6 does not redefine it and contains no derivation logic in core codeintel. The final P4-A result shape is:
 
 ```go
-SemanticProjection *SemanticProjection `json:"semantic_projection,omitempty"`
+type Result struct {
+    Status             ResultStatus                     `json:"status"`
+    Query              Query                            `json:"query"`
+    SourceCut          SourceCut                        `json:"source_cut,omitzero"`
+    QuerySourceRefID   SourceRefID                      `json:"query_source_ref_id,omitempty"`
+    DiagnosticCodes    []ResultDiagnosticCode           `json:"diagnostic_codes,omitempty"`
+    Selection          SelectionMetadata                `json:"selection,omitzero"`
+    Provider           ProviderMetadata                 `json:"provider,omitzero"`
+    ProviderRuntime    *providerobservation.Observation `json:"provider_runtime,omitempty"`
+    SemanticProjection *SemanticProjection               `json:"semantic_projection,omitempty"`
+    Records            []Record                         `json:"records,omitempty"`
+}
 ```
 
 The command/composition layer joins the pure adapter after codeintel service returns:
@@ -1686,7 +1738,18 @@ composition layer may join two read-only subsystems
 P2 later consumes the same P1 surface rather than a second schema
 ```
 
-Wire schema:
+Wire schema preserves Task 1's result-level carrier in both `ipc-v2.json` and `mcp-output-v2.json`:
+
+```json
+"diagnostic_codes": {
+  "type":"array",
+  "maxItems":16,
+  "uniqueItems":true,
+  "items":{"enum":["source_pair_fingerprint_budget_exceeded"]}
+}
+```
+
+and adds the projection wrapper:
 
 ```json
 "code_semantic_projection": {
@@ -1711,6 +1774,10 @@ Required tests:
 
 ```text
 TestInspectCodeOutputIncludesSourceCutCurrentProviderRuntimeAndSemanticProjection
+TestInspectCodeBudgetDiagnosticSurvivesResultIPCAndMCPOutputExactly
+TestInspectCodeBudgetDiagnosticSurvivesProviderRuntimeJoinWithoutMutation
+TestInspectCodeBudgetDiagnosticMirrorsIntoSemanticProjectionExactlyOnce
+TestInspectCodeSchemaRejectsUnknownOrDuplicateResultDiagnosticCodes
 TestInspectCodeSemanticProjectionUsesP1AffectedSurfaceType
 TestInspectCodeSemanticProjectionDoesNotIncreaseProviderQueryCount
 TestInspectCodeUnavailableGenerationReportsUnavailableProjectionNotEmptyCompleteSurface
@@ -1725,7 +1792,7 @@ Use the existing counting provider from `cmd/shellbeam/command_daemon_test.go`: 
 - [ ] **Step 2: Run RED**
 
 ```bash
-go test ./internal/core/codeintel ./cmd/shellbeam ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema -run 'P4A|SemanticProjection|ProviderRuntime|SourceCut' -count=1
+go test ./internal/core/codeintel ./cmd/shellbeam ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema -run 'P4A|ResultDiagnostic|SemanticProjection|ProviderRuntime|SourceCut' -count=1
 ```
 
 Expected: wrapper/wire fields missing.
@@ -1756,7 +1823,7 @@ writeMemory
 
 ```bash
 gofmt -w internal/core/codeintel cmd/shellbeam internal/adapter/ipc/protocol_v2_test.go internal/adapter/mcp
-go test ./internal/core/codeintel ./internal/core/verification ./internal/core/providerobservation ./internal/adapter/verification ./internal/app/codeintel ./cmd/shellbeam ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema -run 'P4A|InspectCode|SemanticProjection|ProviderRuntime|SourceCut|CodeIntelligence' -count=1
+go test ./internal/core/codeintel ./internal/core/verification ./internal/core/providerobservation ./internal/adapter/verification ./internal/app/codeintel ./cmd/shellbeam ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema -run 'P4A|InspectCode|ResultDiagnostic|SemanticProjection|ProviderRuntime|SourceCut|CodeIntelligence' -count=1
 go test -race ./internal/app/codeintel ./cmd/shellbeam ./internal/adapter/ipc ./internal/adapter/mcp -run 'P4A|InspectCode|ProviderRuntime' -count=1
 go run ./tools/devctl test --dirty --base "$P4A_EXECUTION_BASE" --json
 git add internal/core/codeintel cmd/shellbeam internal/adapter/ipc/protocol_v2_test.go internal/adapter/mcp api/schema
@@ -1858,7 +1925,7 @@ unchanged exact endpoint bytes across newly allocated SourceRefs keep relation i
 changed SourceGeneration changes RelationID even when endpoint bytes and all other derivation inputs are unchanged
 changed exact endpoint bytes produce a new source-pair fingerprint and relation identity even when fast generation is equal
 changed/unknown record remains visible as code fact but is omitted from P1 affected projection
-source-pair fingerprint work budget exhaustion leaves current code facts visible, marks result partial, emits source_pair_fingerprint_budget_exceeded, and omits only unproven semantic relations
+source-pair fingerprint work budget exhaustion leaves current code facts visible, marks result partial, carries source_pair_fingerprint_budget_exceeded in Result.DiagnosticCodes exactly once through IPC/MCP, mirrors it into SemanticProjection.Diagnostics exactly once, and omits only unproven semantic relations
 ```
 
 - [ ] **Step 3: Add provider close/quiescence/resource acceptance**
@@ -2011,6 +2078,7 @@ git -c core.hooksPath=.githooks commit -m "test: qualify p4a code intelligence f
 | Model-facing path:line ergonomics | Task 1 | preserve existing `DisplaySourceLocation` instead of parallel model |
 | Fast workspace generation separate from exact source bytes | Task 1 | one-way `SourceCut` comparison + bounded non-retaining `CompareCurrent` tests |
 | Cross-file/current changed-during-query honesty | Tasks 1/2/7 | bounded target recheck; changed/unknown record retained but not projected |
+| result-level bounded-work degradation reason | Tasks 1/2/5/6/7 | closed `ResultDiagnosticCode`; budget code survives joins/IPC/MCP and mirrors literally into projection diagnostics |
 | True affected-edge direction | Task 2 | references/callers reverse dependents only; path→path P1 projection |
 | authority × coverage × fast generation × exact provenance | Task 2 | path selectors + stable exact source-pair provenance; opaque SourceRefs excluded from RelationID |
 | no universal semantic completeness | Task 2/7 | semantic dependents bounded/partial/unknown, never complete |
@@ -2076,3 +2144,4 @@ Before execution approval, all answers must be mechanically supportable from thi
 21. Does execution hard-bind the actually landed P1 contracts before production code? **Yes.**
 22. Does provider absence auto-install gopls? **No; practical acceptance becomes NOT_RUN.**
 23. Does the plan account for PR #12 already landing display/resource primitives? **Yes; it reuses rather than duplicates them.**
+24. Where is `source_pair_fingerprint_budget_exceeded` carried before semantic projection exists? **Only in the closed bounded `Result.DiagnosticCodes` carrier; it is not a SourceCut or provider-runtime diagnostic, survives Task 5/IPC/MCP unchanged, and Task 2 mirrors the literal reason into projection diagnostics.**
