@@ -30,6 +30,7 @@ var nativeProbeRegistry = map[string]nativeProbeFunc{
 	"P10": probeP10ResizeIsolation,
 	"P11": probeP11CrashReconnectIdentity,
 	"P12": probeP12ACKOrderingAndBackpressure,
+	"P13": probeP13ResourceLeakStress,
 }
 
 type identity struct {
