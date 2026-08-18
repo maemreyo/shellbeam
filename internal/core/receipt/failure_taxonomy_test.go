@@ -185,3 +185,27 @@ func TestInterpretationIsBounded(t *testing.T) {
 		}
 	}
 }
+
+func TestHardResourceLimitReasonsOverrideLiteralExitInterpretationWithoutRewritingEvidence(t *testing.T) {
+	for reason, kind := range map[string]string{
+		"resource_limit_memory":    "memory",
+		"resource_limit_processes": "processes",
+	} {
+		zero := 0
+		r := Receipt{
+			State: session.Failed, Outcome: session.Failure, FailureReason: reason,
+			Spawn: SpawnEvidence{Attempted: true, Succeeded: true},
+			Exit:  ExitEvidence{Reaped: true, Code: &zero},
+		}
+		got := classify(t, r)
+		if got.Stage != StageExecution || got.Class != ClassResource || got.Code != "resource_limit" || got.Retryable {
+			t.Fatalf("%s = %#v", reason, got)
+		}
+		if got.Details["resource_limit_kind"] != kind {
+			t.Fatalf("%s details=%#v", reason, got.Details)
+		}
+		if r.Exit.Code == nil || *r.Exit.Code != 0 || r.Exit.Signal != "" {
+			t.Fatalf("classification rewrote literal evidence: %#v", r.Exit)
+		}
+	}
+}

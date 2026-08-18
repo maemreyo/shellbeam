@@ -276,8 +276,20 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	s.evictTerminated(l)
 }
 
+func resourceLimitFailureReason(kind operation.ResourceLimitKind) string {
+	switch kind {
+	case operation.ResourceLimitMemory:
+		return "resource_limit_memory"
+	case operation.ResourceLimitProcesses:
+		return "resource_limit_processes"
+	default:
+		return ""
+	}
+}
+
 func (s *Service) waitLoop(l *liveSession) {
 	exit := l.handle.Wait(context.Background())
+	resourceBreach := resourceLimitBreachOf(l.handle)
 	l.mu.Lock()
 	l.exit = exit
 	l.state = session.Finalizing
@@ -294,6 +306,9 @@ func (s *Service) waitLoop(l *liveSession) {
 		state, outcome = session.TimedOut, session.Timeout
 	} else if target == session.Killed {
 		state, outcome = session.Killed, session.KilledOutcome
+	} else if resourceBreach != "" {
+		state, outcome = session.Failed, session.Failure
+		reason = resourceLimitFailureReason(resourceBreach)
 	} else if captureErr != nil {
 		state, outcome = session.Killed, session.KilledOutcome
 		reason = "output_capture_failed"

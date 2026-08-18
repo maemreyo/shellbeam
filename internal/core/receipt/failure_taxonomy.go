@@ -143,6 +143,10 @@ func (r Receipt) lifecycleFailure() *Failure {
 		return &Failure{Stage: StageFinalization, Class: ClassInternal, Code: "daemon_restarted", Retryable: true}
 	}
 	switch r.FailureReason {
+	case "resource_limit_memory":
+		return &Failure{Stage: StageExecution, Class: ClassResource, Code: "resource_limit", Details: details("resource_limit_kind", "memory")}
+	case "resource_limit_processes":
+		return &Failure{Stage: StageExecution, Class: ClassResource, Code: "resource_limit", Details: details("resource_limit_kind", "processes")}
 	case "input_delivery_failed":
 		return &Failure{Stage: StageExecution, Class: ClassInternal, Code: "input_delivery_failed"}
 	case "output_capture_failed":
