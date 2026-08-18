@@ -44,6 +44,8 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 		request.OutputRead.Continuation = in.Continuation
 	case "write":
 		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		applyVerificationInput(request, in)
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		request.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":

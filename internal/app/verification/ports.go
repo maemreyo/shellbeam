@@ -82,3 +82,24 @@ type RelationResult struct {
 type RelationProvider interface {
 	Derive(context.Context, workspace.Workspace, string, []string) RelationResult
 }
+
+type EffectivePolicyStore interface {
+	CurrentActivation(context.Context, workspace.RepositoryID) (core.PolicyActivation, bool, error)
+	LoadPolicySnapshot(context.Context, workspace.RepositoryID, string) (core.PolicySnapshot, bool, error)
+}
+
+type AffectedDeriver interface {
+	Derive(context.Context, AffectedRequest) (AffectedResult, error)
+}
+
+type ObligationDeriver interface {
+	Derive(context.Context, ObligationRequest) (ObligationResult, error)
+}
+
+type ActiveWaiverReader interface {
+	ActiveWaivers(context.Context, WaiverScope) ([]core.VerificationWaiver, error)
+}
+
+type StarterPolicyPreviewer interface {
+	Preview(context.Context, string, string, *project.Manifest) (PolicyPreview, error)
+}

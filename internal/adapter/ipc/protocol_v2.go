@@ -112,6 +112,7 @@ type RequestV2 struct {
 	Mode                     mutationscopecore.Mode            `json:"mode,omitempty"`
 	Paths                    []string                          `json:"paths,omitempty"`
 	TTLMS                    int64                             `json:"ttl_ms,omitempty"`
+	VerificationRequestV2Fields
 }
 
 type ResponseV2 struct {
@@ -150,7 +151,8 @@ type ResponseV2 struct {
 	Code                             *codeintel.Result                   `json:"code,omitempty"`
 	OutputView                       *outputview.Result                  `json:"output_view,omitempty"`
 	Sessions                         *persistent.InspectPage             `json:"sessions,omitempty"`
-	Error                            *Error                              `json:"error,omitempty"`
+	VerificationResponseV2Fields
+	Error *Error `json:"error,omitempty"`
 }
 
 type v2Header struct {
@@ -224,6 +226,9 @@ func validateRequestV2(v RequestV2) error {
 	}
 	if !isSupportedV2Action(v.Action) {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "action"}, fmt.Errorf("unknown v2 action"))
+	}
+	if bridgeVerificationActionV2(v.Action) {
+		return validateVerificationRequestV2(v)
 	}
 	if v.Action == "capabilities.negotiate" || v.Action == "read_media" {
 		return validateMediaRequestV2(v)

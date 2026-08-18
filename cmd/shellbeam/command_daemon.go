@@ -103,6 +103,12 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	evidenceScheduler := &evidenceWorkerProxy{}
 	projectLoader := projectadapter.NewLoader()
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
+	hostReadiness := projectadapter.NewHostReadiness()
+	projectSvc := projectapp.NewWithReadiness(
+		store, projectLoader, store, projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
+		projectapp.ReadinessOptions{},
+	)
+	verificationRuntime := composeVerificationRuntime(store, workspaceSvc, workspaceObserver, deltaSampler, activitySvc, projectSvc, projectBinder)
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
 		DefaultTimeoutMS:     cfg.DefaultTimeoutMS,
@@ -120,12 +126,6 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		InputTraceWorker:     inputTraceRuntime.Worker,
 		HermeticRuntime:      hermeticRuntime,
 	})
-	hostReadiness := projectadapter.NewHostReadiness()
-	projectSvc := projectapp.NewWithReadiness(
-		store, projectLoader, store,
-		projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
-		projectapp.ReadinessOptions{},
-	)
 	environmentSvc := environmentapp.NewService(
 		environmentadapter.NewHost(), projectEnvironmentManifestProvider{project: projectSvc}, environmentadapter.NewHostProber(),
 		environmentapp.Options{DefaultExecution: environmentcore.ExecutionContext{Mode: "shell", Identity: cfg.Shell}},
@@ -135,7 +135,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	)
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
-	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector}
+	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector, verification: verificationRuntime}
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
@@ -291,6 +291,7 @@ type daemonActions struct {
 	mutationScopes mutationScopeCoordinator
 	checkpoints    *checkpointapp.Service
 	inputTrace     *inputtraceapp.Inspector
+	verification   daemonVerificationCoordinator
 }
 
 func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {
@@ -381,6 +382,7 @@ func (a *daemonActions) InspectRepro(ctx context.Context, reproID string) (repro
 
 func daemonCatalog(limits capability.Limits) capability.Catalog {
 	return capability.Baseline(limits).
+		WithVerificationSemantics(verificationSemanticsSupport()).
 		WithProjectReadiness(projectapp.DefaultReadinessTTL.Milliseconds(), projectapp.DefaultReadinessMaxEntries).
 		WithEvidence(
 			coreevidence.MaxInspectRecords, coreevidence.MaxExpectedOutputs, coreevidence.MaxArtifactMetadataBytes,

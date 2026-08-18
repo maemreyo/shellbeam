@@ -35,6 +35,8 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		req.InputOffset = in.Write.InputOffset
 		req.Chars = in.Write.Chars
 		req.EOF = in.Write.EOF
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		applyVerificationBridgeRequestV2(req, in)
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		req.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
@@ -114,5 +116,29 @@ func applyCheckpointBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		req.Paths = append([]string(nil), in.CheckpointRestore.Paths...)
 	case "checkpoint_inspect":
 		req.CheckpointID = in.CheckpointID
+	}
+}
+
+func applyVerificationBridgeRequestV2(req *RequestV2, in bridge.Request) {
+	switch in.Action {
+	case "inspect.verification":
+		v := in.VerificationInspect
+		req.WorkspaceID, req.ActivityID, req.Phase = v.WorkspaceID, v.ActivityID, v.Phase
+	case "verification.policy.preview":
+		v := in.VerificationPolicyPreview
+		req.WorkspaceID, req.Profile = v.WorkspaceID, v.Profile
+	case "verification.policy.activate":
+		v := in.VerificationActivate
+		req.WorkspaceID, req.ActivationID, req.ProposedPolicyDigest, req.ExpectedPreviousPolicyDigest, req.ProposalGeneration, req.Authority, req.Actor = v.WorkspaceID, v.ActivationID, v.ProposedPolicyDigest, v.ExpectedPreviousDigest, v.ProposalGeneration, v.Authority, v.Actor
+	case "verification.waiver.set":
+		v := in.VerificationWaiverSet
+		req.WorkspaceID, req.WaiverID, req.PolicyDigest, req.RuleID, req.Phase, req.Generation, req.CheckpointID, req.Authority, req.Actor, req.Reason, req.ExpiresPhase = v.WorkspaceID, v.WaiverID, v.PolicyDigest, v.RuleID, v.Phase, v.Generation, v.CheckpointID, v.Authority, v.Actor, v.Reason, v.ExpiresPhase
+		if !v.ExpiresAt.IsZero() {
+			expires := v.ExpiresAt
+			req.ExpiresAt = &expires
+		}
+	case "verification.waiver.revoke":
+		v := in.VerificationWaiverRevoke
+		req.WorkspaceID, req.WaiverID, req.Authority, req.Actor = v.WorkspaceID, v.WaiverID, v.Authority, v.Actor
 	}
 }

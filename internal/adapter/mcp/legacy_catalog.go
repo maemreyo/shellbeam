@@ -26,6 +26,8 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 		}
 	}
 	out.ReceiptSchemaVersions = filteredReceipts
+	out.VerificationSemantics = nil
+	delete(out.Features, capability.FeatureVerificationSemantics)
 	out.ResourceObservation = nil
 	out.Limits.TelemetryMaxSamples = 0
 	out.Limits.TelemetryMetadataBytes = 0

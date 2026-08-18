@@ -103,6 +103,8 @@ func (s *Server) dispatchV2(ctx context.Context, req RequestV2, resp *ResponseV2
 		if err == nil {
 			resp.Capsule = &capsule
 		}
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		err = s.verificationV2(ctx, req, resp)
 	case "capabilities.negotiate", "read_media":
 		err = dispatchMediaV2(ctx, req, resp, s.actions)
 	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":

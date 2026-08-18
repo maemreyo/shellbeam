@@ -22,6 +22,16 @@ func v2ActionFields(action string) []string {
 		return []string{"checkpoint_id"}
 	case "inspect.server":
 		return nil
+	case "inspect.verification":
+		return []string{"workspace_id", "activity_id", "phase"}
+	case "verification.policy.preview":
+		return []string{"workspace_id", "profile"}
+	case "verification.policy.activate":
+		return []string{"workspace_id", "activation_id", "proposed_policy_digest", "expected_previous_policy_digest", "proposal_generation", "authority", "actor"}
+	case "verification.waiver.set":
+		return []string{"workspace_id", "waiver_id", "policy_digest", "rule_id", "phase", "generation", "checkpoint_id", "authority", "actor", "reason", "expires_at", "expires_phase"}
+	case "verification.waiver.revoke":
+		return []string{"workspace_id", "waiver_id", "authority", "actor"}
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		return []string{"workspace_id"}
 	case "inspect.activity":

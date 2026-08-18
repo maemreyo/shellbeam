@@ -95,6 +95,7 @@ type input struct {
 	Mode                mutationcore.Mode                 `json:"mode,omitempty"`
 	Paths               []string                          `json:"paths,omitempty"`
 	TTLMS               int64                             `json:"ttl_ms,omitempty"`
+	VerificationInputFields
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -143,17 +144,12 @@ func validateForVersion(version int, v input, raw []byte) error {
 }
 
 func validateV2(v input) error {
-	if v.Action == "start" && v.ResourceLimits != nil {
-		if err := v.ResourceLimits.Validate(); err != nil {
-			return err
-		}
-	}
-	if v.Action == "start" {
-		if err := validateHermeticStartInput(v); err != nil {
-			return err
-		}
+	if err := validateStartEnvelopeV2(v); err != nil {
+		return err
 	}
 	switch v.Action {
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		return validateVerificationInput(v)
 	case "read_media":
 		return validateMediaInput(v)
 	case "read_output":
@@ -220,6 +216,18 @@ func validateV2(v input) error {
 		return validateV1(v)
 	}
 	return validateStartV2(v)
+}
+
+func validateStartEnvelopeV2(v input) error {
+	if v.Action != "start" {
+		return nil
+	}
+	if v.ResourceLimits != nil {
+		if err := v.ResourceLimits.Validate(); err != nil {
+			return err
+		}
+	}
+	return validateHermeticStartInput(v)
 }
 
 func validateHermeticStartInput(v input) error {
