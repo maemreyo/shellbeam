@@ -516,6 +516,10 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 - Modify: `internal/app/daemon/types.go`
 - Create: `internal/adapter/store/delegated_output.go`
 - Create: `internal/adapter/store/delegated_output_test.go`
+- Create: `internal/core/receipt/capture_quality.go`
+- Create: `internal/core/receipt/capture_quality_test.go`
+- Modify: `internal/core/receipt/receipt.go`
+- Create: `internal/core/receipt/delegated_v5_test.go`
 
 **Interfaces:**
 - `StartRequest.SessionMode` selects delegated service.
@@ -563,9 +567,9 @@ Include response-loss retry where a write/kill accepted at epoch 1 is retried af
 
 On provider ambiguity after durable reserve, persist `outcome_unknown`; retry inspects/reconciles instead of blindly redelivering.
 
-- [ ] **Step 5: Integrate canonical output and terminal truth.**
+- [ ] **Step 5: Integrate canonical output, internal receipt v5, and terminal truth.**
 
-H1 output is public/complete unless transport/provider loss occurs. Do not introduce private-interval semantics yet. Terminal receipt records literal provider/child facts ShellBeam can prove; provider loss does not fabricate child exit code.
+Move the internal delegated receipt contract needed for durable terminal authority into this task: schema v5 binds `session_mode`, terminal `authority_epoch`, `evidence_authority=session_lifecycle_only`, `input_authority_provenance=agent_only` for H1, and the closed capture vocabulary later projected publicly by Task 7. H1 output is public/complete unless transport/provider loss occurs. Do not introduce private-interval behavior yet. Terminal receipt records literal provider/child facts ShellBeam can prove; provider loss does not fabricate child exit code. Task 7 consumes this internal receipt contract and adds result/schema/IPC/MCP/capability projection rather than redefining it.
 
 - [ ] **Step 6: Run focused/race/no-tax gates and commit.**
 
@@ -582,14 +586,10 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 
 ---
 
-### Task 7: Add delegated receipt v5 plus modern schema/IPC/MCP/capability support with legacy closure
+### Task 7: Project delegated receipt v5 through modern schema/IPC/MCP/capability with legacy closure
 
 **Files:**
-- Create: `internal/core/receipt/capture_quality.go`
-- Create: `internal/core/receipt/capture_quality_test.go`
-- Modify: `internal/core/receipt/receipt.go`
 - Modify: `internal/core/receipt/result.go`
-- Create: `internal/core/receipt/delegated_v5_test.go`
 - Create: `internal/app/daemon/delegated_evidence_test.go`
 - Modify: `api/schema/mcp-input-v2.json`
 - Modify: `api/schema/mcp-output-v2.json`
@@ -611,7 +611,7 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 - Create: `cmd/shellbeam/delegated_sessions_test.go`
 
 **Interfaces:**
-- Receipt schema v5 is the delegated modern receipt. It binds `session_mode`, terminal `authority_epoch`, `evidence_authority=session_lifecycle_only`, monotonic `input_authority_provenance`, and composable capture truth while leaving receipt schemas 1–4 unchanged.
+- Consumes the internal receipt schema v5 frozen and persisted by Task 6; Task 7 projects it through result/schema/IPC/MCP/capability surfaces without changing its semantics. Receipt v5 binds `session_mode`, terminal `authority_epoch`, `evidence_authority=session_lifecycle_only`, monotonic `input_authority_provenance`, and composable capture truth while leaving receipt schemas 1–4 unchanged.
 - Closed capture vocabulary is frozen now:
 
 ```text
