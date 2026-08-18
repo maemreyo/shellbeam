@@ -103,3 +103,20 @@ type ActiveWaiverReader interface {
 type StarterPolicyPreviewer interface {
 	Preview(context.Context, string, string, *project.Manifest) (PolicyPreview, error)
 }
+
+type EvidenceCandidateSource interface {
+	Candidates(context.Context, CandidateQuery) (CandidateResultSet, error)
+}
+
+type CandidateQuery struct {
+	WorkspaceID       string
+	ActivityID        string
+	ProjectCommandIDs []string
+	MaxRecords        int
+}
+
+type CandidateResultSet struct {
+	Candidates  []core.EvidenceCandidate
+	Coverage    core.Coverage
+	Diagnostics []string
+}

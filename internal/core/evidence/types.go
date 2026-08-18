@@ -37,6 +37,18 @@ type Freshness string
 type ArtifactMatch string
 type PolicyMatch string
 
+type RerunReason string
+
+type VerificationAttemptIntent struct {
+	RerunOfEvidenceID string      `json:"rerun_of_evidence_id,omitempty"`
+	RerunReason       RerunReason `json:"rerun_reason,omitempty"`
+}
+
+const (
+	RerunDiagnoseFlake      RerunReason = "diagnose_flake"
+	RerunFlakeQualification RerunReason = "flake_qualification"
+)
+
 const (
 	VerificationFormat   VerificationKind = "format"
 	VerificationTest     VerificationKind = "test"

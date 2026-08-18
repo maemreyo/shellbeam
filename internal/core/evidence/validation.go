@@ -193,3 +193,28 @@ func validArtifactMatch(value ArtifactMatch) bool {
 func validPolicyMatch(value PolicyMatch) bool {
 	return value == PolicyMatchCurrent || value == PolicyMatchChanged || value == PolicyMatchUnknown
 }
+
+func (r RerunReason) Validate() error {
+	switch r {
+	case "", RerunDiagnoseFlake, RerunFlakeQualification:
+		return nil
+	default:
+		return fmt.Errorf("invalid rerun reason %q", r)
+	}
+}
+
+func (i VerificationAttemptIntent) Validate() error {
+	if i.RerunReason.Validate() != nil {
+		return fmt.Errorf("invalid verification attempt rerun reason")
+	}
+	if i.RerunOfEvidenceID == "" {
+		if i.RerunReason != "" {
+			return fmt.Errorf("rerun reason requires rerun evidence id")
+		}
+		return nil
+	}
+	if !validPrefixedDigest(i.RerunOfEvidenceID, "ev_") {
+		return fmt.Errorf("invalid rerun evidence id")
+	}
+	return nil
+}
