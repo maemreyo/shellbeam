@@ -39,6 +39,7 @@ type Reservation struct {
 	CreatedAt                     time.Time                     `json:"created_at"`
 	EnvironmentBinding            *environment.Binding          `json:"environment_binding,omitempty"`
 	Trace                         *trace.InstrumentationBinding `json:"input_trace,omitempty"`
+	ResourceLimits                *ResourceLimits               `json:"resource_limits,omitempty"`
 }
 
 func (r Reservation) EffectiveRequestFingerprint() string {

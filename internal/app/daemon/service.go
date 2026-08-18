@@ -70,6 +70,7 @@ type liveSession struct {
 	spawn                   receipt.SpawnEvidence
 	exit                    receipt.ExitEvidence
 	signal                  receipt.SignalEvidence
+	resourceCleanup         *receipt.ResourceCleanup
 	input                   *session.InputLedger
 	kills                   *session.KillLedger
 	accepted                int64
@@ -160,10 +161,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err := validateStartMetadata(req); err != nil {
 		return View{}, err
 	}
+	if err := validateResourceLimits(s.options.Capabilities, req); err != nil {
+		return View{}, err
+	}
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}
-	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode}
+	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone()}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}
@@ -273,9 +277,45 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	s.evictTerminated(l)
 }
 
+func resourceLimitFailureReason(kind operation.ResourceLimitKind) string {
+	switch kind {
+	case operation.ResourceLimitMemory:
+		return "resource_limit_memory"
+	case operation.ResourceLimitProcesses:
+		return "resource_limit_processes"
+	default:
+		return ""
+	}
+}
+
+func classifyTerminalResult(target session.State, resourceBreach operation.ResourceLimitKind, captureErr error, exit receipt.ExitEvidence, accepted, delivered int64) (session.State, session.Outcome, string) {
+	if target == session.TimedOut {
+		return session.TimedOut, session.Timeout, ""
+	}
+	if target == session.Killed {
+		return session.Killed, session.KilledOutcome, ""
+	}
+	if resourceBreach != "" {
+		return session.Failed, session.Failure, resourceLimitFailureReason(resourceBreach)
+	}
+	if captureErr != nil {
+		return session.Killed, session.KilledOutcome, "output_capture_failed"
+	}
+	if exit.Code != nil && *exit.Code == 0 && accepted == delivered {
+		return session.Completed, session.Success, ""
+	}
+	if accepted != delivered {
+		return session.Failed, session.Failure, "input_delivery_failed"
+	}
+	return session.Failed, session.Failure, ""
+}
+
 func (s *Service) waitLoop(l *liveSession) {
 	exit := l.handle.Wait(context.Background())
+	resourceBreach := resourceLimitBreachOf(l.handle)
+	resourceCleanup := resourceCleanupOf(l.handle)
 	l.mu.Lock()
+	l.resourceCleanup = resourceCleanup
 	l.exit = exit
 	l.state = session.Finalizing
 	l.notify()
@@ -284,22 +324,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	<-l.writerDone
 	l.mu.Lock()
 	accepted, delivered, eof, captureErr, target, signalEvidence, outputBytes := l.accepted, l.delivered, l.eof, l.captureErr, l.terminalTarget, l.signal, l.outputBytes
-	outcome := session.Failure
-	state := session.Failed
-	reason := ""
-	if target == session.TimedOut {
-		state, outcome = session.TimedOut, session.Timeout
-	} else if target == session.Killed {
-		state, outcome = session.Killed, session.KilledOutcome
-	} else if captureErr != nil {
-		state, outcome = session.Killed, session.KilledOutcome
-		reason = "output_capture_failed"
-	} else if exit.Code != nil && *exit.Code == 0 && accepted == delivered {
-		state = session.Completed
-		outcome = session.Success
-	} else if accepted != delivered {
-		reason = "input_delivery_failed"
-	}
+	state, outcome, reason := classifyTerminalResult(target, resourceBreach, captureErr, exit, accepted, delivered)
 	l.mu.Unlock()
 	rec := s.receiptFor(l, state, outcome)
 	rec.ExecutionMode = string(l.spec.Mode)
@@ -319,7 +344,6 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.StdinClosed = eof || l.spec.StdinMode == operation.StdinModeClosed
 	rec.StdinMode = string(l.spec.StdinMode)
 	rec.TimeoutSource = l.timeoutSource
-	rec.StdinModeSource = l.stdinSource
 	rec.StdinModeSource = l.stdinSource
 	rec.FailureReason = reason
 	rec.Spawn = l.spawn

@@ -44,3 +44,43 @@ type ProcessHandle interface {
 	Wait(context.Context) receipt.ExitEvidence
 	Close() error
 }
+
+// resourceLimitHandle is optional. A handle that implements it must freeze the
+// operation-local hard-limit result before Wait returns, so daemon terminal
+// classification never races provider cleanup or later cgroup reuse.
+type resourceLimitHandle interface {
+	ResourceLimitBreach() operation.ResourceLimitKind
+}
+
+func resourceLimitBreachOf(handle ProcessHandle) operation.ResourceLimitKind {
+	aware, ok := handle.(resourceLimitHandle)
+	if !ok {
+		return ""
+	}
+	switch kind := aware.ResourceLimitBreach(); kind {
+	case operation.ResourceLimitMemory, operation.ResourceLimitProcesses:
+		return kind
+	default:
+		return ""
+	}
+}
+
+type resourceCleanupHandle interface {
+	ResourceCleanupIncomplete() string
+}
+
+func resourceCleanupOf(handle ProcessHandle) *receipt.ResourceCleanup {
+	aware, ok := handle.(resourceCleanupHandle)
+	if !ok {
+		return nil
+	}
+	reason := aware.ResourceCleanupIncomplete()
+	if reason == "" {
+		return nil
+	}
+	cleanup := &receipt.ResourceCleanup{Status: receipt.ResourceCleanupIncomplete, Reason: reason}
+	if err := cleanup.Validate(); err != nil {
+		cleanup.Reason = "cleanup_unknown"
+	}
+	return cleanup
+}

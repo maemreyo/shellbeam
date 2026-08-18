@@ -16,6 +16,7 @@ type ExecutionSpec struct {
 	TTY                  bool
 	TimeoutMS            int64
 	EnvironmentAdditions []EnvironmentEntry
+	ResourceLimits       *ResourceLimits
 	// StdinMode is resolved policy, never the caller's raw request: by the time
 	// a spec exists the choice has been made, so the spawner does not have to
 	// know what a default is.

@@ -525,6 +525,7 @@
     "failure_reason": {
       "type": "string"
     },
+    "resource_cleanup": {"type":"object","additionalProperties":false,"properties":{"status":{"const":"incomplete"},"reason":{"enum":["final_events_unavailable","cleanup_kill_failed","cleanup_events_failed","cleanup_events_invalid","cleanup_timeout","cleanup_remove_failed","cleanup_unknown"]}},"required":["status","reason"]},
     "workspace_provenance": {
       "$ref": "#/$defs/workspace_provenance"
     },

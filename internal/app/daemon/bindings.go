@@ -38,6 +38,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, Intent: cloneDeclaredIntent(req.Intent),
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
 		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, Shell: shell, DaemonIncarnation: s.options.Incarnation,
+		ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	switch req.ProtocolVersion {
 	case 0, 1:
@@ -90,6 +91,9 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		rec.ExecutionFingerprint = l.reservation.ExecutionFingerprint
 		rec.ObservationBindingFingerprint = l.reservation.ObservationBindingFingerprint
 		rec.ProjectCommand = l.reservation.ProjectCommand
+		if rec.SchemaVersion == 2 || rec.SchemaVersion == 3 {
+			rec.ResourceCleanup = l.resourceCleanup
+		}
 		if (rec.SchemaVersion == 2 || (rec.SchemaVersion == 4 && l.reservation.ProjectCommand == nil)) && l.reservation.Evidence != nil {
 			frozen := *l.reservation.Evidence
 			frozen.ExpectedOutputs = append(frozen.ExpectedOutputs[:0:0], l.reservation.Evidence.ExpectedOutputs...)

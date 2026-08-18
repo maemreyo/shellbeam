@@ -58,6 +58,7 @@ type input struct {
 	StdinMode           operation.StdinMode               `json:"stdin_mode,omitempty"`
 	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
 	TraceMode           trace.Mode                        `json:"trace_mode,omitempty"`
+	ResourceLimits      *operation.ResourceLimits         `json:"limits,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
 	Selector            *outputview.Selector              `json:"selector,omitempty"`
@@ -122,6 +123,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 	if v.Action == "inspect.trace" || hasField(raw, "trace_mode") || hasField(raw, "max_resources") {
 		return fmt.Errorf("input tracing requires modern protocol")
 	}
+	if hasField(raw, "limits") {
+		return fmt.Errorf("resource limits require modern protocol")
+	}
 	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
 		return fmt.Errorf("persistent sessions require modern protocol")
 	}
@@ -134,6 +138,11 @@ func validateForVersion(version int, v input, raw []byte) error {
 }
 
 func validateV2(v input) error {
+	if v.Action == "start" && v.ResourceLimits != nil {
+		if err := v.ResourceLimits.Validate(); err != nil {
+			return err
+		}
+	}
 	switch v.Action {
 	case "read_media":
 		return validateMediaInput(v)
@@ -435,65 +444,6 @@ func validateV2FieldSet(action string, raw []byte) error {
 		}
 	}
 	return nil
-}
-
-func v2ActionFields(action string) []string {
-	switch action {
-	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "trace_mode", "max_output_bytes"}
-	case "poll":
-		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
-	case "read_output":
-		return []string{"session_id", "selector", "continuation"}
-	case "read_media":
-		return []string{"workspace_id", "cwd", "path"}
-	case "write":
-		return []string{"session_id", "input_offset", "chars", "eof"}
-	case "kill":
-		return []string{"session_id", "kill_id", "signal"}
-	case "checkpoint_create":
-		return []string{"checkpoint_create_id", "workspace_id", "activity_id", "paths"}
-	case "checkpoint_restore":
-		return []string{"restore_id", "checkpoint_id", "paths"}
-	case "checkpoint_inspect":
-		return []string{"checkpoint_id"}
-	case "inspect.server":
-		return nil
-	case "inspect.project", "inspect.workspace", "inspect.readiness":
-		return []string{"workspace_id"}
-	case "inspect.activity":
-		return []string{"activity_id"}
-	case "inspect.sessions":
-		return []string{"session_name", "activity_id", "workspace_id", "state", "persistent_only", "continuation", "max_records"}
-	case "mutation_scope.set":
-		return []string{"mutation_id", "scope_id", "activity_id", "workspace_id", "mode", "paths", "ttl_ms"}
-	case "mutation_scope.release":
-		return []string{"mutation_id", "scope_id"}
-	case "inspect.mutation_scopes":
-		return []string{"workspace_id", "activity_id"}
-	case "inspect.events":
-		return []string{"target", "after_event_cursor", "max_events"}
-	case "inspect.structured":
-		return []string{"operation_id", "record_kind", "severity", "path", "test_status", "continuation", "max_records"}
-	case "inspect.telemetry":
-		return []string{"operation_id", "max_samples"}
-	case "inspect.trace":
-		return []string{"operation_id", "max_resources"}
-	case "inspect.evidence":
-		return []string{"evidence_id", "operation_id", "workspace_id", "project_command_id", "activity_id", "verification_kind", "result", "revalidate_artifacts", "continuation", "max_records"}
-	case "inspect.environment":
-		return []string{"workspace_id", "freshness", "execution"}
-	case "inspect.process":
-		return []string{"process_target", "include_ports"}
-	case "repro.create":
-		return []string{"repro_create_id", "operation_id", "capture_policy"}
-	case "inspect.repro":
-		return []string{"repro_id"}
-	case "inspect.code":
-		return []string{"workspace_id", "activity_id", "code_query"}
-	default:
-		return nil
-	}
 }
 
 func isDeferredAction(string) bool { return false }

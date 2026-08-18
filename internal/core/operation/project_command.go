@@ -33,6 +33,7 @@ type TypedRequestIntent struct {
 	Persistent       bool              `json:"persistent,omitempty"`
 	SessionName      string            `json:"session_name,omitempty"`
 	TraceMode        trace.Mode        `json:"trace_mode,omitempty"`
+	ResourceLimits   *ResourceLimits   `json:"resource_limits,omitempty"`
 }
 
 type TypedIntentClaim struct {
@@ -60,6 +61,11 @@ func (i TypedRequestIntent) Validate() error {
 	}
 	if _, err := trace.NormalizeMode(i.TraceMode); err != nil {
 		return err
+	}
+	if i.ResourceLimits != nil {
+		if err := i.ResourceLimits.Validate(); err != nil {
+			return err
+		}
 	}
 	if !i.Persistent && i.SessionName != "" {
 		return fmt.Errorf("session name requires persistent execution")
@@ -120,6 +126,10 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 	}
 	sum := sha256.Sum256(encoded)
 	base := hex.EncodeToString(sum[:])
+	base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
+	if err != nil {
+		return "", err
+	}
 	return bindTraceRequestFingerprint(base, i.TraceMode)
 }
 

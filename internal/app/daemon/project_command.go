@@ -73,7 +73,7 @@ func typedRequestIntent(req StartRequest) (operation.TypedRequestIntent, string,
 	}
 	intent := operation.TypedRequestIntent{
 		WorkspaceID: req.WorkspaceID, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMap(req.Params),
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode,
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
@@ -131,11 +131,11 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 	}
 	spec := bindExecution(s.owner, operation.ExecutionSpec{
 		Mode: operation.ExecutionModeArgv, Argv: append([]string(nil), binding.ResolvedArgv...), CWD: binding.ResolvedCWD,
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS,
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, ResourceLimits: req.ResourceLimits.Clone(),
 	})
 	resolvedIntent := operation.Intent{
 		Argv: append([]string(nil), binding.ResolvedArgv...), WorkspaceID: req.WorkspaceID,
-		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName,
+		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	executionFingerprint, err := resolvedIntent.ExecutionFingerprint(spec.Executable)
 	if err != nil {
@@ -158,7 +158,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 		ExecutionMode:                 operation.ExecutionModeArgv, Executable: spec.Executable,
 		Argv: append([]string(nil), binding.ResolvedArgv...), CWD: binding.ResolvedCWD,
 		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, DaemonIncarnation: s.options.Incarnation,
-		ProjectCommand: &binding,
+		ProjectCommand: &binding, ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	return reservation, spec, nil
 }

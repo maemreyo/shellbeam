@@ -34,6 +34,7 @@ const (
 	FeatureSafetyCheckpoints      Feature = "safety_checkpoints"
 	FeatureRichLocalMedia         Feature = "rich_local_media"
 	FeatureInputTracing           Feature = "input_tracing"
+	FeatureResourceEnforcement    Feature = "resource_enforcement"
 )
 
 type Limits struct {
@@ -162,6 +163,7 @@ type Catalog struct {
 	TypedCommandParameterKinds        []string                    `json:"typed_project_command_parameter_kinds,omitempty"`
 	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
 	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
+	ResourceEnforcement               *ResourceEnforcementSupport `json:"resource_enforcement,omitempty"`
 	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
 	Media                             *MediaSupport               `json:"media,omitempty"`
 	InputTracing                      *InputTracingSupport        `json:"input_tracing,omitempty"`
@@ -194,6 +196,7 @@ var targetFeatures = []Feature{
 	FeatureSafetyCheckpoints,
 	FeatureRichLocalMedia,
 	FeatureInputTracing,
+	FeatureResourceEnforcement,
 }
 
 func TargetFeatures() []Feature {
@@ -248,6 +251,10 @@ func (c Catalog) Clone() Catalog {
 	if c.ResourceObservation != nil {
 		resource := *c.ResourceObservation
 		out.ResourceObservation = &resource
+	}
+	if c.ResourceEnforcement != nil {
+		enforcement := *c.ResourceEnforcement
+		out.ResourceEnforcement = &enforcement
 	}
 	if c.SafetyCheckpoints != nil {
 		support := *c.SafetyCheckpoints
@@ -360,6 +367,17 @@ func (c Catalog) WithExecutionTelemetry(maxSamples int, metadataBytes int64, max
 	out.ResourceObservation = &ResourceObservationSupport{
 		CPUTime: ResourceUnavailable, MaxRSS: ResourceUnavailable, IOBytes: ResourceUnavailable, ProcessCountPeak: ResourceUnavailable,
 	}
+	return out
+}
+
+func (c Catalog) WithResourceEnforcement(support ResourceEnforcementSupport) Catalog {
+	out := c.Clone()
+	if !support.ValidV1() {
+		return out
+	}
+	out.Features[FeatureResourceEnforcement] = Available
+	copy := support
+	out.ResourceEnforcement = &copy
 	return out
 }
 

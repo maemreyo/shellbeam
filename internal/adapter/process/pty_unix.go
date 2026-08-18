@@ -18,33 +18,55 @@ import (
 )
 
 type ptyHandle struct {
-	cmd         *exec.Cmd
-	terminal    io.ReadWriteCloser
-	sink        app.OutputSink
-	writeMu     sync.Mutex
-	wait        chan receipt.ExitEvidence
-	captureDone chan struct{}
+	cmd                   *exec.Cmd
+	terminal              io.ReadWriteCloser
+	sink                  app.OutputSink
+	writeMu               sync.Mutex
+	wait                  chan receipt.ExitEvidence
+	captureDone           chan struct{}
+	resourceMu            sync.RWMutex
+	resourceDomain        resourceExecutionDomain
+	resourceBreach        operation.ResourceLimitKind
+	resourceCleanupReason string
 }
 
-func startPTY(spec operation.ExecutionSpec, sink app.OutputSink) (app.ProcessHandle, receipt.SpawnEvidence, error) {
+func startPTY(spec operation.ExecutionSpec, sink app.OutputSink, domain resourceExecutionDomain) (app.ProcessHandle, receipt.SpawnEvidence, error) {
 	spawn := receipt.SpawnEvidence{Attempted: true}
 	if len(spec.EnvironmentAdditions) != 0 {
 		spawn.ErrorCode = "trace_environment_unsupported"
+		abortResourceDomain(domain)
 		return nil, spawn, fmt.Errorf("trace_environment_unsupported")
 	}
 	cmd, code, err := commandFor(spec)
 	if err != nil {
 		spawn.ErrorCode = code
+		abortResourceDomain(domain)
 		return nil, spawn, err
 	}
 	cmd.Dir = spec.CWD
+	var resourceBinding resourceSpawnBinding
+	if domain != nil {
+		resourceBinding, err = domain.bind(cmd)
+		if err != nil {
+			spawn.ErrorCode = "resource_enforcement_failed"
+			abortResourceDomain(domain)
+			return nil, spawn, err
+		}
+	}
 	terminal, err := pty.Start(cmd)
+	if resourceBinding != nil {
+		_ = resourceBinding.Close()
+	}
 	if err != nil {
 		spawn.ErrorCode = "spawn_failed"
+		abortResourceDomain(domain)
 		return nil, spawn, err
 	}
 	spawn.Succeeded = true
-	h := &ptyHandle{cmd: cmd, terminal: terminal, sink: sink, wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{})}
+	if domain != nil {
+		domain.startMonitoring()
+	}
+	h := &ptyHandle{cmd: cmd, terminal: terminal, sink: sink, wait: make(chan receipt.ExitEvidence, 1), captureDone: make(chan struct{}), resourceDomain: domain}
 	go h.capture()
 	go h.reap()
 	return h, spawn, nil
@@ -90,8 +112,25 @@ func (h *ptyHandle) reap() {
 			e.Code = &code
 		}
 	}
+	if h.resourceDomain != nil {
+		breach, cleanupErr := h.resourceDomain.finish()
+		h.resourceMu.Lock()
+		h.resourceBreach = breach
+		h.resourceCleanupReason = resourceCleanupReasonFromError(cleanupErr)
+		h.resourceMu.Unlock()
+	}
 	h.wait <- e
 	close(h.wait)
+}
+func (h *ptyHandle) ResourceLimitBreach() operation.ResourceLimitKind {
+	h.resourceMu.RLock()
+	defer h.resourceMu.RUnlock()
+	return h.resourceBreach
+}
+func (h *ptyHandle) ResourceCleanupIncomplete() string {
+	h.resourceMu.RLock()
+	defer h.resourceMu.RUnlock()
+	return h.resourceCleanupReason
 }
 func (h *ptyHandle) Wait(ctx context.Context) receipt.ExitEvidence {
 	select {
