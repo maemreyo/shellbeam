@@ -1,7 +1,7 @@
 # Quickstart
 
 1. Verify the adjacent source ZIP checksum with `sha256sum -c <file>.sha256` on Linux or `shasum -a 256 -c <file>.sha256` on macOS.
-2. Unzip into a private directory. Install Go 1.26.5 and run `go mod verify && go test ./...`.
+2. Unzip into a private directory. Install Go 1.26.6 and run `go mod verify && go test ./...`.
 3. Build the source ZIP: `go build -trimpath -buildvcs=false -o shellbeam ./cmd/shellbeam`. A Git checkout may use `-buildvcs=true`.
 4. Run `./shellbeam doctor --json`. Warnings for an absent daemon/tunnel client are expected before setup; unsafe directory checks are failures.
 5. Start `./shellbeam daemon` manually. In another terminal, run doctor again.

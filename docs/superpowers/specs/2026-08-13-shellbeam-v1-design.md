@@ -629,7 +629,7 @@ Normative terms such as **must**, **must not**, and **only** below are gates. A 
 | Area | Baseline |
 | --- | --- |
 | Language | Go 1.26 language/module level |
-| Initial pinned toolchain | Go 1.26.5; update to a later stable patch through a reviewed toolchain PR |
+| Current pinned toolchain | Go 1.26.6; patch-level updates require review and full native/security verification |
 | Module | One root `go.mod`; no workspace or nested modules in V1 |
 | Targets | `darwin/amd64`, `darwin/arm64`, `linux/amd64`, `linux/arm64` |
 | C toolchain | `CGO_ENABLED=0` unless a measured requirement and platform plan justify an exception |
@@ -642,7 +642,7 @@ The initial `go.mod` should declare:
 
 ```go
 go 1.26.0
-toolchain go1.26.5
+toolchain go1.26.6
 ```
 
 CI installs the declared toolchain explicitly rather than silently floating. Toolchain changes, OS minimums, persisted formats, and MCP protocol changes are separate reviewable changes.
