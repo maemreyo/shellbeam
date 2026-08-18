@@ -96,6 +96,22 @@ func (s *CaptureService) Capture(ctx context.Context, workspaceID string, reques
 	return view, nil
 }
 
+func (s *CaptureService) Discard(ctx context.Context, view CapturedView) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s == nil || s.provider == nil {
+		return fmt.Errorf("hermetic capture unavailable")
+	}
+	if !validCaptureID(view.CaptureID) || !filepath.IsAbs(view.PrivateRoot) || filepath.Clean(view.PrivateRoot) != view.PrivateRoot {
+		return fmt.Errorf("invalid hermetic private capture view")
+	}
+	if err := view.Manifest.Validate(); err != nil {
+		return err
+	}
+	return s.provider.Discard(ctx, view)
+}
+
 func (s *CaptureService) validateCapturedView(view CapturedView, source WorkspaceContext, request core.Request) error {
 	if !validCaptureID(view.CaptureID) || !filepath.IsAbs(view.PrivateRoot) || filepath.Clean(view.PrivateRoot) != view.PrivateRoot {
 		return fmt.Errorf("invalid hermetic private capture view")

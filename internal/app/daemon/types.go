@@ -34,6 +34,7 @@ type Options struct {
 	MediaReadBudget      time.Duration
 	InputTracePreparer   traceapp.Preparer
 	InputTraceWorker     InputTraceWorker
+	HermeticRuntime      HermeticRuntime
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`

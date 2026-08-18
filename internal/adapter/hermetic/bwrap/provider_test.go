@@ -33,6 +33,7 @@ func TestPrepareBuildsFrozenTopologyAndExactEnvironment(t *testing.T) {
 	wantPrefix := []string{
 		fixture.config.BubblewrapPath,
 		"--unshare-user", "--unshare-all", "--die-with-parent", "--disable-userns", "--assert-userns-disabled",
+		"--json-status-fd", "3",
 		"--ro-bind", fixture.config.ToolchainRoot, "/",
 		"--dev", "/dev", "--tmpfs", "/tmp",
 		"--ro-bind", fixture.capture.PrivateRoot, "/work/input",
@@ -56,6 +57,27 @@ func TestPrepareBuildsFrozenTopologyAndExactEnvironment(t *testing.T) {
 	if got.BoundaryID == "" || got.PrivateStateRoot == "" || got.ScratchRoot == "" {
 		t.Fatalf("missing private execution identity: %#v", got)
 	}
+}
+
+func TestPrepareAddsPrivateJSONStatusFDForPreExecAndContinuityProof(t *testing.T) {
+	fixture := newProviderFixture(t)
+	provider, err := newWithOps(context.Background(), fixture.config, fixture.ops)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := provider.Prepare(context.Background(), fixture.request(operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Command: "true", StdinMode: operation.StdinModeClosed}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Command.StatusFD != 3 {
+		t.Fatalf("status fd=%d, want 3", prepared.Command.StatusFD)
+	}
+	for i := 0; i+1 < len(prepared.Command.Argv); i++ {
+		if prepared.Command.Argv[i] == "--json-status-fd" && prepared.Command.Argv[i+1] == "3" {
+			return
+		}
+	}
+	t.Fatalf("provider argv missing json status fd: %v", prepared.Command.Argv)
 }
 
 func TestPrepareResolvesBareArgvOnlyAgainstFixedToolchainPath(t *testing.T) {

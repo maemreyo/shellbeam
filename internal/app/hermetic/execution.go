@@ -28,6 +28,9 @@ type ProviderCommand struct {
 	Env            []string
 	StdinMode      operation.StdinMode
 	ResourceLimits *operation.ResourceLimits
+	// StatusFD is a provider-private inherited descriptor used only for
+	// setup/continuity proof. V1 reserves fd 3 for this channel.
+	StatusFD int
 }
 
 func (c ProviderCommand) Clone() ProviderCommand {
@@ -49,6 +52,9 @@ func (c ProviderCommand) ValidatePrivate() error {
 	}
 	if c.StdinMode != operation.StdinModeClosed {
 		return fmt.Errorf("hermetic provider command requires closed stdin")
+	}
+	if c.StatusFD != 3 {
+		return fmt.Errorf("hermetic provider command requires status fd 3")
 	}
 	for _, value := range c.Argv {
 		if value == "" || strings.IndexByte(value, 0) >= 0 {

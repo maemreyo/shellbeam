@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -136,6 +137,14 @@ func abandonedReceipt(snap session.Snapshot, reservation operation.Reservation, 
 		rec.Persistent = reservation.Persistent
 		rec.SessionName = reservation.SessionName
 		rec.ProjectCommand = reservation.ProjectCommand
+		if reservation.HermeticBoundary != nil {
+			rec.HermeticBinding = reservation.HermeticBoundary.Clone()
+			rec.HermeticResult = &hermetic.BoundaryResult{
+				SchemaVersion: hermetic.BoundaryResultSchemaV1, BoundaryID: reservation.HermeticBoundary.BoundaryID,
+				Provider: reservation.HermeticBoundary.Provider, Toolchain: reservation.HermeticBoundary.Toolchain,
+				EstablishedPreExec: false, Continuity: hermetic.ContinuityLost,
+			}
+		}
 		if reservation.SchemaVersion == 4 && reservation.ProjectCommand == nil {
 			rec.Evidence = reservation.Evidence
 		}

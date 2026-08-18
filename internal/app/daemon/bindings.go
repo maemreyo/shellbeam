@@ -94,6 +94,15 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		if rec.SchemaVersion == 2 || rec.SchemaVersion == 3 {
 			rec.ResourceCleanup = l.resourceCleanup
 		}
+		if (rec.SchemaVersion == 2 || rec.SchemaVersion == 3) && l.reservation.HermeticBoundary != nil {
+			rec.HermeticBinding = l.reservation.HermeticBoundary.Clone()
+			if l.hermeticResult != nil {
+				result := *l.hermeticResult
+				rec.HermeticResult = &result
+			} else {
+				rec.HermeticResult = lostHermeticResult(l.reservation.HermeticBoundary)
+			}
+		}
 		if (rec.SchemaVersion == 2 || (rec.SchemaVersion == 4 && l.reservation.ProjectCommand == nil)) && l.reservation.Evidence != nil {
 			frozen := *l.reservation.Evidence
 			frozen.ExpectedOutputs = append(frozen.ExpectedOutputs[:0:0], l.reservation.Evidence.ExpectedOutputs...)

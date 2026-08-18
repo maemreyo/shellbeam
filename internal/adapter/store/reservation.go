@@ -188,13 +188,11 @@ func validateReservation(v operation.Reservation) error {
 	if v.OperationID == "" || v.SessionID == "" {
 		return fmt.Errorf("invalid reservation")
 	}
-	if v.ResourceLimits != nil {
-		if v.SchemaVersion == 1 || v.SchemaVersion == 4 {
-			return fmt.Errorf("invalid reservation")
-		}
-		if err := v.ResourceLimits.Validate(); err != nil {
-			return fmt.Errorf("invalid reservation resource limits: %w", err)
-		}
+	if err := validateResourceReservation(v); err != nil {
+		return err
+	}
+	if err := validateHermeticReservation(v); err != nil {
+		return err
 	}
 	switch v.SchemaVersion {
 	case 1:
@@ -259,6 +257,35 @@ func validateReservation(v operation.Reservation) error {
 		if err := v.Trace.Validate(); err != nil {
 			return fmt.Errorf("invalid reservation input trace binding: %w", err)
 		}
+	}
+	return nil
+}
+
+func validateResourceReservation(v operation.Reservation) error {
+	if v.ResourceLimits == nil {
+		return nil
+	}
+	if v.SchemaVersion == 1 || v.SchemaVersion == 4 {
+		return fmt.Errorf("invalid reservation")
+	}
+	if err := v.ResourceLimits.Validate(); err != nil {
+		return fmt.Errorf("invalid reservation resource limits: %w", err)
+	}
+	return nil
+}
+
+func validateHermeticReservation(v operation.Reservation) error {
+	if v.HermeticBoundary == nil {
+		return nil
+	}
+	if v.SchemaVersion != 2 && v.SchemaVersion != 3 {
+		return fmt.Errorf("invalid reservation")
+	}
+	if v.Persistent || v.TTY {
+		return fmt.Errorf("invalid hermetic reservation")
+	}
+	if err := v.HermeticBoundary.Validate(); err != nil {
+		return fmt.Errorf("invalid hermetic reservation: %w", err)
 	}
 	return nil
 }

@@ -174,3 +174,24 @@ func validCapturedView(t *testing.T, ctx WorkspaceContext, selectors []string) C
 	}
 	return CapturedView{CaptureID: "hcap_01K00000000000000000000000", PrivateRoot: filepath.Join("/private", "hcap_01K00000000000000000000000"), Manifest: manifest}
 }
+
+func TestCaptureServiceDiscardDelegatesOnlyValidatedOwnedView(t *testing.T) {
+	ctx := validWorkspaceContext("a")
+	view := validCapturedView(t, ctx, []string{"go.mod"})
+	provider := &fakeCaptureProvider{}
+	svc := NewCaptureService(&fakeWorkspaceSource{}, provider, core.DefaultCaptureLimits())
+	if err := svc.Discard(context.Background(), view); err != nil {
+		t.Fatal(err)
+	}
+	if len(provider.discarded) != 1 || provider.discarded[0].CaptureID != view.CaptureID {
+		t.Fatalf("discarded=%#v", provider.discarded)
+	}
+	unsafe := view
+	unsafe.CaptureID = "../escape"
+	if err := svc.Discard(context.Background(), unsafe); err == nil {
+		t.Fatal("unsafe capture discard accepted")
+	}
+	if len(provider.discarded) != 1 {
+		t.Fatalf("unsafe view reached provider: %#v", provider.discarded)
+	}
+}

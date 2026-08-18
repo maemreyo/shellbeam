@@ -34,7 +34,7 @@ func TestPreparedExecutionCarriesOnlyPrivateLaunchStateAndFrozenAuthorityInputs(
 		Provider:              provider,
 		Toolchain:             toolchain,
 		CaptureManifestSHA256: repeatHex("d"),
-		Command:               ProviderCommand{Executable: "/private/bwrap", Argv: []string{"/private/bwrap", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed},
+		Command:               ProviderCommand{Executable: "/private/bwrap", Argv: []string{"/private/bwrap", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed, StatusFD: 3},
 		PrivateStateRoot:      "/private/hb_01K00000000000000000000000",
 		ScratchRoot:           "/private/hb_01K00000000000000000000000/scratch",
 	}
@@ -67,4 +67,18 @@ func repeatHex(s string) string {
 		out += s
 	}
 	return out[:64]
+}
+
+func TestProviderCommandRequiresReservedStatusFDThree(t *testing.T) {
+	base := ProviderCommand{Executable: "/provider/bwrap", Argv: []string{"/provider/bwrap", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed, StatusFD: 3}
+	if err := base.ValidatePrivate(); err != nil {
+		t.Fatalf("fd3 rejected: %v", err)
+	}
+	for _, fd := range []int{0, 1, 2, 4, 99} {
+		bad := base
+		bad.StatusFD = fd
+		if err := bad.ValidatePrivate(); err == nil {
+			t.Fatalf("status fd %d accepted", fd)
+		}
+	}
 }
