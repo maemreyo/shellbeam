@@ -5,6 +5,7 @@ import (
 	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -33,6 +34,7 @@ type Options struct {
 	MediaReadBudget      time.Duration
 	InputTracePreparer   traceapp.Preparer
 	InputTraceWorker     InputTraceWorker
+	HermeticRuntime      HermeticRuntime
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`
@@ -50,6 +52,7 @@ type StartRequest struct {
 	TimeoutMode       operation.TimeoutMode     `json:"timeout_mode,omitempty"`
 	TraceMode         trace.Mode                `json:"trace_mode,omitempty"`
 	ResourceLimits    *operation.ResourceLimits `json:"limits,omitempty"`
+	Hermetic          *hermeticcore.Request     `json:"hermetic,omitempty"`
 	Persistent        bool                      `json:"persistent,omitempty"`
 	SessionName       string                    `json:"session_name,omitempty"`
 	YieldMS           int64                     `json:"yield_time_ms"`

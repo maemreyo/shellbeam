@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -96,6 +97,22 @@ func (c ResourceCleanup) Validate() error {
 	}
 }
 
+type HermeticCleanupStatus string
+
+const HermeticCleanupIncomplete HermeticCleanupStatus = "incomplete"
+
+type HermeticCleanup struct {
+	Status HermeticCleanupStatus `json:"status"`
+	Reason string                `json:"reason"`
+}
+
+func (c HermeticCleanup) Validate() error {
+	if c.Status != HermeticCleanupIncomplete || c.Reason != "discard_failed" {
+		return fmt.Errorf("invalid hermetic cleanup metadata")
+	}
+	return nil
+}
+
 type Receipt struct {
 	SchemaVersion                 int             `json:"schema_version"`
 	OperationID                   string          `json:"operation_id"`
@@ -126,17 +143,20 @@ type Receipt struct {
 	// the one policy supplied -- and an agent that guesses wrong either retries
 	// a command that will never behave differently, or concludes ShellBeam cut
 	// it off.
-	StdinMode           string                  `json:"stdin_mode,omitempty"`
-	TimeoutSource       string                  `json:"timeout_source,omitempty"`
-	StdinModeSource     string                  `json:"stdin_mode_source,omitempty"`
-	FailureReason       string                  `json:"failure_reason,omitempty"`
-	ResourceCleanup     *ResourceCleanup        `json:"resource_cleanup,omitempty"`
-	WorkspaceProvenance *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
-	ProjectCommand      *project.CommandBinding `json:"project_command,omitempty"`
-	Evidence            *evidence.Contract      `json:"evidence,omitempty"`
-	Spawn               SpawnEvidence           `json:"spawn_evidence"`
-	Exit                ExitEvidence            `json:"exit_evidence"`
-	Signal              SignalEvidence          `json:"signal_evidence"`
+	StdinMode           string                    `json:"stdin_mode,omitempty"`
+	TimeoutSource       string                    `json:"timeout_source,omitempty"`
+	StdinModeSource     string                    `json:"stdin_mode_source,omitempty"`
+	FailureReason       string                    `json:"failure_reason,omitempty"`
+	ResourceCleanup     *ResourceCleanup          `json:"resource_cleanup,omitempty"`
+	HermeticCleanup     *HermeticCleanup          `json:"hermetic_cleanup,omitempty"`
+	HermeticBinding     *hermetic.BoundaryBinding `json:"hermetic_boundary,omitempty"`
+	HermeticResult      *hermetic.BoundaryResult  `json:"hermetic_result,omitempty"`
+	WorkspaceProvenance *WorkspaceProvenance      `json:"workspace_provenance,omitempty"`
+	ProjectCommand      *project.CommandBinding   `json:"project_command,omitempty"`
+	Evidence            *evidence.Contract        `json:"evidence,omitempty"`
+	Spawn               SpawnEvidence             `json:"spawn_evidence"`
+	Exit                ExitEvidence              `json:"exit_evidence"`
+	Signal              SignalEvidence            `json:"signal_evidence"`
 }
 
 func (r Receipt) validateResourceCleanup() error {
@@ -155,8 +175,40 @@ func (r Receipt) validateResourceCleanup() error {
 	}
 }
 
+func (r Receipt) validateHermeticCleanup() error {
+	if r.HermeticCleanup == nil {
+		return nil
+	}
+	if r.SchemaVersion != 2 && r.SchemaVersion != 3 {
+		return fmt.Errorf("hermetic cleanup metadata requires ephemeral v2 or v3 receipt")
+	}
+	if r.HermeticBinding == nil {
+		return fmt.Errorf("hermetic cleanup metadata requires boundary binding")
+	}
+	return r.HermeticCleanup.Validate()
+}
+
+func (r Receipt) validateHermeticBoundary() error {
+	if r.HermeticBinding == nil && r.HermeticResult == nil {
+		return nil
+	}
+	if r.SchemaVersion != 2 && r.SchemaVersion != 3 {
+		return fmt.Errorf("hermetic boundary metadata requires ephemeral v2 or v3 receipt")
+	}
+	if r.HermeticBinding == nil || r.HermeticResult == nil {
+		return fmt.Errorf("incomplete hermetic boundary receipt")
+	}
+	return hermetic.ValidateBoundaryCompletion(*r.HermeticBinding, *r.HermeticResult)
+}
+
 func (r Receipt) Validate() error {
 	if err := r.validateResourceCleanup(); err != nil {
+		return err
+	}
+	if err := r.validateHermeticBoundary(); err != nil {
+		return err
+	}
+	if err := r.validateHermeticCleanup(); err != nil {
 		return err
 	}
 	switch r.SchemaVersion {
@@ -233,13 +285,15 @@ func (r Receipt) validateCommonEvidence() error {
 	if r.State.Terminal() && r.Outcome == session.NoOutcome {
 		return fmt.Errorf("terminal outcome missing")
 	}
-	if r.WorkspaceProvenance != nil {
-		if r.SchemaVersion < 2 {
-			return fmt.Errorf("workspace provenance requires v2 receipt")
-		}
-		if err := r.WorkspaceProvenance.Validate(); err != nil {
-			return err
-		}
+	return r.validateWorkspaceProvenance()
+}
+
+func (r Receipt) validateWorkspaceProvenance() error {
+	if r.WorkspaceProvenance == nil {
+		return nil
 	}
-	return nil
+	if r.SchemaVersion < 2 {
+		return fmt.Errorf("workspace provenance requires v2 receipt")
+	}
+	return r.WorkspaceProvenance.Validate()
 }

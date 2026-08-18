@@ -2,6 +2,7 @@ package operation
 
 import (
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"time"
 
@@ -28,6 +29,9 @@ type Reservation struct {
 	CWD                           string                        `json:"cwd"`
 	TTY                           bool                          `json:"tty"`
 	TimeoutMS                     int64                         `json:"timeout_ms"`
+	StdinMode                     StdinMode                     `json:"stdin_mode,omitempty"`
+	TimeoutSource                 string                        `json:"timeout_source,omitempty"`
+	StdinModeSource               string                        `json:"stdin_mode_source,omitempty"`
 	Persistent                    bool                          `json:"persistent,omitempty"`
 	SessionName                   string                        `json:"session_name,omitempty"`
 	Shell                         string                        `json:"shell"`
@@ -40,6 +44,7 @@ type Reservation struct {
 	EnvironmentBinding            *environment.Binding          `json:"environment_binding,omitempty"`
 	Trace                         *trace.InstrumentationBinding `json:"input_trace,omitempty"`
 	ResourceLimits                *ResourceLimits               `json:"resource_limits,omitempty"`
+	HermeticBoundary              *hermetic.BoundaryBinding     `json:"hermetic_boundary,omitempty"`
 }
 
 func (r Reservation) EffectiveRequestFingerprint() string {

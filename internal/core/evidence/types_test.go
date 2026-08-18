@@ -5,6 +5,8 @@ import (
 
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	"testing"
+
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/project"
@@ -203,5 +205,23 @@ func TestRecordValidateAcceptsFrozenEnvironmentBindingAndRejectsIncompatibleVers
 	record.EnvironmentBinding = &bad
 	if err := record.Validate(); err == nil {
 		t.Fatal("incompatible environment fingerprint version accepted")
+	}
+}
+
+func TestEvidenceRecordValidatesOptionalProvenInputScope(t *testing.T) {
+	record := Record{
+		SchemaVersion: SchemaVersion, EvidenceID: "ev_" + strings.Repeat("a", 64),
+		OperationID: "op-scope", SessionID: "sid-scope", VerificationKind: VerificationTest,
+		ContractDigest: strings.Repeat("b", 64), ReceiptDigest: strings.Repeat("c", 64),
+		Terminal: TerminalResult{Authoritative: true, Outcome: session.Success}, Result: ResultPass,
+		Source: SourceBinding{ObservationQuality: SourceQualityUnknown}, CompletedAt: time.Now().UTC(),
+	}
+	record.ProvenInputScope = &hermetic.ProvenInputScope{SchemaVersion: 1, RepoInputs: []string{"go.mod"}, CaptureManifestSHA256: strings.Repeat("a", 64), CaptureContentSHA256: strings.Repeat("b", 64), Provider: hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: strings.Repeat("c", 64), RuntimeManifestSHA256: strings.Repeat("d", 64)}, Toolchain: hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: strings.Repeat("e", 64)}, Environment: hermetic.EnvironmentFixedAllowlist, Stdin: hermetic.StdinClosed, Network: hermetic.NetworkOff, AmbientInputs: []hermetic.AmbientInputClass{hermetic.AmbientClock, hermetic.AmbientRandomness}}
+	if err := record.Validate(); err != nil {
+		t.Fatalf("valid proven scope rejected: %v", err)
+	}
+	record.ProvenInputScope.CaptureContentSHA256 = ""
+	if err := record.Validate(); err == nil {
+		t.Fatal("invalid proven scope accepted")
 	}
 }

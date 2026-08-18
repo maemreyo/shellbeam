@@ -121,6 +121,7 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.SessionName = in.Start.SessionName
 	req.TimeoutMS = in.Start.TimeoutMS
 	req.ResourceLimits = in.Start.ResourceLimits.Clone()
+	req.Hermetic = in.Start.Hermetic.Clone()
 	req.YieldMS = in.Start.YieldMS
 	req.MaxOutputBytes = in.Start.MaxOutputBytes
 	req.TraceMode = in.Start.TraceMode

@@ -9,6 +9,7 @@ import (
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -71,6 +72,8 @@ type liveSession struct {
 	exit                    receipt.ExitEvidence
 	signal                  receipt.SignalEvidence
 	resourceCleanup         *receipt.ResourceCleanup
+	hermeticResult          *hermeticcore.BoundaryResult
+	hermeticPrepared        *preparedHermetic
 	input                   *session.InputLedger
 	kills                   *session.KillLedger
 	accepted                int64
@@ -164,10 +167,13 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err := validateResourceLimits(s.options.Capabilities, req); err != nil {
 		return View{}, err
 	}
+	if err := validateHermeticAdmission(s.options.Capabilities, s.options.HermeticRuntime, req); err != nil {
+		return View{}, err
+	}
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}
-	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone()}
+	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}
@@ -263,6 +269,7 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	// it takes, which can be minutes. Holding a dead child's stdin open for
 	// that whole time is what turned a stalled store into a descriptor leak.
 	s.releaseProcessResources(l)
+	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
@@ -316,8 +323,10 @@ func (s *Service) waitLoop(l *liveSession) {
 	exit.Resources = nil
 	resourceBreach := resourceLimitBreachOf(l.handle)
 	resourceCleanup := resourceCleanupOf(l.handle)
+	hermeticResult := hermeticBoundaryResultOf(l.handle, l.reservation.HermeticBoundary)
 	l.mu.Lock()
 	l.resourceCleanup = resourceCleanup
+	l.hermeticResult = hermeticResult
 	l.exit = exit
 	l.state = session.Finalizing
 	l.notify()
@@ -358,6 +367,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	// it takes, which can be minutes. Holding a dead child's stdin open for
 	// that whole time is what turned a stalled store into a descriptor leak.
 	s.releaseProcessResources(l)
+	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
 	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)

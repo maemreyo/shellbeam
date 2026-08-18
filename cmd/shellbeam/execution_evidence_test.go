@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +13,7 @@ import (
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -153,4 +157,55 @@ func (*inspectRepoForDaemonAction) PutEvidenceValidity(context.Context, core.Val
 
 func observationCursorKeyForEvidenceTest() observation.CursorKeyMaterial {
 	return observation.CursorKeyMaterial{StateRootEpoch: "epoch_11111111111111111111111111111111", Generation: "key_22222222222222222222222222222222", Secret: []byte(strings.Repeat("k", 32))}
+}
+
+func TestExecutionEvidenceRuntimeWiresRealProvenScopeRemeasurement(t *testing.T) {
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "scope-state"), storeadapter.Limits{MaxSessions: 8, MaxSessionOutput: 1 << 20, MaxTotalState: 16 << 20, ControlReserve: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := []byte("module example\n")
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	workspaceID := workspacecore.WorkspaceID("ws_01K00000000000000000000000")
+	repositoryID := workspacecore.RepositoryID("repo_01K00000000000000000000000")
+	now := time.Now().UTC()
+	if err := store.SaveWorkspace(context.Background(), workspacecore.Workspace{SchemaVersion: workspacecore.SchemaVersion, ID: workspaceID, RepositoryID: repositoryID, Label: "scope", Root: root, GitDir: filepath.Join(root, ".git"), CreatedAt: now.Add(-time.Hour), LastSeenAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	fileSum := sha256.Sum256(content)
+	oldGeneration := "gen_" + strings.Repeat("d", 64)
+	manifest := hermetic.CaptureManifest{SchemaVersion: hermetic.CaptureManifestSchemaVersion, WorkspaceID: workspaceID, SourceGeneration: oldGeneration, Selectors: []string{"go.mod"}, Entries: []hermetic.CaptureEntry{{Path: "go.mod", Size: int64(len(content)), SHA256: hex.EncodeToString(fileSum[:])}}, TotalBytes: int64(len(content))}
+	manifestDigest, err := manifest.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentDigest, err := manifest.ContentDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope := &hermetic.ProvenInputScope{SchemaVersion: 1, RepoInputs: []string{"go.mod"}, CaptureManifestSHA256: manifestDigest, CaptureContentSHA256: contentDigest, Provider: hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: strings.Repeat("a", 64), RuntimeManifestSHA256: strings.Repeat("b", 64)}, Toolchain: hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: strings.Repeat("c", 64)}, Environment: hermetic.EnvironmentFixedAllowlist, Stdin: hermetic.StdinClosed, Network: hermetic.NetworkOff, AmbientInputs: []hermetic.AmbientInputClass{hermetic.AmbientClock, hermetic.AmbientRandomness}}
+	record := core.Record{SchemaVersion: core.SchemaVersion, EvidenceID: "ev_" + strings.Repeat("1", 64), OperationID: "cmd-scope-op", SessionID: "cmd-scope-session", WorkspaceID: string(workspaceID), VerificationKind: core.VerificationTest, ContractDigest: strings.Repeat("2", 64), ReceiptDigest: strings.Repeat("3", 64), Terminal: core.TerminalResult{Authoritative: true, Outcome: session.Success}, Result: core.ResultPass, Source: core.SourceBinding{RepositoryID: string(repositoryID), WorkspaceID: string(workspaceID), PostGeneration: oldGeneration, ObservationQuality: core.SourceQualityFast}, ProvenInputScope: scope, CompletedAt: now}
+	if _, err := store.PutEvidenceRecord(context.Background(), record); err != nil {
+		t.Fatal(err)
+	}
+	changedGeneration := "gen_" + strings.Repeat("e", 64)
+	observer := &evidenceFreshObserverFake{snapshot: workspacecore.FastSnapshot{SchemaVersion: workspacecore.SnapshotSchemaVersion, RepositoryID: repositoryID, WorkspaceID: workspaceID, Generation: changedGeneration, Quality: workspacecore.QualityFresh, UpstreamQuality: workspacecore.QualityFresh, ObservedAt: now}}
+	runtime, err := newExecutionEvidenceRuntime(store, observer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.shutdown(context.Background())
+	got, err := runtime.inspector.Inspect(context.Background(), evidenceapp.InspectRequest{Filter: evidenceapp.InspectFilter{OperationID: record.OperationID}, MaxRecords: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Records) != 1 || got.Records[0].Validity.SourceMatch != core.SourceMatchProvenScope || got.Records[0].Validity.Freshness != core.FreshnessCurrent {
+		t.Fatalf("production evidence runtime did not wire proven scope: %#v", got)
+	}
 }

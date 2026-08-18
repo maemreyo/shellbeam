@@ -390,6 +390,27 @@ printf 't59 ' >> "$OUT/idle-footprint.txt"; tree_stats "$idle_pid" >> "$OUT/idle
 wait "$idle_pid"
 record_pass idle_60s_cleanup "$(tr '\n' ';' < "$OUT/idle-footprint.txt")"
 
+# Task 7 opt-in: exercise the production ShellBeam runtime against this exact
+# native-qualified provider/toolchain fixture before A0 removes private state.
+# The default Task 0 qualification path does not set this flag and is unchanged.
+if [[ "${HERMETIC_A0_RUN_TASK7:-0}" == 1 ]]; then
+  if env \
+    HERMETIC_V1_NATIVE_REQUIRED=1 \
+    HERMETIC_V1_NATIVE_BWRAP="$BWRAP" \
+    HERMETIC_V1_NATIVE_TOOLCHAIN="$TOOL" \
+    HERMETIC_V1_NATIVE_SECURITY_POLICY="${HERMETIC_A0_SECURITY_POLICY:-}" \
+    go test ./cmd/shellbeam -run '^TestHermeticV1NativeProductionMatrix$' -count=1 -v 2>&1 | tee "$OUT/task7-production.log"; then
+    record_pass task7_production_runtime_matrix
+  else
+    record_fail task7_production_runtime_matrix 'production native matrix failed'
+  fi
+  if go test ./internal/app/evidence -run '^TestE27InputTraceBindingCannotNarrowEvidenceSourceValidity$' -count=1 -v 2>&1 | tee "$OUT/task7-e27.log"; then
+    record_pass task7_e27_nonhermetic_no_narrowing
+  else
+    record_fail task7_e27_nonhermetic_no_narrowing 'non-hermetic E27 authority gate failed'
+  fi
+fi
+
 # No provider-private storage creep beyond bounded evidence files/fixture.
 du -sb "$FIX" | tee "$OUT/fixture-bytes.txt" >/dev/null
 if [[ -n "$(find_provider_pids)" ]]; then

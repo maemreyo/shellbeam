@@ -17,7 +17,7 @@ func (s *Service) SetEnvironmentBindingProvider(provider CachedEnvironmentBindin
 }
 
 func (s *Service) freezeEnvironmentBinding(reservation *operation.Reservation) {
-	if s == nil || reservation == nil || reservation.EnvironmentBinding != nil || s.environmentBindings == nil {
+	if s == nil || reservation == nil || reservation.HermeticBoundary != nil || reservation.EnvironmentBinding != nil || s.environmentBindings == nil {
 		return
 	}
 	binding, ok := s.environmentBindings.CachedEnvironmentBinding(*reservation)

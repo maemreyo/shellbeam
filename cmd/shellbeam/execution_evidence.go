@@ -5,9 +5,11 @@ import (
 	"sync"
 	"time"
 
+	hermeticlocalfs "github.com/maemreyo/shellbeam/internal/adapter/hermetic/localfs"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -91,7 +93,12 @@ func newExecutionEvidenceRuntime(store *storeadapter.Repository, observer eviden
 		return nil, err
 	}
 	current := newEvidenceCurrentStateProvider(store, observer)
-	inspector := evidenceapp.NewInspector(store, current, artifactObserver, codec)
+	provenScope, err := hermeticlocalfs.NewScopeMeasurer(hermeticcore.DefaultCaptureLimits())
+	if err != nil {
+		_ = worker.Shutdown(context.Background())
+		return nil, err
+	}
+	inspector := evidenceapp.NewInspectorWithProvenScope(store, current, artifactObserver, provenScope, codec)
 	return &executionEvidenceRuntime{service: service, worker: worker, inspector: inspector}, nil
 }
 

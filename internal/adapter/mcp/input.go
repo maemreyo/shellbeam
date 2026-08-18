@@ -17,6 +17,7 @@ import (
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	mutationcore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
@@ -59,6 +60,7 @@ type input struct {
 	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
 	TraceMode           trace.Mode                        `json:"trace_mode,omitempty"`
 	ResourceLimits      *operation.ResourceLimits         `json:"limits,omitempty"`
+	Hermetic            *hermeticcore.Request             `json:"hermetic,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
 	Selector            *outputview.Selector              `json:"selector,omitempty"`
@@ -126,6 +128,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 	if hasField(raw, "limits") {
 		return fmt.Errorf("resource limits require modern protocol")
 	}
+	if hasField(raw, "hermetic") {
+		return fmt.Errorf("hermetic execution requires modern protocol")
+	}
 	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
 		return fmt.Errorf("persistent sessions require modern protocol")
 	}
@@ -140,6 +145,11 @@ func validateForVersion(version int, v input, raw []byte) error {
 func validateV2(v input) error {
 	if v.Action == "start" && v.ResourceLimits != nil {
 		if err := v.ResourceLimits.Validate(); err != nil {
+			return err
+		}
+	}
+	if v.Action == "start" {
+		if err := validateHermeticStartInput(v); err != nil {
 			return err
 		}
 	}
@@ -212,6 +222,19 @@ func validateV2(v input) error {
 	return validateStartV2(v)
 }
 
+func validateHermeticStartInput(v input) error {
+	if v.Hermetic == nil {
+		return nil
+	}
+	if err := v.Hermetic.Validate(); err != nil {
+		return err
+	}
+	if v.TTY || v.Persistent || (v.StdinMode != "" && v.StdinMode != operation.StdinModeClosed) {
+		return fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin")
+	}
+	return nil
+}
+
 func validateStartV2(v input) error {
 	if v.OperationID == "" {
 		return fmt.Errorf("start requires operation_id")
@@ -227,7 +250,7 @@ func validateStartV2(v input) error {
 		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
 			return fmt.Errorf("typed project command conflicts with raw execution fields")
 		}
-		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS}).Validate(); err != nil {
+		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Hermetic: v.Hermetic}).Validate(); err != nil {
 			return err
 		}
 	} else {

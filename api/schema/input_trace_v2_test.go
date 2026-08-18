@@ -36,9 +36,19 @@ func TestE27InputTraceSchemasExposeClosedStartInspectCapabilityAndEvents(t *test
 				t.Fatalf("%s missing %q", name, required)
 			}
 		}
-		for _, forbidden := range []string{"file_contents", "environment_values", "network_payload", "socket_path", "dylib_path", "raw_events", "proven_input_scope"} {
+		for _, forbidden := range []string{"file_contents", "environment_values", "network_payload", "socket_path", "dylib_path", "raw_events"} {
 			if strings.Contains(text, `"`+forbidden+`":`) {
 				t.Fatalf("%s exposes forbidden field %q", name, forbidden)
+			}
+		}
+		defs, _ := root["$defs"].(map[string]any)
+		for key, value := range defs {
+			if !strings.HasPrefix(key, "input_trace_") {
+				continue
+			}
+			encoded, _ := json.Marshal(value)
+			if strings.Contains(string(encoded), `"proven_input_scope":`) {
+				t.Fatalf("%s trace definition %q may not publish proven_input_scope", name, key)
 			}
 		}
 	}

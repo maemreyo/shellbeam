@@ -51,7 +51,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone()}
+	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
 	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -73,6 +73,28 @@ func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (ope
 	intent.CWD = resolved.LogicalCWD
 	intent.ResolvedCWD = resolved.CWD
 	return intent, nil
+}
+
+func validateHermeticAdmission(catalog capability.Catalog, runtime HermeticRuntime, req StartRequest) error {
+	if req.Hermetic == nil {
+		return nil
+	}
+	if runtime == nil || catalog.Features[capability.FeatureHermeticBoundaryV1] != capability.Available || catalog.HermeticBoundary == nil || !catalog.HermeticBoundary.ValidV1() {
+		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": string(capability.FeatureHermeticBoundaryV1)}, nil)
+	}
+	if req.ProtocolVersion != 2 {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, fmt.Errorf("hermetic execution requires protocol v2"))
+	}
+	if err := req.Hermetic.Validate(); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, err)
+	}
+	if req.WorkspaceID == "" {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("hermetic execution requires registered workspace"))
+	}
+	if req.TTY || req.Persistent || (req.StdinMode != "" && req.StdinMode != operation.StdinModeClosed) {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin"))
+	}
+	return nil
 }
 
 func validateResourceLimits(catalog capability.Catalog, req StartRequest) error {

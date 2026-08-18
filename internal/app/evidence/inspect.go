@@ -7,6 +7,7 @@ import (
 
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	observation "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/project"
@@ -43,15 +44,20 @@ type InspectResult struct {
 }
 
 type Inspector struct {
-	repository InspectionRepository
-	current    CurrentStateProvider
-	observer   ArtifactObserver
-	codec      *CursorCodec
-	now        func() time.Time
+	repository  InspectionRepository
+	current     CurrentStateProvider
+	observer    ArtifactObserver
+	provenScope ProvenScopeObserver
+	codec       *CursorCodec
+	now         func() time.Time
 }
 
 func NewInspector(repository InspectionRepository, current CurrentStateProvider, observer ArtifactObserver, codec *CursorCodec) *Inspector {
-	return &Inspector{repository: repository, current: current, observer: observer, codec: codec, now: func() time.Time { return time.Now().UTC() }}
+	return NewInspectorWithProvenScope(repository, current, observer, nil, codec)
+}
+
+func NewInspectorWithProvenScope(repository InspectionRepository, current CurrentStateProvider, observer ArtifactObserver, provenScope ProvenScopeObserver, codec *CursorCodec) *Inspector {
+	return &Inspector{repository: repository, current: current, observer: observer, provenScope: provenScope, codec: codec, now: func() time.Time { return time.Now().UTC() }}
 }
 
 func (s *Inspector) Inspect(ctx context.Context, request InspectRequest) (InspectResult, error) {
@@ -208,6 +214,7 @@ func (s *Inspector) inspectRecord(ctx context.Context, record core.Record, reval
 		}
 	}
 	validity := core.DeriveSourceValidity(record.Source, current.Source)
+	validity = s.applyProvenScopeValidity(ctx, record, current, validity)
 	if len(record.Artifacts) == 0 {
 		validity.ArtifactMatch = core.ArtifactMatchNotRequired
 	} else {
@@ -233,6 +240,35 @@ func (s *Inspector) inspectRecord(ctx context.Context, record core.Record, reval
 	view.Validity = validity
 	view.LastRevalidation = &observed
 	return view, nil
+}
+
+func (s *Inspector) applyProvenScopeValidity(ctx context.Context, record core.Record, current CurrentState, validity core.Validity) core.Validity {
+	if validity.Freshness == core.FreshnessCurrent || record.ProvenInputScope == nil || s.provenScope == nil || record.WorkspaceID == "" || current.WorkspaceRoot == "" {
+		return validity
+	}
+	if current.Source.WorkspaceID != "" && current.Source.WorkspaceID != record.WorkspaceID {
+		return validity
+	}
+	if err := record.ProvenInputScope.Validate(); err != nil {
+		return validity
+	}
+	generation := current.Source.Generation
+	if err := hermetic.ValidateSourceGeneration(generation); err != nil {
+		generation = record.Source.PostGeneration
+	}
+	if err := hermetic.ValidateSourceGeneration(generation); err != nil {
+		return validity
+	}
+	scope := *record.ProvenInputScope
+	scope.RepoInputs = append([]string(nil), scope.RepoInputs...)
+	scope.AmbientInputs = append([]hermetic.AmbientInputClass(nil), scope.AmbientInputs...)
+	digest, err := s.provenScope.ObserveProvenScope(ctx, ProvenScopeObservationRequest{WorkspaceID: record.WorkspaceID, WorkspaceRoot: current.WorkspaceRoot, SourceGeneration: generation, Scope: scope})
+	if err != nil || digest != scope.CaptureContentSHA256 {
+		return validity
+	}
+	validity.SourceMatch = core.SourceMatchProvenScope
+	validity.Freshness = core.FreshnessCurrent
+	return validity
 }
 
 func (s *Inspector) revalidateArtifacts(ctx context.Context, record core.Record, current CurrentState) []core.ArtifactObservation {

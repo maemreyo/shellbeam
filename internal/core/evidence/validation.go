@@ -64,6 +64,11 @@ func (r Record) Validate() error {
 			return fmt.Errorf("invalid evidence environment binding: %w", err)
 		}
 	}
+	if r.ProvenInputScope != nil {
+		if err := r.ProvenInputScope.Validate(); err != nil {
+			return fmt.Errorf("invalid evidence proven input scope: %w", err)
+		}
+	}
 	for _, artifact := range r.Artifacts {
 		if artifact.Path == "" {
 			return fmt.Errorf("invalid artifact observation")
@@ -177,7 +182,7 @@ func validateCurrentSource(source CurrentSource) error {
 }
 
 func validSourceMatch(value SourceMatch) bool {
-	return value == SourceMatchExact || value == SourceMatchFast || value == SourceMatchMismatch || value == SourceMatchUnknown
+	return value == SourceMatchExact || value == SourceMatchFast || value == SourceMatchProvenScope || value == SourceMatchMismatch || value == SourceMatchUnknown
 }
 func validFreshness(value Freshness) bool {
 	return value == FreshnessCurrent || value == FreshnessStale || value == FreshnessUnknown

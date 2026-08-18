@@ -317,6 +317,16 @@ func readA25StateTree(t *testing.T, root string) []byte {
 	t.Helper()
 	var out strings.Builder
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		// The daemon persists JSON through same-directory .shellbeam-* files that
+		// are atomically renamed into place. They are transaction mechanics, not
+		// durable state. A live scan may observe the directory entry just before
+		// rename/remove and then receive ENOENT from Walk's lstat on that path.
+		// Ignore both forms so this assertion measures persisted state only.
+		if strings.HasPrefix(filepath.Base(path), ".shellbeam-") {
+			if err == nil || os.IsNotExist(err) {
+				return nil
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -334,6 +344,19 @@ func readA25StateTree(t *testing.T, root string) []byte {
 		t.Fatal(err)
 	}
 	return []byte(out.String())
+}
+
+func TestReadA25StateTreeIgnoresAtomicTransactionTemps(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "durable.json"), []byte("durable-state"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".shellbeam-transaction"), []byte("transient-state"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readA25StateTree(t, root)); got != "durable-state" {
+		t.Fatalf("state tree included atomic transaction temp: %q", got)
+	}
 }
 
 func a25SHA256(value string) string {

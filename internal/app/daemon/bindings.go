@@ -66,7 +66,14 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 			return operation.Reservation{}, err
 		}
 		if req.Persistent {
+			if intent.Resolved == nil || intent.TimeoutSource == "" {
+				return operation.Reservation{}, fmt.Errorf("persistent execution policy was not resolved")
+			}
 			base.SchemaVersion = 4
+			base.TimeoutMS = spec.TimeoutMS
+			base.StdinMode = spec.StdinMode
+			base.TimeoutSource = intent.TimeoutSource
+			base.StdinModeSource = intent.Resolved.StdinSource()
 		} else {
 			base.SchemaVersion = 2
 		}
@@ -87,12 +94,26 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		State: state, Outcome: outcome,
 	}
 	if rec.SchemaVersion >= 2 {
+		if rec.SchemaVersion == 4 {
+			rec.StdinMode = string(l.reservation.StdinMode)
+			rec.TimeoutSource = l.reservation.TimeoutSource
+			rec.StdinModeSource = l.reservation.StdinModeSource
+		}
 		rec.RequestFingerprint = l.reservation.RequestFingerprint
 		rec.ExecutionFingerprint = l.reservation.ExecutionFingerprint
 		rec.ObservationBindingFingerprint = l.reservation.ObservationBindingFingerprint
 		rec.ProjectCommand = l.reservation.ProjectCommand
 		if rec.SchemaVersion == 2 || rec.SchemaVersion == 3 {
 			rec.ResourceCleanup = l.resourceCleanup
+		}
+		if (rec.SchemaVersion == 2 || rec.SchemaVersion == 3) && l.reservation.HermeticBoundary != nil {
+			rec.HermeticBinding = l.reservation.HermeticBoundary.Clone()
+			if l.hermeticResult != nil {
+				result := *l.hermeticResult
+				rec.HermeticResult = &result
+			} else {
+				rec.HermeticResult = lostHermeticResult(l.reservation.HermeticBoundary)
+			}
 		}
 		if (rec.SchemaVersion == 2 || (rec.SchemaVersion == 4 && l.reservation.ProjectCommand == nil)) && l.reservation.Evidence != nil {
 			frozen := *l.reservation.Evidence
