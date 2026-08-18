@@ -139,19 +139,50 @@ func normalizeRepoInputs(inputs []string) ([]string, error) {
 	return out, nil
 }
 
-func validateRepoInputSelector(selector string) error {
-	if selector == "" || len(selector) > MaxRepoInputSelectorBytes || !utf8.ValidString(selector) {
-		return fmt.Errorf("invalid hermetic repo input selector")
+type RepoInputSelector struct {
+	Path      string
+	Recursive bool
+}
+
+func ParseRepoInputSelector(selector string) (RepoInputSelector, error) {
+	base, recursive, err := parseRepoInputSelector(selector)
+	if err != nil {
+		return RepoInputSelector{}, err
 	}
-	if strings.HasPrefix(selector, "/") || strings.Contains(selector, "\\") || path.Clean(selector) != selector || selector == "." || selector == ".." || strings.HasPrefix(selector, "../") || strings.Contains(selector, "/../") {
-		return fmt.Errorf("invalid hermetic repo input selector")
+	return RepoInputSelector{Path: base, Recursive: recursive}, nil
+}
+
+func validateRepoInputSelector(selector string) error {
+	_, _, err := parseRepoInputSelector(selector)
+	return err
+}
+
+func parseRepoInputSelector(selector string) (string, bool, error) {
+	if selector == "" || len(selector) > MaxRepoInputSelectorBytes || !utf8.ValidString(selector) {
+		return "", false, fmt.Errorf("invalid hermetic repo input selector")
+	}
+	recursive := strings.HasSuffix(selector, "/**")
+	base := selector
+	if recursive {
+		base = strings.TrimSuffix(selector, "/**")
+	}
+	if base == "" || strings.HasPrefix(base, "/") || strings.Contains(base, "\\") || path.Clean(base) != base || base == "." || base == ".." || strings.HasPrefix(base, "../") || strings.Contains(base, "/../") {
+		return "", false, fmt.Errorf("invalid hermetic repo input selector")
+	}
+	if strings.ContainsAny(base, "*?[]{}") {
+		return "", false, fmt.Errorf("unsupported hermetic repo input selector grammar")
+	}
+	for _, component := range strings.Split(base, "/") {
+		if component == ".git" {
+			return "", false, fmt.Errorf("git metadata is not a hermetic repo input")
+		}
 	}
 	for _, r := range selector {
 		if r == 0 || unicode.IsControl(r) {
-			return fmt.Errorf("invalid hermetic repo input selector")
+			return "", false, fmt.Errorf("invalid hermetic repo input selector")
 		}
 	}
-	return nil
+	return base, recursive, nil
 }
 
 func validSHA256(value string) bool {

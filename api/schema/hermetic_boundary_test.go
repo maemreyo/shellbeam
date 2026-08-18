@@ -109,3 +109,27 @@ func TestHermeticStartSchemasRejectInteractivePersistentOrStreamingV1(t *testing
 		}
 	}
 }
+
+func TestHermeticSchemasRejectUnsupportedRepoInputSelectorGrammar(t *testing.T) {
+	bad := []string{"*.go", "internal/*", "internal/**/nested", ".git/**", "nested/.git/config"}
+	for _, selector := range bad {
+		hermetic := validHermeticSchemaValue()
+		hermetic["repo_inputs"] = []any{selector}
+		mcp := map[string]any{"action": "start", "operation_id": "hermetic-selector", "command": "true", "cwd": "/tmp", "hermetic": hermetic}
+		if err := resolvedSchema(t, MCPInputV2).Validate(mcp); err == nil {
+			t.Fatalf("MCP schema accepted unsafe selector %q", selector)
+		}
+		ipc := map[string]any{"ipc_version": 2.0, "kind": "request", "request_id": "hermetic-selector", "action": "start", "operation_id": "hermetic-selector", "command": "true", "cwd": "/tmp", "hermetic": hermetic}
+		if err := resolvedSchema(t, IPCV2).Validate(ipc); err == nil {
+			t.Fatalf("IPC schema accepted unsafe selector %q", selector)
+		}
+	}
+	for _, selector := range []string{"go.mod", "internal/**", ".github/**", "dir with spaces/file.txt"} {
+		hermetic := validHermeticSchemaValue()
+		hermetic["repo_inputs"] = []any{selector}
+		mcp := map[string]any{"action": "start", "operation_id": "hermetic-selector-valid", "command": "true", "cwd": "/tmp", "hermetic": hermetic}
+		if err := resolvedSchema(t, MCPInputV2).Validate(mcp); err != nil {
+			t.Fatalf("MCP schema rejected valid selector %q: %v", selector, err)
+		}
+	}
+}

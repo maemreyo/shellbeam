@@ -140,3 +140,24 @@ func TestProviderBoundaryAndProvenScopeContracts(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestRequestRejectsUnboundedGlobAndGitMetadataSelectors(t *testing.T) {
+	badSelectors := []string{
+		"*.go", "internal/*", "internal/??", "internal/[ab].go", "{a,b}", "internal/**/nested",
+		".git", ".git/**", "nested/.git/config", "nested/.git/**",
+	}
+	for _, selector := range badSelectors {
+		req := validRequest()
+		req.RepoInputs = []string{selector}
+		if err := req.Validate(); err == nil {
+			t.Fatalf("accepted unsafe selector %q", selector)
+		}
+	}
+	for _, selector := range []string{"go.mod", "internal/**", ".github/**", "dir with spaces/file.txt"} {
+		req := validRequest()
+		req.RepoInputs = []string{selector}
+		if err := req.Validate(); err != nil {
+			t.Fatalf("rejected valid selector %q: %v", selector, err)
+		}
+	}
+}
