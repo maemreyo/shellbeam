@@ -105,16 +105,29 @@ type RequirementSemanticState struct {
 	Status        DecisionRequirementStatus `json:"status"`
 }
 
+type ExperimentSemanticState struct {
+	ExperimentID            ExperimentID                  `json:"experiment_id"`
+	State                   ExperimentLifecycleState      `json:"state"`
+	ObservationState        ObservationSettlementState    `json:"observation_state,omitempty"`
+	PotentialDiscrimination []PotentialDiscriminationPair `json:"potential_discrimination,omitempty"`
+	RealizedDiscrimination  bool                          `json:"realized_discrimination"`
+}
+
 type ProjectionSemanticState struct {
-	EpisodeID            EpisodeID                  `json:"episode_id"`
-	CandidateID          CandidateID                `json:"candidate_id"`
-	CandidateStates      []CandidateSemanticState   `json:"candidate_states,omitempty"`
-	RequirementStates    []RequirementSemanticState `json:"requirement_states,omitempty"`
-	Gate                 GateStatus                 `json:"gate"`
-	UnresolvedDimensions []string                   `json:"unresolved_dimensions,omitempty"`
-	VerifierState        []VerifierSemanticState    `json:"verifier_state,omitempty"`
-	SourceCompatible     bool                       `json:"source_compatible"`
-	BasisRefs            []string                   `json:"-"`
+	EpisodeID                  EpisodeID                  `json:"episode_id"`
+	EpisodeState               EpisodeState               `json:"episode_state,omitempty"`
+	PolicyDigest               string                     `json:"policy_digest,omitempty"`
+	CandidateID                CandidateID                `json:"candidate_id"`
+	CandidateStates            []CandidateSemanticState   `json:"candidate_states,omitempty"`
+	ExperimentStates           []ExperimentSemanticState  `json:"experiment_states,omitempty"`
+	RequirementStates          []RequirementSemanticState `json:"requirement_states,omitempty"`
+	Gate                       GateStatus                 `json:"gate"`
+	UnresolvedDimensions       []string                   `json:"unresolved_dimensions,omitempty"`
+	VerifierState              []VerifierSemanticState    `json:"verifier_state,omitempty"`
+	SourceCompatible           bool                       `json:"source_compatible"`
+	Budget                     BudgetAdmission            `json:"budget,omitempty"`
+	AllowedProtocolTransitions []string                   `json:"allowed_protocol_transitions,omitempty"`
+	BasisRefs                  []string                   `json:"-"`
 }
 
 func canonicalProjectionState(s ProjectionSemanticState) (ProjectionSemanticState, error) {
@@ -135,6 +148,26 @@ func canonicalProjectionState(s ProjectionSemanticState) (ProjectionSemanticStat
 		}
 		out.CandidateStates[i].ExpectationOutcomes = outcomes
 	}
+	out.ExperimentStates = append([]ExperimentSemanticState(nil), s.ExperimentStates...)
+	sort.Slice(out.ExperimentStates, func(i, j int) bool {
+		return out.ExperimentStates[i].ExperimentID < out.ExperimentStates[j].ExperimentID
+	})
+	for i := range out.ExperimentStates {
+		if !validID(out.ExperimentStates[i].ExperimentID) || out.ExperimentStates[i].State.Validate() != nil || (out.ExperimentStates[i].ObservationState != "" && out.ExperimentStates[i].ObservationState.Validate() != nil) {
+			return s, fmt.Errorf("invalid experiment semantic state")
+		}
+		pairs := append([]PotentialDiscriminationPair(nil), out.ExperimentStates[i].PotentialDiscrimination...)
+		sort.Slice(pairs, func(a, b int) bool {
+			if pairs[a].TargetCandidateID == pairs[b].TargetCandidateID {
+				if pairs[a].ChallengerCandidateID == pairs[b].ChallengerCandidateID {
+					return pairs[a].DimensionKey < pairs[b].DimensionKey
+				}
+				return pairs[a].ChallengerCandidateID < pairs[b].ChallengerCandidateID
+			}
+			return pairs[a].TargetCandidateID < pairs[b].TargetCandidateID
+		})
+		out.ExperimentStates[i].PotentialDiscrimination = pairs
+	}
 	out.RequirementStates = append([]RequirementSemanticState(nil), s.RequirementStates...)
 	sort.Slice(out.RequirementStates, func(i, j int) bool {
 		return out.RequirementStates[i].RequirementID < out.RequirementStates[j].RequirementID
@@ -148,6 +181,17 @@ func canonicalProjectionState(s ProjectionSemanticState) (ProjectionSemanticStat
 	sort.Strings(out.UnresolvedDimensions)
 	if err := uniqueStrings(out.UnresolvedDimensions, 128, 512, true); err != nil {
 		return s, err
+	}
+	out.AllowedProtocolTransitions = append([]string(nil), s.AllowedProtocolTransitions...)
+	sort.Strings(out.AllowedProtocolTransitions)
+	if err := uniqueStrings(out.AllowedProtocolTransitions, 64, 256, true); err != nil {
+		return s, err
+	}
+	if s.EpisodeState != "" && s.EpisodeState.Validate() != nil {
+		return s, fmt.Errorf("invalid projection episode state")
+	}
+	if s.PolicyDigest != "" && !validDerived(s.PolicyDigest, "pol_") {
+		return s, fmt.Errorf("invalid projection policy digest")
 	}
 	out.VerifierState = canonicalVerifierState(s.VerifierState)
 	for _, v := range out.VerifierState {
@@ -200,6 +244,8 @@ type DecisionProjection struct {
 	Protocol                      DecisionProtocolEvaluation    `json:"protocol,omitempty"`
 	SourceCompatible              bool                          `json:"source_compatible"`
 	UnresolvedDimensions          []string                      `json:"unresolved_dimensions,omitempty"`
+	Budget                        BudgetAdmission               `json:"budget,omitempty"`
+	AllowedProtocolTransitions    []string                      `json:"allowed_protocol_transitions,omitempty"`
 }
 
 type EpisodeState string
