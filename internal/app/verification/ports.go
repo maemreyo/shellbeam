@@ -2,6 +2,7 @@ package verification
 
 import (
 	"context"
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 
 	"github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -124,4 +125,9 @@ type CandidateResultSet struct {
 	Candidates  []core.EvidenceCandidate
 	Coverage    core.Coverage
 	Diagnostics []string
+}
+
+// CurrentEnvironmentSource exposes only validated core environment bindings.
+type CurrentEnvironmentSource interface {
+	CurrentBinding(context.Context, string) (environment.Binding, bool, error)
 }

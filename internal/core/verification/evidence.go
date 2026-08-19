@@ -111,8 +111,17 @@ func (c EvidenceCandidate) validateProviderAuthority() error {
 		}
 		return nil
 	}
-	if c.ProviderClass != ProviderProjectCommand || !c.AuthorityKnown || c.Authority != AuthorityMechanical || !candidateProjectCommandIDPattern.MatchString(c.ProjectCommandID) || !candidateDigest(c.ProjectBindingDigest) {
-		return fmt.Errorf("invalid typed project-command candidate authority")
+	if c.ProviderClass.Validate() != nil || !c.AuthorityKnown || c.Authority.Validate() != nil {
+		return fmt.Errorf("invalid known candidate provider authority")
+	}
+	if c.ProviderClass == ProviderProjectCommand {
+		if !candidateProjectCommandIDPattern.MatchString(c.ProjectCommandID) || !candidateDigest(c.ProjectBindingDigest) {
+			return fmt.Errorf("invalid typed project-command candidate authority")
+		}
+		return nil
+	}
+	if c.ProjectCommandID != "" || c.ProjectBindingDigest != "" {
+		return fmt.Errorf("non-project provider claims project binding authority")
 	}
 	return nil
 }
