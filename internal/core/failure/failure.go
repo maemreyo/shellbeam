@@ -98,6 +98,10 @@ const (
 	HandoffExpired                    Code = "handoff_expired"
 	HandoffClientLost                 Code = "handoff_client_lost"
 	HandoffReclaimBlocked             Code = "handoff_reclaim_blocked"
+	TerminalLauncherUnavailable       Code = "terminal_launcher_unavailable"
+	TerminalLaunchFailed              Code = "terminal_launch_failed"
+	TerminalLaunchUnknown             Code = "terminal_launch_unknown"
+	TerminalIdentityAmbiguous         Code = "terminal_identity_ambiguous"
 	HumanControlUnreachable           Code = "human_control_unreachable"
 	HumanClientNotProven              Code = "human_client_not_proven"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
@@ -245,6 +249,10 @@ var publicSpecs = map[Code]publicSpec{
 	HandoffExpired:                    {message: "handoff expired", details: keys("handoff_id")},
 	HandoffClientLost:                 {message: "handoff human client lost", retryable: true, details: keys("handoff_id", "reason")},
 	HandoffReclaimBlocked:             {message: "handoff reclaim blocked", retryable: true, details: keys("handoff_id", "reason", "phase")},
+	TerminalLauncherUnavailable:       {message: "terminal launcher unavailable", details: keys("provider_id", "reason")},
+	TerminalLaunchFailed:              {message: "terminal launch failed", details: keys("provider_id", "reason")},
+	TerminalLaunchUnknown:             {message: "terminal launch outcome unknown", retryable: true, details: keys("provider_id", "reason")},
+	TerminalIdentityAmbiguous:         {message: "terminal identity is ambiguous", details: keys("provider_id", "reason")},
 	HumanControlUnreachable:           {message: "human control is unreachable", retryable: true, details: keys("handoff_id", "reason")},
 	HumanClientNotProven:              {message: "human client identity not proven", retryable: true, details: keys("handoff_id", "reason")},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
