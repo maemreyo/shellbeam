@@ -332,10 +332,16 @@ git -c core.hooksPath=.githooks commit -m "feat: fence human delegated ingress"
 - Create: `internal/app/daemon/handoff_port.go`
 - Create: `internal/app/daemon/handoff_actions.go`
 - Create: `internal/app/daemon/handoff_actions_test.go`
+- Modify: `internal/app/daemon/service.go`
+- Modify: `internal/app/daemon/store_port.go`
+- Modify: `internal/adapter/store/interactive_handoffs.go`
+- Modify: `internal/adapter/store/interactive_handoffs_test.go`
 
 **Interfaces:**
 - Public service methods: `Request`, `Wait`, `Abort`, `Inspect`.
 - Private/local methods: `AttachLocalHuman`, `HumanControl`.
+- Add durable `FindHandoff` so exact `handoff_id` replay is resolved before provider freshness/authority checks; lost-response retry must not require a currently healthy provider merely to rediscover already-durable state.
+- Daemon owns one shared `interactivehandoff.Service`/condition channel for the process lifetime; do not construct one coordinator per action or use package-global handoff state.
 
 - [ ] **Step 1: RED-test agent→human ordering.**
 
