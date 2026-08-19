@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/maemreyo/shellbeam/internal/core/activity"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/project"
 	core "github.com/maemreyo/shellbeam/internal/core/verification"
 	"github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -106,6 +107,10 @@ type StarterPolicyPreviewer interface {
 
 type EvidenceCandidateSource interface {
 	Candidates(context.Context, CandidateQuery) (CandidateResultSet, error)
+}
+
+type EvidenceReservationReader interface {
+	FindOperation(context.Context, operation.ID) (operation.Reservation, bool, error)
 }
 
 type CandidateQuery struct {

@@ -10,6 +10,8 @@ import (
 	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	core "github.com/maemreyo/shellbeam/internal/core/verification"
 )
 
@@ -64,7 +66,7 @@ func TestEvidenceSourceMapsLiteralResultAndFreshness(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := candidateRecord(byte('a'+i), evidence.VerificationTest, tc.result)
 			inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(r, tc.fresh)}}}}
-			got, err := NewEvidenceSource(inspector).Candidates(context.Background(), sourceQuery())
+			got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), sourceQuery())
 			if err != nil || len(got.Candidates) != 1 {
 				t.Fatalf("got=%#v err=%v", got, err)
 			}
@@ -82,7 +84,7 @@ func TestRawEvidenceKindDoesNotElevateProviderClass(t *testing.T) {
 		inspectView(candidateRecord('b', evidence.VerificationBuild, evidence.ResultPass), evidence.FreshnessCurrent),
 	}
 	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: records}}}
-	got, err := NewEvidenceSource(inspector).Candidates(context.Background(), sourceQuery())
+	got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), sourceQuery())
 	if err != nil || len(got.Candidates) != 2 {
 		t.Fatalf("got=%#v err=%v", got, err)
 	}
@@ -106,7 +108,7 @@ func TestEvidenceSourceQualifiesOnlyFrozenTypedProjectCommandAuthority(t *testin
 	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{
 		inspectView(typed, evidence.FreshnessCurrent), inspectView(partial, evidence.FreshnessCurrent), inspectView(invalid, evidence.FreshnessCurrent),
 	}}}}
-	got, err := NewEvidenceSource(inspector).Candidates(context.Background(), sourceQuery())
+	got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), sourceQuery())
 	if err != nil || len(got.Candidates) != 3 {
 		t.Fatalf("got=%#v err=%v", got, err)
 	}
@@ -128,7 +130,7 @@ func TestEvidenceSourceCopiesOnlyRecordedEnvironmentBinding(t *testing.T) {
 	}
 	withoutEnv := candidateRecord('b', evidence.VerificationTest, evidence.ResultPass)
 	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(withEnv, evidence.FreshnessCurrent), inspectView(withoutEnv, evidence.FreshnessCurrent)}}}}
-	got, err := NewEvidenceSource(inspector).Candidates(context.Background(), sourceQuery())
+	got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), sourceQuery())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +156,7 @@ func TestEvidenceSourceBoundsLedgerPaginationAndLocalCommandFiltering(t *testing
 	inspector := &fakeEvidenceInspector{pages: pages}
 	query := sourceQuery()
 	query.ProjectCommandIDs = []string{"wanted"}
-	got, err := NewEvidenceSource(inspector).Candidates(context.Background(), query)
+	got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +176,7 @@ func TestEvidenceSourceOverallCandidateCapMarksBoundedHistory(t *testing.T) {
 	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(a, evidence.FreshnessCurrent), inspectView(b, evidence.FreshnessCurrent)}}}}
 	query := sourceQuery()
 	query.MaxRecords = 1
-	got, err := NewEvidenceSource(inspector).Candidates(context.Background(), query)
+	got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), query)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,11 +189,121 @@ func TestEvidenceSourceFallsBackToPreGenerationWhenPostUnavailable(t *testing.T)
 	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
 	record.Source.PostGeneration = ""
 	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(record, evidence.FreshnessUnknown)}}}}
-	got, err := NewEvidenceSource(inspector).Candidates(context.Background(), sourceQuery())
+	got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), sourceQuery())
 	if err != nil || len(got.Candidates) != 1 {
 		t.Fatalf("got=%#v err=%v", got, err)
 	}
 	if got.Candidates[0].SourceGeneration != record.Source.PreGeneration {
 		t.Fatalf("source generation=%q want pre=%q", got.Candidates[0].SourceGeneration, record.Source.PreGeneration)
 	}
+}
+
+type fakeEvidenceReservationReader struct {
+	values map[operation.ID]operation.Reservation
+	errs   map[operation.ID]error
+}
+
+func (f *fakeEvidenceReservationReader) FindOperation(_ context.Context, id operation.ID) (operation.Reservation, bool, error) {
+	if err := f.errs[id]; err != nil {
+		return operation.Reservation{}, false, err
+	}
+	v, ok := f.values[id]
+	return v, ok, nil
+}
+
+func TestEvidenceSourceJoinsRawVerificationAttemptFromExactReservationContract(t *testing.T) {
+	contract := evidence.Contract{VerificationKind: evidence.VerificationTest, SourceScope: evidence.SourceScopeFull}
+	digest, err := contract.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
+	record.ContractDigest = digest
+	attempt := &evidence.VerificationAttemptIntent{RerunOfEvidenceID: "ev_" + strings.Repeat("9", 64), RerunReason: evidence.RerunDiagnoseFlake}
+	reader := &fakeEvidenceReservationReader{values: map[operation.ID]operation.Reservation{operation.ID(record.OperationID): {Evidence: &contract, VerificationAttempt: attempt}}}
+	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(record, evidence.FreshnessCurrent)}}}}
+	got, err := NewEvidenceSource(inspector, reader).Candidates(context.Background(), sourceQuery())
+	if err != nil || len(got.Candidates) != 1 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	if got.Candidates[0].Attempt == nil || got.Candidates[0].Attempt.RerunReason != evidence.RerunDiagnoseFlake || got.Candidates[0].SemanticContractDigest != digest {
+		t.Fatalf("candidate=%#v", got.Candidates[0])
+	}
+	got.Candidates[0].Attempt.RerunReason = evidence.RerunFlakeQualification
+	if attempt.RerunReason != evidence.RerunDiagnoseFlake {
+		t.Fatal("candidate attempt aliases reservation")
+	}
+}
+
+func TestEvidenceSourceJoinsTypedVerificationAttemptFromFrozenBinding(t *testing.T) {
+	fingerprint, err := project.ParameterFingerprint(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := project.CommandBinding{SchemaVersion: project.BindingSchemaVersion, ManifestDigest: strings.Repeat("d", 64), ManifestSchemaVersion: project.ManifestSchemaV2, CommandID: "check", ParameterFingerprint: fingerprint, ResolvedArgv: []string{"go", "test", "./..."}, LogicalCWD: ".", ResolvedCWD: "/repo", Kind: "test", SourceScope: "full"}
+	bindingDigest, err := binding.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	contract := evidence.Contract{VerificationKind: evidence.VerificationTest, SourceScope: evidence.SourceScopeFull}
+	contractDigest, err := contract.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
+	record.ContractDigest = contractDigest
+	record.Command.ProjectCommandID, record.Command.ProjectBindingDigest, record.Command.ManifestDigest = binding.CommandID, bindingDigest, binding.ManifestDigest
+	attempt := &evidence.VerificationAttemptIntent{RerunOfEvidenceID: "ev_" + strings.Repeat("8", 64), RerunReason: evidence.RerunFlakeQualification}
+	reader := &fakeEvidenceReservationReader{values: map[operation.ID]operation.Reservation{operation.ID(record.OperationID): {ProjectCommand: &binding, VerificationAttempt: attempt}}}
+	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(record, evidence.FreshnessCurrent)}}}}
+	got, err := NewEvidenceSource(inspector, reader).Candidates(context.Background(), sourceQuery())
+	if err != nil || len(got.Candidates) != 1 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	c := got.Candidates[0]
+	if c.Attempt == nil || c.Attempt.RerunReason != evidence.RerunFlakeQualification || !c.ProviderClassKnown || c.SemanticContractDigest != contractDigest {
+		t.Fatalf("candidate=%#v", c)
+	}
+}
+
+func TestEvidenceSourceContractMismatchKeepsLiteralRecordButDisablesSemanticCompatibility(t *testing.T) {
+	ledgerContract := evidence.Contract{VerificationKind: evidence.VerificationTest, SourceScope: evidence.SourceScopeFull}
+	ledgerDigest, err := ledgerContract.Digest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := evidence.Contract{VerificationKind: evidence.VerificationBuild, SourceScope: evidence.SourceScopeFull}
+	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
+	record.ContractDigest = ledgerDigest
+	reader := &fakeEvidenceReservationReader{values: map[operation.ID]operation.Reservation{operation.ID(record.OperationID): {Evidence: &other, VerificationAttempt: &evidence.VerificationAttemptIntent{RerunOfEvidenceID: "ev_" + strings.Repeat("7", 64)}}}}
+	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(record, evidence.FreshnessCurrent)}}}}
+	got, err := NewEvidenceSource(inspector, reader).Candidates(context.Background(), sourceQuery())
+	if err != nil || len(got.Candidates) != 1 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	c := got.Candidates[0]
+	if c.ContractDigest != ledgerDigest || c.SemanticContractDigest != "" || c.Attempt != nil || !containsDiagnostic(got.Diagnostics, "evidence_contract_authority_mismatch:"+record.OperationID) {
+		t.Fatalf("candidate=%#v diagnostics=%v", c, got.Diagnostics)
+	}
+}
+
+func TestEvidenceSourceMissingReservationLeavesAttemptUnknownWithoutInference(t *testing.T) {
+	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
+	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(record, evidence.FreshnessCurrent)}}}}
+	got, err := NewEvidenceSource(inspector, &fakeEvidenceReservationReader{}).Candidates(context.Background(), sourceQuery())
+	if err != nil || len(got.Candidates) != 1 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	if got.Candidates[0].Attempt != nil || !containsDiagnostic(got.Diagnostics, "verification_attempt_authority_unavailable:"+record.OperationID) {
+		t.Fatalf("candidate=%#v diagnostics=%v", got.Candidates[0], got.Diagnostics)
+	}
+}
+
+func containsDiagnostic(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

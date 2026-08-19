@@ -37,30 +37,31 @@ type Options struct {
 	HermeticRuntime      HermeticRuntime
 }
 type StartRequest struct {
-	ProtocolVersion   int                       `json:"-"`
-	OperationID       string                    `json:"operation_id"`
-	ActivityID        string                    `json:"activity_id,omitempty"`
-	WorkspaceID       string                    `json:"workspace_id,omitempty"`
-	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
-	Command           string                    `json:"command,omitempty"`
-	Argv              []string                  `json:"argv,omitempty"`
-	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
-	CWD               string                    `json:"cwd"`
-	TTY               bool                      `json:"tty"`
-	TimeoutMS         int64                     `json:"timeout_ms"`
-	StdinMode         operation.StdinMode       `json:"stdin_mode,omitempty"`
-	TimeoutMode       operation.TimeoutMode     `json:"timeout_mode,omitempty"`
-	TraceMode         trace.Mode                `json:"trace_mode,omitempty"`
-	ResourceLimits    *operation.ResourceLimits `json:"limits,omitempty"`
-	Hermetic          *hermeticcore.Request     `json:"hermetic,omitempty"`
-	Persistent        bool                      `json:"persistent,omitempty"`
-	SessionName       string                    `json:"session_name,omitempty"`
-	YieldMS           int64                     `json:"yield_time_ms"`
-	MaxOutputBytes    int                       `json:"max_output_bytes"`
-	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
-	Evidence          *evidence.Contract        `json:"evidence,omitempty"`
-	ProjectCommandID  string                    `json:"project_command_id,omitempty"`
-	Params            map[string]string         `json:"params,omitempty"`
+	ProtocolVersion     int                                 `json:"-"`
+	OperationID         string                              `json:"operation_id"`
+	ActivityID          string                              `json:"activity_id,omitempty"`
+	WorkspaceID         string                              `json:"workspace_id,omitempty"`
+	WorkspaceHint       *workspace.Hint                     `json:"workspace_hint,omitempty"`
+	Command             string                              `json:"command,omitempty"`
+	Argv                []string                            `json:"argv,omitempty"`
+	Intent              *operation.DeclaredIntent           `json:"intent,omitempty"`
+	CWD                 string                              `json:"cwd"`
+	TTY                 bool                                `json:"tty"`
+	TimeoutMS           int64                               `json:"timeout_ms"`
+	StdinMode           operation.StdinMode                 `json:"stdin_mode,omitempty"`
+	TimeoutMode         operation.TimeoutMode               `json:"timeout_mode,omitempty"`
+	TraceMode           trace.Mode                          `json:"trace_mode,omitempty"`
+	ResourceLimits      *operation.ResourceLimits           `json:"limits,omitempty"`
+	Hermetic            *hermeticcore.Request               `json:"hermetic,omitempty"`
+	Persistent          bool                                `json:"persistent,omitempty"`
+	SessionName         string                              `json:"session_name,omitempty"`
+	YieldMS             int64                               `json:"yield_time_ms"`
+	MaxOutputBytes      int                                 `json:"max_output_bytes"`
+	StructuredAdapter   string                              `json:"structured_adapter,omitempty"`
+	Evidence            *evidence.Contract                  `json:"evidence,omitempty"`
+	VerificationAttempt *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
+	ProjectCommandID    string                              `json:"project_command_id,omitempty"`
+	Params              map[string]string                   `json:"params,omitempty"`
 }
 
 type StructuredWorker interface {

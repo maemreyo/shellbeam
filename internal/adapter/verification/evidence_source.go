@@ -9,6 +9,8 @@ import (
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+	project "github.com/maemreyo/shellbeam/internal/core/project"
 	core "github.com/maemreyo/shellbeam/internal/core/verification"
 )
 
@@ -20,10 +22,13 @@ type evidenceInspector interface {
 	Inspect(context.Context, evidenceapp.InspectRequest) (evidenceapp.InspectResult, error)
 }
 
-type EvidenceSource struct{ inspector evidenceInspector }
+type EvidenceSource struct {
+	inspector    evidenceInspector
+	reservations verificationapp.EvidenceReservationReader
+}
 
-func NewEvidenceSource(inspector evidenceInspector) *EvidenceSource {
-	return &EvidenceSource{inspector: inspector}
+func NewEvidenceSource(inspector evidenceInspector, reservations verificationapp.EvidenceReservationReader) *EvidenceSource {
+	return &EvidenceSource{inspector: inspector, reservations: reservations}
 }
 
 func (s *EvidenceSource) Candidates(ctx context.Context, query verificationapp.CandidateQuery) (verificationapp.CandidateResultSet, error) {
@@ -44,7 +49,7 @@ func (s *EvidenceSource) Candidates(ctx context.Context, query verificationapp.C
 		if result.Status == evidenceapp.InspectUnavailable {
 			return verificationapp.CandidateResultSet{Coverage: core.CoverageUnknown, Diagnostics: []string{"evidence_inspector_unavailable"}}, nil
 		}
-		capped, err := appendCandidateViews(&out, result.Records, commandSet, maxRecords)
+		capped, err := s.appendCandidateViews(ctx, &out, result.Records, commandSet, maxRecords)
 		if err != nil {
 			return verificationapp.CandidateResultSet{}, err
 		}
@@ -84,7 +89,7 @@ func normalizeCandidateQuery(query verificationapp.CandidateQuery) (int, map[str
 	return maxRecords, commands, nil
 }
 
-func appendCandidateViews(out *verificationapp.CandidateResultSet, views []evidenceapp.InspectRecord, commandSet map[string]bool, maxRecords int) (bool, error) {
+func (s *EvidenceSource) appendCandidateViews(ctx context.Context, out *verificationapp.CandidateResultSet, views []evidenceapp.InspectRecord, commandSet map[string]bool, maxRecords int) (bool, error) {
 	for _, view := range views {
 		if len(commandSet) != 0 && !commandSet[view.Record.Command.ProjectCommandID] {
 			continue
@@ -95,6 +100,10 @@ func appendCandidateViews(out *verificationapp.CandidateResultSet, views []evide
 		candidate, err := mapEvidenceCandidate(view)
 		if err != nil {
 			return false, err
+		}
+		out.Diagnostics = append(out.Diagnostics, s.bindReservationAuthority(ctx, &candidate)...)
+		if err := candidate.Validate(); err != nil {
+			return false, fmt.Errorf("invalid reservation-bound candidate %q: %w", candidate.EvidenceID, err)
 		}
 		out.Candidates = append(out.Candidates, candidate)
 	}
@@ -133,6 +142,95 @@ func mapEvidenceCandidate(view evidenceapp.InspectRecord) (core.EvidenceCandidat
 		return core.EvidenceCandidate{}, fmt.Errorf("invalid evidence candidate %q: %w", r.EvidenceID, err)
 	}
 	return candidate, nil
+}
+
+func (s *EvidenceSource) bindReservationAuthority(ctx context.Context, candidate *core.EvidenceCandidate) []string {
+	if candidate == nil {
+		return nil
+	}
+	if s == nil || s.reservations == nil {
+		return []string{"verification_attempt_authority_unavailable:" + candidate.OperationID}
+	}
+	id, err := operation.ParseID(candidate.OperationID)
+	if err != nil {
+		return []string{"verification_attempt_authority_unavailable:" + candidate.OperationID}
+	}
+	reservation, found, err := s.reservations.FindOperation(ctx, id)
+	if err != nil || !found {
+		return []string{"verification_attempt_authority_unavailable:" + candidate.OperationID}
+	}
+	contractDigest, ok, err := reservationContractDigest(reservation)
+	if err != nil || !ok || contractDigest != candidate.ContractDigest || !reservationCommandMatchesCandidate(reservation, *candidate) {
+		candidate.Attempt = nil
+		candidate.SemanticContractDigest = ""
+		return []string{"evidence_contract_authority_mismatch:" + candidate.OperationID}
+	}
+	candidate.SemanticContractDigest = contractDigest
+	candidate.Attempt = cloneEvidenceAttempt(reservation.VerificationAttempt)
+	return nil
+}
+
+func reservationContractDigest(reservation operation.Reservation) (string, bool, error) {
+	if reservation.Evidence != nil {
+		digest, err := reservation.Evidence.Digest()
+		return digest, err == nil, err
+	}
+	if reservation.ProjectCommand == nil {
+		return "", false, nil
+	}
+	binding := reservation.ProjectCommand
+	if err := binding.Validate(); err != nil {
+		return "", false, err
+	}
+	if binding.SchemaVersion == project.BindingSchemaV1 {
+		return "", false, nil
+	}
+	kind, mapped := evidenceKindFromProjectBinding(binding.Kind)
+	if !mapped && len(binding.ExpectedOutputs) == 0 {
+		return "", false, nil
+	}
+	if !mapped {
+		kind = evidence.VerificationArtifact
+	}
+	contract := evidence.Contract{VerificationKind: kind, SourceScope: evidence.SourceScope(binding.SourceScope), ExpectedOutputs: append([]project.Output(nil), binding.ExpectedOutputs...)}
+	digest, err := contract.Digest()
+	return digest, err == nil, err
+}
+
+func reservationCommandMatchesCandidate(reservation operation.Reservation, candidate core.EvidenceCandidate) bool {
+	if reservation.ProjectCommand == nil {
+		return candidate.ProjectCommandID == "" && candidate.ProjectBindingDigest == ""
+	}
+	digest, err := reservation.ProjectCommand.Digest()
+	if err != nil {
+		return false
+	}
+	return reservation.ProjectCommand.CommandID == candidate.ProjectCommandID && digest == candidate.ProjectBindingDigest && reservation.ProjectCommand.ManifestDigest == candidate.ManifestDigest
+}
+
+func evidenceKindFromProjectBinding(kind string) (evidence.VerificationKind, bool) {
+	switch kind {
+	case "format":
+		return evidence.VerificationFormat, true
+	case "test":
+		return evidence.VerificationTest, true
+	case "build":
+		return evidence.VerificationBuild, true
+	case "generate":
+		return evidence.VerificationGenerate, true
+	case "release":
+		return evidence.VerificationRelease, true
+	default:
+		return "", false
+	}
+}
+
+func cloneEvidenceAttempt(value *evidence.VerificationAttemptIntent) *evidence.VerificationAttemptIntent {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }
 
 func frozenTypedCommandAuthority(command evidence.CommandAuthority) bool {

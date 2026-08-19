@@ -284,10 +284,11 @@ func validTraceExecutionDigest(value string) bool {
 }
 
 type ObservationBinding struct {
-	ActivityID        string             `json:"activity_id,omitempty"`
-	Intent            *DeclaredIntent    `json:"intent,omitempty"`
-	StructuredAdapter string             `json:"structured_adapter,omitempty"`
-	Evidence          *evidence.Contract `json:"evidence,omitempty"`
+	ActivityID          string                              `json:"activity_id,omitempty"`
+	Intent              *DeclaredIntent                     `json:"intent,omitempty"`
+	StructuredAdapter   string                              `json:"structured_adapter,omitempty"`
+	Evidence            *evidence.Contract                  `json:"evidence,omitempty"`
+	VerificationAttempt *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
 }
 
 func ValidStructuredAdapterID(value string) bool {
@@ -304,6 +305,17 @@ func ValidStructuredAdapterID(value string) bool {
 }
 
 func (b ObservationBinding) Fingerprint() (string, error) {
+	base, err := b.legacyFingerprint()
+	if err != nil || b.VerificationAttempt == nil {
+		return base, err
+	}
+	if b.Evidence == nil {
+		return "", fmt.Errorf("verification attempt requires evidence contract")
+	}
+	return bindVerificationAttemptFingerprint("observation", base, b.VerificationAttempt)
+}
+
+func (b ObservationBinding) legacyFingerprint() (string, error) {
 	if b.StructuredAdapter != "" && !ValidStructuredAdapterID(b.StructuredAdapter) {
 		return "", fmt.Errorf("invalid structured adapter")
 	}
@@ -374,5 +386,31 @@ func (b ObservationBinding) Fingerprint() (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func bindVerificationAttemptFingerprint(kind, base string, attempt *evidence.VerificationAttemptIntent) (string, error) {
+	if attempt == nil {
+		return base, nil
+	}
+	if base == "" {
+		return "", fmt.Errorf("verification attempt requires base fingerprint")
+	}
+	if err := attempt.Validate(); err != nil {
+		return "", err
+	}
+	if attempt.RerunOfEvidenceID == "" {
+		return "", fmt.Errorf("verification attempt requires rerun evidence id")
+	}
+	encoded, err := json.Marshal(struct {
+		Version             int                                `json:"version"`
+		Kind                string                             `json:"kind"`
+		BaseFingerprint     string                             `json:"base_fingerprint"`
+		VerificationAttempt evidence.VerificationAttemptIntent `json:"verification_attempt"`
+	}{Version: 1, Kind: kind, BaseFingerprint: base, VerificationAttempt: *attempt})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
 }

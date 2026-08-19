@@ -78,7 +78,7 @@ func (c EvidenceCandidate) Validate() error {
 	if !isDerivedID(c.EvidenceID, "ev_") || c.OperationID == "" || c.SessionID == "" || c.WorkspaceID == "" || c.CompletedAt.IsZero() {
 		return fmt.Errorf("invalid candidate identity")
 	}
-	if !validEvidenceVerificationKind(c.VerificationKind) || !candidateDigest(c.ContractDigest) || !candidateDigest(c.SemanticContractDigest) {
+	if !validEvidenceVerificationKind(c.VerificationKind) || !candidateDigest(c.ContractDigest) || (c.SemanticContractDigest != "" && !candidateDigest(c.SemanticContractDigest)) {
 		return fmt.Errorf("invalid candidate evidence contract")
 	}
 	if c.Freshness.Validate() != nil || c.Result.Validate() != nil {

@@ -251,7 +251,7 @@ func (e EvidenceRequirement) Validate() error {
 		}
 	}
 	if e.Stability == StabilityFlakeProtocol {
-		if e.Flake == nil || e.Flake.Runs < 1 || e.Flake.Runs > 32 || e.Flake.MinPasses < 1 || e.Flake.MinPasses > e.Flake.Runs || e.Flake.MaxFailures < 0 || e.Flake.MaxFailures > e.Flake.Runs || e.Flake.MinPasses+e.Flake.MaxFailures < e.Flake.Runs {
+		if e.Flake == nil || !validFlakeProtocol(*e.Flake) {
 			return fmt.Errorf("invalid flake protocol")
 		}
 	} else if e.Flake != nil {
@@ -259,6 +259,11 @@ func (e EvidenceRequirement) Validate() error {
 	}
 	return e.Execution.Validate()
 }
+
+func validFlakeProtocol(f FlakeProtocol) bool {
+	return f.Runs >= 2 && f.Runs <= 10 && f.MinPasses >= 1 && f.MinPasses <= f.Runs && f.MaxFailures >= 0 && f.MaxFailures <= f.Runs
+}
+
 func (e ProviderExecutionSemantics) Validate() error {
 	if len(e.SharedResources) > 32 {
 		return fmt.Errorf("too many shared resources")

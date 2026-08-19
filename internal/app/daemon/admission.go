@@ -206,6 +206,17 @@ func validateStartMetadata(req StartRequest) error {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
 		}
 	}
+	if req.VerificationAttempt != nil {
+		if req.ProtocolVersion != 2 {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "verification_attempt", "required_version": "2"}, nil)
+		}
+		if err := req.VerificationAttempt.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, err)
+		}
+		if !wantsProjectCommand(req) && req.Evidence == nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, fmt.Errorf("raw verification attempt requires evidence contract"))
+		}
+	}
 	if req.Evidence != nil {
 		if req.ProtocolVersion != 2 {
 			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "evidence", "required_version": "2"}, nil)
