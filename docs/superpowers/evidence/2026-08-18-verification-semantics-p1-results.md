@@ -130,13 +130,26 @@ cfbfc91 fix: preserve typed verification evidence authority
 9da70b2 test: verify p1 evidence sufficiency semantics
 ```
 
-## Task 10 completion fields
+## Task 10 completion evidence
 
-These remain intentionally blank until Task 10 produces terminal receipts:
+The implementation tree was first proven before bookkeeping on `c4a25ade1ba7ed965ff01abf5b946a0b43f497d3`:
 
-- final P1 HEAD: **PENDING**
-- final source fingerprint: **PENDING**
-- full checkpoint selection/receipt: **PENDING**
-- final checkpoint exit/status: **PENDING**
-- merge commit on `main`: **PENDING**
-- deployed runtime verification: **PENDING**
+- traceability: `PASS core=24/24 roadmap=4/4 review=11/11 deferred=7/7`;
+- forbidden production semantic scan: no matches; matches in the broad scan were tests/evidence describing the forbidden behavior;
+- full P1 package set: PASS (`internal/adapter/store` 237.942s; `cmd/shellbeam` 360.806s);
+- race set: PASS (`internal/adapter/store` 146.663s);
+- `devctl check`: PASS;
+- Task-10 dirty gate: `selection=affected`, `status=passed`, `exit_code=0`, source fingerprint `96b896903dd40937cb1eacdd33bb1340b2b5c9977699c9521310bfde0457a3f0`;
+- preliminary full checkpoint: `.build/receipts/20260819T053154.364094000Z-verify.json`, `command=verify`, `selection=full`, `status=passed`, `exit_code=0`, source fingerprint `96b896903dd40937cb1eacdd33bb1340b2b5c9977699c9521310bfde0457a3f0`, 2026-08-19T05:31:54Z → 05:32:44Z;
+- VCS scope before bookkeeping: clean, `0 behind / 24 ahead`, merge-base and `origin/main` both `f84c2a2aa28a05a598f152ef7b4670930c3a9691`, branch diff check PASS.
+
+### Final-authority boundary
+
+A repository file cannot contain the exact receipt/fingerprint of a checkpoint over its own final committed bytes without changing those bytes and invalidating the receipt. Therefore the authoritative P1 completion proof is deliberately **post-bookkeeping**:
+
+1. commit this completion bookkeeping;
+2. run one final `devctl verify --checkpoint` on that exact committed HEAD;
+3. require `command=verify`, `selection=full`, `status=passed`, `exit_code=0`;
+4. bind the final HEAD and source fingerprint from that durable receipt directly in the merge/deploy handoff and in P4-A Task 0.
+
+The final durable receipt is the source of truth for the final checkpoint. This document records the pre-bookkeeping proof and the authority rule; it does not fabricate a self-referential final receipt. Merge and deployment evidence likewise belongs to the post-commit handoff because recording it here would create another source change after the claimed final checkpoint.

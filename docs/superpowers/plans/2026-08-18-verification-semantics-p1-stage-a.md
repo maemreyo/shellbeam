@@ -1,6 +1,6 @@
 # Verification Semantics P1 Stage A Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Implement the first read-mostly P1 vertical slice: repository-pinned verification policy, durable external policy authority, mechanically derived affected surface, verification obligations, policy gaps, and one bounded `inspect.verification` view that answers what must be verified without auto-running verification commands.
 
@@ -109,7 +109,7 @@ The `internal/core/evidence` package is not modified in Stage A. Evidence satisf
 - Scenario 0 canonical name: `docs_only_four_markdown_specs`.
 - Baseline operation/fingerprint remain exactly `checkpoint-verify-specs-20260818` / `8aff94e1f3110a3b5358711ee013fd342e558d494e452f2b547d59846184266e` in the evidence document.
 
-- [ ] **Step 1: Write the benchmark script with a non-mutating default mode**
+- [x] **Step 1: Write the benchmark script with a non-mutating default mode**
 
 Create a script whose default action only prints the pinned historical baseline; `--measure-current` runs current commands against the caller's already-prepared dirty/staged state and never edits files itself:
 
@@ -155,7 +155,7 @@ PYBENCH
 esac
 ```
 
-- [ ] **Step 2: Write the evidence document**
+- [x] **Step 2: Write the evidence document**
 
 Record:
 
@@ -171,7 +171,7 @@ success criterion: preserve documentation correctness evidence while P1 inspecti
 
 Do not claim the historical eight-minute number is a stable future runtime.
 
-- [ ] **Step 3: Run RED-equivalent baseline sanity**
+- [x] **Step 3: Run RED-equivalent baseline sanity**
 
 Run:
 
@@ -181,7 +181,7 @@ bash scripts/benchmark-verification-p1.sh baseline
 
 Expected: one valid JSON line containing the exact historical fingerprint and `checkpoint_selection=full`.
 
-- [ ] **Step 4: Run markdown/dirty verification and commit**
+- [x] **Step 4: Run markdown/dirty verification and commit**
 
 ```bash
 go test ./tests/contract -run Markdown -count=1
@@ -524,7 +524,7 @@ Stage-A `VerificationObligation.EvidenceStatus` always begins `not_evaluated` un
 
 Stage A freezes the **complete P1 policy schema v1**, including environment/stability/flake/quiescence fields. Stage B implements their evaluators but MUST NOT add fields to policy schema v1; any later policy-language expansion requires a new policy schema version.
 
-- [ ] **Step 1: Write failing enum/validation/digest tests**
+- [x] **Step 1: Write failing enum/validation/digest tests**
 
 Tests MUST prove:
 
@@ -555,7 +555,7 @@ changing any rule/classification semantic changes PolicyDigest
 unknown enum values fail closed
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/verification ./internal/core/capability -count=1
@@ -563,7 +563,7 @@ go test ./internal/core/verification ./internal/core/capability -count=1
 
 Expected: FAIL because the package/capability does not exist.
 
-- [ ] **Step 3: Implement minimum contracts and canonical normalization**
+- [x] **Step 3: Implement minimum contracts and canonical normalization**
 
 Implement deterministic sorting by stable IDs before digesting. Do not sort caller path-glob order inside one classifier/rule if ordering changes matching semantics; normalize only semantically unordered sets and reject duplicates.
 
@@ -601,7 +601,7 @@ func CoverageNoStrongerThan(candidate, reference Coverage) bool
 
 The V1 authority matrix is `authoritative` satisfies all requirements, `mechanical` satisfies mechanical/advisory, and `advisory` satisfies advisory only. This is an authority lattice, not a confidence score. Coverage information order is `complete -> bounded -> partial -> unknown` only for monotonic-widening checks.
 
-- [ ] **Step 4: Add capability shape without promotion**
+- [x] **Step 4: Add capability shape without promotion**
 
 Define capability metadata version 1 in `internal/core/capability/verification.go` with bounded limits, but do not mark `verification_semantics` available in the production daemon until the public wiring task. `catalog.go` receives only the minimal catalog/projection hook because it is already ~433 lines:
 
@@ -618,7 +618,7 @@ type VerificationSemanticsSupport struct {
 
 Initial hard limits: 16 affected domains, 512 relations, 256 obligations, 128 policy gaps, 128 rules, 128 classifications, 32 evidence requirements per rule.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/core/verification internal/core/capability
@@ -706,7 +706,7 @@ type PolicyLoader interface {
 }
 ```
 
-- [ ] **Step 1: Write failing strict-loader tests**
+- [x] **Step 1: Write failing strict-loader tests**
 
 Prove:
 
@@ -726,17 +726,17 @@ profile_origin/raw bytes may preserve proposal provenance but never set approval
 `TestStarterRenderedRoundTripBecomesRepositoryAuthoredWithProfileProvenance`: starter preview -> rendered TOML -> loader yields repository_authored + same profile_origin + same PolicyDigest
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/adapter/verification -run 'Policy|Loader|Starter' -count=1
 ```
 
-- [ ] **Step 3: Implement strict loader**
+- [x] **Step 3: Implement strict loader**
 
 Use `toml.NewDecoder(...).DisallowUnknownFields()` in the adapter. Reuse the project loader's contained-symlink pattern; do not import `internal/adapter/project` because adapters may not import sibling adapters. Convert raw TOML structs into canonical `verification.PolicyContent`, compute `PolicyDigest(Content)`, then return a non-authoritative `PolicyProposal{Origin: repository_authored}`. No approval fields exist in repository TOML.
 
-- [ ] **Step 4: Implement starter preview generation from existing project declarations**
+- [x] **Step 4: Implement starter preview generation from existing project declarations**
 
 Starter profiles are deterministic transforms of **explicit repository verification declarations**, not command cost/name heuristics:
 
@@ -775,7 +775,7 @@ The frozen spec's `user_approved_profile|user_approved_generated_policy|future_a
 
 `verification.policy.preview` must also return deterministic `rendered_toml` for the proposal. It does **not** write the repository. To use a starter profile, the model/user writes those bytes to `.shellbeam/verification-policy.toml` through ordinary source-edit tooling, then previews/activates the **repository-loaded** proposal. After that round-trip the loader intentionally reports `ProposalOrigin=repository_authored`; `profile_origin=shellbeam/<profile>@v1` survives only as provenance. P1 V1 activates only repository-loaded snapshots, so every effective `MaterializedPolicy.Source` is `repository_authored`. The activation record freezes the repository proposal origin plus optional `ProfileOrigin`; it never reconstructs `user_approved_profile` as a different authority/source class. No P1 verification action mutates source files.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/adapter/verification internal/app/verification
@@ -967,17 +967,17 @@ type ProjectCommandResolver interface {
 
 Tests MUST include `TestBinderBindsV2FixedArgvWithoutParameters`, a shell-form rejection case, a manifest-v1 rejection case, and replay/digest stability for the fixed argv binding. Before activation, every policy requirement with `ProjectCommandID != ""` MUST resolve through this exact Binder contract against a current valid/review-due Project Manifest. Missing command, unsupported command shape, required missing parameter, invalid/absent manifest, or unavailable repo-path/package validation makes the proposed policy ineligible for activation; the system never downgrades the requirement to an unbound provider class.
 
-- [ ] **Step 1: Write failing immutable-store tests**
+- [x] **Step 1: Write failing immutable-store tests**
 
 Prove semantic-snapshot create-once idempotency, conflicting content for the same digest fails closed, proposal provenance does not alter snapshot bytes/digest, activation preserves origin/profile provenance separately, and the intent-first retry contract. Named cases include `TestActivationRetryPreservesFirstTimestampAndNeverRollsBackIndex`, `TestWaiverRetryPreservesFirstTimestamp`, `TestWaiverRevocationRetryPreservesFirstTimestamp`, and `TestPolicyActivationIsImmutableAuditableAuthority`: same ID + same canonical caller intent replays the original durable record/time/**activation generation** without a fresh observation; same ID + different intent conflicts; orphan recovery may complete an index only while the current index is still the expected predecessor; if a later activation is current, retrying an older activation returns `Effective=false` historical result and MUST NOT roll the index backward. Also prove current-index mismatch/corruption fails closed, restart persistence, malformed stored records fail, and revocation never mutates the original waiver file.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/app/project ./internal/adapter/store ./internal/adapter/verification ./internal/app/verification -run 'Binder|Verification|Policy|Activation|Waiver' -count=1
 ```
 
-- [ ] **Step 3: Implement activation self-amendment rules**
+- [x] **Step 3: Implement activation self-amendment rules**
 
 `PolicyService.Activate` receives the exact current proposal plus the source generation at which that proposal was observed:
 
@@ -1025,11 +1025,11 @@ The index contains only the current activation ID/digest for bounded lookup. The
 
 After successful activation, that activation is the repository's current effective policy for later observations until another CAS activation supersedes it. Requiring the source transition before activation ensures the mutation generation that introduced/replaced the policy can never be evaluated by the policy it introduced, without inventing a new durable Change aggregate. Reverting later to identical bytes is a later observation after authority activation and does not resurrect the old authority state.
 
-- [ ] **Step 4: Implement waiver validity without evidence rewriting**
+- [x] **Step 4: Implement waiver validity without evidence rewriting**
 
 `TestWaiverScopeExpiryPolicyDigestDeterministic` covers exact policy/rule/phase/generation/checkpoint/expiry matching. `SetWaiver` canonicalizes caller-stable `VerificationWaiverIntent` and performs `FindWaiver` before any timestamp generation. New IDs validate the referenced effective policy/rule, configured authority class, bounded reason, phase/generation/checkpoint scope, and deterministic expiry; the store stamps `CreatedAt` once. Same ID/same intent returns the original record/time; same ID/different intent conflicts. If a matching revocation already exists, replay returns `WaiverWriteResult{Replayed:true, Active:false}` and never removes/replaces the revocation. Waiver reason is required and bounded to 1..1024 UTF-8 bytes; actor is bounded as above. `RevokeWaiver` resolves `RepositoryID` from the request's `workspace_id`, then applies the same lookup/fingerprint-first rule with `WaiverRevocationIntent`; repository scope participates in the intent fingerprint so identical `WaiverID` values in different repositories cannot cross-revoke. Stamp `RevokedAt` once on first-create, create-once durable revocation, same-intent replay returns original timestamp. `ActiveWaivers(...)` returns current waiver facts but never changes evidence status.
 
-- [ ] **Step 5: Run GREEN/race and commit**
+- [x] **Step 5: Run GREEN/race and commit**
 
 ```bash
 gofmt -w internal/app/project internal/adapter/store internal/adapter/verification internal/app/verification internal/core/verification
@@ -1094,7 +1094,7 @@ The affected pipeline is intentionally two-stage: derive the policy-independent 
 
 The `source_selection` domain is emitted even when there are zero changed paths. Its authority/coverage comes from the existing workspace/activity selection contract. Observed mutation relations use `from=source_ref:<current generation>`, `to=path:<repo-relative path>`, and `basis=observed_source_mutation`.
 
-- [ ] **Step 1: Write failing activity/workspace selection tests**
+- [x] **Step 1: Write failing activity/workspace selection tests**
 
 Prove:
 
@@ -1108,13 +1108,13 @@ changed policy file is present as an affected path relation
 clean/zero-change complete selection still emits a complete source_selection domain with zero mutation relations
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/app/verification -run Affected -count=1
 ```
 
-- [ ] **Step 3: Implement narrow Go relation provider without subprocesses**
+- [x] **Step 3: Implement narrow Go relation provider without subprocesses**
 
 Use standard library filesystem + `go/parser`/`go/token` in the adapter; inspection must not spawn `go list`. The first provider builds a bounded repository-local static import graph so affected analysis can find **dependents**, not only dependencies:
 
@@ -1134,7 +1134,7 @@ Hard work limits: at most 256 changed paths, 2,048 Go files, 16 MiB total Go sou
 
 The provider always emits one `go_import_graph` domain record when Go analysis is applicable, including when no reverse-import relation matches. This domain's coverage/authority is the fact consumers use to decide whether absence of a relation is meaningful.
 
-- [ ] **Step 4: Project classifications from the exact effective policy only**
+- [x] **Step 4: Project classifications from the exact effective policy only**
 
 `RelationProvider.Derive(...)` owns only policy-independent mechanical source/import derivation. It MUST NOT read repository proposal bytes or either policy summary. Add a separate pure projection:
 
@@ -1162,7 +1162,7 @@ Also emit one `policy_classification` domain bound to the **exact effective poli
 
 Named acceptance `TestProposedPolicyCannotChangeEffectiveClassificationProjection` covers both P2 removing a P1 classifier and P2 adding a new classifier: P1 classification relations/domains/obligations remain byte-stable until activation. Do not infer a class from path names outside declared mappings.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/app/verification internal/adapter/verification
@@ -1244,7 +1244,7 @@ type PolicyGap struct {
 
 `PolicyGap` is inspectable advisory state only; it is never folded into the current gate unless a later approved policy materializes a matching mandatory rule.
 
-- [ ] **Step 1: Write failing policy-match tests**
+- [x] **Step 1: Write failing policy-match tests**
 
 Required cases:
 
@@ -1265,21 +1265,21 @@ full suite exists only when an approved rule requires its provider/command
 no performance target/rule -> no invented load obligation
 ```
 
-- [ ] **Step 2: Write failing policy-gap tests**
+- [x] **Step 2: Write failing policy-gap tests**
 
 A classification such as `internal/auth/** -> security_sensitive` plus no approved matching rule emits `PolicyGap`. A file merely named `password.go` with no classification emits no gap. Name the mechanical-source case `TestPolicyGapRequiresMechanicalClassification`.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/app/verification ./internal/core/verification -run 'Obligation|PolicyGap|Disposition' -count=1
 ```
 
-- [ ] **Step 4: Implement deterministic matching**
+- [x] **Step 4: Implement deterministic matching**
 
 Matching order is stable by rule ID. The matcher uses only the base surface plus classification projection from the exact effective policy digest; proposed-policy classifications are excluded. `Rule.MinimumAffectedAuthority` is enforced on trigger/non-applicability facts before disposition; it is unrelated to evidence `MinimumAuthority`. The matcher uses both relation facts and `AffectedDomain` quality; relation absence without a strong relevant domain is never proof of non-applicability. Unknown/partial information obeys the information-order rule: lack of proof of non-applicability cannot produce `not_triggered`. For every matching requirement with `ProjectCommandID`, resolve the exact current project binding from policy params/defaults and place its digest in `BoundEvidenceRequirement`; unresolved binding yields explicit unavailable/invalid policy detail rather than a weakened requirement. Waiver fold happens after applicability and never changes `EvidenceStatus`.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/app/verification internal/core/verification
@@ -1356,27 +1356,27 @@ Stage A deliberately omits aggregate `gate_status`; Stage B adds it after eviden
 
 Completion truth boundary is normative across both stages. No core/public response struct or JSON schema may expose `task_complete`, `work_complete`, `safe_to_finish`, or an equivalent user-task completion boolean. `tests/contract/verification_truth_boundary_test.go` scans the production verification surface and schemas for those forbidden JSON keys/translation labels while allowing explicit negative-contract test strings. Name the contract `TestVerificationSurfaceForbidsCompletionTruthFields`. `GateStatus=clear` later means only that current mandatory verification obligations under the effective policy/cut are cleared; it never means the user's requested task/work is complete.
 
-- [ ] **Step 1: Write failing closed-schema and no-spawn tests**
+- [x] **Step 1: Write failing closed-schema and no-spawn tests**
 
 Prove each action rejects cross-action fields; `TestVerificationInspectionNeverSpawnsProviders` proves inspect/preview never call process start; invalid policy does not crash or silently become absent; legacy capability projection omits new fields; exactly one MCP tool remains registered; `TestPolicyAbsentDoesNotSelectStarter`; and `TestVerificationSurfaceForbidsCompletionTruthFields` proves core/public structs + JSON Schemas reject/omit `task_complete|work_complete|safe_to_finish`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema ./cmd/shellbeam -run 'Verification|Policy|Waiver' -count=1
 ```
 
-- [ ] **Step 3: Wire services and schemas**
+- [x] **Step 3: Wire services and schemas**
 
 Compose the policy loader, authority store, workspace/activity sources, and relation provider once at daemon startup. Ordinary `start/poll/write/kill` paths MUST NOT call verification services. `inspect.verification` does not run project commands.
 
 Before GREEN, run `go run ./tools/devctl check`; if any touched legacy file approaches a hard cap, move P1-specific code into the dedicated verification file rather than extending the legacy file. Do not split unrelated legacy code as part of P1.
 
-- [ ] **Step 4: Promote capability only after transport/service tests pass**
+- [x] **Step 4: Promote capability only after transport/service tests pass**
 
 Advertise `verification_semantics=available`, schema v1, policy schema v1, and the exact hard limits from Task 1. Legacy v1 catalog projection must omit P1-only metadata.
 
-- [ ] **Step 5: Run GREEN/race and commit**
+- [x] **Step 5: Run GREEN/race and commit**
 
 ```bash
 gofmt -w internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge cmd/shellbeam internal/core/capability

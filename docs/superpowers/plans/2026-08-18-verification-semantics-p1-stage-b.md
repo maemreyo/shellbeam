@@ -1,6 +1,6 @@
 # Verification Semantics P1 Stage B Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Complete P1 by evaluating existing ShellBeam evidence against Stage-A obligations, preserving contradictory retry history, checking operation quiescence, projecting honest verification cost, folding `clear|blocked|indeterminate` gates, and proving the practical benchmark scenarios without adding an automatic verification scheduler.
 
@@ -436,7 +436,7 @@ V1 evidence requirement evaluation order is normative. Immutable historical evid
 
 `EvaluationID` hashes the current policy/rule/obligation/requirement identity plus sorted evidence refs and the evaluation semantics version. It is a derived deep ref, not written back to the Evidence Ledger. Historical evidence that predates P1 remains eligible when its mechanical facts satisfy the current requirement.
 
-- [ ] **Step 1: Write failing hard-constraint tests**
+- [x] **Step 1: Write failing hard-constraint tests**
 
 Prove:
 
@@ -458,13 +458,13 @@ bounded candidate history that could hide contradiction -> unknown/insufficient,
 `TestEnvironmentDependentEvidenceRequiresDeclaredBinding`
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/verification ./internal/app/verification ./internal/adapter/verification -run 'Sufficiency|RequirementEvaluation|EnvironmentSource' -count=1
 ```
 
-- [ ] **Step 3: Implement evaluator without cost inputs**
+- [x] **Step 3: Implement evaluator without cost inputs**
 
 Signature:
 
@@ -481,7 +481,7 @@ Task 3 deliberately has no quiescence input yet because `QuiescenceObservation` 
 
 No telemetry/cost parameter is accepted by this function. This type boundary mechanically enforces "cost cannot redefine sufficiency".
 
-- [ ] **Step 4: Fold requirement statuses**
+- [x] **Step 4: Fold requirement statuses**
 
 For a mandatory obligation:
 
@@ -497,7 +497,7 @@ else all satisfied -> satisfied
 
 A waiver is not an input to `EvaluateObligation`; waiver applies only in aggregate gate fold after evidence status is computed.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/core/verification internal/app/verification internal/adapter/verification
@@ -567,7 +567,7 @@ type LifecycleQuiescenceSource interface {
 
 The current Process Inspection service returns `quality=unavailable` once a terminal session no longer has a current PID, so P1 MUST NOT use a missing terminal process root as proof of zero descendants. `internal/adapter/verification/quiescence_source.go` composes only facts that actually exist: canonical receipt cleanup failure, typed persistent-session ownership transfer, and optional lifecycle/provider quiescence proof when a qualified provider exposes it. The existing store repository can satisfy the receipt/persistent core-only ports directly; `internal/app/verification` imports neither sibling app packages nor adapter/store.
 
-- [ ] **Step 1: Write failing resource-subtraction tests**
+- [x] **Step 1: Write failing resource-subtraction tests**
 
 Core tests prove:
 
@@ -581,21 +581,21 @@ no cleanup failure + no qualified zero-residue proof -> unknown, never complete
 provider explicitly unavailable -> unavailable
 ```
 
-- [ ] **Step 2: Write failing application/adapter tests against current runtime semantics**
+- [x] **Step 2: Write failing application/adapter tests against current runtime semantics**
 
 Prove the current terminal Process Inspection behavior is handled honestly: a terminal session whose process target resolves unavailable MUST yield `unknown/unavailable`, not `complete`. Read canonical `receipt.ResourceCleanup`: `status=incomplete` is authoritative negative cleanup evidence, while a nil field is **not** positive cleanup proof because many handles do not implement cleanup reporting. Read persistent ownership only from existing ShellBeam persistent-session bindings; do not scan arbitrary host daemons.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/core/verification ./internal/app/verification -run Quiescence -count=1
 ```
 
-- [ ] **Step 4: Implement bounded quiescence observation**
+- [x] **Step 4: Implement bounded quiescence observation**
 
 V1 semantics accept typed resources `process|port|persistent_session`, but positive `complete` requires a qualified lifecycle/provider fact with explicit coverage over the relevant resource kinds. Browser/container/provider-private resources remain `unsupported/unavailable` until their providers expose typed ownership. Do not add polling, background `/proc` scans, or a new process-lifetime tracker merely to manufacture P1 completeness. Current Resource Enforcement cleanup failure is consumed when present; absence of that failure is not upgraded to complete.
 
-- [ ] **Step 5: Wire into sufficiency**
+- [x] **Step 5: Wire into sufficiency**
 
 When `EvidenceRequirement.RequireQuiescence=true`, Task 4 extends the Task-3 evaluator signature with `quiescence map[string]QuiescenceObservation` and replaces Task 3's temporary `quiescence_not_implemented` unavailable result:
 
@@ -608,7 +608,7 @@ unavailable -> evidence_status=unavailable
 
 The Evidence Ledger record and terminal receipt remain byte-for-byte unchanged.
 
-- [ ] **Step 6: Run GREEN/race and commit**
+- [x] **Step 6: Run GREEN/race and commit**
 
 ```bash
 gofmt -w internal/core/verification internal/app/verification internal/adapter/verification
@@ -687,7 +687,7 @@ type CostHistorySource interface {
 
 `ProviderCost` and `ModelCost` remain unavailable in P1 unless an existing provider/caller fact explicitly supplies them. Do not synthesize token/quota estimates.
 
-- [ ] **Step 1: Write failing cost-projection tests**
+- [x] **Step 1: Write failing cost-projection tests**
 
 Prove:
 
@@ -701,7 +701,7 @@ failed/timeout samples remain in existing wall/output historical population
 `TestMissingProviderModelCostRemainsUnavailable`: model/provider cost absent -> unavailable
 ```
 
-- [ ] **Step 2: Write failing bound-requirement cost/resource-semantics tests**
+- [x] **Step 2: Write failing bound-requirement cost/resource-semantics tests**
 
 P1 V1 has no OR-provider/substitution ontology. Project one cost/resource view for each policy-declared bound requirement; do not rank providers or infer an alternative:
 
@@ -716,17 +716,17 @@ current host pressure is not used to rewrite Execution semantics or evidence suf
 
 Automated conditional provider selection is explicitly deferred to a future policy schema with OR-alternatives/substitution groups. The reasoning model/user may inspect current sufficiency + these declared-provider cost/resource facts and decide whether to run optional/additional verification.
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/core/verification ./internal/app/verification -run 'Cost|Economics|BoundRequirementCost' -count=1
 ```
 
-- [ ] **Step 4: Implement telemetry projection**
+- [x] **Step 4: Implement telemetry projection**
 
 Reuse existing `telemetry.Inspect`/`telemetry.CompatibilityKey`/summary semantics. Request at most 64 compatible samples through the existing inspect API per distinct candidate operation cohort. Project historical p50/p95 only for wall/output because those are the percentiles the current telemetry summary actually exposes; project CPU/RSS/process peak only from `Latest.Resources` with its literal metric quality. Copy `ProviderExecutionSemantics` only from the exact effective policy requirement; never derive it from telemetry or current resource pressure. Do not duplicate raw telemetry storage, invent resource percentiles, rank provider alternatives, or choose concurrency.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/core/verification internal/app/verification internal/adapter/verification
@@ -766,7 +766,7 @@ type GateEvaluation struct {
 func FoldGate(obligations []VerificationObligation, evaluations map[string]ObligationEvaluation) (GateEvaluation, error)
 ```
 
-- [ ] **Step 1: Write failing gate truth-table tests**
+- [x] **Step 1: Write failing gate truth-table tests**
 
 Required table:
 
@@ -786,19 +786,19 @@ empty applicable set under a valid effective policy -> clear with zero counts
 policy_absent/invalid/unsupported is NOT passed to FoldGate; aggregate inspection reports indeterminate + explicit policy reason
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/verification ./internal/app/verification -run 'Gate|Waived' -count=1
 ```
 
-- [ ] **Step 3: Implement pure gate fold**
+- [x] **Step 3: Implement pure gate fold**
 
 `FoldGate` accepts no telemetry/cost input. It validates that every `required_now`/`waived` obligation has an evaluation and rejects duplicate obligation IDs instead of silently double-counting.
 
 `inspect.verification` wraps this pure fold: when there is no valid effective policy (`absent|invalid|unsupported|proposal_pending with no prior effective policy`), it returns `GateStatus=indeterminate` with a literal reason such as `policy_absent`; it MUST NOT call `FoldGate([])` and accidentally report a clear zero-obligation gate. If an older policy remains effective while a new proposal is pending, gate evaluation uses that older effective policy and reports proposal state separately.
 
-- [ ] **Step 4: Run GREEN and commit**
+- [x] **Step 4: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/core/verification internal/app/verification
@@ -954,17 +954,17 @@ S. G1 FAIL -> test/source mutation -> G2 PASS stays two generations/cohorts with
 T. clear gate output contains no `task_complete|work_complete|safe_to_finish` truth claim
 ```
 
-- [ ] **Step 1: Write RED integration matrix**
+- [x] **Step 1: Write RED integration matrix**
 
 Use actual local daemon composition and temporary repositories. For evidence cases, run small deterministic project commands through existing `local_shell` paths so immutable Evidence Ledger records are created naturally; do not insert fake records directly into production store for the real-daemon tests. The matrix must contain named anchors `TestDelegatedOwnershipVerifiesIntegrationAssumptionWithoutProviderStress`, `TestProviderExecutionSemanticsNeverChoosesUniversalConcurrency`, `TestRequirementEvaluationBindsCurrentObligationWithoutMutatingEvidence`, `TestRerunIntentFrozenBeforeExecutionAndDoesNotEraseContradiction`, `TestSourceMutationSeparatesEvidenceCohortsWithoutRewritingHistory`, and `TestVerificationSurfaceForbidsCompletionTruthFields`.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./cmd/shellbeam -run 'Verification(Semantics|Sufficiency)' -count=1
 ```
 
-- [ ] **Step 3: Fix only integration defects; run GREEN**
+- [x] **Step 3: Fix only integration defects; run GREEN**
 
 ```bash
 go test ./cmd/shellbeam -run 'Verification(Semantics|Sufficiency)' -count=1
@@ -974,7 +974,7 @@ go run ./tools/devctl check
 go run ./tools/devctl test --dirty --base "${SHELLBEAM_BASE_REF:-origin/main}" --json
 ```
 
-- [ ] **Step 4: Commit the semantic matrix**
+- [x] **Step 4: Commit the semantic matrix**
 
 ```bash
 git add cmd/shellbeam/verification_semantics_test.go cmd/shellbeam/verification_sufficiency_test.go cmd/shellbeam/testdata/verification
@@ -1021,7 +1021,7 @@ Run and record at least the roadmap scenarios that P1 V1 can mechanically suppor
 
 The benchmark does not require every future Browser/DAP provider to exist. Unsupported provider classes must report `unavailable` honestly.
 
-- [ ] **Step 1: Extend benchmark script with explicit fixture subcommands**
+- [x] **Step 1: Extend benchmark script with explicit fixture subcommands**
 
 Add:
 
@@ -1036,7 +1036,7 @@ Add:
 
 Each scenario creates a disposable temp Git repository/worktree, writes its own `.shellbeam/project.toml` and verification-policy fixture, invokes existing ShellBeam commands, captures `inspect.verification`, and removes the temp fixture on exit. The script MUST NOT mutate the developer's working repository except for its requested output evidence file.
 
-- [ ] **Step 2: Capture metrics without inventing unavailable dimensions**
+- [x] **Step 2: Capture metrics without inventing unavailable dimensions**
 
 For each scenario record:
 
@@ -1053,7 +1053,7 @@ false-positive/wasteful obligations (manual expected-set comparison)
 leaked resource count after scenario
 ```
 
-- [ ] **Step 3: Prove Scenario 0 behavior**
+- [x] **Step 3: Prove Scenario 0 behavior**
 
 The result document must compare against historical baseline:
 
@@ -1074,7 +1074,7 @@ actual command scheduler/runtime improvement
 
 Do not claim P1 automatically shortened checkpoint runtime unless a separate user-approved integration later teaches `devctl verify` to consume P1 policy. That integration is outside this P1 plan.
 
-- [ ] **Step 4: Run practical campaign**
+- [x] **Step 4: Run practical campaign**
 
 ```bash
 bash scripts/benchmark-verification-p1.sh --scenario docs-only
@@ -1087,7 +1087,7 @@ bash scripts/benchmark-verification-p1.sh --scenario first-policy
 
 Every command must exit 0 or the results document records the failed scenario and P1 is not marked complete.
 
-- [ ] **Step 5: Run contract/dirty gates and commit**
+- [x] **Step 5: Run contract/dirty gates and commit**
 
 ```bash
 go test ./tests/contract -run Markdown -count=1
@@ -1127,7 +1127,7 @@ no task_complete/work_complete/safe_to_finish production truth field or translat
 one MCP tool only
 ```
 
-- [ ] **Step 1: Run traceability + semantic source scans**
+- [x] **Step 1: Run traceability + semantic source scans**
 
 ```bash
 python3 scripts/check-verification-p1-plan-traceability.py
@@ -1136,7 +1136,7 @@ rg -n 'ai_inferred|ResidualRisk|confidence.*skip|evidence_status.*waived|approve
 
 Review every match; expected matches are tests/spec/evidence explaining forbidden behavior, not production logic implementing it.
 
-- [ ] **Step 2: Run full P1 package verification**
+- [x] **Step 2: Run full P1 package verification**
 
 ```bash
 go test ./internal/core/verification ./internal/app/verification ./internal/adapter/verification ./internal/adapter/store ./internal/adapter/ipc ./internal/adapter/mcp ./cmd/shellbeam -count=1
@@ -1146,7 +1146,7 @@ go run ./tools/devctl test --dirty --base "${SHELLBEAM_BASE_REF:-origin/main}" -
 git diff --check
 ```
 
-- [ ] **Step 3: Run checkpoint verification**
+- [x] **Step 3: Run checkpoint verification**
 
 ```bash
 go run ./tools/devctl verify --checkpoint --base "${SHELLBEAM_BASE_REF:-origin/main}" --json
@@ -1154,7 +1154,7 @@ go run ./tools/devctl verify --checkpoint --base "${SHELLBEAM_BASE_REF:-origin/m
 
 Record exact source fingerprint, selection, selected suites, wall time, and exit code.
 
-- [ ] **Step 4: Verify VCS scope**
+- [x] **Step 4: Verify VCS scope**
 
 ```bash
 git status --short --branch
@@ -1165,7 +1165,7 @@ git diff "${SHELLBEAM_BASE_REF:-origin/main}"...HEAD --check
 
 P1 completion requires no unrelated source mutation and no uncommitted work.
 
-- [ ] **Step 5: Handoff**
+- [x] **Step 5: Handoff**
 
 Report:
 
@@ -1182,23 +1182,23 @@ remaining P2 work explicitly deferred
 
 ## Self-Review Checklist
 
-- [ ] Evidence Ledger remains canonical for command evidence; P1 adds evaluation, not replacement storage.
-- [ ] Every mandatory obligation carries `sufficiency_basis` from Stage A.
-- [ ] Evidence authority/freshness/environment/stability/quiescence are hard constraints evaluated before cost.
-- [ ] `PolicyDeclaredRiskControlsSatisfied` is represented only by concrete policy-declared evidence requirements, not probability.
-- [ ] `FAIL -> PASS` compatible evidence becomes inconsistent unless an explicit flake protocol resolves it.
-- [ ] Bounded/truncated relevant evidence history cannot prove absence of contradiction for mandatory stability.
-- [ ] A waiver changes gate disposition only and never evidence status.
-- [ ] Gate breakdown can report `3 satisfied + 1 waived` without saying `4 satisfied`.
-- [ ] Quiescence subtracts only typed ShellBeam ownership transfer.
-- [ ] Cost never enters `EvaluateObligation` or `FoldGate` signatures.
-- [ ] Missing telemetry/model/provider cost remains unavailable.
-- [ ] Stage B still does not auto-run verification.
-- [ ] Practical benchmark distinguishes obligation selection from command scheduling/runtime.
-- [ ] Raw Evidence `VerificationKind` is never implicitly elevated to a semantic ProviderClass.
-- [ ] RequirementEvaluation, not immutable evidence, carries current policy/rule/obligation identity.
-- [ ] Diagnostic rerun intent is frozen pre-execution and never resolves contradiction by itself.
-- [ ] ProviderExecutionSemantics are exposed as policy facts; no worker count or actual Resource-Governor admission decision exists in P1.
-- [ ] P1 V1 has no `AdmissibleOption`/OR-provider optimizer; model/user owns optional escalation.
-- [ ] `task_complete|work_complete|safe_to_finish` never appear as production truth fields or model-facing translations.
-- [ ] Policy self-amendment/first-policy authority rules remain unchanged from Stage A.
+- [x] Evidence Ledger remains canonical for command evidence; P1 adds evaluation, not replacement storage.
+- [x] Every mandatory obligation carries `sufficiency_basis` from Stage A.
+- [x] Evidence authority/freshness/environment/stability/quiescence are hard constraints evaluated before cost.
+- [x] `PolicyDeclaredRiskControlsSatisfied` is represented only by concrete policy-declared evidence requirements, not probability.
+- [x] `FAIL -> PASS` compatible evidence becomes inconsistent unless an explicit flake protocol resolves it.
+- [x] Bounded/truncated relevant evidence history cannot prove absence of contradiction for mandatory stability.
+- [x] A waiver changes gate disposition only and never evidence status.
+- [x] Gate breakdown can report `3 satisfied + 1 waived` without saying `4 satisfied`.
+- [x] Quiescence subtracts only typed ShellBeam ownership transfer.
+- [x] Cost never enters `EvaluateObligation` or `FoldGate` signatures.
+- [x] Missing telemetry/model/provider cost remains unavailable.
+- [x] Stage B still does not auto-run verification.
+- [x] Practical benchmark distinguishes obligation selection from command scheduling/runtime.
+- [x] Raw Evidence `VerificationKind` is never implicitly elevated to a semantic ProviderClass.
+- [x] RequirementEvaluation, not immutable evidence, carries current policy/rule/obligation identity.
+- [x] Diagnostic rerun intent is frozen pre-execution and never resolves contradiction by itself.
+- [x] ProviderExecutionSemantics are exposed as policy facts; no worker count or actual Resource-Governor admission decision exists in P1.
+- [x] P1 V1 has no `AdmissibleOption`/OR-provider optimizer; model/user owns optional escalation.
+- [x] `task_complete|work_complete|safe_to_finish` never appear as production truth fields or model-facing translations.
+- [x] Policy self-amendment/first-policy authority rules remain unchanged from Stage A.
