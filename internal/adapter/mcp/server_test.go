@@ -65,3 +65,37 @@ func TestInMemoryConformance(t *testing.T) {
 		t.Fatalf("explicit zeros=%#v", fake.last.Start)
 	}
 }
+
+type typedFailureMCPClient struct{}
+
+func (typedFailureMCPClient) Forward(_ context.Context, _ bridge.Request) (bridge.Response, error) {
+	return bridge.Response{
+		Code: "workspace_root_missing",
+		Details: map[string]string{
+			"workspace_id": "ws_01K00000000000000000000000",
+			"reason":       "root_missing",
+		},
+	}, nil
+}
+
+func TestMCPV2FailurePreservesSafeDetails(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	session, closeSession := currentSession(t, New(bridge.New(typedFailureMCPClient{}), catalog))
+	defer closeSession()
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"inspect.workspace","workspace_id":"ws_01K00000000000000000000000"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("result=%#v", res)
+	}
+	body, ok := res.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured=%T %#v", res.StructuredContent, res.StructuredContent)
+	}
+	errBody, _ := body["error"].(map[string]any)
+	details, _ := errBody["details"].(map[string]any)
+	if errBody["code"] != "workspace_root_missing" || details["workspace_id"] != "ws_01K00000000000000000000000" || details["reason"] != "root_missing" {
+		t.Fatalf("body=%#v", body)
+	}
+}

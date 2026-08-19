@@ -36,7 +36,7 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		return versionedToolError(version, in.Action, "daemon_unavailable", "daemon request failed", true), nil
 	}
 	if out.Code != "" {
-		return versionedToolError(version, in.Action, out.Code, out.Message, out.Retryable), nil
+		return versionedToolErrorDetails(version, in.Action, out.Code, out.Message, out.Retryable, out.Details), nil
 	}
 	if version == 2 {
 		if in.Action == "read_media" {
@@ -300,8 +300,12 @@ func toolSuccess(summary string, body map[string]any) *mcpgo.CallToolResult {
 }
 
 func versionedToolError(version int, action, code, message string, retryable bool) *mcpgo.CallToolResult {
+	return versionedToolErrorDetails(version, action, code, message, retryable, nil)
+}
+
+func versionedToolErrorDetails(version int, action, code, message string, retryable bool, details map[string]string) *mcpgo.CallToolResult {
 	if version == 2 {
-		return toolErrorV2(action, code, message, retryable)
+		return toolErrorV2Details(action, code, message, retryable, details)
 	}
 	return toolError(code, message, retryable)
 }
@@ -312,6 +316,18 @@ func toolError(code, message string, retryable bool) *mcpgo.CallToolResult {
 }
 
 func toolErrorV2(action, code, message string, retryable bool) *mcpgo.CallToolResult {
-	body := map[string]any{"schema_version": 2, "ok": false, "action": action, "error": map[string]any{"code": code, "message": message, "retryable": retryable}}
+	return toolErrorV2Details(action, code, message, retryable, nil)
+}
+
+func toolErrorV2Details(action, code, message string, retryable bool, details map[string]string) *mcpgo.CallToolResult {
+	errorBody := map[string]any{"code": code, "message": message, "retryable": retryable}
+	if len(details) != 0 {
+		copyDetails := make(map[string]string, len(details))
+		for key, value := range details {
+			copyDetails[key] = value
+		}
+		errorBody["details"] = copyDetails
+	}
+	body := map[string]any{"schema_version": 2, "ok": false, "action": action, "error": errorBody}
 	return &mcpgo.CallToolResult{IsError: true, Content: []mcpgo.Content{&mcpgo.TextContent{Text: code + ": " + message}}, StructuredContent: body}
 }

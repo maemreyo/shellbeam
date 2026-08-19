@@ -189,10 +189,11 @@ func publicFailureResponse(code failure.Code) Response {
 }
 
 func normalizeMediaFailureResponse(response Response) Response {
-	public := failure.Public(errors.New(response.Code))
+	public := failure.Public(failure.New(failure.Code(response.Code), response.Details, nil))
 	response.Code = string(public.Code)
 	response.Message = public.Message
 	response.Retryable = public.Retryable
+	response.Details = public.Details
 	response.Media = nil
 	return response
 }

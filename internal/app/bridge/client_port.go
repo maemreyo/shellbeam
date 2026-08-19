@@ -96,4 +96,5 @@ type Response struct {
 	Code                   string
 	Message                string
 	Retryable              bool
+	Details                map[string]string
 }

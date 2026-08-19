@@ -283,3 +283,25 @@ func TestNegotiatedHandlerRefreshesDaemonCapabilitiesWithoutBackgroundPolling(t 
 		t.Fatalf("refresh made %d daemon calls, want inspect+negotiate only", got)
 	}
 }
+
+func TestNormalizeMediaFailurePreservesOnlySafeTypedDetails(t *testing.T) {
+	got := normalizeMediaFailureResponse(Response{
+		Code: "media_too_large",
+		Details: map[string]string{
+			"limit":     "7340032",
+			"byte_size": "8388608",
+			"private":   "/Users/test/secret.png",
+		},
+	})
+	if got.Code != "media_too_large" || got.Message != "media exceeds byte limit" || got.Retryable {
+		t.Fatalf("failure=%#v", got)
+	}
+	if got.Details["limit"] != "7340032" || got.Details["byte_size"] != "8388608" || got.Details["private"] != "" {
+		t.Fatalf("details=%#v", got.Details)
+	}
+
+	unknown := normalizeMediaFailureResponse(Response{Code: "private /Users/test/secret.png", Details: map[string]string{"reason": "secret"}})
+	if unknown.Code != "internal" || len(unknown.Details) != 0 {
+		t.Fatalf("unknown=%#v", unknown)
+	}
+}

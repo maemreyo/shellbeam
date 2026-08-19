@@ -308,3 +308,20 @@ func TestMediaFailureCodesAreStableSafeAndRetryableAsSpecified(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryRegisteredPublicCodeRoundTripsWithoutUnexpectedInternalCollapse(t *testing.T) {
+	for code := range publicSpecs {
+		got := Public(errors.New(string(code)))
+		if got.Code != code {
+			t.Fatalf("registered code %q projected as %q", code, got.Code)
+		}
+		if got.Message == "" {
+			t.Fatalf("registered code %q has empty public message", code)
+		}
+	}
+
+	unknown := Public(errors.New("private /Users/test/key token=secret"))
+	if unknown.Code != Internal || len(unknown.Details) != 0 {
+		t.Fatalf("unknown projection=%#v", unknown)
+	}
+}

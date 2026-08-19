@@ -80,6 +80,24 @@ func TestBridgeV2InputTraceResponsePreservesTypedPayload(t *testing.T) {
 	}
 }
 
+func TestBridgeV2FailurePreservesTypedDetails(t *testing.T) {
+	client := bridgeRegressionClient(t, ResponseV2{
+		IPVersion: 2, Kind: "response", RequestID: "bridge", Action: "inspect.workspace", OK: false,
+		Error: &Error{Code: "workspace_root_missing", Message: "workspace root is missing", Retryable: false, Details: map[string]string{
+			"workspace_id": "ws_01K00000000000000000000000",
+			"reason":       "root_missing",
+		}},
+	})
+
+	got, err := client.Forward(context.Background(), bridge.Request{ProtocolVersion: 2, Action: "inspect.workspace", WorkspaceID: "ws_01K00000000000000000000000"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Code != "workspace_root_missing" || got.Details["workspace_id"] != "ws_01K00000000000000000000000" || got.Details["reason"] != "root_missing" {
+		t.Fatalf("typed failure details lost across IPC->bridge: %#v", got)
+	}
+}
+
 func bridgeRegressionClient(t *testing.T, response ResponseV2) *Client {
 	t.Helper()
 	body, err := json.Marshal(response)
