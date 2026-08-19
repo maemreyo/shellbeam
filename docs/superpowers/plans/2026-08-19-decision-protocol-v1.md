@@ -197,11 +197,21 @@ Run:
 
 ```bash
 PLAN_AUTHORING_BASE=27207d94b097040b571081c8c49d9c09487460c5
+BASELINE_EVIDENCE=docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md
 CURRENT_MAIN="$(git rev-parse main)"
-printf 'plan_authoring_base=%s\ncurrent_main=%s\n' "$PLAN_AUTHORING_BASE" "$CURRENT_MAIN"
+if [ -f "$BASELINE_EVIDENCE" ]; then
+  PREVIOUS_IMPLEMENTATION_BASE="$(awk -F'`' '/^- implementation_base: `/ {print $2; exit}' "$BASELINE_EVIDENCE")"
+else
+  PREVIOUS_IMPLEMENTATION_BASE="$PLAN_AUTHORING_BASE"
+fi
+if [[ ! "$PREVIOUS_IMPLEMENTATION_BASE" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'invalid previous Decision Protocol implementation base authority' >&2
+  exit 1
+fi
+printf 'plan_authoring_base=%s\nprevious_implementation_base=%s\ncurrent_main=%s\n' \
+  "$PLAN_AUTHORING_BASE" "$PREVIOUS_IMPLEMENTATION_BASE" "$CURRENT_MAIN"
 
 git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$CURRENT_MAIN"
-
 OWNER_DRIFT="$(git diff --name-only "$PLAN_AUTHORING_BASE".."$CURRENT_MAIN" -- \
   internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification \
   internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge \
@@ -212,9 +222,10 @@ if [ -n "$OWNER_DRIFT" ]; then
   exit 1
 fi
 
+git merge-base --is-ancestor "$PREVIOUS_IMPLEMENTATION_BASE" "$CURRENT_MAIN"
 if ! git merge-base --is-ancestor "$CURRENT_MAIN" HEAD; then
-  test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PLAN_AUTHORING_BASE"
-  git rebase --onto "$CURRENT_MAIN" "$PLAN_AUTHORING_BASE"
+  test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PREVIOUS_IMPLEMENTATION_BASE"
+  git rebase --onto "$CURRENT_MAIN" "$PREVIOUS_IMPLEMENTATION_BASE"
 fi
 
 git merge-base --is-ancestor "$CURRENT_MAIN" HEAD
@@ -222,7 +233,12 @@ IMPLEMENTATION_BASE="$CURRENT_MAIN"
 printf 'accepted_implementation_base=%s\n' "$IMPLEMENTATION_BASE"
 ```
 
-The only allowed automatic integration is replaying the already-reviewed planning commits onto a `current_main` whose Decision Protocol owner diff is empty. Any owner overlap or unexpected merge-base topology stops; do not silently resolve product-owner changes inside Task 0.
+The two base identities have different authority and MUST NOT be conflated:
+
+- `PLAN_AUTHORING_BASE` is immutable and is used for the cumulative Decision Protocol owner-overlap audit against every newly observed `current_main`.
+- `PREVIOUS_IMPLEMENTATION_BASE` is the last durably accepted implementation base (or `PLAN_AUTHORING_BASE` before baseline evidence exists) and is the only replay/topology boundary for the next integration.
+
+The only allowed automatic integration is replaying the already-reviewed planning/implementation commits from `PREVIOUS_IMPLEMENTATION_BASE` onto a `current_main` whose cumulative owner diff from `PLAN_AUTHORING_BASE` is empty. After successful integration, durable `implementation_base` advances to `current_main`. This is repeatable for `A -> M1 -> M2 -> M3`; later drift never requires `merge-base(HEAD, current_main)` to equal the original authoring base. Any owner overlap or unexpected topology stops.
 
 - [ ] **Step 3: Run the unchanged full baseline and targeted primitive regression on the accepted base lineage**
 
@@ -241,8 +257,15 @@ This step MUST be valid in a fresh shell; it does not consume variables exported
 
 ```bash
 PLAN_AUTHORING_BASE=27207d94b097040b571081c8c49d9c09487460c5
+BASELINE_EVIDENCE=docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md
+if [ -f "$BASELINE_EVIDENCE" ]; then
+  PREVIOUS_IMPLEMENTATION_BASE="$(awk -F'`' '/^- implementation_base: `/ {print $2; exit}' "$BASELINE_EVIDENCE")"
+else
+  PREVIOUS_IMPLEMENTATION_BASE="$PLAN_AUTHORING_BASE"
+fi
 IMPLEMENTATION_BASE="$(git rev-parse main)"
 git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$IMPLEMENTATION_BASE"
+git merge-base --is-ancestor "$PREVIOUS_IMPLEMENTATION_BASE" "$IMPLEMENTATION_BASE"
 test -z "$(git diff --name-only "$PLAN_AUTHORING_BASE".."$IMPLEMENTATION_BASE" --   internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification   internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge   internal/core/capability cmd/shellbeam api/schema)"
 git merge-base --is-ancestor "$IMPLEMENTATION_BASE" HEAD
 GO_VERSION="$(go version)"
@@ -250,6 +273,7 @@ cat > docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md <<EO
 # Decision Protocol V1 Implementation Baseline
 
 - implementation_base: `${IMPLEMENTATION_BASE}`
+- previous_implementation_base: `${PREVIOUS_IMPLEMENTATION_BASE}`
 - plan_authoring_base: `27207d94b097040b571081c8c49d9c09487460c5`
 - frozen_spec_sha256: `6cf49426243f26e8bec862c29651304ccc4abd5e1f91947f9899fe21fd72f7fa`
 - go_version: `${GO_VERSION}`
@@ -282,7 +306,7 @@ EOFSCRIPT
 chmod +x scripts/decision-protocol-v1-implementation-base.sh
 ```
 
-If `main` advances after this point, the helper fails closed before the next task. Do not edit the evidence by hand to chase `main`; stop, repeat the Task-0 owner audit/integration gate, update the durable base authority, and re-review if any owner overlap appears.
+If `main` advances after this point, the helper fails closed before the next task. Do not edit evidence by hand. Repeat Task 0: read the existing durable `implementation_base` as `PREVIOUS_IMPLEMENTATION_BASE`, audit owner drift cumulatively from `PLAN_AUTHORING_BASE`, require the previous base to be an ancestor of new `main`, replay from the previous base only, rerun baseline verification, then replace the durable base with the newly accepted `current_main`. Re-review on owner overlap or unexpected topology.
 
 - [ ] **Step 5: Verify the durable authority and commit baseline evidence/helper**
 
@@ -510,15 +534,15 @@ type PolicyStore interface {
 
 type PutPolicySnapshotRequest struct {
     RepositoryID string
-    Snapshot     decisionprotocol.PolicySnapshot
+    Content      decisionprotocol.PolicyContent
 }
 
 type ActivatePolicyRequest struct {
     RepositoryID                 string
     ActivationID                 string
     PolicyDigest                 string
-    ProposalGeneration           uint64
-    ExpectedPreviousPolicyDigest string
+    ProposalGeneration           string // exact gen_<64 lowercase hex>
+    ExpectedPreviousPolicyDigest string // REQUIRED: "absent" or exact pol_<64 lowercase hex>
     ActorRef                     string
 }
 
@@ -526,7 +550,9 @@ func (s *Service) PutPolicySnapshot(context.Context, PutPolicySnapshotRequest) (
 func (s *Service) ActivatePolicy(context.Context, ActivatePolicyRequest) (decisionprotocol.PolicyActivation, error)
 ```
 
-`PutPolicySnapshotRequest.RepositoryID` must equal `Snapshot.RepositoryID`. `ActivatePolicyRequest.RepositoryID` is server-resolved by Task 11 from the authenticated workspace/repository binding; `activation_generation` and `activated_at` are server/store assigned. Empty `ExpectedPreviousPolicyDigest` means first activation only; it is not an alias for “ignore CAS”.
+`PutPolicySnapshotRequest.RepositoryID` is server-resolved by Task 11. The service validates `PolicyContent`, computes canonical `policy_digest`, constructs `DecisionPolicySnapshot{repository_id, policy_digest, content}`, and only then asks the store to append/replay the canonical snapshot plus secondary materialization. Caller input therefore cannot author `repository_id` or `policy_digest` inside a nested canonical snapshot.
+
+`ActivatePolicyRequest.RepositoryID` is server-resolved by Task 11. `ProposalGeneration` MUST mirror the existing verification activation identity exactly: `gen_` followed by 64 lowercase hexadecimal characters. `ExpectedPreviousPolicyDigest` is REQUIRED on every activation and MUST be either the explicit sentinel `"absent"` for first activation or exact `pol_<64 lowercase hex>` for replacement. Omission/empty string has no activation semantics. `activation_generation` and `activated_at` are server/store assigned.
 
 - [ ] **Step 1: Write RED tests for monotonic ledger order, replay cuts, canonical policy participation, immutable snapshots, and activation CAS**
 
@@ -540,6 +566,8 @@ func TestDecisionPolicySnapshotCreatesCanonicalLedgerRecordAndSecondaryIndex(t *
 func TestDecisionPolicyActivationCreatesCanonicalLedgerRecordAndSecondaryIndexes(t *testing.T)
 func TestDecisionPolicySnapshotConflictingDigestBodyFails(t *testing.T)
 func TestDecisionPolicyActivationFirstAndReplacementUseExplicitCallerCAS(t *testing.T)
+func TestDecisionPolicyActivationRequiresGenDigestAndExplicitPreviousDigestSentinel(t *testing.T)
+func TestPutDecisionPolicySnapshotDerivesRepositoryAndDigestFromContent(t *testing.T)
 func TestCurrentEffectivePolicyFiltersByEpisodeKind(t *testing.T)
 ```
 
@@ -1771,6 +1799,10 @@ type DecisionAuthorityMaterializeInputV1 struct {
     RequiredScope          decisionprotocol.AuthorityScope `json:"required_scope"`
 }
 
+type DecisionPolicySnapshotInputV1 struct {
+    Content decisionprotocol.PolicyContent `json:"content"`
+}
+
 type DecisionRequestV1 struct {
     EpisodeID                    string                               `json:"episode_id,omitempty"`
     EpisodeKind                  decisionprotocol.EpisodeKind         `json:"episode_kind,omitempty"`
@@ -1778,10 +1810,10 @@ type DecisionRequestV1 struct {
     CandidateID                  string                               `json:"candidate_id,omitempty"`
     ParentCandidateID            string                               `json:"parent_candidate_id,omitempty"`
     ExperimentID                 string                               `json:"experiment_id,omitempty"`
-    Policy                       *decisionprotocol.PolicySnapshot     `json:"policy,omitempty"`
+    Policy                       *DecisionPolicySnapshotInputV1       `json:"policy,omitempty"`
     ActivationID                 string                               `json:"activation_id,omitempty"`
     PolicyDigest                 string                               `json:"policy_digest,omitempty"`
-    ProposalGeneration           *uint64                              `json:"proposal_generation,omitempty"`
+    ProposalGeneration           string                               `json:"proposal_generation,omitempty"`
     ExpectedPreviousPolicyDigest string                               `json:"expected_previous_policy_digest,omitempty"`
     Candidate                    *DecisionCandidateInputV1            `json:"candidate,omitempty"`
     Prediction                   *DecisionPredictionInputV1           `json:"prediction,omitempty"`
@@ -1801,14 +1833,14 @@ type DecisionRequestV1 struct {
 }
 ```
 
-These four nested `*InputV1` structs plus `DecisionRequestV1` are **adapter DTOs owned by `internal/adapter/ipc`**, not new core canonical types. IPC/MCP map them losslessly to the application contracts defined by Tasks 2/3/4/8/9/10. `RepositoryID`, `WorkspaceID`, current source generation, effective policy activation, activation generation/time, canonical record sequence, qualified verifier context, observation results, and trusted authority actor identity are server-derived and therefore intentionally absent as caller-writable fields. `proposal_generation` is a pointer because zero is a valid scalar and action validation must distinguish omitted from explicitly supplied zero.
+These five nested `*InputV1` structs plus `DecisionRequestV1` are **adapter DTOs owned by `internal/adapter/ipc`**, not new core canonical types. IPC/MCP map them losslessly to the application contracts defined by Tasks 2/3/4/8/9/10. `RepositoryID`, `WorkspaceID`, current source generation, effective policy activation, activation generation/time, canonical record sequence, qualified verifier context, observation results, trusted authority actor identity, and canonical policy snapshot identity (`repository_id`, `policy_digest`) are server-derived and therefore intentionally absent as caller-writable fields. `DecisionPolicySnapshotInputV1` carries semantic `PolicyContent` only. `proposal_generation` is a required string identity for `decision.policy.activate`, not a scalar counter, and must match `^gen_[0-9a-f]{64}$`.
 
 The **machine-readable authority** for action-to-request mapping is `action_request_matrix` in `docs/superpowers/plans/2026-08-19-decision-protocol-v1-traceability.json`; Task 11 implementation/schema tests must match it exactly. Human-readable equivalent:
 
 | Action | Required caller fields | Optional caller fields | Server-derived / never caller-authoritative |
 |---|---|---|---|
-| `decision.policy.snapshot` | `policy` | — | current repository compatibility check; canonical seq/index materialization |
-| `decision.policy.activate` | `activation_id`, `policy_digest`, `proposal_generation`, `actor_ref` | `expected_previous_policy_digest` | repository ID, `activation_generation`, `activated_at`, authority=`explicit_caller` |
+| `decision.policy.snapshot` | `policy` | — | repository ID + canonical `policy_digest`; current repository compatibility check; canonical seq/index materialization |
+| `decision.policy.activate` | `activation_id`, `policy_digest`, `proposal_generation`, `expected_previous_policy_digest`, `actor_ref` | — | repository ID, `activation_generation`, `activated_at`, authority=`explicit_caller` |
 | `decision.create` | `episode_id`, `episode_kind`, `actor_ref` | `predecessor_episode_id`, `expected_policy_digest`, `expected_activation_ref` | repository/workspace/source generation and current effective applicable activation |
 | `decision.inspect` | `episode_id` | `candidate_id` | projection/canonical cut |
 | `decision.evaluate` | `episode_id`, `candidate_id` | — | projection/canonical cut |
@@ -1826,7 +1858,7 @@ The **machine-readable authority** for action-to-request mapping is `action_requ
 | `decision.selection.commit` | `episode_id`, `candidate_id`, `actor_ref`, `expected_policy_digest`, `expected_projection_digest`, `idempotency_key` | `override_ref` | `commit_id`, semantic intent fingerprint/terminal seq/time and override authorization cut |
 | `decision.authority.materialize` | `authority_request` | — | **trusted actor identity/principal**, resolver qualification, attestation body/id/time |
 
-Per-action validation rejects every field not present in that row. In particular, `decision.authority.materialize` and `decision.override.create` reject caller `actor_ref`; `MaterializeAuthorityRequest.ActorRef` and canonical `DecisionOverride.actor_ref` are populated only from the trusted transport/provider/attestation identity in Tasks 10/12. `decision.policy.activate.expected_previous_policy_digest` is an optional CAS field because first activation has no previous digest; omission is meaningful only for the first-activation path. `decision.close_unresolved.unresolved_dimensions` is required as an explicit array (empty is valid) so omission cannot be confused with transport loss. The shared DTO therefore uses `*[]string`: nil means absent, while a non-nil pointer to an empty slice round-trips as `[]` through IPC/bridge/MCP.
+Per-action validation rejects every field not present in that row. In particular, `decision.authority.materialize` and `decision.override.create` reject caller `actor_ref`; `MaterializeAuthorityRequest.ActorRef` and canonical `DecisionOverride.actor_ref` are populated only from the trusted transport/provider/attestation identity in Tasks 10/12. `decision.policy.snapshot.policy` is `DecisionPolicySnapshotInputV1`, containing `content` only; nested caller `repository_id`/`policy_digest` fields are outside the transport schema. `decision.policy.activate.proposal_generation` is required and must match `^gen_[0-9a-f]{64}$`. `decision.policy.activate.expected_previous_policy_digest` is required and must be exactly `"absent"` or match `^pol_[0-9a-f]{64}$`; omission/empty string is invalid, including first activation. `decision.close_unresolved.unresolved_dimensions` is required as an explicit array (empty is valid) so omission cannot be confused with transport loss. The shared DTO therefore uses `*[]string`: nil means absent, while a non-nil pointer to an empty slice round-trips as `[]` through IPC/bridge/MCP.
 
 Adapter mapping aliases are also frozen:
 
@@ -1859,12 +1891,14 @@ func TestDecisionAssessmentInputRejectsQualifiedContextFields(t *testing.T)
 func TestDecisionAuthorityInputRejectsCallerAttestationBody(t *testing.T)
 func TestDecisionAuthorityMaterializeRejectsCallerActorRef(t *testing.T)
 func TestDecisionObservationResultsHaveNoCallerInputField(t *testing.T)
+func TestDecisionPolicySnapshotInputContainsContentOnly(t *testing.T)
+func TestDecisionPolicyActivateRequiresGenerationDigestAndPreviousSentinelOrDigest(t *testing.T)
 func TestStartAcceptsOptionalExperimentIDAndPollRejectsIt(t *testing.T)
 ```
 
 - [ ] **Step 2: Implement IPC v2 mapping and daemon action interface**
 
-Add focused decision methods to `ipc.Actions` through a composed sub-interface so the existing interface stays under the eight-method hard cap; follow the verification/mutation-scope split-file pattern. Map `decision.policy.snapshot` exactly to Task-2 `PutPolicySnapshotRequest` and `decision.policy.activate` exactly to `ActivatePolicyRequest`; resolve repository/workspace/trusted transport context server-side only where the action matrix marks it server-derived. `inspect/evaluate` handlers call projection only and never `Start`.
+Add focused decision methods to `ipc.Actions` through a composed sub-interface so the existing interface stays under the eight-method hard cap; follow the verification/mutation-scope split-file pattern. Map `decision.policy.snapshot` exactly to Task-2 `PutPolicySnapshotRequest{RepositoryID: serverResolvedRepositoryID, Content: req.Policy.Content}`; transport never accepts a canonical `PolicySnapshot` body. Map `decision.policy.activate` exactly to `ActivatePolicyRequest`, preserving the required `gen_<64hex>` proposal-generation identity and required explicit previous-policy sentinel/digest. Resolve repository/workspace/trusted transport context server-side only where the action matrix marks it server-derived. `inspect/evaluate` handlers call projection only and never `Start`.
 
 - [ ] **Step 3: Implement bridge forwarding and preserve structured typed responses**
 

@@ -50,7 +50,7 @@ matrix={x.get('action'):x for x in matrix_items}
 if set(matrix) != set(actions): errors.append(f"action request matrix actions={sorted(matrix)}")
 expected_request_fields={
     'decision.policy.snapshot':({'policy'},set()),
-    'decision.policy.activate':({'activation_id','policy_digest','proposal_generation','actor_ref'},{'expected_previous_policy_digest'}),
+    'decision.policy.activate':({'activation_id','policy_digest','proposal_generation','expected_previous_policy_digest','actor_ref'},set()),
     'decision.create':({'episode_id','episode_kind','actor_ref'},{'predecessor_episode_id','expected_policy_digest','expected_activation_ref'}),
     'decision.inspect':({'episode_id'},{'candidate_id'}),
     'decision.evaluate':({'episode_id','candidate_id'},set()),
@@ -83,6 +83,24 @@ if 'actor_ref' in set(matrix.get('decision.override.create',{}).get('required',[
     errors.append('override create exposes caller actor_ref')
 if 'trusted_actor_ref' not in set(matrix.get('decision.override.create',{}).get('server_derived',[])):
     errors.append('override create lacks server-derived trusted_actor_ref')
+policy_contract=meta.get('policy_activation_contract',{})
+if policy_contract.get('proposal_generation_type') != 'string': errors.append('policy proposal generation type must be string')
+if policy_contract.get('proposal_generation_pattern') != '^gen_[0-9a-f]{64}$': errors.append('policy proposal generation pattern mismatch')
+if policy_contract.get('expected_previous_policy_digest_required') is not True: errors.append('previous policy digest must be required')
+if policy_contract.get('expected_previous_policy_digest_values') != 'absent_or_pol_<64_lowercase_hex>': errors.append('previous policy digest domain mismatch')
+if policy_contract.get('policy_snapshot_transport_input') != 'PolicyContent_only_server_derives_repository_and_digest': errors.append('policy snapshot input authority mismatch')
+snapshot_server=set(matrix.get('decision.policy.snapshot',{}).get('server_derived',[]))
+if not {'repository_id','policy_digest'} <= snapshot_server: errors.append('policy snapshot matrix does not server-derive repository/digest')
+snapshot_input=re.search(r'type DecisionPolicySnapshotInputV1 struct \{(.*?)\n\}',plan,re.S)
+if not snapshot_input:
+    errors.append('DecisionPolicySnapshotInputV1 block missing')
+else:
+    snapshot_fields=set(re.findall(r'json:\"([^,\"]+)',snapshot_input.group(1)))
+    if snapshot_fields != {'content'}: errors.append(f'policy snapshot input fields={sorted(snapshot_fields)}')
+for anchor in ['ProposalGeneration           string // exact gen_<64 lowercase hex>','ExpectedPreviousPolicyDigest string // REQUIRED: "absent" or exact pol_<64 lowercase hex>','type DecisionPolicySnapshotInputV1 struct','Content decisionprotocol.PolicyContent `json:"content"`','Policy                       *DecisionPolicySnapshotInputV1','`decision.policy.activate.proposal_generation` is required and must match `^gen_[0-9a-f]{64}$`','`decision.policy.activate.expected_previous_policy_digest` is required']:
+    if anchor not in plan: errors.append(f'plan missing policy activation/input anchor {anchor}')
+if '*decisionprotocol.PolicySnapshot     `json:"policy,omitempty"`' in plan: errors.append('transport still accepts canonical PolicySnapshot input')
+if 'ProposalGeneration           *uint64' in plan or 'ProposalGeneration           uint64' in plan: errors.append('policy proposal generation still scalar uint64')
 
 # Every caller field in the matrix must be representable by the bounded DecisionRequestV1 DTO.
 dto_match=re.search(r'type DecisionRequestV1 struct \{(.*?)\n\}',plan,re.S)
@@ -104,6 +122,13 @@ if base_proto.get('rebind_helper') != 'scripts/decision-protocol-v1-implementati
 if base_proto.get('current_main_ref') != 'main': errors.append('implementation base current-main authority mismatch')
 if base_proto.get('owner_overlap_policy') != 'stop_and_rereview': errors.append('implementation base owner-overlap policy mismatch')
 if base_proto.get('tasks_requiring_rebind') != list(range(1,14)): errors.append('implementation base task rebind set mismatch')
+if base_proto.get('previous_base_source') != 'recorded_implementation_base_or_plan_authoring_base': errors.append('implementation previous-base authority mismatch')
+if base_proto.get('owner_audit_base') != 'plan_authoring_base': errors.append('implementation owner-audit base mismatch')
+if base_proto.get('integration_replay_base') != 'previous_implementation_base': errors.append('implementation replay-base mismatch')
+if base_proto.get('repeatable_main_drift') is not True: errors.append('implementation repeated-main-drift protocol missing')
+for anchor in ['PREVIOUS_IMPLEMENTATION_BASE','git merge-base --is-ancestor "$PREVIOUS_IMPLEMENTATION_BASE" "$CURRENT_MAIN"','test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PREVIOUS_IMPLEMENTATION_BASE"','git rebase --onto "$CURRENT_MAIN" "$PREVIOUS_IMPLEMENTATION_BASE"','previous_implementation_base: `${PREVIOUS_IMPLEMENTATION_BASE}`']:
+    if anchor not in plan: errors.append(f'plan missing repeated-main-drift anchor {anchor}')
+if 'test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PLAN_AUTHORING_BASE"' in plan: errors.append('Task 0 still hardcodes plan authoring base as replay topology boundary')
 helper_call='export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"'
 for task in range(1,14):
     start=re.search(rf'^### Task {task}:',plan,re.M)
@@ -126,7 +151,7 @@ for anchor in ['`PutPolicySnapshot` must append/replay `RecordPolicySnapshot`','
     if anchor not in plan: errors.append(f"plan missing canonical policy ledger anchor {anchor}")
 
 # Recovery/admission/cut precision blockers from independent plan review.
-for anchor in ['type PutPolicySnapshotRequest struct','type ActivatePolicyRequest struct','type CreateOverrideRequest struct','LinkID                         string','WorkspaceID                    string','AdmittedAt                     time.Time','VerificationObservationCut','EvidenceIndexGeneration uint64','AcquireVerificationObservationCut','proposal_generation,omitempty','expected_previous_policy_digest,omitempty','authority_attestation_ref,omitempty','blocking_requirement_digest,omitempty','abort_phase,omitempty','UnresolvedDimensions         *[]string','unresolved_dimensions,omitempty']:
+for anchor in ['type PutPolicySnapshotRequest struct','type ActivatePolicyRequest struct','type CreateOverrideRequest struct','LinkID                         string','WorkspaceID                    string','AdmittedAt                     time.Time','VerificationObservationCut','EvidenceIndexGeneration uint64','AcquireVerificationObservationCut','proposal_generation,omitempty','expected_previous_policy_digest,omitempty','authority_attestation_ref,omitempty','blocking_requirement_digest,omitempty','abort_phase,omitempty','UnresolvedDimensions         *[]string','unresolved_dimensions,omitempty','DecisionPolicySnapshotInputV1']:
     if anchor not in plan: errors.append(f"plan missing precision anchor {anchor}")
 if 'QualifiedEvidenceForOperation(context.Context, operation.ID, uint64)' in plan: errors.append('verification cut still uses untyped uint64')
 if 'DECISION_CANONICAL_LEDGER_CORRUPT' in plan: errors.append('plan invented non-frozen Decision reason code')

@@ -910,7 +910,11 @@
       11,
       12,
       13
-    ]
+    ],
+    "previous_base_source": "recorded_implementation_base_or_plan_authoring_base",
+    "owner_audit_base": "plan_authoring_base",
+    "integration_replay_base": "previous_implementation_base",
+    "repeatable_main_drift": true
   },
   "canonical_policy_ledger_protocol": {
     "source_of_truth": "decision_protocol/ledger/records/<canonical_record_seq>.json",
@@ -934,7 +938,9 @@
       "optional": [],
       "server_derived": [
         "repository_compatibility",
-        "canonical_record_seq"
+        "canonical_record_seq",
+        "repository_id",
+        "policy_digest"
       ]
     },
     {
@@ -943,11 +949,10 @@
         "activation_id",
         "policy_digest",
         "proposal_generation",
+        "expected_previous_policy_digest",
         "actor_ref"
       ],
-      "optional": [
-        "expected_previous_policy_digest"
-      ],
+      "optional": [],
       "server_derived": [
         "repository_id",
         "activation_generation",
@@ -1184,5 +1189,12 @@
         "attestation_body"
       ]
     }
-  ]
+  ],
+  "policy_activation_contract": {
+    "proposal_generation_type": "string",
+    "proposal_generation_pattern": "^gen_[0-9a-f]{64}$",
+    "expected_previous_policy_digest_required": true,
+    "expected_previous_policy_digest_values": "absent_or_pol_<64_lowercase_hex>",
+    "policy_snapshot_transport_input": "PolicyContent_only_server_derives_repository_and_digest"
+  }
 }
