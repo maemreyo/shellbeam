@@ -510,6 +510,8 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 
 Canonical delegated output uses the existing daemon `Store.AppendOutput` port through a daemon-local sink so successful provider bytes and live-session notification/accounting are one operation. Do not add an adapter/store sink that the app layer cannot import and production would not use.
 - Modify: `internal/app/daemon/admission.go`
+- Modify: `internal/app/daemon/execution_policy.go`
+- Modify: `internal/app/daemon/execution_policy_test.go`
 - Modify: `internal/app/daemon/bindings.go`
 - Modify: `internal/app/daemon/project_command.go`
 - Modify: `internal/app/daemon/project_command_test.go`
@@ -526,6 +528,7 @@ Canonical delegated output uses the existing daemon `Store.AppendOutput` port th
 **Interfaces:**
 - `StartRequest.SessionMode` selects delegated service.
 - `WriteRequest.AuthorityEpoch` and `KillRequest.AuthorityEpoch` are required only for delegated sessions.
+- H1 delegated policy is persistent-like for execution policy only: unset stdin resolves to `stream`, unset/unlimited timeout resolves unbounded. Explicit `stdin=closed` and finite/default timeout are rejected before provider work until delegated PTY EOF/timeout semantics are separately qualified. The legacy `persistent` request field remains forbidden.
 - Start/poll/control views return current `AuthorityEpoch` for delegated sessions.
 - `DelegatedRuntime.Wait` is event-driven and Darwin-scoped: the provider first proves the exact current pane identity, then registers a kernel `kqueue` `EVFILT_PROC/NOTE_EXIT` watcher on that exact pane PID. After the kernel exit event it queries the already-qualified tmux provider once for `pane_dead|pane_dead_status` and re-verifies provider generation/session/window/pane identity before publishing terminal truth. A second exact tmux inspection immediately after watcher registration closes the inspect→watch race. If kqueue registration observes an already-gone process, the provider immediately re-inspects tmux rather than polling. Daemon code must not add a periodic terminal polling loop.
 
