@@ -840,7 +840,9 @@ go run ./tools/devctl test --dirty --base 887c4b7240024bace5ce144624bc458f4b7742
 git diff --check
 ```
 
-- [ ] **Step 5: Write evidence, stage exact H1 scope, commit-gate, and checkpoint.**
+- [ ] **Step 5: Commit the exact verified H1 implementation checkpoint, then attest it in tracked evidence.**
+
+Avoid a self-referential commit/fingerprint claim: first commit the exact Task 9 code/tests after commit-gate PASS. Then run the required postcommit proof on that immutable implementation checkpoint and write a docs-only tracked evidence attestation that records that implementation commit hash + source fingerprint. The attestation commit may only change the H1 evidence report; it does not redefine the implementation checkpoint. H2 remains blocked until the attestation commit exists and says `H2_ALLOWED=true`.
 
 Evidence records H0 machine-gate digest, exact provider/tmux identity, H1 capability/version, reservation schema 5, receipt schema 5 composable capture/provenance/evidence-authority contract, proof that delegated terminal success never promotes to ordinary evidence, authority semantics, native lanes, no-tax evidence, and `H2_ALLOWED=true|false`.
 
@@ -862,9 +864,9 @@ go run ./tools/devctl commit-gate --json
 git -c core.hooksPath=.githooks commit -m "test: verify delegated interactive core"
 ```
 
-- [ ] **Step 6: Postcommit proof.**
+- [ ] **Step 6: Postcommit proof and docs-only attestation.**
 
-Require clean tree and fresh `go run ./tools/devctl check`; record exact HEAD and source fingerprint in the tracked H1 evidence. Do not begin H2 unless `H2_ALLOWED=true`.
+Require the implementation checkpoint tree to be clean and pass fresh `go run ./tools/devctl check`; mechanically recompute/confirm its source fingerprint, then record that exact implementation HEAD + fingerprint in the tracked H1 evidence and commit the report as a docs-only attestation checkpoint. Require a clean tree and fresh `go run ./tools/devctl check` again after the attestation. Do not begin H2 unless the committed attestation says `H2_ALLOWED=true`.
 
 ---
 
