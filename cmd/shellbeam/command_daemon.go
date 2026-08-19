@@ -63,9 +63,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	if err != nil {
 		return err
 	}
-	incarnation := ulid.Make().String()
-	startedAt := time.Now().UTC()
-	processIdentity := buildinfo.CaptureProcessIdentity()
+	incarnation, startedAt, processIdentity := ulid.Make().String(), time.Now().UTC(), buildinfo.CaptureProcessIdentity()
 	stateLease, store, err := openOwnedDaemonState(paths.StateDir, incarnation, cfg)
 	if err != nil {
 		return err
