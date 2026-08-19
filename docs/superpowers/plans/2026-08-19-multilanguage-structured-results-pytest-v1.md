@@ -89,8 +89,8 @@
 - Modify: `internal/core/structuredresult/record_test.go`
 
 **Interfaces:**
-- Produces schema-v2 `StructuredInputRef`, `ArtifactBlobRef`, cut types, producer metadata, v2 `Derivation`/`Record` consumed by all later tasks.
-- Preserves an explicit `LegacyDerivationKeyV1` path. `DerivationKey` dispatches: all-raw refs use the exact legacy v1 canonical envelope/key; any artifact/mixed refs use the v2 tagged-union envelope. Persistence schema version alone never changes raw derivation identity.
+- Produces additive schema-v2 `StructuredInputRef`, `ArtifactBlobRef`, cut types and producer metadata consumed by later tasks without breaking the existing raw-only public structs in this commit.
+- Keep existing `DerivationKey([]RawOutputRef, ...)` as the exact legacy/raw API and algorithm. Add `DerivationKeyForInputs([]StructuredInputRef, ...)`: all-raw refs delegate to `DerivationKey` and therefore produce the exact legacy key; any artifact/mixed refs use the v2 tagged-union envelope. Persistence schema version alone never changes raw derivation identity.
 
 - [ ] **Step 1: Write RED closed-union and blob-ref identity tests**
 
@@ -142,11 +142,11 @@ type TestSuiteAggregate struct { Tests, Failures, Errors, Skipped int }
 
 Core validates bounded envelopes only; it does not switch on `pytest:xfail` to decide verification truth.
 
-- [ ] **Step 4: Migrate `Derivation` and `Record` in-memory shape to v2**
+- [ ] **Step 4: Add v2 key/metadata contracts without breaking current raw structs**
 
-New writes use `[]StructuredInputRef` and `Record.SourceRef StructuredInputRef`. `TestCase` gains optional disposition/address/entry ref; `TestSuite` gains optional producer aggregate. Add deterministic `RecordID` for artifact entries; raw records may leave it empty in v2. Add optional terminal-only `Derivation.SemanticsCoverage`; it is presentation/capability metadata, not derivation identity.
+Add `DerivationKeyForInputs`, producer disposition/coverage/address/entry-ref/aggregate validators and deterministic artifact `RecordID` helper, but leave existing `Derivation.SourceAuthorityRefs []RawOutputRef` and `Record.SourceRef RawOutputRef` unchanged until Task 2 migrates their callers atomically.
 
-Add an explicit regression proving `DerivationKey(v2 raw union) == LegacyDerivationKeyV1(raw refs)` for the same producer/schema/config.
+Add an explicit regression proving `DerivationKeyForInputs(v2 raw union) == DerivationKey(raw refs)` for the same producer/schema/config.
 
 Keep `TestStatus` exactly `pass|fail|skip|error`.
 
@@ -180,7 +180,7 @@ git commit -m "feat: define artifact structured input contracts"
 
 **Interfaces:**
 - Produces strict `decodeStructuredDerivation` / `decodeStructuredRecordSet` read boundaries that normalize v1 raw refs in memory without changing historical derivation keys.
-- Changes `Adapter.Parse` and `Reader` to `StructuredInputRef`; raw binder returns `StructuredInputRef{Kind: raw_output}`.
+- Atomically migrates core `Derivation.SourceAuthorityRefs` and `Record.SourceRef` to `StructuredInputRef` together with `Adapter.Parse`/`Reader`; raw binder returns `StructuredInputRef{Kind: raw_output}` so no intermediate commit breaks dependent packages.
 
 - [ ] **Step 1: Write RED persisted-v1 compatibility fixtures**
 
@@ -189,11 +189,11 @@ Write literal schema-v1 JSON using the old `RawOutputRef` shape and old derivati
 Run: `go test ./internal/adapter/store -run 'StructuredLegacy|StructuredV1' -count=1`
 Expected: FAIL until legacy decode exists.
 
-- [ ] **Step 2: Implement strict legacy decode and v2 write boundary**
+- [ ] **Step 2: Implement strict legacy decode and atomically migrate the current in-memory structs to v2**
 
-Schema `1` decodes through store-local legacy structs and validates with `LegacyDerivationKeyV1`; schema `2` decodes directly and validates through the dispatching key rule above. Unknown schema fails closed. `PutDerivation`/`PutRecords` create only v2 for new writes. If a v2 raw replay resolves an already persisted v1 derivation with the same legacy key, treat it as the same immutable derivation identity; never overwrite the v1 bytes merely to upgrade schema.
+Schema `1` decodes through store-local legacy structs and validates with the existing raw `DerivationKey`; schema `2` decodes into `Derivation.SourceAuthorityRefs []StructuredInputRef` / `Record.SourceRef StructuredInputRef` and validates with `DerivationKeyForInputs`. Unknown schema fails closed. `PutDerivation`/`PutRecords` create only v2 for new writes. If a v2 raw replay resolves an already persisted v1 derivation with the same legacy key, treat it as the same immutable derivation identity; never overwrite the v1 bytes merely to upgrade schema. Add optional terminal-only `Derivation.SemanticsCoverage`; it is not derivation identity.
 
-- [ ] **Step 3: Generalize reader/adapter APIs and keep Go adapters raw-only**
+- [ ] **Step 3: Generalize reader/adapter APIs and keep Go adapters raw-only in the same compile-safe change**
 
 ```go
 type Adapter interface {
