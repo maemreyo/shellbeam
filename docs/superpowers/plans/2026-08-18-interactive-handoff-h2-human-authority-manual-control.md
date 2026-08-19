@@ -418,6 +418,8 @@ git -c core.hooksPath=.githooks commit -m "feat: arbitrate human agent handoff"
 - Modify: `internal/adapter/ipc/client_unix.go`
 - Modify: `internal/app/interactivehandoff/transfer.go`
 - Modify: `internal/app/interactivehandoff/transfer_test.go`
+- Modify: `internal/app/interactivehandoff/control.go`
+- Modify: `internal/app/interactivehandoff/control_test.go`
 - Modify: `internal/app/daemon/handoff_actions.go`
 - Modify: `internal/app/daemon/handoff_port.go`
 - Modify: `cmd/shellbeam/command_daemon.go`
@@ -462,6 +464,8 @@ The private endpoint is separate from `/v2/local-shell`; `isSupportedV2Action`, 
 The attach surface must visibly state for H2 standard handoff: `Model-visible output remains public; do not enter secrets here. Secret handoff is unavailable until the privacy capability is present.` This warning is local UX and contains no provider internals.
 
 Writable-state OOB path sends `ready|abort|status`; fenced/read-only path exposes `resume|terminate|status` using H0-qualified reachability. Every mutation sends exact `handoff_id + authority_epoch + control_id`.
+
+Because H0 selected detach-to-local-control for the fenced/read-only path, `resume` MUST NOT assume the detached client still exists. Durable resume rotates to a fresh `HUMAN_CONNECTING` epoch, clears the stale client ref, and returns. The local CLI then attaches a new exact read-only client and calls private `bind`; only that bind may promote the new client writable and publish `HUMAN_OWNED`.
 
 - [ ] **Step 4: RED-test stale/duplicate local controls.**
 
