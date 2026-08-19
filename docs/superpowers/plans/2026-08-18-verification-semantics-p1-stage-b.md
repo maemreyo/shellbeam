@@ -165,7 +165,7 @@ type CandidateResultSet struct {
 
 `internal/adapter/verification/evidence_source.go` owns the dependency on `internal/app/evidence` and converts `evidence.InspectRecord` (`Record`, `Validity`, `CurrentSource`) into core verification candidates.
 
-- [ ] **Step 1: Write failing candidate-mapping tests**
+- [x] **Step 1: Write failing candidate-mapping tests**
 
 Cover:
 
@@ -183,7 +183,7 @@ raw/unqualified evidence preserves literal `VerificationKind`; `ProviderClassKno
 typed project-command evidence may set `ProviderClass=project_command` only when exact frozen command authority is present
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```bash
 go test ./internal/core/verification ./internal/app/verification ./internal/adapter/verification -run 'Candidate|EvidenceSource' -count=1
@@ -191,7 +191,7 @@ go test ./internal/core/verification ./internal/app/verification ./internal/adap
 
 Expected: FAIL on missing candidate types/source.
 
-- [ ] **Step 3: Implement evidence-to-candidate authority mapping**
+- [x] **Step 3: Implement evidence-to-candidate authority mapping**
 
 The Evidence Ledger does not itself claim "integration test", "focused behavior test", "typecheck", or "browser journey" semantics. Mapping is deliberately conservative:
 
@@ -213,13 +213,13 @@ Candidate source sets `SourceGeneration` from `Record.Source.PostGeneration` whe
 
 Task 2 owns the first reservation-authority join by `OperationID`: after attempt provenance is frozen into `operation.Reservation`, `internal/adapter/verification/evidence_source.go` is extended to populate `VerificationAttempt` and prove that `SemanticContractDigest` equals the reservation evidence-contract digest. A mismatch is corruption/unknown compatibility, never a new semantic cohort invented by P1. This ordering avoids inventing attempt provenance before the immutable reservation can actually bind it.
 
-- [ ] **Step 4: Bound reads and pagination**
+- [x] **Step 4: Bound reads and pagination**
 
 Candidate source requests at most 128 existing evidence records per page and follows at most four Evidence Ledger pages for the relevant workspace/activity/project-command filters. It stops earlier only when the ledger continuation is exhausted. Hitting the four-page bound returns `CandidateResultSet{Coverage: bounded}` rather than silently dropping history.
 
 `Coverage=bounded` is a first-class sufficiency input. When unseen retained evidence could change compatibility/stability (for example an older compatible FAIL may exist), a mandatory stability requirement MUST NOT become `satisfied`; it evaluates `unknown`/`insufficient` with a bounded-history reason. Cost/economics may still use bounded history because cost does not define sufficiency.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/core/verification internal/app/verification internal/adapter/verification
@@ -307,11 +307,11 @@ Return `bool=false` when required compatibility facts are unavailable; unknown c
 
 Stage B consumes the `StabilityRequirement` / `FlakeProtocol` vocabulary already frozen in Stage-A policy schema v1; it does not alter that schema. Hard V1 validation remains: `Runs` 2..10, `MinPasses` 1..Runs, `MaxFailures` 0..Runs. Evaluation uses all literal constraints and never converts them into a probability/confidence score.
 
-- [ ] **Step 1: Write failing compatibility tests**
+- [x] **Step 1: Write failing compatibility tests**
 
 Prove changes to source generation/source digest, project binding digest, semantic evidence-contract digest, environment fingerprint/version, or toolchain fingerprint/version split compatibility. Display-only metadata/time/order and rerun reason do not. `TestRerunIntentFrozenBeforeExecutionAndDoesNotEraseContradiction` also proves nil-attempt legacy fingerprints remain byte-identical, raw + typed attempt-present fingerprints use the new envelope and change when attempt intent changes, reservation v2/v3/v4 replay cannot relabel it, and no post-result API can set it.
 
-- [ ] **Step 2: Write failing stability-fold tests**
+- [x] **Step 2: Write failing stability-fold tests**
 
 Required cases:
 
@@ -332,17 +332,17 @@ latest-pass alone never resolves contradiction
 bounded/truncated relevant evidence history cannot prove a mandatory no-contradiction/single-pass stability requirement satisfied when unseen compatible evidence could change the result
 ```
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/core/evidence ./internal/core/operation ./internal/core/verification ./internal/app/daemon ./internal/app/verification ./internal/adapter/store ./internal/adapter/ipc ./internal/adapter/mcp ./internal/adapter/verification ./api/schema -run 'VerificationAttempt|Compatibility|Stability|Flake|Reservation' -count=1
 ```
 
-- [ ] **Step 4: Implement deterministic fold**
+- [x] **Step 4: Implement deterministic fold**
 
 Sort candidates by `CompletedAt`, then EvidenceID only for stable display; result does not depend on ordering. Diagnostic rerun reason is reported as provenance only. Only exact approved `flake_protocol` plus compatible runs carrying pre-execution `flake_qualification` intent may resolve stability according to the literal protocol. Flake output includes counts (`runs`, `passes`, `failures`, `incomplete`, `ambiguous`) and protocol identity. No confidence score.
 
-- [ ] **Step 5: Run GREEN and commit**
+- [x] **Step 5: Run GREEN and commit**
 
 ```bash
 gofmt -w internal/core/evidence internal/core/operation internal/core/verification internal/app/daemon internal/app/verification internal/adapter/store internal/adapter/ipc internal/adapter/mcp internal/adapter/verification
