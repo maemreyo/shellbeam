@@ -31,7 +31,7 @@ func parseSuite(el xml.StartElement, ordinal, depth, fieldLimit int) (suiteState
 	if err != nil {
 		return suiteState{}, err
 	}
-	if failures > tests || errorsCount > tests || skipped > tests || failures+errorsCount+skipped > tests {
+	if failures > tests || errorsCount > tests || skipped > tests {
 		return suiteState{}, errMalformed
 	}
 	duration, err := durationAttr(el, "time")

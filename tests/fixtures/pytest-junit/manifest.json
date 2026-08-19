@@ -1,0 +1,50 @@
+{
+  "fixtures": [
+    {
+      "addopts_override": "addopts=",
+      "fixture": "pytest-8.4.2/outcomes.xml",
+      "generator_command": "env -u PYTEST_ADDOPTS <venv>/bin/pytest <src>/outcomes_test.py --junitxml=<raw.xml> -o junit_family=xunit2 -o addopts= -q",
+      "junit_family": "xunit2",
+      "normalization": "canonicalize time attributes, timestamp, hostname, and ephemeral source-root paths; preserve all outcome/type/message structure",
+      "producer": "pytest",
+      "producer_version": "8.4.2",
+      "pytest_addopts": "absent",
+      "sha256": "31f63f33ac202990d2352af65040538306d2da397763a5d95cef7a0af0f18377"
+    },
+    {
+      "addopts_override": "addopts=",
+      "fixture": "pytest-8.4.2/duplicate-entry.xml",
+      "generator_command": "env -u PYTEST_ADDOPTS <venv>/bin/pytest <src>/duplicate_entry_test.py --junitxml=<raw.xml> -o junit_family=xunit2 -o addopts= -q",
+      "junit_family": "xunit2",
+      "normalization": "canonicalize time attributes, timestamp, hostname, and ephemeral source-root paths; preserve all outcome/type/message structure",
+      "producer": "pytest",
+      "producer_version": "8.4.2",
+      "pytest_addopts": "absent",
+      "sha256": "07e7f5250097bf18cc91ffb05d494bb3d140b71582529607aff8b076f9b68878"
+    },
+    {
+      "addopts_override": "addopts=",
+      "fixture": "pytest-9.1.1/outcomes.xml",
+      "generator_command": "env -u PYTEST_ADDOPTS <venv>/bin/pytest <src>/outcomes_test.py --junitxml=<raw.xml> -o junit_family=xunit2 -o addopts= -q",
+      "junit_family": "xunit2",
+      "normalization": "canonicalize time attributes, timestamp, hostname, and ephemeral source-root paths; preserve all outcome/type/message structure",
+      "producer": "pytest",
+      "producer_version": "9.1.1",
+      "pytest_addopts": "absent",
+      "sha256": "31f63f33ac202990d2352af65040538306d2da397763a5d95cef7a0af0f18377"
+    },
+    {
+      "addopts_override": "addopts=",
+      "fixture": "pytest-9.1.1/duplicate-entry.xml",
+      "generator_command": "env -u PYTEST_ADDOPTS <venv>/bin/pytest <src>/duplicate_entry_test.py --junitxml=<raw.xml> -o junit_family=xunit2 -o addopts= -q",
+      "junit_family": "xunit2",
+      "normalization": "canonicalize time attributes, timestamp, hostname, and ephemeral source-root paths; preserve all outcome/type/message structure",
+      "producer": "pytest",
+      "producer_version": "9.1.1",
+      "pytest_addopts": "absent",
+      "sha256": "6b8b3ce1564673652420f543d4b3dc2b5d6cf75bb1092241d2744eb52be02d8b"
+    }
+  ],
+  "generator": "scripts/generate-pytest-junit-fixtures.sh",
+  "schema_version": 1
+}
