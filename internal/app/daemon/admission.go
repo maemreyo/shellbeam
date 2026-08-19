@@ -40,7 +40,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if structuredAdapter == "" && stored.StructuredAdapter == structuredapp.PytestJUnitAdapterID && structuredapp.PytestCandidateArgv(req.Argv) {
 		structuredAdapter = structuredapp.PytestJUnitAdapterID
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: req.Evidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest, Evidence: req.Evidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}

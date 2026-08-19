@@ -175,7 +175,7 @@ func (s *Service) prepareStructuredCaptureAdmission(ctx context.Context, req Sta
 }
 
 func structuredObservationFingerprint(req StartRequest, reservation operation.Reservation) (string, error) {
-	binding := operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: reservation.StructuredAdapter}
+	binding := operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: reservation.StructuredAdapter, StructuredCaptureDigest: reservation.StructuredCaptureDigest}
 	if reservation.ProjectCommand == nil {
 		binding.Evidence = reservation.Evidence
 		binding.VerificationAttempt = reservation.VerificationAttempt

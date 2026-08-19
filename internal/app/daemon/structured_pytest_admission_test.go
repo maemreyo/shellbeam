@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -97,5 +98,39 @@ func TestAutoPytestCandidateUnqualifiedFallsBackToOrdinaryExecution(t *testing.T
 	}
 	if view.SessionID == "" {
 		t.Fatalf("view=%#v", view)
+	}
+}
+
+func TestQualifiedPytestStructuredReplayPreservesCaptureDigestBinding(t *testing.T) {
+	store := openPytestAdmissionStore(t)
+	owner := &pytestPreconditionOwner{}
+	digest := strings.Repeat("a", 64)
+	preparer := &pytestCapturePreparerStub{prepare: app.StructuredCapturePreparation{AdapterID: "pytest-junit-xml", CaptureDigest: digest, Owned: true}}
+	svc := app.NewService(store, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, StructuredCapturePreparer: preparer})
+	req := app.StartRequest{
+		ProtocolVersion: 2, OperationID: "pytest-capture-replay", CWD: "/", StructuredAdapter: "pytest-junit-xml",
+		Argv: []string{"pytest", "test_example.py", "--junitxml=reports/junit.xml", "-o", "junit_family=xunit2", "-o", "addopts="}, YieldMS: 100,
+	}
+	first, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.SessionID == "" {
+		t.Fatalf("first=%#v", first)
+	}
+	stored, err := store.LoadOperation(context.Background(), operation.ID(req.OperationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.StructuredCaptureDigest != digest {
+		t.Fatalf("stored capture digest=%q want=%q", stored.StructuredCaptureDigest, digest)
+	}
+
+	replayed, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.SessionID != first.SessionID || owner.starts.Load() != 1 || preparer.calls.Load() != 1 {
+		t.Fatalf("replay=%#v first=%#v starts=%d prepares=%d", replayed, first, owner.starts.Load(), preparer.calls.Load())
 	}
 }
