@@ -257,3 +257,183 @@ func waitWorkerState(t *testing.T, r *workerRepo, want core.Lifecycle) {
 	}
 	t.Fatalf("state %s not reached", want)
 }
+
+type workerRecoverySource struct{ candidates []ArtifactRecoveryCandidate }
+
+func (s workerRecoverySource) ListArtifactRecoveryCandidates(context.Context, int) ([]ArtifactRecoveryCandidate, error) {
+	return append([]ArtifactRecoveryCandidate(nil), s.candidates...), nil
+}
+
+func workerArtifactAuthority(t *testing.T) CaptureAuthorityRecord {
+	t.Helper()
+	authority := materializerAuthority(t)
+	record, err := NewCaptureAuthorityRecord(authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func workerArtifactBlobRef(t *testing.T, record CaptureAuthorityRecord) core.ArtifactBlobRef {
+	t.Helper()
+	blobID, err := ArtifactBlobID(record.Authority.Intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return core.ArtifactBlobRef{
+		SchemaVersion: core.ArtifactBlobSchemaVersion, BlobID: blobID,
+		OperationID: record.Authority.Intent.OperationID, SessionID: record.Authority.Intent.SessionID,
+		RepositoryID: record.Authority.Intent.RepositoryID, WorkspaceID: record.Authority.Intent.WorkspaceID,
+		DeclaredPath: record.Authority.Intent.DeclaredPathToken, NormalizedWorkspacePath: record.Authority.Intent.NormalizedWorkspacePath,
+		SHA256: strings.Repeat("6", 64), Size: 2,
+		TerminalCut:    core.TerminalCutV1{SchemaVersion: core.TerminalCutSchemaVersion, ReceiptSchemaVersion: 1, ReceiptDigest: strings.Repeat("7", 64)},
+		ObservationCut: core.ObservationCutV1{SchemaVersion: core.ObservationCutSchemaVersion, Digest: strings.Repeat("8", 64)},
+	}
+}
+
+func TestStructuredWorkerArtifactDuplicateScheduleRunsParserOnceAndRestartDoesNotRerunTerminal(t *testing.T) {
+	repo := newWorkerRepo()
+	authority := workerArtifactAuthority(t)
+	ref := workerArtifactBlobRef(t, authority)
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	parseCalls := 0
+	var parseMu sync.Mutex
+	adapter := workerAdapter{id: PytestJUnitAdapterID, version: 1, parse: func() (ParseResult, error) {
+		parseMu.Lock()
+		parseCalls++
+		parseMu.Unlock()
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return ParseResult{Outcome: core.ParseComplete, Completeness: core.CompletenessComplete}, nil
+	}}
+	worker, err := NewWorker(&workerBinderFake{}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 2, QueueDepth: 4, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.ScheduleArtifact(context.Background(), ref, authority); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("artifact parser did not start")
+	}
+	if err := worker.ScheduleArtifact(context.Background(), ref, authority); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	waitWorkerState(t, repo, core.LifecycleTerminal)
+	if err := worker.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	parseMu.Lock()
+	firstCalls := parseCalls
+	parseMu.Unlock()
+	if firstCalls != 1 {
+		t.Fatalf("duplicate artifact parse calls=%d", firstCalls)
+	}
+	firstKey := onlyWorkerKey(t, repo)
+
+	adapter.parse = func() (ParseResult, error) {
+		parseMu.Lock()
+		parseCalls++
+		parseMu.Unlock()
+		return ParseResult{Outcome: core.ParseComplete, Completeness: core.CompletenessComplete}, nil
+	}
+	worker, err = NewWorker(&workerBinderFake{}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 1, QueueDepth: 2, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.ScheduleArtifact(context.Background(), ref, authority); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	parseMu.Lock()
+	gotCalls := parseCalls
+	parseMu.Unlock()
+	if gotCalls != 1 {
+		t.Fatalf("terminal artifact reran parser calls=%d", gotCalls)
+	}
+	if got := onlyWorkerKey(t, repo); got != firstKey {
+		t.Fatalf("artifact key changed %s -> %s", firstKey, got)
+	}
+}
+
+func TestStructuredWorkerArtifactRecoveryResumesProcessingWithSameKey(t *testing.T) {
+	repo := newWorkerRepo()
+	authority := workerArtifactAuthority(t)
+	ref := workerArtifactBlobRef(t, authority)
+	crash := true
+	parseCalls := 0
+	adapter := workerAdapter{id: PytestJUnitAdapterID, version: 1, parse: func() (ParseResult, error) {
+		parseCalls++
+		if crash {
+			return ParseResult{}, errors.New("artifact parser crash")
+		}
+		return ParseResult{Outcome: core.ParseComplete, Completeness: core.CompletenessComplete}, nil
+	}}
+	worker, err := NewWorker(&workerBinderFake{}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 1, QueueDepth: 2, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.ScheduleArtifact(context.Background(), ref, authority); err != nil {
+		t.Fatal(err)
+	}
+	waitWorkerState(t, repo, core.LifecycleProcessing)
+	if err := worker.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	firstKey := onlyWorkerKey(t, repo)
+	crash = false
+	worker, err = NewWorker(&workerBinderFake{}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 1, QueueDepth: 2, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.RecoverArtifacts(context.Background(), workerRecoverySource{candidates: []ArtifactRecoveryCandidate{{Ref: ref, CaptureAuthority: authority}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := worker.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if key := onlyWorkerKey(t, repo); key != firstKey {
+		t.Fatalf("recovery key changed %s -> %s", firstKey, key)
+	}
+	repo.mu.Lock()
+	terminal := repo.derivations[firstKey]
+	repo.mu.Unlock()
+	if terminal.Lifecycle != core.LifecycleTerminal {
+		t.Fatalf("recovery derivation=%#v", terminal)
+	}
+	if parseCalls != 2 {
+		t.Fatalf("artifact recovery parse calls=%d", parseCalls)
+	}
+}
+
+func TestStructuredWorkerArtifactIdentityBindsTerminalAndObservationCuts(t *testing.T) {
+	authority := workerArtifactAuthority(t)
+	ref := workerArtifactBlobRef(t, authority)
+	producer := core.Producer{AdapterID: PytestJUnitAdapterID, AdapterVersion: 1, CapabilityVersion: workerCapabilityVersion}
+	config := strings.Repeat("9", 64)
+	first, err := workerDerivationKey(core.ArtifactInputRef(ref), producer, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedTerminal := ref
+	changedTerminal.TerminalCut.ReceiptDigest = strings.Repeat("a", 64)
+	second, err := workerDerivationKey(core.ArtifactInputRef(changedTerminal), producer, config)
+	if err != nil || second == first {
+		t.Fatalf("terminal cut not bound first=%s second=%s err=%v", first, second, err)
+	}
+	changedObservation := ref
+	changedObservation.ObservationCut.Digest = strings.Repeat("b", 64)
+	third, err := workerDerivationKey(core.ArtifactInputRef(changedObservation), producer, config)
+	if err != nil || third == first {
+		t.Fatalf("observation cut not bound first=%s third=%s err=%v", first, third, err)
+	}
+}

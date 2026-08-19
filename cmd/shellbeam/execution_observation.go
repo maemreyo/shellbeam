@@ -54,7 +54,11 @@ func newExecutionObservationRuntime(ctx context.Context, store *storeadapter.Rep
 	events := observationapp.NewService(store, materializer, daemonSnapshotProvider{store: store}, eventCodec)
 	structured := structuredapp.NewInspector(store, resultCodec)
 	binder := structuredapp.NewInputBinder(store)
-	reader := daemonStructuredReader{store: store, binder: binder}
+	rawReader := daemonStructuredReader{store: store, binder: binder}
+	reader, err := structuredapp.NewArtifactReader(rawReader, store)
+	if err != nil {
+		return nil, err
+	}
 	worker, err := structuredapp.NewWorker(binder, store, reader, []structuredapp.Adapter{
 		gojson.TestAdapter{}, gojson.VetAdapter{},
 	}, structuredapp.WorkerOptions{

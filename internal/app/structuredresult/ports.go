@@ -57,6 +57,10 @@ type Reader interface {
 	DescribeInput(context.Context, core.StructuredInputRef) (InputContext, error)
 }
 
+type ArtifactInputStore interface {
+	ReadArtifactBlobRange(context.Context, core.ArtifactBlobRef, int64, int) ([]byte, error)
+}
+
 type Limits struct {
 	MaxBytes       int64
 	MaxRecords     int
