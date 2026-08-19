@@ -93,6 +93,7 @@ func (e DecisionProtocolEvaluation) Validate() error {
 
 type CandidateSemanticState struct {
 	CandidateID         CandidateID                  `json:"candidate_id"`
+	LineageRoot         CandidateID                  `json:"lineage_root"`
 	Active              bool                         `json:"active"`
 	Superseded          bool                         `json:"superseded"`
 	ExpectationOutcomes []PredictionEvaluationStatus `json:"expectation_outcomes,omitempty"`
@@ -117,7 +118,7 @@ type ProjectionSemanticState struct {
 }
 
 func canonicalProjectionState(s ProjectionSemanticState) (ProjectionSemanticState, error) {
-	if !validID(s.EpisodeID) || !validID(s.CandidateID) || s.Gate.Validate() != nil {
+	if !validID(s.EpisodeID) || (s.CandidateID != "" && !validID(s.CandidateID)) || s.Gate.Validate() != nil {
 		return s, fmt.Errorf("invalid projection semantic state")
 	}
 	out := s
@@ -186,11 +187,60 @@ func AuditDigest(s AuditState) (string, error) {
 }
 
 type DecisionProjection struct {
-	EpisodeID            EpisodeID                  `json:"episode_id"`
-	CandidateID          CandidateID                `json:"candidate_id"`
-	ProjectionDigest     string                     `json:"projection_digest"`
-	AuditDigest          string                     `json:"audit_digest"`
-	Protocol             DecisionProtocolEvaluation `json:"protocol"`
-	SourceCompatible     bool                       `json:"source_compatible"`
-	UnresolvedDimensions []string                   `json:"unresolved_dimensions,omitempty"`
+	EpisodeID                     EpisodeID                     `json:"episode_id"`
+	EpisodeState                  EpisodeState                  `json:"episode_state"`
+	EpisodeKind                   EpisodeKind                   `json:"episode_kind"`
+	PolicyBinding                 EpisodePolicyBinding          `json:"policy_binding"`
+	SourceGenerationCompatibility SourceGenerationCompatibility `json:"source_generation_compatibility"`
+	CandidateID                   CandidateID                   `json:"candidate_id,omitempty"`
+	Candidates                    []CandidateProjection         `json:"candidates,omitempty"`
+	ProjectionDigest              string                        `json:"projection_digest"`
+	AuditDigest                   string                        `json:"audit_digest"`
+	Protocol                      DecisionProtocolEvaluation    `json:"protocol,omitempty"`
+	SourceCompatible              bool                          `json:"source_compatible"`
+	UnresolvedDimensions          []string                      `json:"unresolved_dimensions,omitempty"`
+}
+
+type EpisodeState string
+
+const (
+	EpisodeOpen             EpisodeState = "OPEN"
+	EpisodeCommitted        EpisodeState = "COMMITTED"
+	EpisodeClosedUnresolved EpisodeState = "CLOSED_UNRESOLVED"
+)
+
+func (s EpisodeState) Validate() error {
+	switch s {
+	case EpisodeOpen, EpisodeCommitted, EpisodeClosedUnresolved:
+		return nil
+	default:
+		return fmt.Errorf("invalid decision episode state %q", s)
+	}
+}
+
+type SourceGenerationCompatibility string
+
+const (
+	SourceGenerationCurrent SourceGenerationCompatibility = "current"
+	SourceGenerationStale   SourceGenerationCompatibility = "stale"
+)
+
+func (s SourceGenerationCompatibility) Validate() error {
+	if s == SourceGenerationCurrent || s == SourceGenerationStale {
+		return nil
+	}
+	return fmt.Errorf("invalid source generation compatibility %q", s)
+}
+
+type CandidateLifecycleState string
+
+const (
+	CandidateActive     CandidateLifecycleState = "ACTIVE"
+	CandidateSuperseded CandidateLifecycleState = "SUPERSEDED"
+)
+
+type CandidateProjection struct {
+	CandidateID CandidateID             `json:"candidate_id"`
+	LineageRoot CandidateID             `json:"lineage_root"`
+	State       CandidateLifecycleState `json:"state"`
 }

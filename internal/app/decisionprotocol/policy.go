@@ -3,6 +3,7 @@ package decisionprotocol
 import (
 	"context"
 	"fmt"
+	"time"
 
 	core "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 )
@@ -10,10 +11,20 @@ import (
 type Service struct {
 	policies   PolicyStore
 	generation ActivationGenerationSource
+	mutations  EpisodeMutationStore
+	ledger     CanonicalLedgerStore
+	workspaces WorkspaceInspector
+	snapshots  SourceSnapshotter
+	now        func() time.Time
 }
 
-func NewService(policies PolicyStore, generation ActivationGenerationSource) *Service {
-	return &Service{policies: policies, generation: generation}
+func NewService(policies PolicyStore, generation ActivationGenerationSource, episodeDeps ...EpisodeDependencies) *Service {
+	s := &Service{policies: policies, generation: generation, now: func() time.Time { return time.Now().UTC() }}
+	if len(episodeDeps) > 0 {
+		deps := episodeDeps[0]
+		s.mutations, s.ledger, s.workspaces, s.snapshots = deps.Mutations, deps.Ledger, deps.Workspaces, deps.Snapshots
+	}
+	return s
 }
 
 type PutPolicySnapshotRequest struct {

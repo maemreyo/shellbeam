@@ -59,3 +59,8 @@ func (c DecisionCandidate) Validate() error {
 	}
 	return nil
 }
+
+// Episode and Candidate are short domain names for the frozen canonical record
+// bodies. They are aliases, so they do not create new persistence shapes.
+type Episode = DecisionEpisode
+type Candidate = DecisionCandidate

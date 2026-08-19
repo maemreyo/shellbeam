@@ -8,9 +8,12 @@ import (
 )
 
 type fakePolicyStore struct {
-	snapshot         core.PolicySnapshot
-	put              bool
-	activationCommit core.PolicyActivationCommit
+	snapshot          core.PolicySnapshot
+	put               bool
+	activationCommit  core.PolicyActivationCommit
+	currentSnapshot   core.PolicySnapshot
+	currentActivation core.PolicyActivation
+	currentOK         bool
 }
 
 func (f *fakePolicyStore) PutPolicySnapshot(_ context.Context, s core.PolicySnapshot) (bool, error) {
@@ -27,7 +30,7 @@ func (f *fakePolicyStore) ActivatePolicyCAS(_ context.Context, commit core.Polic
 	return core.PolicyActivationWriteResult{Record: record, Created: true, Effective: true}, nil
 }
 func (f *fakePolicyStore) CurrentEffectivePolicy(context.Context, string, core.EpisodeKind) (core.PolicySnapshot, core.PolicyActivation, bool, error) {
-	return core.PolicySnapshot{}, core.PolicyActivation{}, false, nil
+	return f.currentSnapshot, f.currentActivation, f.currentOK, nil
 }
 
 func TestPutDecisionPolicySnapshotDerivesRepositoryAndDigestFromContent(t *testing.T) {

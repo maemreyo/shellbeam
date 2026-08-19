@@ -4,6 +4,7 @@ import (
 	"context"
 
 	core "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
+	"github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type CanonicalLedgerStore interface {
@@ -22,4 +23,27 @@ type PolicyStore interface {
 
 type ActivationGenerationSource interface {
 	CurrentActivationGeneration(context.Context, string) (string, error)
+}
+
+type EpisodeMutationStore interface {
+	CreateEpisode(context.Context, core.Episode) (core.CanonicalRecordEnvelope, bool, error)
+	CreateCandidate(context.Context, core.Candidate) (core.CanonicalRecordEnvelope, bool, error)
+	ReviseCandidateCAS(context.Context, core.CandidateID, core.Candidate) (core.CanonicalRecordEnvelope, error)
+	FindEpisode(context.Context, core.EpisodeID) (core.Episode, bool, error)
+	FindCandidate(context.Context, core.CandidateID) (core.Candidate, bool, error)
+}
+
+type WorkspaceInspector interface {
+	Inspect(context.Context, string) (workspace.Workspace, error)
+}
+
+type SourceSnapshotter interface {
+	ObserveFresh(context.Context, string) workspace.FastSnapshot
+}
+
+type EpisodeDependencies struct {
+	Mutations  EpisodeMutationStore
+	Ledger     CanonicalLedgerStore
+	Workspaces WorkspaceInspector
+	Snapshots  SourceSnapshotter
 }
