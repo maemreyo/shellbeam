@@ -5,6 +5,7 @@ import (
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	telemetry "github.com/maemreyo/shellbeam/internal/core/telemetry"
 
 	"github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -147,4 +148,17 @@ type PersistentBindingSource interface {
 // LifecycleQuiescenceSource is an optional qualified provider proof.
 type LifecycleQuiescenceSource interface {
 	QuiescenceForOperation(context.Context, string) (core.QuiescenceObservation, bool, error)
+}
+
+type CostHistory struct {
+	OperationID      string
+	CompatibilityKey string
+	Latest           *telemetry.PerformanceRecord
+	Summary          *telemetry.Summary
+	SamplesReturned  int
+	SamplesAvailable int
+}
+
+type CostHistorySource interface {
+	Histories(context.Context, []string) (map[string]CostHistory, error)
 }
