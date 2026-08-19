@@ -21,6 +21,7 @@ type Service struct {
 	verification VerificationSource
 	assessments  AssessmentStore
 	qualifier    VerifierContextQualifier
+	selections   SelectionStore
 	now          func() time.Time
 }
 
@@ -31,6 +32,7 @@ func NewService(policies PolicyStore, generation ActivationGenerationSource, epi
 		s.mutations, s.experiments, s.ledger, s.workspaces, s.snapshots = deps.Mutations, deps.Experiments, deps.Ledger, deps.Workspaces, deps.Snapshots
 		s.receipts, s.structured, s.verification = deps.Receipts, deps.Structured, deps.Verification
 		s.assessments, s.qualifier = deps.Assessments, deps.VerifierQualifier
+		s.selections = deps.Selections
 		if s.experiments == nil {
 			if experiments, ok := any(deps.Mutations).(ExperimentMutationStore); ok {
 				s.experiments = experiments

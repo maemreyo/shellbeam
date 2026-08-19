@@ -72,6 +72,12 @@ type VerifierContextQualifier interface {
 	QualifyVerifierContext(context.Context, QualifyVerifierContextRequest) (core.ContextQualificationResult, error)
 }
 
+type SelectionStore interface {
+	RecordSelectionProposal(context.Context, core.SelectionProposal) (core.CanonicalRecordEnvelope, bool, error)
+	CommitSelectionCAS(context.Context, core.SelectionCommitIntent, core.SelectionCommit) (core.SelectionCommit, bool, error)
+	CloseEpisodeCAS(context.Context, core.DecisionClosure) (core.DecisionClosure, bool, error)
+}
+
 type EpisodeDependencies struct {
 	Mutations         EpisodeMutationStore
 	Experiments       ExperimentMutationStore
@@ -83,6 +89,7 @@ type EpisodeDependencies struct {
 	Verification      VerificationSource
 	Assessments       AssessmentStore
 	VerifierQualifier VerifierContextQualifier
+	Selections        SelectionStore
 }
 
 type ExperimentMutationStore interface {
