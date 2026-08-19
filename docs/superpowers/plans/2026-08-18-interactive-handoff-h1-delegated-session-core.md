@@ -719,6 +719,10 @@ git -c core.hooksPath=.githooks commit -m "feat: expose delegated interactive co
 - Create: `internal/app/delegatedsession/reattach_test.go`
 - Modify: `internal/app/delegatedsession/ports.go`
 - Modify: `internal/app/daemon/delegated_port.go`
+- Modify: `internal/app/daemon/store_port.go`
+- Modify: `internal/adapter/store/delegated_mutations.go`
+- Modify: `internal/adapter/store/delegated_mutations_test.go`
+- Modify: `internal/adapter/store/repository.go`
 - Modify: `internal/adapter/delegatedtmux/provider_session.go`
 - Modify: `internal/adapter/delegatedtmux/provider_native_test.go`
 - Create: `internal/app/daemon/delegated_reconcile.go`
@@ -733,6 +737,8 @@ git -c core.hooksPath=.githooks commit -m "feat: expose delegated interactive co
 - Startup reconciliation consumes canonical delegated recovery candidates and provider observations; yields exact current agent authority or fenced/lost state.
 - Delegated provider shutdown needs a distinct `Detach` primitive: it closes only ShellBeam's control observer/ownership attachment while preserving the private tmux server, provider-private state, child/session identity, and recovery marker. `Close` retains terminal cleanup semantics and may destroy the provider session only after terminal publication.
 - On successful native restart acceptance Task 8 may flip `daemon_restart_continuity=true`; it must remain false until that acceptance is proven in the same task.
+- Startup recovery must reconstruct the next agent `input_offset` from the durable delegated mutation ledger, not from in-memory counters. Only a unique contiguous prefix of completed successful write mutations is admissible. Any reserved/delivered/outcome-unknown mutation, conflicting/gapped write offsets, or unreadable mutation record fences startup reconciliation rather than guessing continuation.
+- Restarted output accounting must distinguish canonical retained output bytes from bytes observed by the fresh Control Mode client. Because the private observer is not durable across daemon death and `capture-pane` replay is forbidden, a session that crosses daemon restart carries `transport_gap` capture truth unless a future provider proof can prove continuity; it must never claim `capture_quality=complete` merely because the reattached observer is healthy.
 
 - [ ] **Step 1: RED restart matrix.**
 
