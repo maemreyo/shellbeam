@@ -127,8 +127,10 @@ func projectEpisodeRecords(episode core.Episode, requested core.CandidateID, rec
 }
 
 type experimentLifecycleFacts struct {
-	defined                        bool
-	seals, links, closures, aborts int
+	defined                                      bool
+	seals, links, observations, closures, aborts int
+	seal                                         *core.ExperimentSeal
+	binding                                      *core.ExperimentObservationBinding
 }
 
 func experimentLifecycleProjections(records []core.CanonicalRecordEnvelope) ([]core.ExperimentProjection, error) {
@@ -143,11 +145,25 @@ func experimentLifecycleProjections(records []core.CanonicalRecordEnvelope) ([]c
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	out := make([]core.ExperimentProjection, 0, len(ids))
 	for _, id := range ids {
-		state, err := projectExperimentLifecycle(id, facts[id])
+		fact := facts[id]
+		state, err := projectExperimentLifecycle(id, fact)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, core.ExperimentProjection{ExperimentID: id, State: state})
+		projection := core.ExperimentProjection{ExperimentID: id, State: state}
+		if fact.links == 1 {
+			projection.ObservationState = core.ObservationSettling
+		}
+		if fact.observations == 1 {
+			projection.ObservationState = core.ObservationSettled
+		}
+		if fact.seal != nil {
+			projection.PotentialDiscrimination = append([]core.PotentialDiscriminationPair(nil), fact.seal.PotentialDiscriminationPairs...)
+		}
+		if fact.seal != nil && fact.binding != nil {
+			projection.RealizedDiscrimination = realizedDiscriminationAtSealCut(records, *fact.seal, *fact.binding)
+		}
+		out = append(out, projection)
 	}
 	return out, nil
 }
@@ -170,8 +186,20 @@ func collectExperimentLifecycleFacts(records []core.CanonicalRecordEnvelope) (ma
 			facts[id].defined = true
 		case core.RecordExperimentSeal:
 			facts[id].seals++
+			var seal core.ExperimentSeal
+			if err := json.Unmarshal(record.Body, &seal); err != nil {
+				return nil, err
+			}
+			facts[id].seal = &seal
 		case core.RecordExperimentExecutionLink:
 			facts[id].links++
+		case core.RecordExperimentObservationBinding:
+			facts[id].observations++
+			var binding core.ExperimentObservationBinding
+			if err := json.Unmarshal(record.Body, &binding); err != nil {
+				return nil, err
+			}
+			facts[id].binding = &binding
 		case core.RecordExperimentClosure:
 			facts[id].closures++
 		case core.RecordExperimentAbort:
@@ -201,6 +229,12 @@ func experimentLifecycleRecordIdentity(record core.CanonicalRecordEnvelope) (cor
 			return "", record.Kind, true, err
 		}
 		return v.ExperimentID, record.Kind, true, nil
+	case core.RecordExperimentObservationBinding:
+		var v core.ExperimentObservationBinding
+		if err := json.Unmarshal(record.Body, &v); err != nil {
+			return "", record.Kind, true, err
+		}
+		return v.ExperimentID, record.Kind, true, nil
 	case core.RecordExperimentClosure:
 		var v core.ExperimentClosure
 		if err := json.Unmarshal(record.Body, &v); err != nil {
@@ -219,7 +253,7 @@ func experimentLifecycleRecordIdentity(record core.CanonicalRecordEnvelope) (cor
 }
 
 func projectExperimentLifecycle(id core.ExperimentID, facts *experimentLifecycleFacts) (core.ExperimentLifecycleState, error) {
-	if facts == nil || !facts.defined || facts.seals > 1 || facts.links > 1 || facts.closures > 1 || facts.aborts > 1 || (facts.closures > 0 && facts.aborts > 0) {
+	if facts == nil || !facts.defined || facts.seals > 1 || facts.links > 1 || facts.observations > 1 || facts.closures > 1 || facts.aborts > 1 || (facts.closures > 0 && facts.aborts > 0) {
 		return "", fmt.Errorf("corrupt experiment lifecycle for %s", id)
 	}
 	switch {
@@ -236,6 +270,47 @@ func projectExperimentLifecycle(id core.ExperimentID, facts *experimentLifecycle
 	default:
 		return "", fmt.Errorf("invalid experiment lifecycle for %s", id)
 	}
+}
+
+func realizedDiscriminationAtSealCut(records []core.CanonicalRecordEnvelope, seal core.ExperimentSeal, binding core.ExperimentObservationBinding) bool {
+	if len(seal.PotentialDiscriminationPairs) == 0 {
+		return false
+	}
+	predictions := map[core.CandidateID]map[string]core.PredictionID{}
+	for _, record := range records {
+		if record.CanonicalRecordSeq > seal.BaseProjectionCutRef.CanonicalRecordHighWater || record.Kind != core.RecordPredictionBinding {
+			continue
+		}
+		var prediction core.PredictionBinding
+		if json.Unmarshal(record.Body, &prediction) != nil || prediction.ExperimentID != seal.ExperimentID {
+			continue
+		}
+		dimension, err := core.ObservationDimensionKey(prediction.Predicate)
+		if err != nil {
+			continue
+		}
+		if predictions[prediction.CandidateID] == nil {
+			predictions[prediction.CandidateID] = map[string]core.PredictionID{}
+		}
+		predictions[prediction.CandidateID][dimension] = prediction.PredictionID
+	}
+	results := map[core.PredictionID]core.PredictionEvaluationStatus{}
+	for _, result := range binding.PredictionResults {
+		results[result.PredictionID] = result.Status
+	}
+	for _, pair := range seal.PotentialDiscriminationPairs {
+		targetID := predictions[pair.TargetCandidateID][pair.DimensionKey]
+		challengerID := predictions[pair.ChallengerCandidateID][pair.DimensionKey]
+		target, tok := results[targetID]
+		challenger, cok := results[challengerID]
+		if !tok || !cok {
+			continue
+		}
+		if (target == core.PredictionMatch && challenger == core.PredictionMismatch) || (target == core.PredictionMismatch && challenger == core.PredictionMatch) {
+			return true
+		}
+	}
+	return false
 }
 
 func candidateLineageRoot(id core.CandidateID, candidates map[core.CandidateID]core.Candidate) (core.CandidateID, error) {

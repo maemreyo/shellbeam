@@ -344,3 +344,33 @@ func TestSealPotentialDiscriminationRemainsFrozenAfterLaterBlocker(t *testing.T)
 		t.Fatalf("replay=%#v seal=%#v", replay, seal)
 	}
 }
+
+func TestRealizedDiscriminationDoesNotCreditInterleavedExperiment(t *testing.T) {
+	svc, ledger, experiment, a, b, source := setupTwoCandidateDiscrimination(t)
+	seal, _, err := svc.SealExperiment(context.Background(), experiment.ExperimentID, "actor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seal.PotentialDiscriminationPairs) == 0 {
+		t.Fatal("expected potential discrimination")
+	}
+	link := core.ExperimentExecutionLink{SchemaVersion: 1, LinkID: "link-interleave", ExperimentID: experiment.ExperimentID, OperationID: "op-interleave", SessionID: "sess-interleave", WorkspaceID: dpWorkspaceID, SourceGeneration: source, AcceptedRequestFingerprint: strings.Repeat("1", 64), AcceptedExecutionFingerprint: strings.Repeat("2", 64), AcceptedObservationBindingFingerprint: strings.Repeat("3", 64), AdmittedAt: time.Unix(40, 0).UTC()}
+	if _, err := ledger.append(core.RecordExperimentExecutionLink, link); err != nil {
+		t.Fatal(err)
+	}
+	// E2 changes live candidate eligibility after E1 seal. E1 itself remains non-discriminating.
+	appendRequiredMismatchForB(t, ledger, source)
+	binding := core.ExperimentObservationBinding{SchemaVersion: 1, BindingID: "bind-interleave", ExperimentID: experiment.ExperimentID, OperationID: link.OperationID, SourceGeneration: source, ObservationSemanticsVersion: 1, DerivationCutDigest: "cut_" + strings.Repeat("9", 64), PredictionResults: []core.PredictionResult{{PredictionID: a.PredictionID, Status: core.PredictionIndeterminate}, {PredictionID: b.PredictionID, Status: core.PredictionIndeterminate}}, MaterializedAt: time.Unix(41, 0).UTC()}
+	if _, err := ledger.append(core.RecordExperimentObservationBinding, binding); err != nil {
+		t.Fatal(err)
+	}
+	projection, err := svc.Inspect(context.Background(), experiment.EpisodeID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range projection.Experiments {
+		if got.ExperimentID == experiment.ExperimentID && got.RealizedDiscrimination {
+			t.Fatalf("E1 credited interleaved E2 discrimination: %#v", got)
+		}
+	}
+}

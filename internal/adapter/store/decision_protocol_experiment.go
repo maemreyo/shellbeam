@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
+	"time"
 
 	dp "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 )
@@ -174,6 +176,81 @@ func (s *DecisionProtocolStore) SealExperimentCAS(_ context.Context, seal dp.Exp
 	}
 	env, err := r.appendCanonicalRecordLocked(dp.RecordExperimentSeal, seal)
 	return env, err == nil, err
+}
+
+func (r *Repository) MaterializeExperimentObservationCAS(_ context.Context, binding dp.ExperimentObservationBinding) (dp.ExperimentObservationBinding, bool, error) {
+	if r == nil {
+		return dp.ExperimentObservationBinding{}, false, fmt.Errorf("decision protocol store unavailable")
+	}
+	if err := binding.Validate(); err != nil {
+		return dp.ExperimentObservationBinding{}, false, err
+	}
+	r.decisionProtocolMu.Lock()
+	defer r.decisionProtocolMu.Unlock()
+	if err := r.recoverDecisionProtocolLocked(); err != nil {
+		return dp.ExperimentObservationBinding{}, false, err
+	}
+	state, found, err := r.findExperimentStateLocked(binding.ExperimentID)
+	if err != nil {
+		return dp.ExperimentObservationBinding{}, false, err
+	}
+	if !found || state.seal == nil || len(state.links) != 1 {
+		return dp.ExperimentObservationBinding{}, false, dp.NewReasonError(dp.ReasonObservationNotSettled, "observation requires one sealed linked execution")
+	}
+	link := state.links[0]
+	if binding.OperationID != link.OperationID || binding.SourceGeneration != link.SourceGeneration || binding.SourceGeneration != state.seal.SourceGeneration {
+		return dp.ExperimentObservationBinding{}, false, fmt.Errorf("observation binding execution authority mismatch")
+	}
+	if err := validateObservationPredictionSet(state.predictions, binding.PredictionResults); err != nil {
+		return dp.ExperimentObservationBinding{}, false, err
+	}
+	if state.observationBinding != nil {
+		if observationBindingSemanticallyEqual(*state.observationBinding, binding) {
+			return *state.observationBinding, false, nil
+		}
+		return dp.ExperimentObservationBinding{}, false, dp.NewReasonError(dp.ReasonExperimentObservationBindingConflict, "experiment observation binding already materialized at a different semantic cut")
+	}
+	if _, err := r.appendCanonicalRecordLocked(dp.RecordExperimentObservationBinding, binding); err != nil {
+		return dp.ExperimentObservationBinding{}, false, err
+	}
+	return binding, true, nil
+}
+
+func validateObservationPredictionSet(predictions []dp.PredictionBinding, results []dp.PredictionResult) error {
+	if len(predictions) != len(results) {
+		return fmt.Errorf("observation binding does not cover sealed prediction set")
+	}
+	want := make(map[dp.PredictionID]struct{}, len(predictions))
+	for _, prediction := range predictions {
+		want[prediction.PredictionID] = struct{}{}
+	}
+	for _, result := range results {
+		if _, ok := want[result.PredictionID]; !ok {
+			return fmt.Errorf("observation binding contains non-sealed prediction")
+		}
+		delete(want, result.PredictionID)
+	}
+	if len(want) != 0 {
+		return fmt.Errorf("observation binding omits sealed prediction")
+	}
+	return nil
+}
+
+func observationBindingSemanticallyEqual(a, b dp.ExperimentObservationBinding) bool {
+	a.BindingID, b.BindingID = "", ""
+	a.MaterializedAt, b.MaterializedAt = time.Time{}, time.Time{}
+	normalizePredictionResults := func(results []dp.PredictionResult) []dp.PredictionResult {
+		out := append([]dp.PredictionResult(nil), results...)
+		for i := range out {
+			out[i].BasisRefs = append([]string(nil), out[i].BasisRefs...)
+			sort.Strings(out[i].BasisRefs)
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].PredictionID < out[j].PredictionID })
+		return out
+	}
+	a.PredictionResults = normalizePredictionResults(a.PredictionResults)
+	b.PredictionResults = normalizePredictionResults(b.PredictionResults)
+	return reflect.DeepEqual(a, b)
 }
 
 func (s *DecisionProtocolStore) CloseExperimentCAS(_ context.Context, closure dp.ExperimentClosure) (dp.CanonicalRecordEnvelope, bool, error) {

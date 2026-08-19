@@ -129,7 +129,10 @@ func (s *Service) CloseExperiment(ctx context.Context, experimentID core.Experim
 		return core.DecisionProjection{}, err
 	}
 	if !found {
-		return core.DecisionProjection{}, core.NewReasonError(core.ReasonObservationNotSettled, "experiment observation binding unavailable")
+		binding, err = s.materializeExperimentObservation(ctx, experimentID)
+		if err != nil {
+			return core.DecisionProjection{}, err
+		}
 	}
 	closure := core.ExperimentClosure{SchemaVersion: 1, ClosureID: semanticRecordID("close", string(experimentID), string(binding.BindingID)), ExperimentID: experimentID, ObservationBindingID: binding.BindingID, ClosedByActorRef: actor, ClosedAt: s.now().UTC()}
 	if _, _, err := s.experiments.CloseExperimentCAS(ctx, closure); err != nil {
@@ -163,6 +166,13 @@ func (s *Service) AbortExperiment(ctx context.Context, experimentID core.Experim
 		if existing.Phase != phase || existing.Reason != reason || existing.AbortedByActorRef != actor {
 			return core.DecisionProjection{}, fmt.Errorf("experiment already aborted with different intent")
 		}
+		if phase == core.AbortAfterExecutionLink {
+			if _, settleErr := s.materializeExperimentObservation(ctx, experimentID); settleErr != nil {
+				if r, ok := core.ReasonOf(settleErr); !ok || r != core.ReasonObservationNotSettled {
+					return core.DecisionProjection{}, settleErr
+				}
+			}
+		}
 		return s.Inspect(ctx, experiment.EpisodeID, "")
 	}
 	var linkID core.LinkID
@@ -172,6 +182,11 @@ func (s *Service) AbortExperiment(ctx context.Context, experimentID core.Experim
 			return core.DecisionProjection{}, fmt.Errorf("after-link abort requires exactly one execution link")
 		}
 		linkID = links[0].LinkID
+		if _, settleErr := s.materializeExperimentObservation(ctx, experimentID); settleErr != nil {
+			if r, ok := core.ReasonOf(settleErr); !ok || r != core.ReasonObservationNotSettled {
+				return core.DecisionProjection{}, settleErr
+			}
+		}
 	}
 	abort := core.ExperimentAbort{SchemaVersion: 1, AbortID: semanticRecordID("abort", string(experimentID), string(phase), reason, actor), ExperimentID: experimentID, Phase: phase, ExecutionLinkID: linkID, Reason: reason, AbortedByActorRef: actor, AbortedAt: s.now().UTC()}
 	if _, _, err := s.experiments.AbortExperimentCAS(ctx, abort); err != nil {

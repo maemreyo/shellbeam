@@ -265,7 +265,24 @@ func (s ExperimentLifecycleState) Validate() error {
 	}
 }
 
+type ObservationSettlementState string
+
+const (
+	ObservationSettling ObservationSettlementState = "SETTLING"
+	ObservationSettled  ObservationSettlementState = "SETTLED"
+)
+
+func (s ObservationSettlementState) Validate() error {
+	if s == ObservationSettling || s == ObservationSettled {
+		return nil
+	}
+	return fmt.Errorf("invalid observation settlement state %q", s)
+}
+
 type ExperimentProjection struct {
-	ExperimentID ExperimentID             `json:"experiment_id"`
-	State        ExperimentLifecycleState `json:"state"`
+	ExperimentID            ExperimentID                  `json:"experiment_id"`
+	State                   ExperimentLifecycleState      `json:"state"`
+	ObservationState        ObservationSettlementState    `json:"observation_state,omitempty"`
+	PotentialDiscrimination []PotentialDiscriminationPair `json:"potential_discrimination,omitempty"`
+	RealizedDiscrimination  bool                          `json:"realized_discrimination"`
 }

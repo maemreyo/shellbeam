@@ -3,7 +3,10 @@ package decisionprotocol
 import (
 	"context"
 
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	core "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -41,12 +44,28 @@ type SourceSnapshotter interface {
 	ObserveFresh(context.Context, string) workspace.FastSnapshot
 }
 
+type ReceiptSource interface {
+	FindReceiptByOperation(context.Context, operation.ID) (receipt.Receipt, bool, error)
+}
+
+type StructuredSource interface {
+	InspectStructured(context.Context, structuredapp.InspectRequest) (structuredapp.InspectResult, error)
+}
+
+type VerificationSource interface {
+	AcquireVerificationObservationCut(context.Context, operation.ID) (VerificationObservationCut, error)
+	QualifiedEvidenceForOperation(context.Context, operation.ID, VerificationObservationCut) (QualifiedEvidenceSet, error)
+}
+
 type EpisodeDependencies struct {
-	Mutations   EpisodeMutationStore
-	Experiments ExperimentMutationStore
-	Ledger      CanonicalLedgerStore
-	Workspaces  WorkspaceInspector
-	Snapshots   SourceSnapshotter
+	Mutations    EpisodeMutationStore
+	Experiments  ExperimentMutationStore
+	Ledger       CanonicalLedgerStore
+	Workspaces   WorkspaceInspector
+	Snapshots    SourceSnapshotter
+	Receipts     ReceiptSource
+	Structured   StructuredSource
+	Verification VerificationSource
 }
 
 type ExperimentMutationStore interface {
@@ -54,6 +73,7 @@ type ExperimentMutationStore interface {
 	FindExperiment(context.Context, core.ExperimentID) (core.Experiment, bool, error)
 	BindPrediction(context.Context, core.PredictionBinding) (core.CanonicalRecordEnvelope, bool, error)
 	SealExperimentCAS(context.Context, core.ExperimentSeal) (core.CanonicalRecordEnvelope, bool, error)
+	MaterializeExperimentObservationCAS(context.Context, core.ExperimentObservationBinding) (core.ExperimentObservationBinding, bool, error)
 	CloseExperimentCAS(context.Context, core.ExperimentClosure) (core.CanonicalRecordEnvelope, bool, error)
 	AbortExperimentCAS(context.Context, core.ExperimentAbort) (core.CanonicalRecordEnvelope, bool, error)
 }
