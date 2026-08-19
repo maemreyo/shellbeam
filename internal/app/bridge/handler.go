@@ -3,9 +3,11 @@ package bridge
 import (
 	"context"
 	"errors"
+	"sync"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 type Handler struct {
@@ -14,6 +16,9 @@ type Handler struct {
 	hasEffective bool
 	consumer     capability.MediaSupport
 	negotiated   *capability.NegotiatedMedia
+
+	terminalAffinityMu sync.RWMutex
+	terminalAffinity   *terminalpresentation.BridgeAffinityHint
 }
 
 func New(client DaemonClient) *Handler { return &Handler{client: client} }
