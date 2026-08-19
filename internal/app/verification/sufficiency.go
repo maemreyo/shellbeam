@@ -95,8 +95,12 @@ func evaluateRequirement(obligation core.VerificationObligation, bound core.Boun
 	}
 	freshCandidates := authorityCandidates
 	if requirement.RequireCurrent {
-		freshCandidates = filterCurrent(authorityCandidates)
+		var freshnessUnknown bool
+		freshCandidates, freshnessUnknown = filterCurrent(authorityCandidates, obligation.AppliesToGeneration)
 		if len(freshCandidates) == 0 {
+			if freshnessUnknown {
+				return setResult(core.EvidenceUnknown, "evidence_freshness_unknown")
+			}
 			return setResult(core.EvidenceInsufficient, "evidence_stale")
 		}
 	}
@@ -182,14 +186,22 @@ func filterAuthority(candidates []core.EvidenceCandidate, minimum core.Derivatio
 	return out
 }
 
-func filterCurrent(candidates []core.EvidenceCandidate) []core.EvidenceCandidate {
+func filterCurrent(candidates []core.EvidenceCandidate, appliesToGeneration string) ([]core.EvidenceCandidate, bool) {
 	out := make([]core.EvidenceCandidate, 0, len(candidates))
+	unknown := false
 	for _, candidate := range candidates {
-		if candidate.Freshness == core.CandidateCurrent {
+		switch candidate.Freshness {
+		case core.CandidateCurrent:
 			out = append(out, candidate)
+		case core.CandidateUnknown:
+			if candidate.SourceGeneration != "" && candidate.SourceGeneration == appliesToGeneration {
+				out = append(out, candidate)
+			} else {
+				unknown = true
+			}
 		}
 	}
-	return out
+	return out, unknown
 }
 
 func filterEnvironment(candidates []core.EvidenceCandidate, requirement core.EnvironmentRequirement, current *environment.Binding) ([]core.EvidenceCandidate, core.EvidenceStatus, string) {

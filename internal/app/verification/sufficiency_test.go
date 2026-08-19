@@ -131,11 +131,41 @@ func TestProjectCommandBindingElevatesOnlyCurrentRequirementSemantics(t *testing
 	}
 }
 
+func TestUnknownFreshnessWithMatchingGenerationCanSatisfyCurrentRequirement(t *testing.T) {
+	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
+	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
+	candidate.Freshness = core.CandidateUnknown
+	obligation := sufficiencyObligation(requirement)
+	if candidate.SourceGeneration != obligation.AppliesToGeneration {
+		t.Fatalf("fixture generation mismatch candidate=%q obligation=%q", candidate.SourceGeneration, obligation.AppliesToGeneration)
+	}
+	got := oneRequirement(t, EvaluateObligation(obligation, CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
+	if got.Status != core.EvidenceSatisfied {
+		t.Fatalf("matching generation did not prove currentness for unknown freshness: %#v", got)
+	}
+}
+
+func TestUnknownFreshnessWithDifferentGenerationStaysUnknown(t *testing.T) {
+	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
+	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
+	candidate.Freshness = core.CandidateUnknown
+	candidate.SourceGeneration = sufficiencyGeneration('9')
+	obligation := sufficiencyObligation(requirement)
+	got := oneRequirement(t, EvaluateObligation(obligation, CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
+	if got.Status != core.EvidenceUnknown || got.ReasonCode != "evidence_freshness_unknown" {
+		t.Fatalf("unknown freshness was misreported as stale: %#v", got)
+	}
+}
+
 func TestStaleEvidenceCannotSatisfyCurrentRequirement(t *testing.T) {
 	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
 	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
 	candidate.Freshness = core.CandidateStale
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
+	obligation := sufficiencyObligation(requirement)
+	if candidate.SourceGeneration != obligation.AppliesToGeneration {
+		t.Fatalf("fixture generation mismatch candidate=%q obligation=%q", candidate.SourceGeneration, obligation.AppliesToGeneration)
+	}
+	got := oneRequirement(t, EvaluateObligation(obligation, CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
 	if got.Status != core.EvidenceInsufficient || got.ReasonCode != "evidence_stale" {
 		t.Fatalf("stale evidence satisfied current requirement: %#v", got)
 	}

@@ -431,6 +431,9 @@ func TestBinderBindsV2FixedArgvWithoutParameters(t *testing.T) {
 	if len(got.Parameters) != 0 || len(got.ResolvedArgv) != 3 || got.ResolvedArgv[2] != "./..." {
 		t.Fatalf("binding=%#v", got)
 	}
+	if got.Parameters != nil {
+		t.Fatalf("zero-parameter binding must use canonical nil parameters: %#v", got.Parameters)
+	}
 	wantFP, err := core.ParameterFingerprint(nil)
 	if err != nil {
 		t.Fatal(err)

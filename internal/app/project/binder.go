@@ -110,7 +110,7 @@ func (b *Binder) bindParameters(ctx context.Context, record workspace.Workspace,
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	bindings := make([]core.ParameterBinding, 0, len(ids))
+	var bindings []core.ParameterBinding
 	values := make(map[string]string, len(ids))
 	pathQuality := ""
 	for _, id := range ids {
