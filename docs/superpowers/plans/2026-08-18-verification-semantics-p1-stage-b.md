@@ -474,9 +474,10 @@ func EvaluateObligation(
     candidates CandidateResultSet,
     providerAvailability ProviderAvailability,
     currentEnvironment *environment.Binding,
-    quiescence map[string]QuiescenceObservation,
 ) ObligationEvaluation
 ```
+
+Task 3 deliberately has no quiescence input yet because `QuiescenceObservation` is introduced by Task 4. Until Task 4 extends this signature, any `EvidenceRequirement.RequireQuiescence=true` evaluates `unavailable` with a literal `quiescence_not_implemented` reason. Task 4 then adds the typed `map[string]QuiescenceObservation` input and replaces only that temporary unavailable branch. This keeps task ordering compile-safe without hoisting untested Task-4 semantics into Task 3.
 
 No telemetry/cost parameter is accepted by this function. This type boundary mechanically enforces "cost cannot redefine sufficiency".
 
@@ -596,7 +597,7 @@ V1 semantics accept typed resources `process|port|persistent_session`, but posit
 
 - [ ] **Step 5: Wire into sufficiency**
 
-When `EvidenceRequirement.RequireQuiescence=true`:
+When `EvidenceRequirement.RequireQuiescence=true`, Task 4 extends the Task-3 evaluator signature with `quiescence map[string]QuiescenceObservation` and replaces Task 3's temporary `quiescence_not_implemented` unavailable result:
 
 ```text
 complete -> may satisfy this constraint
