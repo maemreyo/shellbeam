@@ -127,12 +127,35 @@
 **Interfaces:**
 - Exercises canonical strict schema, permissive MCP transport schema, IPC error envelope, bridge projection, MCP error result, and runtime identity handshake as one control plane.
 
-- [ ] Run a modern official MCP-session malformed call and assert the complete returned text/structured payload is bounded and contains no schema dump markers.
-- [ ] Run representative known operational failures through the live in-process IPC→bridge→MCP stack and assert no `internal` collapse.
-- [ ] Run runtime identity match/mismatch compatibility matrix.
-- [ ] Run `gofmt` on changed Go files and `git diff --check`.
-- [ ] Run focused race: `go test -race ./internal/core/failure ./internal/app/bridge ./internal/adapter/ipc ./internal/adapter/mcp ./internal/app/daemon ./cmd/shellbeam -count=1 -timeout 15m`.
-- [ ] Run build: `go build ./...`.
-- [ ] Run whole repository: `go test ./... -count=1 -timeout 15m`.
-- [ ] Inspect final diff against this spec; verify no P1+ work, no auto-restart, no canonical schema weakening, no unsafe public details.
-- [ ] Commit any final test/docs-only verification updates if needed.
+- [x] Run a modern official MCP-session malformed call and assert the complete returned text/structured payload is bounded and contains no schema dump markers.
+- [x] Run representative known operational failures through the live in-process IPC→bridge→MCP stack and assert no `internal` collapse.
+- [x] Run runtime identity match/mismatch compatibility matrix.
+- [x] Run `gofmt` on changed Go files and `git diff --check`.
+- [x] Run focused race: `go test -race ./internal/core/failure ./internal/app/bridge ./internal/adapter/ipc ./internal/adapter/mcp ./internal/app/daemon ./cmd/shellbeam -count=1 -timeout 15m`.
+- [x] Run build: `go build ./...`.
+- [x] Run whole repository: `go test ./... -count=1 -timeout 15m`.
+- [x] Inspect final diff against this spec; verify no P1+ work, no auto-restart, no canonical schema weakening, no unsafe public details.
+- [x] Commit any final test/docs-only verification updates if needed.
+
+
+## Execution Evidence — 2026-08-19
+
+Implementation commits before this verification record:
+
+- `82aca21` — `fix: preserve typed control-plane failures`
+- `13bea10` — `fix: align mcp typed failure schema`
+- `81986c5` — `fix: bound mcp validation failures`
+- `a146a34` — `feat: detect shellbeam runtime skew`
+
+Verification performed on exact `a146a3458dd7e607d3ea0de75ccf56398b64a65b` unless noted:
+
+- Symptom matrix PASS: compact MCP unknown-field/wrong-type failures, typed failure details across IPC/bridge/MCP, binary/revision skew rejection, matching/unknown compatibility, legacy runtime omission, and real daemon runtime identity.
+- Transport schema is 2,013 bytes, contains no semantic `oneOf` / `allOf` / `required` / `enum` / `unevaluatedProperties`, while canonical `api/schema/mcp-input-v2.json` is unchanged.
+- `git diff --check 86b0cb56cf7a57dd6ab1d0208bf08ffcb3acbbbf..HEAD` PASS and changed Go files have no `gofmt -l` output.
+- Focused race PASS: `go test -race ./internal/core/failure ./internal/app/bridge ./internal/adapter/ipc ./internal/adapter/mcp ./internal/app/daemon ./cmd/shellbeam -count=1 -timeout 15m`; daemon 108.022s, cmd/shellbeam 288.757s.
+- `go build ./...` PASS.
+- First fresh `go test ./... -count=1 -timeout 15m` produced one transient E26 timing failure: `TestE26EnabledUnusedAdmissionIncrementalP95P99` observed `e26-disabled-warm-1` still `finalizing` after its bounded poll window. No P0-B/C/D diff overlaps checkpoint finalization/store/receipt code.
+- Systematic A/B reproduction: feature branch isolated E26 PASS in 59.60s; clean base `86b0cb5` isolated E26 PASS in 59.23s, with comparable admission latency. No code/test threshold was changed.
+- Fresh whole-repository rerun PASS: `go test ./... -count=1 -timeout 15m`; cmd/shellbeam 337.981s, daemon 139.886s, store 276.567s, contract/integration/tools all PASS.
+
+The transient E26 failure is retained here as evidence rather than hidden or converted into a threshold relaxation.
