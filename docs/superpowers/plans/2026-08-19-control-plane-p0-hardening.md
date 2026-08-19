@@ -69,16 +69,16 @@
 - Canonical `MCPInputV2` remains unchanged and strict.
 - Produces: compact `failure.InvalidInput` projection with `field`/`reason` details.
 
-- [ ] Add a failing schema test: transport schema must accept object `{action:"start", command:7, wat:true}` while canonical `MCPInputV2` rejects it.
-- [ ] Create a minimal object-rooted transport schema with no semantic type/enum/required restrictions and `additionalProperties:true`; embed it; run schema test GREEN.
-- [ ] Change only modern tool discovery to advertise `MCPToolInputV2`; update discovery ID assertions; keep output schema unchanged.
-- [ ] Add a failing official MCP-session test sending an unknown top-level field. Assert `code=invalid_input`, `details.field=wat`, `details.reason=unknown_field`, bounded text, and absence of `$defs`, `oneOf`, `Schema:`, or raw schema body.
-- [ ] Implement a bounded validation classifier that preflights action/field names before strict decode and never publishes raw decoder text; run test GREEN.
-- [ ] Add failing tests for invalid JSON / wrong typed value / missing required semantic value and assert bounded reasons (`invalid_json`, `invalid_value`, `missing_field` or a narrower safe reason) without echoing user payload.
-- [ ] Implement minimal classification for those cases; use safe fallback `invalid_value` when exact field cannot be established without parsing raw implementation error text.
-- [ ] Re-run canonical schema tests proving strict contracts were not weakened.
-- [ ] Run `go test ./api/schema ./internal/core/jsonstrict ./internal/adapter/mcp -count=1`.
-- [ ] Commit `fix: bound mcp validation failures`.
+- [x] Add a failing schema test: transport schema must accept object `{action:"start", command:7, wat:true}` while canonical `MCPInputV2` rejects it.
+- [x] Create a minimal object-rooted transport schema with no semantic type/enum/required restrictions and `additionalProperties:true`; embed it; run schema test GREEN.
+- [x] Change only modern tool discovery to advertise `MCPToolInputV2`; update discovery ID assertions; keep output schema unchanged.
+- [x] Add a failing official MCP-session test sending an unknown top-level field. Assert `code=invalid_input`, `details.field=wat`, `details.reason=unknown_field`, bounded text, and absence of `$defs`, `oneOf`, `Schema:`, or raw schema body.
+- [x] Implement a bounded validation classifier that preflights action/field names before strict decode and never publishes raw decoder text; run test GREEN.
+- [x] Add failing tests for invalid JSON / wrong typed value / missing required semantic value and assert bounded reasons (`invalid_json`, `invalid_value`, `missing_field` or a narrower safe reason) without echoing user payload.
+- [x] Implement minimal classification for those cases; use safe fallback `invalid_value` when exact field cannot be established without parsing raw implementation error text.
+- [x] Re-run canonical schema tests proving strict contracts were not weakened.
+- [x] Run `go test ./api/schema ./internal/core/jsonstrict ./internal/adapter/mcp -count=1`.
+- [x] Commit `fix: bound mcp validation failures`.
 
 ### Task 3: Publish runtime identity and fail closed on proven version skew (P0-C)
 

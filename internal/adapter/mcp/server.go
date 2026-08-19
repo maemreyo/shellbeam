@@ -31,7 +31,7 @@ const catalogRefreshInterval = 5 * time.Second
 
 func ToolDefinition() *mcpgo.Tool { return toolDefinition(schema.MCPInputV1, schema.MCPOutputV1) }
 
-func ToolDefinitionV2() *mcpgo.Tool { return toolDefinition(schema.MCPInputV2, schema.MCPOutputV2) }
+func ToolDefinitionV2() *mcpgo.Tool { return toolDefinition(schema.MCPToolInputV2, schema.MCPOutputV2) }
 
 func toolDefinitionV2(catalog capability.Catalog) *mcpgo.Tool {
 	if !mediaCatalogAvailable(catalog) {

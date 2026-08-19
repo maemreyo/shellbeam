@@ -14,12 +14,19 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 	var in input
 	var err error
 	if version == 2 {
+		action, issue := preflightV2Input(req.Params.Arguments)
+		if issue != nil {
+			return invalidInputV2(action, issue), nil
+		}
 		in, err = decodeInputV2(req.Params.Arguments)
+		if err != nil {
+			return invalidInputV2(action, classifyV2DecodeFailure(req.Params.Arguments)), nil
+		}
 	} else {
 		in, err = decodeInput(req.Params.Arguments)
-	}
-	if err != nil {
-		return versionedToolError(version, "", "invalid_request", "invalid request", false), nil
+		if err != nil {
+			return versionedToolError(version, "", "invalid_request", "invalid request", false), nil
+		}
 	}
 	if version == 2 && isDeferredAction(in.Action) {
 		return toolErrorV2(in.Action, "feature_unavailable", "feature unavailable", false), nil
@@ -28,6 +35,9 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		return toolErrorV2(in.Action, "feature_unavailable", "feature unavailable", false), nil
 	}
 	if err := validateForVersion(version, in, req.Params.Arguments); err != nil {
+		if version == 2 {
+			return invalidInputV2(in.Action, classifyV2ValidationFailure(in.Action, err)), nil
+		}
 		return versionedToolError(version, in.Action, "invalid_request", err.Error(), false), nil
 	}
 	request := requestFromInput(version, in, req.Params.Arguments)

@@ -125,7 +125,7 @@ func TestE27InputTraceOneToolDiscoveryKeepsLocalShellOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertOneToolSchemaID(t, tools.Tools, "https://shellbeam.dev/schema/mcp-input-v2.json")
+	assertOneToolSchemaID(t, tools.Tools, "https://shellbeam.dev/schema/mcp-tool-input-v2.json")
 	data, err := json.Marshal(tools.Tools[0].InputSchema)
 	if err != nil {
 		t.Fatal(err)
