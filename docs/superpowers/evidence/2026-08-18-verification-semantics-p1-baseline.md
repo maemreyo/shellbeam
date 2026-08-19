@@ -127,3 +127,16 @@ traceability: PASS core=24/24 roadmap=4/4 review=11/11 deferred=7/7
 ```
 
 Stage-A limitations remain explicit: it projects affected surface, policy authority, obligations, and policy gaps but does not execute verification providers, evaluate evidence sufficiency, or claim `gate_status=clear`; those belong to Stage B. Manifest-v1 and shell-form project commands remain advisory-only for P1 typed binding, and bounded/partial Go relation coverage can widen but never narrow a mandatory obligation.
+
+## Stage B practical benchmark comparison (2026-08-19)
+
+The historical docs-only checkpoint above is a scheduler/checkpoint measurement. P1 V1 remains a no-auto-execution semantic layer, so its practical measurement is reported separately rather than treated as a replacement runtime benchmark.
+
+- Historical checkpoint: `selection=full`, approximately 480,000 ms first cold/local observation.
+- Historical commit gate: affected `contract:markdown`.
+- P1 real-daemon docs-only inspection: 6528 response bytes, 4059 ms including fixture policy activation/inspection, and **0** verification executions.
+- P1 mandatory set for the fixture: `docs-contract` only.
+- Mandatory misses: 0. Wasteful mandatory obligations: 0.
+- P1 did not invent Go full-suite, load/stress, race, browser, or DAP verification for the docs-only change.
+
+This demonstrates narrower machine-readable obligation selection. It does **not** demonstrate a shorter `devctl verify --checkpoint` runtime because P1 does not yet drive the devctl scheduler.
