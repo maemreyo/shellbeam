@@ -265,7 +265,8 @@ func (w *Worker) processInput(ctx context.Context, input core.StructuredInputRef
 	if derivation.Lifecycle != core.LifecycleProcessing {
 		return
 	}
-	result, err := adapter.Parse(ctx, input, w.reader, w.limits)
+	parseReader := derivationContextReader{Reader: w.reader, derivationKey: key}
+	result, err := adapter.Parse(ctx, input, parseReader, w.limits)
 	if err != nil {
 		return
 	}
@@ -276,7 +277,21 @@ func (w *Worker) processInput(ctx context.Context, input core.StructuredInputRef
 	if result.Outcome == "" || result.Completeness == "" {
 		return
 	}
-	_, _ = service.Complete(ctx, key, result.Outcome, result.Completeness, result.Records)
+	_, _ = service.CompleteWithCoverage(ctx, key, result.Outcome, result.Completeness, result.Records, result.SemanticsCoverage)
+}
+
+type derivationContextReader struct {
+	Reader
+	derivationKey string
+}
+
+func (r derivationContextReader) DescribeInput(ctx context.Context, input core.StructuredInputRef) (InputContext, error) {
+	description, err := r.Reader.DescribeInput(ctx, input)
+	if err != nil {
+		return InputContext{}, err
+	}
+	description.DerivationKey = r.derivationKey
+	return description, nil
 }
 
 func (w *Worker) acquireInFlight(key string) bool {

@@ -93,14 +93,18 @@ func (r *workerRepo) ListRecords(context.Context, string, RecordQuery) ([]core.R
 func (r *workerRepo) CompactRecords(context.Context, string) error { return nil }
 
 type workerAdapter struct {
-	id      string
-	version int
-	parse   func() (ParseResult, error)
+	id        string
+	version   int
+	parse     func() (ParseResult, error)
+	parseWith func(context.Context, core.StructuredInputRef, Reader, Limits) (ParseResult, error)
 }
 
 func (a workerAdapter) ID() string   { return a.id }
 func (a workerAdapter) Version() int { return a.version }
-func (a workerAdapter) Parse(context.Context, core.StructuredInputRef, Reader, Limits) (ParseResult, error) {
+func (a workerAdapter) Parse(ctx context.Context, ref core.StructuredInputRef, reader Reader, limits Limits) (ParseResult, error) {
+	if a.parseWith != nil {
+		return a.parseWith(ctx, ref, reader, limits)
+	}
 	return a.parse()
 }
 
@@ -183,6 +187,35 @@ func TestStructuredWorkerDowngradesCompleteParseWhenTerminalOutputWasIncomplete(
 	derivation := repo.derivations[key]
 	repo.mu.Unlock()
 	if derivation.ParseOutcome != core.ParsePartial || derivation.Completeness != core.CompletenessPartial {
+		t.Fatalf("derivation=%#v", derivation)
+	}
+}
+
+func TestStructuredWorkerPersistsSemanticsCoverageAndDerivationContext(t *testing.T) {
+	ref := core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: 3, SHA256: strings.Repeat("a", 64)}
+	repo := newWorkerRepo()
+	coverage := &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}
+	adapter := workerAdapter{id: "go-test-json", version: 1, parseWith: func(ctx context.Context, input core.StructuredInputRef, reader Reader, _ Limits) (ParseResult, error) {
+		description, err := reader.DescribeInput(ctx, input)
+		if err != nil || len(description.DerivationKey) != 64 {
+			t.Fatalf("description=%#v err=%v", description, err)
+		}
+		return ParseResult{Outcome: core.ParseComplete, Completeness: core.CompletenessComplete, SemanticsCoverage: coverage}, nil
+	}}
+	worker, err := NewWorker(&workerBinderFake{ref: ref}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 1, QueueDepth: 1, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Shutdown(context.Background())
+	if err := worker.ScheduleTerminal(context.Background(), workerReceipt(), "go-test-json"); err != nil {
+		t.Fatal(err)
+	}
+	waitWorkerState(t, repo, core.LifecycleTerminal)
+	key := onlyWorkerKey(t, repo)
+	repo.mu.Lock()
+	derivation := repo.derivations[key]
+	repo.mu.Unlock()
+	if derivation.SemanticsCoverage == nil || !reflect.DeepEqual(*derivation.SemanticsCoverage, *coverage) {
 		t.Fatalf("derivation=%#v", derivation)
 	}
 }

@@ -3,6 +3,7 @@ package structuredresult
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"path/filepath"
 	"time"
@@ -47,6 +48,7 @@ type Repository interface {
 
 type InputContext struct {
 	OperationID     string
+	DerivationKey   string
 	RepositoryRoot  string
 	DependencyRoots []string
 	ToolchainRoots  []string
@@ -79,10 +81,11 @@ type ParseSummary struct {
 }
 
 type ParseResult struct {
-	Records      []core.Record
-	Outcome      core.ParseOutcome
-	Completeness core.Completeness
-	Summary      ParseSummary
+	Records           []core.Record
+	Outcome           core.ParseOutcome
+	Completeness      core.Completeness
+	Summary           ParseSummary
+	SemanticsCoverage *core.ProducerSemanticsCoverage
 }
 
 type Adapter interface {
@@ -94,6 +97,9 @@ type Adapter interface {
 func (c InputContext) Validate() error {
 	if _, err := operation.ParseID(c.OperationID); err != nil {
 		return err
+	}
+	if c.DerivationKey != "" && !validInputContextDigest(c.DerivationKey) {
+		return errors.New("invalid structured derivation context")
 	}
 	if !validRoot(c.RepositoryRoot) || len(c.DependencyRoots) > 8 || len(c.ToolchainRoots) > 8 {
 		return errors.New("invalid structured input context")
@@ -115,4 +121,12 @@ func (l Limits) Validate() error {
 
 func validRoot(root string) bool {
 	return root == "" || (filepath.IsAbs(root) && filepath.Clean(root) == root)
+}
+
+func validInputContextDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }

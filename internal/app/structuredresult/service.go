@@ -41,6 +41,10 @@ func (s *Service) MarkProcessing(ctx context.Context, key string) (core.Derivati
 }
 
 func (s *Service) Complete(ctx context.Context, key string, outcome core.ParseOutcome, completeness core.Completeness, records []core.Record) (core.Derivation, error) {
+	return s.CompleteWithCoverage(ctx, key, outcome, completeness, records, nil)
+}
+
+func (s *Service) CompleteWithCoverage(ctx context.Context, key string, outcome core.ParseOutcome, completeness core.Completeness, records []core.Record, coverage *core.ProducerSemanticsCoverage) (core.Derivation, error) {
 	derivation, err := s.repository.GetDerivation(ctx, key)
 	if err != nil {
 		return core.Derivation{}, err
@@ -54,6 +58,14 @@ func (s *Service) Complete(ctx context.Context, key string, outcome core.ParseOu
 	derivation.Lifecycle = core.LifecycleTerminal
 	derivation.ParseOutcome = outcome
 	derivation.Completeness = completeness
+	if coverage != nil {
+		copy := *coverage
+		copy.MechanicallyObservable = append([]string(nil), coverage.MechanicallyObservable...)
+		copy.Unavailable = append([]string(nil), coverage.Unavailable...)
+		derivation.SemanticsCoverage = &copy
+	} else {
+		derivation.SemanticsCoverage = nil
+	}
 	if err := s.repository.PutDerivation(ctx, derivation); err != nil {
 		return core.Derivation{}, err
 	}
