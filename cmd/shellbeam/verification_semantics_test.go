@@ -263,6 +263,9 @@ func activateVerificationPolicy(t *testing.T, client *ipcadapter.Client, req ipc
 	req.RequestID = id
 	response, err := client.CallV2(context.Background(), req)
 	if err != nil || !response.OK || response.VerificationActivation == nil {
+		if response.Error != nil {
+			t.Fatalf("verification.policy.activate %s error=%#v response=%#v err=%v", id, *response.Error, response, err)
+		}
 		t.Fatalf("verification.policy.activate %s response=%#v err=%v", id, response, err)
 	}
 	return *response.VerificationActivation
