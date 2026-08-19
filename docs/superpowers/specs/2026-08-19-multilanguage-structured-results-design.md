@@ -263,6 +263,20 @@ The child SHALL still be allowed to execute unless another independent execution
 
 ShellBeam SHALL NOT automatically delete, truncate, rename, or replace the pre-existing file merely to make structured capture possible.
 
+Ordinary-path baseline qualification SHALL use the same workspace-root descriptor authority, descriptor-relative traversal, component no-follow policy, final-target containment policy, and normalized path binding that terminal Phase A later uses.
+
+A pathname-stat baseline such as `Lstat(workspace/path)` followed later by descriptor-relative Phase A resolution is not qualified V1 authority.
+
+The baseline operation SHALL prove absence under that descriptor authority without following or rebinding path components. The exact normalized path bound by this baseline SHALL be the same immutable path binding consumed by collision registration, Phase A, blob provenance, and recovery.
+
+If the platform implementation cannot provide the qualified descriptor-relative/no-follow traversal contract for the ordinary workspace path:
+
+```text
+path_unqualified / unavailable
+→ no qualified baseline
+→ no mechanical artifact attribution
+```
+
 A separately qualified operation-private/hermetic/provider-controlled result channel may define a stronger baseline contract in a future version.
 
 ## 12. Why the baseline is mandatory
@@ -520,6 +534,16 @@ ArtifactBlobRef
   observation_cut
 ```
 
+Every identity-bearing `ArtifactBlobRef` field SHALL be durably reconstructable byte-for-byte from ShellBeam-owned private blob authority. Private blob metadata SHALL persist the canonical `ArtifactBlobRef` identity payload itself, or a closed canonical payload sufficient to reconstruct it exactly. V1 chooses the stronger default: persist the canonical identity payload and validate it before mint/recovery.
+
+`terminal_cut` has closed V1 meaning: it binds the exact validated durable terminal authority through the canonical terminal-receipt digest and its receipt-schema identity. It is persisted, not recomputed from current session state after recovery.
+
+`observation_cut` has closed V1 meaning: it is a versioned deterministic digest of a canonical persisted `ArtifactCaptureObservationCutV1` payload containing at least the frozen capture-intent digest, qualified baseline/path-binding authority digest, qualified source-object observation scheme/digest, Phase-A observed size, and final source-stability observation/result required to justify the committed bytes. Platform-specific source facts may appear only through an explicitly versioned observation scheme.
+
+Neither cut may contain a freshly generated timestamp, random identifier, current daemon incarnation, or recovery-time observation. Recovery SHALL reuse the exact persisted cut values; it MUST NOT regenerate them.
+
+The canonical private identity payload and both cut payloads/digests SHALL be committed as part of private blob metadata before an `ArtifactBlobRef` is minted.
+
 `BlobID` is storage identity.
 
 `SHA256 + Size` is byte-content identity.
@@ -620,6 +644,9 @@ At minimum:
 - declared/normalized artifact path;
 - content SHA-256;
 - exact size;
+- canonical `ArtifactBlobRef` identity payload;
+- canonical/versioned terminal-cut authority payload or its closed reconstructable representation;
+- canonical/versioned observation-cut payload or its closed reconstructable representation;
 - durable commit state/version.
 
 Platform-private source-object metadata may additionally be retained for audit but SHALL NOT become portable semantic identity unless explicitly versioned.
@@ -684,6 +711,20 @@ A committed blob may be attached/recovered only when:
 - the blob has not been compacted/withdrawn.
 
 Private blob presence alone SHALL NOT authorize a new derivation.
+
+A recovery-eligible committed-but-unbound capture SHALL also own a minimum durable structured recovery claim whose lifetime is independent of ordinary operation/session bulk retention. The claim SHALL retain enough canonical authority to validate the frozen capture intent, expected `BlobID`, operation/session/workspace provenance, and terminal authority cut without requiring the bulk operation record or workspace artifact pathname.
+
+The minimum claim SHALL be durable no later than the point at which the private blob commit is considered recovery-eligible. A design that permits `durable blob commit → crash` to be recoverable SHALL therefore order the recovery claim before, or in the same serialized durability protocol as, the final recovery-eligible blob commit.
+
+Ordinary session retention MAY remove terminal bulk history, but SHALL NOT destroy the last structured recovery-authority claim while the committed blob is still eligible for recovery. The claim may leave live authority only through a durable transition that is one of:
+
+```text
+bound_to_detailed_derivation
+explicitly_abandoned_or_retired
+orphan_gc_eligible
+```
+
+Binding a recovery claim to a detailed derivation SHALL follow the atomic reference-acquisition rule in Section 34. Orphan collection SHALL treat an eligible recovery claim as a live owner even when the original reservation/session has already been bulk-collected.
 
 ## 31. Blob byte ceiling
 
@@ -775,6 +816,22 @@ no recovery-eligible committed-but-unbound capture requires it
 ```
 
 No cross-run shared ownership/refcount is introduced because V1 does not deduplicate blobs across executions.
+
+Blob reference acquisition and blob retirement SHALL share one serialization/atomic authority domain. A detailed derivation that depends on a blob MUST NOT become durably visible until all required retained-blob references for that derivation have been durably acquired under that authority.
+
+Retirement SHALL atomically:
+
+```text
+prove no live detailed derivation reference
+AND
+prove no recovery-eligible committed-but-unbound claim
+AND
+establish the retirement barrier / withdraw retained blob authority
+```
+
+Once the retirement barrier wins, no new detailed derivation reference may attach to that blob. A recovery path that converts a committed-but-unbound claim into a detailed derivation SHALL acquire the detailed reference under the same authority before releasing the recovery claim.
+
+The implementation MAY realize this domain with a structured-store mutex, a durable reference index, or a transaction-like store primitive; the implementation plan SHALL choose the mechanism, but the ordering above is normative.
 
 V1 does not require the public operation index to expose multiple simultaneously active derivations for one operation. The retention rule is deliberately stronger: blob retirement MUST NOT encode an assumption that source authority can only ever have one derivation identity.
 
@@ -1040,6 +1097,12 @@ V1 supports documented built-in JUnit output forms:
 
 If the option occurs multiple times, the resolver SHALL bind the effective final value according to the qualified pytest option contract.
 
+V1 qualifies only an expansion-free JUnit path token. The supplied token MUST be invariant under the qualified platform's pytest-equivalent user/environment expansion rules. In particular, a token requiring `~` expansion or environment-variable expansion is outside V1 qualification.
+
+A relative JUnit output path SHALL resolve against the frozen execution `ResolvedCWD`, not against workspace root by assumption. The resolver SHALL then prove workspace containment and produce one exact normalized workspace-relative path. That single normalized binding is consumed by baseline qualification, path collision authority, Phase A, blob identity/provenance, and recovery.
+
+An absolute output path MAY qualify only if normalization proves it lies inside the same frozen workspace authority and can be represented by the same normalized workspace-relative binding. Otherwise the artifact path is unqualified.
+
 The resulting JUnit output binding SHALL be the single authority used by:
 
 - structured selection;
@@ -1071,7 +1134,7 @@ A discovered config file saying `junit_family=xunit2` is not V1 authority.
 
 An XML document merely lacking xunit1-only fields is not xunit2 authority.
 
-V1 dialect authority requires an effective explicit override in frozen resolved argv:
+V1 dialect authority requires an effective explicit override in the qualified pytest invocation:
 
 ```text
 -o junit_family=xunit2
@@ -1079,7 +1142,29 @@ V1 dialect authority requires an effective explicit override in frozen resolved 
 --override-ini=junit_family=xunit2
 ```
 
-Repeated overrides use qualified last-value semantics.
+Because pytest can prepend configuration `addopts` and `PYTEST_ADDOPTS` before ordinary command-line arguments, `ResolvedArgv` alone is not sufficient authority unless those built-in argument sources are neutralized or proven absent. Strict V1 therefore additionally requires all of the following:
+
+```text
+PYTEST_ADDOPTS
+  mechanically proven absent from the frozen execution environment authority
+
+config addopts
+  explicitly neutralized by the caller/project command with an effective
+  -o addopts=
+  or
+  --override-ini addopts=
+  or
+  --override-ini=addopts=
+
+@argument-file expansion
+  unsupported in V1 qualification
+```
+
+ShellBeam SHALL NOT inject the `addopts=` override. Presence of `PYTEST_ADDOPTS`, absence of an effective empty `addopts` override, or an argument-file source that pytest would expand makes producer/invocation/dialect qualification unavailable in V1.
+
+`PytestInvocationBinding` SHALL be produced by one option-aware resolver that honors pytest option termination and option arity. It SHALL NOT independently scan token strings after `--`, consume option values as new options, or reconstruct an expanded argument file. Any qualified pytest argument source beginning as a supported parser argument-file source is rejected rather than expanded by ShellBeam.
+
+Repeated supported overrides use the resolver's qualified effective last-value semantics.
 
 Examples:
 
@@ -1097,9 +1182,9 @@ Examples:
 
 ## 51. Config discovery is deferred
 
-V1 SHALL NOT implement effective pytest config discovery.
+V1 SHALL NOT implement effective pytest config discovery. The explicit empty `addopts` override above is the strict V1 mechanism for neutralizing config-provided `addopts`; it is not config discovery.
 
-Doing so would require a separate subsystem for:
+Doing so would otherwise require a separate subsystem for:
 
 - rootdir/config-file discovery;
 - `pytest.toml` / `pytest.ini` / `pyproject.toml` / `tox.ini` / `setup.cfg`;
@@ -1741,9 +1826,10 @@ Generic JUnit may become a separately designed provider family later, with its o
 
 Artifact capture SHALL inherit ShellBeam's path-sensitive security posture:
 
-- workspace-root containment;
-- descriptor-relative traversal where qualified by platform implementation;
-- no-follow semantics for path components/final target;
+- workspace-root descriptor authority for both baseline and Phase A;
+- descriptor-relative traversal as a V1 qualification requirement for ordinary workspace artifact paths;
+- no-follow semantics for every traversed path component and final target;
+- fail-closed `path_unqualified / unavailable` when the platform cannot provide that ordinary-path traversal contract;
 - regular-file requirement;
 - private state permissions;
 - create-only/idempotent private blob identity;
