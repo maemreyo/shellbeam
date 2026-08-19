@@ -792,6 +792,9 @@ git -c core.hooksPath=.githooks commit -m "feat: recover delegated interactive s
 
 **Files:**
 - Create: `tests/integration/delegated_session_test.go`
+- Create: `tests/integration/delegated_session_helpers_test.go` when needed to keep repo file/function caps while preserving the single H1 acceptance surface.
+- Modify: `internal/app/daemon/service.go` only for acceptance-found replay bugs that violate already-frozen H1 request identity semantics.
+- Modify: `internal/app/daemon/delegated_start_test.go` to lock any such replay regression before the production fix.
 - Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h1-delegated-core.md`
 
 **Interfaces:**
@@ -803,7 +806,7 @@ Prove on required platforms:
 
 ```text
 delegated start -> agent write -> output -> clean terminal
-lost start response -> retry -> exactly one tmux session/shell
+lost start response -> retry -> exactly one tmux session/shell; explicit `stdin_mode=stream` + `timeout_mode=unlimited` remain part of the same request identity on replay
 known old-epoch retry replays; unseen stale epoch rejected
 provider loss -> no PID/name takeover
 hard daemon restart -> exact reattach
