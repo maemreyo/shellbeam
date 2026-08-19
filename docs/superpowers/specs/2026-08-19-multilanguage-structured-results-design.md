@@ -220,6 +220,8 @@ ArtifactCaptureIntent
   baseline
 ```
 
+For `pytest-junit-xml@v1`, `producer_binding_digest` SHALL be the canonical digest of the complete `PytestInvocationBindingV1` qualification authority defined in Section 46. It SHALL NOT digest only resolved argv tokens or omit environment-absence/addopts/argument-file authority facts.
+
 For pytest V1 there SHALL be exactly one capture intent.
 
 The generic protocol ceiling SHALL remain bounded by `MaxSourceAuthorityRefs`; current ceiling is 8.
@@ -1053,13 +1055,33 @@ Gate 1 producer qualification, Gate 2 JUnit-output qualification, and Gate 3 dia
 Conceptually:
 
 ```text
-PytestInvocationBinding
+PytestInvocationBindingV1
   producer_form
   junit_output
   junit_family_override
+  config_addopts_override
+  argument_file_state
+  pytest_addopts_environment_fact
 ```
 
-Independent parsers for selection, capture path, and dialect are forbidden because they can disagree about effective option values.
+`pytest_addopts_environment_fact` SHALL be a canonical bounded authority fact, not a transient lookup result. For qualified V1 it records at least:
+
+```text
+name = PYTEST_ADDOPTS
+present = false
+authority_schema_version
+authority_digest
+```
+
+The authority digest SHALL bind the exact mechanically observed absence fact used at pre-spawn qualification time. It SHALL be deterministic and replayable from durable operation/capture authority without re-observing the current process environment.
+
+`config_addopts_override` SHALL encode the effective explicit empty override that neutralizes config `addopts`. `argument_file_state` SHALL encode the closed V1 state `none`; any argument-file source is unqualified rather than represented as `none`.
+
+Independent parsers for selection, capture path, dialect, environment qualification, and addopts/argument-file state are forbidden because they can disagree about the effective invocation.
+
+The canonical `PytestInvocationBindingV1` payload SHALL be the complete pre-spawn pytest qualification authority for producer/invocation/dialect selection. Its canonical digest is the `producer_binding_digest` stored by `ArtifactCaptureIntent`. The digest therefore commits all identity-bearing fields above, including `PYTEST_ADDOPTS` absence authority, the effective empty config-addopts override, and argument-file rejection state.
+
+Crash recovery SHALL validate and reuse this persisted canonical invocation authority. It MUST NOT recreate `PYTEST_ADDOPTS` absence, addopts neutrality, or argument-file state from the recovery-time environment or filesystem.
 
 ## 47. Pytest producer qualification
 
@@ -1879,7 +1901,7 @@ wrapper negatives
 shell-string negative
 ```
 
-### JUnit output options
+### JUnit output options and invocation authority
 
 ```text
 --junitxml PATH
@@ -1887,6 +1909,17 @@ shell-string negative
 --junit-xml PATH
 --junit-xml=PATH
 repeated option last-value cases
+relative JUnit path resolves from frozen ResolvedCWD
+absolute in-workspace path normalizes to same workspace binding
+path requiring ~ expansion → unqualified
+path requiring environment-variable expansion → unqualified
+PYTEST_ADDOPTS absent → eligible
+PYTEST_ADDOPTS present → unqualified
+config addopts explicitly neutralized with effective empty override → eligible
+missing effective empty addopts override → unqualified
+@argument-file source → unqualified
+producer_binding_digest changes when any canonical invocation-authority fact changes
+crash recovery reproduces identical PytestInvocationBindingV1 without environment re-observation
 ```
 
 ### Dialect
@@ -1938,9 +1971,16 @@ session collected while blob retained
 multiple derivations reference one capture blob
 one derivation compacted while another still detailed
 last detailed reference compacted
+ref-acquire vs retire race → serialized; no dangling detailed derivation
+retirement barrier wins → new detailed reference cannot attach
 blob tombstone resolution
 staging orphan cleanup
 committed-but-unbound recovery
+recovery claim survives ordinary session/operation GC
+recovery claim → detailed reference handoff is atomic
+cut identity reconstructs byte-for-byte after crash recovery
+terminal_cut is reused, not regenerated
+observation_cut is reused, not regenerated
 orphan GC after recovery pass
 ```
 
