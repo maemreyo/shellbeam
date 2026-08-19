@@ -330,6 +330,8 @@ git -c core.hooksPath=.githooks commit -m "feat: persist delegated session inten
 - Create: `internal/adapter/store/delegated_restart.go`
 - Create: `internal/adapter/store/delegated_restart_test.go`
 - Modify: `internal/adapter/store/repository.go`
+- Modify: `internal/adapter/store/typed_intent.go`
+- Modify: `internal/adapter/store/typed_intent_test.go`
 - Modify: `internal/app/daemon/store_port.go`
 
 **Interfaces:**
@@ -683,6 +685,7 @@ Runtime later enforces epoch required for an actual delegated target.
 Capability discovery must be side-effect free: it may use startup qualification state/configured provider identity, but `inspect.server` must not start tmux.
 Production composition is optional and fail-closed per platform: on unqualified/non-Darwin/missing-or-mismatched tmux, ordinary daemon startup continues with no delegated runtime and no delegated capability. On exact qualified Darwin tmux, startup performs one provider Probe, injects that runtime, and derives capability from the successful probe; later inspect.server only clones that frozen catalog and performs no tmux work.
 The advertised `max_mutation_records` value must come from the same internal store default used by `Repository` normalization; do not duplicate a second numeric constant in command composition.
+Typed binding commit validation must keep request identity separate from resolved execution policy: an unset request timeout may legitimately persist as a resolved default in the reservation, so commit validation must rely on the already-bound request fingerprint instead of comparing requested `TimeoutMS` directly to resolved reservation `TimeoutMS`.
 
 - [ ] **Step 4: Add IPC/MCP lossless mapping and failure projection.**
 
