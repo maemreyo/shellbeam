@@ -497,6 +497,7 @@ git -c core.hooksPath=.githooks commit -m "feat: add qualified delegated tmux pr
 **Files:**
 - Modify: `internal/app/delegatedsession/ports.go`
 - Modify: `internal/app/delegatedsession/service.go`
+- Modify: `internal/app/delegatedsession/service_test.go`
 - Modify: `internal/adapter/delegatedtmux/provider_session.go`
 - Modify: `internal/adapter/delegatedtmux/provider_native_test.go`
 - Create: `internal/adapter/delegatedtmux/process_wait_darwin.go`
