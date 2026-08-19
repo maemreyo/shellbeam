@@ -118,8 +118,12 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.CWD = in.Start.CWD
 	req.TTY = in.Start.TTY
 	req.Persistent = in.Start.Persistent
+	req.SessionMode = in.Start.SessionMode
 	req.SessionName = in.Start.SessionName
 	req.TimeoutMS = in.Start.TimeoutMS
+	req.StdinMode = in.Start.StdinMode
+	req.TimeoutMode = in.Start.TimeoutMode
+	req.TraceMode = in.Start.TraceMode
 	req.ResourceLimits = in.Start.ResourceLimits.Clone()
 	req.YieldMS = in.Start.YieldMS
 	req.MaxOutputBytes = in.Start.MaxOutputBytes

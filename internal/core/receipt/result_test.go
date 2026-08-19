@@ -87,3 +87,45 @@ func TestStructuredResultRejectsCursorBeyondRawOutput(t *testing.T) {
 		t.Fatal("accepted next_cursor beyond raw output")
 	}
 }
+
+func TestDelegatedV5StructuredResultProjectsAuthorityCaptureAndProviderExit(t *testing.T) {
+	zero := 0
+	rec := Receipt{
+		SchemaVersion: 5, OperationID: "op-v5-result", SessionID: "session-v5-result",
+		RequestFingerprint: "request", ExecutionFingerprint: "execution", DaemonIncarnation: "daemon",
+		State: session.Completed, Outcome: session.Success, OutputBytes: 4, OutputComplete: true,
+		Spawn: SpawnEvidence{Attempted: true, Succeeded: true}, Exit: ExitEvidence{Code: &zero},
+		SessionMode: "delegated_interactive", AuthorityEpoch: 3,
+		EvidenceAuthority:        EvidenceAuthoritySessionLifecycleOnly,
+		InputAuthorityProvenance: InputAuthorityAgentOnly,
+		CaptureQuality:           CaptureComplete,
+	}
+	got, err := NewResult(ResultInput{OperationID: rec.OperationID, SessionID: rec.SessionID, State: rec.State, Outcome: rec.Outcome, Preview: "done", RawBytes: 4, NextCursor: 4, Receipt: &rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionMode != "delegated_interactive" || got.AuthorityEpoch != 3 || got.EvidenceAuthority != EvidenceAuthoritySessionLifecycleOnly || got.InputAuthorityProvenance != InputAuthorityAgentOnly {
+		t.Fatalf("authority projection=%#v", got)
+	}
+	if got.Output.CaptureQuality != CaptureComplete || len(got.Output.CaptureReasons) != 0 || !got.Output.OutputComplete {
+		t.Fatalf("output=%#v", got.Output)
+	}
+	if got.Child == nil || got.Child.State != ChildExited || got.Child.ExitCode == nil || *got.Child.ExitCode != 0 {
+		t.Fatalf("child=%#v", got.Child)
+	}
+	if rec.Exit.Reaped {
+		t.Fatal("fixture accidentally claims daemon reap")
+	}
+}
+
+func TestLegacyStructuredResultOmitsDelegatedProjectionFields(t *testing.T) {
+	exit := 0
+	rec := Receipt{SchemaVersion: 2, OperationID: "op-legacy-result", SessionID: "session-legacy-result", RequestFingerprint: "request", ExecutionFingerprint: "execution", DaemonIncarnation: "daemon", State: session.Completed, Outcome: session.Success, OutputComplete: true, Spawn: SpawnEvidence{Attempted: true, Succeeded: true}, Exit: ExitEvidence{Reaped: true, Code: &exit}}
+	got, err := NewResult(ResultInput{OperationID: rec.OperationID, SessionID: rec.SessionID, State: rec.State, Outcome: rec.Outcome, Receipt: &rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionMode != "" || got.AuthorityEpoch != 0 || got.EvidenceAuthority != "" || got.InputAuthorityProvenance != "" || got.Output.CaptureQuality != "" || len(got.Output.CaptureReasons) != 0 {
+		t.Fatalf("legacy leaked delegated fields=%#v", got)
+	}
+}

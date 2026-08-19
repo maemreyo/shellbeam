@@ -55,13 +55,17 @@ func successV1(action string, out bridge.Response) *mcpgo.CallToolResult {
 		body := map[string]any{"schema_version": 1, "ok": true, "action": action, "server": legacyCatalogView(*out.Server)}
 		return toolSuccess("inspect.server: capabilities", body)
 	}
+	legacyReceipt := out.View.Receipt
+	if legacyReceipt != nil && legacyReceipt.SchemaVersion > 2 {
+		legacyReceipt = nil
+	}
 	body := map[string]any{
 		"schema_version": 1, "ok": true, "action": action,
 		"session_id": out.View.SessionID, "state": out.View.State, "outcome": out.View.Outcome,
 		"output": out.View.Output, "cursor": out.View.Cursor, "next_cursor": out.View.NextCursor,
 		"truncated": out.View.Truncated, "accepted_input_bytes": out.View.AcceptedInputBytes,
 		"next_input_offset": out.View.NextInputOffset, "eof_queued": out.View.EOFQueued,
-		"kill_id": out.View.KillID, "signal": out.View.Signal, "receipt": out.View.Receipt,
+		"kill_id": out.View.KillID, "signal": out.View.Signal, "receipt": legacyReceipt,
 	}
 	if out.View.OperationID != "" {
 		body["operation_id"] = out.View.OperationID
@@ -282,6 +286,9 @@ func controlView(view app.View) map[string]any {
 		"cursor": view.Cursor, "next_cursor": view.NextCursor, "truncated": view.Truncated,
 		"accepted_input_bytes": view.AcceptedInputBytes, "next_input_offset": view.NextInputOffset,
 		"eof_queued": view.EOFQueued, "kill_id": view.KillID, "signal": view.Signal,
+	}
+	if view.AuthorityEpoch > 0 {
+		body["authority_epoch"] = view.AuthorityEpoch
 	}
 	if view.OperationID != "" {
 		body["operation_id"] = view.OperationID

@@ -15,6 +15,7 @@ import (
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
@@ -52,6 +53,7 @@ type input struct {
 	CWD                 string                            `json:"cwd,omitempty"`
 	TTY                 bool                              `json:"tty,omitempty"`
 	Persistent          bool                              `json:"persistent,omitempty"`
+	SessionMode         string                            `json:"session_mode,omitempty"`
 	SessionName         string                            `json:"session_name,omitempty"`
 	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
 	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
@@ -61,6 +63,7 @@ type input struct {
 	ResourceLimits      *operation.ResourceLimits         `json:"limits,omitempty"`
 	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
 	SessionID           string                            `json:"session_id,omitempty"`
+	AuthorityEpoch      delegated.AuthorityEpoch          `json:"authority_epoch,omitempty"`
 	Selector            *outputview.Selector              `json:"selector,omitempty"`
 	Cursor              int64                             `json:"cursor,omitempty"`
 	InputOffset         int64                             `json:"input_offset,omitempty"`
@@ -118,6 +121,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 		if err := validateV2FieldSet(v.Action, raw); err != nil {
 			return err
 		}
+		if (v.Action == "write" || v.Action == "kill") && hasField(raw, "authority_epoch") && v.AuthorityEpoch < 1 {
+			return fmt.Errorf("authority_epoch must be positive")
+		}
 		return validateV2(v)
 	}
 	if v.Action == "inspect.trace" || hasField(raw, "trace_mode") || hasField(raw, "max_resources") {
@@ -125,6 +131,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 	}
 	if hasField(raw, "limits") {
 		return fmt.Errorf("resource limits require modern protocol")
+	}
+	if hasField(raw, "session_mode") || hasField(raw, "authority_epoch") {
+		return fmt.Errorf("delegated sessions require modern protocol")
 	}
 	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
 		return fmt.Errorf("persistent sessions require modern protocol")
@@ -212,7 +221,23 @@ func validateV2(v input) error {
 	return validateStartV2(v)
 }
 
+func validateDelegatedRequestShape(mode string, tty, persistent bool) error {
+	if mode == "" {
+		return nil
+	}
+	if err := delegated.ValidateMode(mode); err != nil {
+		return err
+	}
+	if mode == delegated.ModeDelegatedInteractive && (tty || persistent) {
+		return fmt.Errorf("delegated interactive conflicts with legacy tty/persistent fields")
+	}
+	return nil
+}
+
 func validateStartV2(v input) error {
+	if err := validateDelegatedStartInputV2(v); err != nil {
+		return err
+	}
 	if v.OperationID == "" {
 		return fmt.Errorf("start requires operation_id")
 	}
@@ -227,7 +252,7 @@ func validateStartV2(v input) error {
 		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
 			return fmt.Errorf("typed project command conflicts with raw execution fields")
 		}
-		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS}).Validate(); err != nil {
+		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Persistent: v.Persistent, SessionMode: v.SessionMode, SessionName: v.SessionName, StdinMode: v.StdinMode, TimeoutMode: v.TimeoutMode, TraceMode: v.TraceMode, ResourceLimits: v.ResourceLimits.Clone()}).Validate(); err != nil {
 			return err
 		}
 	} else {
@@ -266,8 +291,8 @@ func validateStartV2(v input) error {
 		return fmt.Errorf("invalid structured adapter")
 	}
 	if v.SessionName != "" {
-		if !v.Persistent {
-			return fmt.Errorf("session_name requires persistent")
+		if !v.Persistent && v.SessionMode != delegated.ModeDelegatedInteractive {
+			return fmt.Errorf("session_name requires persistent or delegated interactive")
 		}
 		if err := persistent.ValidateSessionName(v.SessionName); err != nil {
 			return err

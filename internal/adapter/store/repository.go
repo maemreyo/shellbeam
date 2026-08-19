@@ -93,12 +93,14 @@ const (
 	defaultMaxReproBytes                 int64 = 16 << 20
 )
 
+const DefaultMaxDelegatedMutationRecords = 4096
+
 const (
 	defaultMaxTelemetryAge               = 30 * 24 * time.Hour
 	defaultMaxReproAge                   = 30 * 24 * time.Hour
 	defaultMaxMutationScopesPerActivity  = 16
 	defaultMaxMutationScopesPerWorkspace = 64
-	defaultMaxDelegatedMutationRecords   = 4096
+	defaultMaxDelegatedMutationRecords   = DefaultMaxDelegatedMutationRecords
 )
 
 func normalizeTelemetryLimits(limits Limits) Limits {

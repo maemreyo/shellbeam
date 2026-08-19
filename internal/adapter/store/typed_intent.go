@@ -107,7 +107,7 @@ func validateTypedBindingCommit(claim operation.TypedIntentClaim, id operation.I
 	if err := want.ProjectCommand.Validate(); err != nil {
 		return err
 	}
-	if want.WorkspaceID != claim.Intent.WorkspaceID || want.ProjectCommand.CommandID != claim.Intent.ProjectCommandID || want.TTY != claim.Intent.TTY || want.TimeoutMS != claim.Intent.TimeoutMS {
+	if want.WorkspaceID != claim.Intent.WorkspaceID || want.ProjectCommand.CommandID != claim.Intent.ProjectCommandID || want.TTY != claim.Intent.TTY || (claim.Intent.TimeoutMS > 0 && want.TimeoutMS != claim.Intent.TimeoutMS) {
 		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	return nil

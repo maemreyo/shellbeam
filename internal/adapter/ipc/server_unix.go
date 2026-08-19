@@ -239,7 +239,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		err = fmt.Errorf("unknown_action")
 	}
-	resp := Response{IPVersion: 1, RequestID: req.RequestID, OK: err == nil, View: view}
+	resp := Response{IPVersion: 1, RequestID: req.RequestID, OK: err == nil, View: legacyResponseView(view)}
 	if err != nil {
 		resp.Error = errorEnvelope(err)
 	}

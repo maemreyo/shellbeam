@@ -114,6 +114,40 @@ func TestCommitTypedBindingCreatesSchemaV3ReservationOnlyAfterClaim(t *testing.T
 	}
 }
 
+func TestCommitTypedBindingAcceptsResolvedDefaultTimeoutButRejectsChangedExplicitTimeout(t *testing.T) {
+	t.Run("unset request may persist resolved default", func(t *testing.T) {
+		r := openRecoveryRepository(t, filepath.Join(t.TempDir(), "state"))
+		claim := validTypedIntentClaim(t, "typed-default-timeout")
+		claim.Intent.TimeoutMS = 0
+		fingerprint, err := claim.Intent.Fingerprint()
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim.RequestFingerprint = fingerprint
+		if _, created, got := r.ReserveTypedIntent(context.Background(), claim); got.Err != nil || !created {
+			t.Fatalf("claim created=%v result=%#v", created, got)
+		}
+		want := validTypedReservation(t, claim, "typed-default-timeout-session")
+		want.TimeoutMS = 600000
+		if _, created, got := r.CommitTypedBinding(context.Background(), claim.OperationID, want); got.Err != nil || !created {
+			t.Fatalf("resolved default rejected: created=%v result=%#v", created, got)
+		}
+	})
+
+	t.Run("explicit request still binds timeout", func(t *testing.T) {
+		r := openRecoveryRepository(t, filepath.Join(t.TempDir(), "state"))
+		claim := validTypedIntentClaim(t, "typed-explicit-timeout")
+		if _, created, got := r.ReserveTypedIntent(context.Background(), claim); got.Err != nil || !created {
+			t.Fatalf("claim created=%v result=%#v", created, got)
+		}
+		want := validTypedReservation(t, claim, "typed-explicit-timeout-session")
+		want.TimeoutMS = claim.Intent.TimeoutMS + 1
+		if _, _, got := r.CommitTypedBinding(context.Background(), claim.OperationID, want); !errors.Is(got.Err, failure.OperationConflict) {
+			t.Fatalf("changed explicit timeout accepted: %#v", got)
+		}
+	})
+}
+
 func TestCommitTypedBindingRejectsMissingClaimClaimMismatchAndBindingConflict(t *testing.T) {
 	r := openRecoveryRepository(t, filepath.Join(t.TempDir(), "state"))
 	claim := validTypedIntentClaim(t, "typed-conflict")

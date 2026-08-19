@@ -20,6 +20,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
@@ -69,6 +70,7 @@ type RequestV2 struct {
 	CWD                      string                            `json:"cwd,omitempty"`
 	TTY                      bool                              `json:"tty,omitempty"`
 	Persistent               bool                              `json:"persistent,omitempty"`
+	SessionMode              string                            `json:"session_mode,omitempty"`
 	SessionName              string                            `json:"session_name,omitempty"`
 	TimeoutMS                int64                             `json:"timeout_ms,omitempty"`
 	StdinMode                operation.StdinMode               `json:"stdin_mode,omitempty"`
@@ -78,6 +80,7 @@ type RequestV2 struct {
 	YieldMS                  int64                             `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes           int                               `json:"max_output_bytes,omitempty"`
 	SessionID                string                            `json:"session_id,omitempty"`
+	AuthorityEpoch           delegated.AuthorityEpoch          `json:"authority_epoch,omitempty"`
 	Selector                 *outputview.Selector              `json:"selector,omitempty"`
 	Cursor                   int64                             `json:"cursor,omitempty"`
 	InputOffset              int64                             `json:"input_offset,omitempty"`
@@ -190,6 +193,9 @@ func decodeRequestV2(r io.Reader) (RequestV2, error) {
 	if err := validateRequestV2(out); err != nil {
 		return out, err
 	}
+	if (out.Action == "write" || out.Action == "kill") && hasV2Field(data, "authority_epoch") && out.AuthorityEpoch < 1 {
+		return out, failure.New(failure.InvalidInput, map[string]string{"field": "authority_epoch"}, fmt.Errorf("authority_epoch must be positive"))
+	}
 	return out, nil
 }
 
@@ -283,6 +289,9 @@ func validateRequestV2(v RequestV2) error {
 }
 
 func validateStartRequestV2(v RequestV2) error {
+	if err := validateDelegatedStartRequestV2(v); err != nil {
+		return err
+	}
 	if v.ResourceLimits != nil {
 		if err := v.ResourceLimits.Validate(); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "limits"}, err)
@@ -302,7 +311,7 @@ func validateStartRequestV2(v RequestV2) error {
 		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command conflicts with raw execution fields"))
 		}
-		intent := operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS}
+		intent := operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Persistent: v.Persistent, SessionMode: v.SessionMode, SessionName: v.SessionName, StdinMode: v.StdinMode, TimeoutMode: v.TimeoutMode, TraceMode: v.TraceMode, ResourceLimits: v.ResourceLimits.Clone()}
 		if err := intent.Validate(); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, err)
 		}
@@ -340,6 +349,9 @@ func validateStartRequestV2(v RequestV2) error {
 	}
 	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
+	}
+	if v.SessionName != "" && !v.Persistent && v.SessionMode != delegated.ModeDelegatedInteractive {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "session_name"}, fmt.Errorf("session_name requires persistent or delegated interactive"))
 	}
 	if _, err := trace.NormalizeMode(v.TraceMode); err != nil {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "trace_mode"}, err)

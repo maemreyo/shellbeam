@@ -35,7 +35,7 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 	case "read_media":
 		request.Media = mediaRequestFromInput(in)
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone()}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionMode: in.SessionMode, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone()}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: in.YieldMS, MaxOutputBytes: in.MaxOutputBytes}
 	case "read_output":
@@ -43,7 +43,7 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 		request.OutputRead.Selector = *in.Selector
 		request.OutputRead.Continuation = in.Continuation
 	case "write":
-		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
+		request.Write = app.WriteRequest{SessionID: in.SessionID, AuthorityEpoch: in.AuthorityEpoch, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		request.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
@@ -101,6 +101,6 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 		if signal == "" {
 			signal = "TERM"
 		}
-		request.Kill = app.KillRequest{SessionID: in.SessionID, KillID: in.KillID, Signal: signal}
+		request.Kill = app.KillRequest{SessionID: in.SessionID, AuthorityEpoch: in.AuthorityEpoch, KillID: in.KillID, Signal: signal}
 	}
 }

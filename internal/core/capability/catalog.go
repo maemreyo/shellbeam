@@ -35,6 +35,7 @@ const (
 	FeatureRichLocalMedia         Feature = "rich_local_media"
 	FeatureInputTracing           Feature = "input_tracing"
 	FeatureResourceEnforcement    Feature = "resource_enforcement"
+	FeatureDelegatedInteractive   Feature = "delegated_interactive"
 )
 
 type Limits struct {
@@ -129,46 +130,56 @@ type Limits struct {
 	InputTraceWorkerQueueDepth           int   `json:"input_trace_worker_queue_depth,omitempty"`
 }
 
+type DelegatedInteractiveSupport struct {
+	ProviderID              string `json:"provider_id"`
+	ProviderVersion         int    `json:"provider_version"`
+	Platform                string `json:"platform"`
+	MaxMutationRecords      int    `json:"max_mutation_records"`
+	DaemonRestartContinuity bool   `json:"daemon_restart_continuity"`
+	HostRebootContinuity    bool   `json:"host_reboot_continuity"`
+}
+
 type Catalog struct {
-	ProtocolVersion                   int                         `json:"shellbeam_protocol_version"`
-	ReceiptSchemaVersions             []int                       `json:"receipt_schema_versions"`
-	ManifestVersions                  []int                       `json:"project_manifest_schema_versions"`
-	EventCursorSchemaVersions         []int                       `json:"event_cursor_schema_versions,omitempty"`
-	ResultCursorSchemaVersions        []int                       `json:"result_cursor_schema_versions,omitempty"`
-	StructuredAdapterIDs              []string                    `json:"structured_adapter_ids,omitempty"`
-	StructuredResultKinds             []string                    `json:"structured_result_kinds,omitempty"`
-	StructuredLifecycle               bool                        `json:"structured_lifecycle,omitempty"`
-	TelemetrySchemaVersions           []int                       `json:"telemetry_schema_versions,omitempty"`
-	ReproSchemaVersions               []int                       `json:"repro_schema_versions,omitempty"`
-	ReadinessSchemaVersions           []int                       `json:"project_readiness_schema_versions,omitempty"`
-	OutputViewSchemaVersions          []int                       `json:"output_view_schema_versions,omitempty"`
-	EvidenceSchemaVersions            []int                       `json:"evidence_schema_versions,omitempty"`
-	ArtifactObservationSchemaVersions []int                       `json:"artifact_observation_schema_versions,omitempty"`
-	EnvironmentSnapshotSchemaVersions []int                       `json:"environment_snapshot_schema_versions,omitempty"`
-	EnvironmentFingerprintVersions    []int                       `json:"environment_fingerprint_versions,omitempty"`
-	ToolchainFingerprintVersions      []int                       `json:"toolchain_fingerprint_versions,omitempty"`
-	EnvironmentToolchainProbeIDs      []string                    `json:"environment_toolchain_probe_ids,omitempty"`
-	ProcessObservationSchemaVersions  []int                       `json:"process_observation_schema_versions,omitempty"`
-	MutationScopeSchemaVersions       []int                       `json:"mutation_scope_schema_versions,omitempty"`
-	PersistentSessionSchemaVersions   []int                       `json:"persistent_session_schema_versions,omitempty"`
-	SupervisorProtocolVersions        []int                       `json:"supervisor_protocol_versions,omitempty"`
-	PersistentNonTTY                  bool                        `json:"persistent_non_tty,omitempty"`
-	PersistentTTY                     bool                        `json:"persistent_tty,omitempty"`
-	PersistentContinuity              string                      `json:"persistent_continuity,omitempty"`
-	HostRebootContinuity              bool                        `json:"host_reboot_continuity,omitempty"`
-	PortObservationSupported          bool                        `json:"port_observation_supported,omitempty"`
-	ReadinessRequirementKinds         []string                    `json:"project_readiness_requirement_kinds,omitempty"`
-	TypedCommandVersions              []int                       `json:"typed_project_command_versions,omitempty"`
-	TypedCommandManifestVersion       int                         `json:"typed_project_command_manifest_version,omitempty"`
-	TypedCommandParameterKinds        []string                    `json:"typed_project_command_parameter_kinds,omitempty"`
-	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
-	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
-	ResourceEnforcement               *ResourceEnforcementSupport `json:"resource_enforcement,omitempty"`
-	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
-	Media                             *MediaSupport               `json:"media,omitempty"`
-	InputTracing                      *InputTracingSupport        `json:"input_tracing,omitempty"`
-	Features                          map[Feature]Availability    `json:"features"`
-	Limits                            Limits                      `json:"limits"`
+	ProtocolVersion                   int                          `json:"shellbeam_protocol_version"`
+	ReceiptSchemaVersions             []int                        `json:"receipt_schema_versions"`
+	ManifestVersions                  []int                        `json:"project_manifest_schema_versions"`
+	EventCursorSchemaVersions         []int                        `json:"event_cursor_schema_versions,omitempty"`
+	ResultCursorSchemaVersions        []int                        `json:"result_cursor_schema_versions,omitempty"`
+	StructuredAdapterIDs              []string                     `json:"structured_adapter_ids,omitempty"`
+	StructuredResultKinds             []string                     `json:"structured_result_kinds,omitempty"`
+	StructuredLifecycle               bool                         `json:"structured_lifecycle,omitempty"`
+	TelemetrySchemaVersions           []int                        `json:"telemetry_schema_versions,omitempty"`
+	ReproSchemaVersions               []int                        `json:"repro_schema_versions,omitempty"`
+	ReadinessSchemaVersions           []int                        `json:"project_readiness_schema_versions,omitempty"`
+	OutputViewSchemaVersions          []int                        `json:"output_view_schema_versions,omitempty"`
+	EvidenceSchemaVersions            []int                        `json:"evidence_schema_versions,omitempty"`
+	ArtifactObservationSchemaVersions []int                        `json:"artifact_observation_schema_versions,omitempty"`
+	EnvironmentSnapshotSchemaVersions []int                        `json:"environment_snapshot_schema_versions,omitempty"`
+	EnvironmentFingerprintVersions    []int                        `json:"environment_fingerprint_versions,omitempty"`
+	ToolchainFingerprintVersions      []int                        `json:"toolchain_fingerprint_versions,omitempty"`
+	EnvironmentToolchainProbeIDs      []string                     `json:"environment_toolchain_probe_ids,omitempty"`
+	ProcessObservationSchemaVersions  []int                        `json:"process_observation_schema_versions,omitempty"`
+	MutationScopeSchemaVersions       []int                        `json:"mutation_scope_schema_versions,omitempty"`
+	PersistentSessionSchemaVersions   []int                        `json:"persistent_session_schema_versions,omitempty"`
+	SupervisorProtocolVersions        []int                        `json:"supervisor_protocol_versions,omitempty"`
+	PersistentNonTTY                  bool                         `json:"persistent_non_tty,omitempty"`
+	PersistentTTY                     bool                         `json:"persistent_tty,omitempty"`
+	PersistentContinuity              string                       `json:"persistent_continuity,omitempty"`
+	HostRebootContinuity              bool                         `json:"host_reboot_continuity,omitempty"`
+	PortObservationSupported          bool                         `json:"port_observation_supported,omitempty"`
+	ReadinessRequirementKinds         []string                     `json:"project_readiness_requirement_kinds,omitempty"`
+	TypedCommandVersions              []int                        `json:"typed_project_command_versions,omitempty"`
+	TypedCommandManifestVersion       int                          `json:"typed_project_command_manifest_version,omitempty"`
+	TypedCommandParameterKinds        []string                     `json:"typed_project_command_parameter_kinds,omitempty"`
+	TypedCommandPackageProviders      []string                     `json:"typed_project_command_package_providers,omitempty"`
+	ResourceObservation               *ResourceObservationSupport  `json:"resource_observation,omitempty"`
+	ResourceEnforcement               *ResourceEnforcementSupport  `json:"resource_enforcement,omitempty"`
+	SafetyCheckpoints                 *CheckpointSupport           `json:"safety_checkpoints,omitempty"`
+	Media                             *MediaSupport                `json:"media,omitempty"`
+	InputTracing                      *InputTracingSupport         `json:"input_tracing,omitempty"`
+	DelegatedInteractive              *DelegatedInteractiveSupport `json:"delegated_interactive,omitempty"`
+	Features                          map[Feature]Availability     `json:"features"`
+	Limits                            Limits                       `json:"limits"`
 }
 
 var targetFeatures = []Feature{
@@ -197,6 +208,7 @@ var targetFeatures = []Feature{
 	FeatureRichLocalMedia,
 	FeatureInputTracing,
 	FeatureResourceEnforcement,
+	FeatureDelegatedInteractive,
 }
 
 func TargetFeatures() []Feature {
@@ -269,6 +281,10 @@ func (c Catalog) Clone() Catalog {
 		support := *c.InputTracing
 		support.SchemaVersions = append([]int(nil), c.InputTracing.SchemaVersions...)
 		out.InputTracing = &support
+	}
+	if c.DelegatedInteractive != nil {
+		support := *c.DelegatedInteractive
+		out.DelegatedInteractive = &support
 	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
@@ -415,6 +431,24 @@ func (c Catalog) WithTypedProjectCommands(packageProviders []string) Catalog {
 	}
 	if !foundV3 {
 		out.ReceiptSchemaVersions = append(out.ReceiptSchemaVersions, 3)
+	}
+	return out
+}
+
+func (c Catalog) WithDelegatedInteractive(support DelegatedInteractiveSupport) Catalog {
+	out := c.Clone()
+	if support.ProviderID == "" || support.ProviderVersion < 1 || support.Platform == "" || support.MaxMutationRecords < 1 {
+		return out
+	}
+	out.Features[FeatureDelegatedInteractive] = Available
+	copy := support
+	out.DelegatedInteractive = &copy
+	foundV5 := false
+	for _, version := range out.ReceiptSchemaVersions {
+		foundV5 = foundV5 || version == 5
+	}
+	if !foundV5 {
+		out.ReceiptSchemaVersions = append(out.ReceiptSchemaVersions, 5)
 	}
 	return out
 }

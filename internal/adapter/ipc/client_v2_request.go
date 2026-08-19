@@ -31,10 +31,7 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
 		applyCheckpointBridgeRequestV2(req, in)
 	case "write":
-		req.SessionID = in.Write.SessionID
-		req.InputOffset = in.Write.InputOffset
-		req.Chars = in.Write.Chars
-		req.EOF = in.Write.EOF
+		applyBridgeWriteV2(req, in)
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		req.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
@@ -87,11 +84,24 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	case "inspect.repro":
 		req.ReproID = in.ReproID
 	case "kill":
-		req.SessionID = in.Kill.SessionID
-		req.KillID = in.Kill.KillID
-		req.Signal = in.Kill.Signal
+		applyBridgeKillV2(req, in)
 	}
 
+}
+
+func applyBridgeWriteV2(req *RequestV2, in bridge.Request) {
+	req.SessionID = in.Write.SessionID
+	req.AuthorityEpoch = in.Write.AuthorityEpoch
+	req.InputOffset = in.Write.InputOffset
+	req.Chars = in.Write.Chars
+	req.EOF = in.Write.EOF
+}
+
+func applyBridgeKillV2(req *RequestV2, in bridge.Request) {
+	req.SessionID = in.Kill.SessionID
+	req.AuthorityEpoch = in.Kill.AuthorityEpoch
+	req.KillID = in.Kill.KillID
+	req.Signal = in.Kill.Signal
 }
 
 func applyCheckpointBridgeRequestV2(req *RequestV2, in bridge.Request) {

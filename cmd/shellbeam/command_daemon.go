@@ -87,6 +87,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	defer inputTraceRuntime.Close(context.Background())
 	catalog = inputTraceRuntime.Catalog
 	processOwner, catalog := composeResourceEnforcement(catalog, nil)
+	delegatedRuntime, catalog := composeDelegatedInteractiveRuntime(ctx, paths.StateDir, paths.RuntimeDir, catalog)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
@@ -110,6 +111,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		EvidenceWorker:       evidenceScheduler,
 		ProjectCommandBinder: projectBinder,
 		PersistentRuntime:    persistentRuntime,
+		DelegatedRuntime:     delegatedRuntime,
 		MediaReader:          daemonMediaReader(),
 		InputTracePreparer:   inputTraceRuntime.Preparer,
 		InputTraceWorker:     inputTraceRuntime.Worker,
