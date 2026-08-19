@@ -12,6 +12,7 @@ import (
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	mcpadapter "github.com/maemreyo/shellbeam/internal/adapter/mcp"
+	terminaladapter "github.com/maemreyo/shellbeam/internal/adapter/terminalpresentation"
 	bridgeapp "github.com/maemreyo/shellbeam/internal/app/bridge"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
@@ -82,13 +83,7 @@ func captureMCPBridgeAffinity(ctx context.Context, deps mcpTerminalAffinityDeps)
 }
 
 func mcpBridgeTerminalProviders() []terminalpresentation.TerminalIdentity {
-	return []terminalpresentation.TerminalIdentity{{
-		ProviderID:      "ghostty",
-		ProviderVersion: 1,
-		Platform:        terminalpresentation.PlatformDarwin,
-		BundleID:        "com.mitchellh.ghostty",
-		ExecutableName:  "ghostty",
-	}}
+	return terminaladapter.QualifiedIdentities()
 }
 
 func readMCPAncestorExecutables(ctx context.Context) ([]string, error) {
