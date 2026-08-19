@@ -262,3 +262,16 @@ func commitMatchesIntent(commit dp.SelectionCommit, intent dp.SelectionCommitInt
 func closureSemanticEqual(a, b dp.DecisionClosure) bool {
 	return a.EpisodeID == b.EpisodeID && a.Kind == b.Kind && a.Reason == b.Reason && reflect.DeepEqual(a.UnresolvedDimensions, b.UnresolvedDimensions) && a.ActorRef == b.ActorRef && a.ProjectionDigest == b.ProjectionDigest
 }
+
+func (s *DecisionProtocolStore) FindSelectionCommitByIdempotencyKey(_ context.Context, key string) (dp.SelectionCommit, bool, error) {
+	if s == nil || s.repository == nil {
+		return dp.SelectionCommit{}, false, fmt.Errorf("decision protocol store unavailable")
+	}
+	r := s.repository
+	r.decisionProtocolMu.Lock()
+	defer r.decisionProtocolMu.Unlock()
+	if err := r.recoverDecisionProtocolLocked(); err != nil {
+		return dp.SelectionCommit{}, false, err
+	}
+	return r.findSelectionCommitByIdempotencyKeyLocked(key)
+}

@@ -3,6 +3,7 @@ package decisionprotocol
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,10 @@ func (f *fakeEpisodeLedger) RecordSelectionProposal(_ context.Context, proposal 
 }
 
 func (f *fakeEpisodeLedger) CommitSelectionCAS(_ context.Context, intent core.SelectionCommitIntent, commit core.SelectionCommit) (core.SelectionCommit, bool, error) {
+	if f.selectionCommitFailures > 0 {
+		f.selectionCommitFailures--
+		return core.SelectionCommit{}, false, errors.New("injected selection persistence failure")
+	}
 	for _, record := range f.records {
 		switch record.Kind {
 		case core.RecordClosure:

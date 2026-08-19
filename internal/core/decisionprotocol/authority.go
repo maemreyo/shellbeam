@@ -121,3 +121,66 @@ func (a OverrideAuthorization) Validate() error {
 	}
 	return nil
 }
+
+type MaterializedAuthority struct {
+	Status                 QualificationStatus `json:"status"`
+	ActorRef               string              `json:"actor_ref,omitempty"`
+	AuthorityClass         AuthorityClass      `json:"authority_class,omitempty"`
+	Scope                  AuthorityScope      `json:"scope,omitempty"`
+	Resolver               ResolverRef         `json:"resolver"`
+	ValidatedAt            time.Time           `json:"validated_at"`
+	ExpiresAt              *time.Time          `json:"expires_at,omitempty"`
+	QualificationCutDigest string              `json:"qualification_cut_digest,omitempty"`
+	ProvenanceRef          string              `json:"provenance_ref,omitempty"`
+}
+
+func (m MaterializedAuthority) Validate() error {
+	if m.Status.Validate() != nil || m.Resolver.Validate() != nil || !validTime(m.ValidatedAt) {
+		return fmt.Errorf("invalid materialized authority result")
+	}
+	if m.QualificationCutDigest != "" && !validDerived(m.QualificationCutDigest, "cut_") {
+		return fmt.Errorf("invalid materialized authority cut")
+	}
+	if m.ExpiresAt != nil && (!validTime(*m.ExpiresAt) || !m.ExpiresAt.After(m.ValidatedAt)) {
+		return fmt.Errorf("invalid materialized authority expiry")
+	}
+	if m.Status == QualificationQualified {
+		if !boundedToken(m.ActorRef, 192) || m.AuthorityClass.Validate() != nil || m.Scope.Validate() != nil || !boundedToken(m.ProvenanceRef, 512) {
+			return fmt.Errorf("qualified authority result missing trusted material")
+		}
+		return nil
+	}
+	if m.ActorRef != "" || m.AuthorityClass != (AuthorityClass{}) || m.Scope != (AuthorityScope{}) || m.ProvenanceRef != "" || m.QualificationCutDigest != "" || m.ExpiresAt != nil {
+		return fmt.Errorf("unqualified authority result carries transition material")
+	}
+	return nil
+}
+
+type DecisionAuthorityQualification struct {
+	Status                 QualificationStatus `json:"status"`
+	AttestationID          string              `json:"attestation_id"`
+	AuthorityClass         AuthorityClass      `json:"authority_class,omitempty"`
+	ActorRef               string              `json:"actor_ref,omitempty"`
+	Resolver               ResolverRef         `json:"resolver"`
+	ValidatedAt            time.Time           `json:"validated_at"`
+	QualificationCutDigest string              `json:"qualification_cut_digest,omitempty"`
+}
+
+func (q DecisionAuthorityQualification) Validate() error {
+	if q.Status.Validate() != nil || !boundedToken(q.AttestationID, 192) || q.Resolver.Validate() != nil || !validTime(q.ValidatedAt) {
+		return fmt.Errorf("invalid authority qualification")
+	}
+	if q.QualificationCutDigest != "" && !validDerived(q.QualificationCutDigest, "cut_") {
+		return fmt.Errorf("invalid qualification cut")
+	}
+	if q.Status == QualificationQualified {
+		if !boundedToken(q.ActorRef, 192) || q.AuthorityClass.Validate() != nil {
+			return fmt.Errorf("qualified authority missing actor/class")
+		}
+		return nil
+	}
+	if q.ActorRef != "" || q.AuthorityClass != (AuthorityClass{}) || q.QualificationCutDigest != "" {
+		return fmt.Errorf("unqualified authority carries transition material")
+	}
+	return nil
+}

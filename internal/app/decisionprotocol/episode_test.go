@@ -16,7 +16,8 @@ const dpRepoID = "repo_01K00000000000000000000001"
 const dpWorkspaceID = "ws_01K00000000000000000000001"
 
 type fakeEpisodeLedger struct {
-	records []core.CanonicalRecordEnvelope
+	records                 []core.CanonicalRecordEnvelope
+	selectionCommitFailures int
 }
 
 func (f *fakeEpisodeLedger) append(kind core.RecordKind, body any) (core.CanonicalRecordEnvelope, error) {

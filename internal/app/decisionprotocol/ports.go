@@ -76,6 +76,32 @@ type SelectionStore interface {
 	RecordSelectionProposal(context.Context, core.SelectionProposal) (core.CanonicalRecordEnvelope, bool, error)
 	CommitSelectionCAS(context.Context, core.SelectionCommitIntent, core.SelectionCommit) (core.SelectionCommit, bool, error)
 	CloseEpisodeCAS(context.Context, core.DecisionClosure) (core.DecisionClosure, bool, error)
+	FindSelectionCommitByIdempotencyKey(context.Context, string) (core.SelectionCommit, bool, error)
+}
+
+type AuthorityStore interface {
+	PutAuthorityAttestation(context.Context, core.DecisionAuthorityAttestation) (core.CanonicalRecordEnvelope, bool, error)
+	FindAuthorityAttestation(context.Context, string) (core.DecisionAuthorityAttestation, bool, error)
+	RecordOverride(context.Context, core.DecisionOverride) (core.CanonicalRecordEnvelope, bool, error)
+	FindOverride(context.Context, string) (core.DecisionOverride, bool, error)
+}
+
+type MaterializeAuthorityRequest struct {
+	ActorRef               string
+	RequiredAuthorityClass core.AuthorityClass
+	RequiredScope          core.AuthorityScope
+}
+
+type QualifyAuthorityRequest struct {
+	AttestationID          string
+	ExpectedActorRef       string
+	RequiredAuthorityClass core.AuthorityClass
+	RequiredScope          core.AuthorityScope
+}
+
+type AuthorityResolver interface {
+	MaterializeDecisionAuthority(context.Context, MaterializeAuthorityRequest) (core.MaterializedAuthority, error)
+	QualifyDecisionAuthority(context.Context, QualifyAuthorityRequest) (core.DecisionAuthorityQualification, error)
 }
 
 type EpisodeDependencies struct {
@@ -90,6 +116,8 @@ type EpisodeDependencies struct {
 	Assessments       AssessmentStore
 	VerifierQualifier VerifierContextQualifier
 	Selections        SelectionStore
+	Authorities       AuthorityStore
+	AuthorityResolver AuthorityResolver
 }
 
 type ExperimentMutationStore interface {

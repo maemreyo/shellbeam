@@ -9,20 +9,22 @@ import (
 )
 
 type Service struct {
-	policies     PolicyStore
-	generation   ActivationGenerationSource
-	mutations    EpisodeMutationStore
-	experiments  ExperimentMutationStore
-	ledger       CanonicalLedgerStore
-	workspaces   WorkspaceInspector
-	snapshots    SourceSnapshotter
-	receipts     ReceiptSource
-	structured   StructuredSource
-	verification VerificationSource
-	assessments  AssessmentStore
-	qualifier    VerifierContextQualifier
-	selections   SelectionStore
-	now          func() time.Time
+	policies          PolicyStore
+	generation        ActivationGenerationSource
+	mutations         EpisodeMutationStore
+	experiments       ExperimentMutationStore
+	ledger            CanonicalLedgerStore
+	workspaces        WorkspaceInspector
+	snapshots         SourceSnapshotter
+	receipts          ReceiptSource
+	structured        StructuredSource
+	verification      VerificationSource
+	assessments       AssessmentStore
+	qualifier         VerifierContextQualifier
+	selections        SelectionStore
+	authorities       AuthorityStore
+	authorityResolver AuthorityResolver
+	now               func() time.Time
 }
 
 func NewService(policies PolicyStore, generation ActivationGenerationSource, episodeDeps ...EpisodeDependencies) *Service {
@@ -33,6 +35,7 @@ func NewService(policies PolicyStore, generation ActivationGenerationSource, epi
 		s.receipts, s.structured, s.verification = deps.Receipts, deps.Structured, deps.Verification
 		s.assessments, s.qualifier = deps.Assessments, deps.VerifierQualifier
 		s.selections = deps.Selections
+		s.authorities, s.authorityResolver = deps.Authorities, deps.AuthorityResolver
 		if s.experiments == nil {
 			if experiments, ok := any(deps.Mutations).(ExperimentMutationStore); ok {
 				s.experiments = experiments

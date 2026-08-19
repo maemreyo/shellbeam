@@ -61,9 +61,6 @@ func (s *Service) CommitSelection(ctx context.Context, req CommitSelectionReques
 	if s == nil || s.selections == nil || s.mutations == nil {
 		return core.SelectionCommit{}, fmt.Errorf("decision selection dependencies unavailable")
 	}
-	if req.OverrideRef != "" {
-		return core.SelectionCommit{}, core.NewReasonError(core.ReasonOverrideAuthorityNotAdmissible, "override authority is not available before Task 10")
-	}
 	episode, found, err := s.mutations.FindEpisode(ctx, req.EpisodeID)
 	if err != nil {
 		return core.SelectionCommit{}, err
@@ -73,6 +70,19 @@ func (s *Service) CommitSelection(ctx context.Context, req CommitSelectionReques
 	}
 	if req.ExpectedPolicyDigest != episode.PolicyBinding.PolicyDigest {
 		return core.SelectionCommit{}, core.NewReasonError(core.ReasonPolicyConflict, "expected policy digest does not match episode binding")
+	}
+	intent := core.SelectionCommitIntent{EpisodeID: req.EpisodeID, CandidateID: req.CandidateID, ActorRef: req.ActorRef, PolicyDigest: episode.PolicyBinding.PolicyDigest, ProjectionDigest: req.ExpectedProjectionDigest, SourceGeneration: episode.Baseline.SourceGeneration, Override: req.OverrideRef != "", OverrideRef: req.OverrideRef}
+	fingerprint, err := core.SelectionIntentFingerprint(intent)
+	if err != nil {
+		return core.SelectionCommit{}, err
+	}
+	if existing, ok, err := s.selections.FindSelectionCommitByIdempotencyKey(ctx, req.IdempotencyKey); err != nil {
+		return core.SelectionCommit{}, err
+	} else if ok {
+		if existing.SemanticIntentFingerprint != fingerprint {
+			return core.SelectionCommit{}, core.NewReasonError(core.ReasonIdempotencyConflict, "idempotency key reused for different selection intent")
+		}
+		return existing, nil
 	}
 	projection, err := s.Project(ctx, req.EpisodeID, req.CandidateID)
 	if err != nil {
@@ -93,21 +103,24 @@ func (s *Service) CommitSelection(ctx context.Context, req CommitSelectionReques
 	if err := requireSettledLinkedExperiments(projection.Experiments); err != nil {
 		return core.SelectionCommit{}, err
 	}
-	switch projection.Protocol.Gate {
-	case core.GateBlocked:
-		return core.SelectionCommit{}, core.NewReasonError(core.ReasonProtocolBlocked, "decision protocol gate blocked")
-	case core.GateIndeterminate:
-		return core.SelectionCommit{}, core.NewReasonError(core.ReasonProtocolIndeterminate, "decision protocol gate indeterminate")
-	case core.GateClear:
-	default:
-		return core.SelectionCommit{}, core.NewReasonError(core.ReasonProtocolIndeterminate, "decision protocol gate unavailable")
+	var authorization *core.OverrideAuthorization
+	if req.OverrideRef == "" {
+		switch projection.Protocol.Gate {
+		case core.GateBlocked:
+			return core.SelectionCommit{}, core.NewReasonError(core.ReasonProtocolBlocked, "decision protocol gate blocked")
+		case core.GateIndeterminate:
+			return core.SelectionCommit{}, core.NewReasonError(core.ReasonProtocolIndeterminate, "decision protocol gate indeterminate")
+		case core.GateClear:
+		default:
+			return core.SelectionCommit{}, core.NewReasonError(core.ReasonProtocolIndeterminate, "decision protocol gate unavailable")
+		}
+	} else {
+		authorization, err = s.authorizeOverrideCommit(ctx, episode, projection, req.OverrideRef)
+		if err != nil {
+			return core.SelectionCommit{}, err
+		}
 	}
-	intent := core.SelectionCommitIntent{EpisodeID: req.EpisodeID, CandidateID: req.CandidateID, ActorRef: req.ActorRef, PolicyDigest: episode.PolicyBinding.PolicyDigest, ProjectionDigest: projection.ProjectionDigest, SourceGeneration: episode.Baseline.SourceGeneration}
-	fingerprint, err := core.SelectionIntentFingerprint(intent)
-	if err != nil {
-		return core.SelectionCommit{}, err
-	}
-	commit := core.SelectionCommit{CommitID: semanticRecordID("commit", string(req.EpisodeID), req.IdempotencyKey, fingerprint), EpisodeID: req.EpisodeID, CandidateID: req.CandidateID, PolicyDigest: episode.PolicyBinding.PolicyDigest, ProjectionDigest: projection.ProjectionDigest, SourceGeneration: episode.Baseline.SourceGeneration, IdempotencyKey: req.IdempotencyKey, SemanticIntentFingerprint: fingerprint, CommittedByActorRef: req.ActorRef, CommittedAt: s.now().UTC()}
+	commit := core.SelectionCommit{CommitID: semanticRecordID("commit", string(req.EpisodeID), req.IdempotencyKey, fingerprint), EpisodeID: req.EpisodeID, CandidateID: req.CandidateID, PolicyDigest: episode.PolicyBinding.PolicyDigest, ProjectionDigest: projection.ProjectionDigest, SourceGeneration: episode.Baseline.SourceGeneration, OverrideRef: req.OverrideRef, OverrideAuthorization: authorization, IdempotencyKey: req.IdempotencyKey, SemanticIntentFingerprint: fingerprint, CommittedByActorRef: req.ActorRef, CommittedAt: s.now().UTC()}
 	if err := commit.Validate(); err != nil {
 		return core.SelectionCommit{}, err
 	}
