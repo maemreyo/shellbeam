@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	pytestjunit "github.com/maemreyo/shellbeam/internal/adapter/structured/pytestjunit"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	core "github.com/maemreyo/shellbeam/internal/core/structuredresult"
@@ -179,5 +180,132 @@ func TestFrozenPytestFixtureManifestSHA256(t *testing.T) {
 		if hex.EncodeToString(sum[:]) != entry.SHA256 {
 			t.Fatalf("fixture %s sha drift", entry.Fixture)
 		}
+	}
+}
+
+func TestPytestStructuredResultsPublicIPC(t *testing.T) {
+	restoreAddopts := unsetEnvironmentForTest(t, structuredapp.PytestAddoptsEnvironment)
+	defer restoreAddopts()
+	stateDir, runtimeDir := a1RuntimeDirs(t)
+	workspaceRoot := initWorkspaceCLIRepo(t)
+	if err := os.Mkdir(filepath.Join(workspaceRoot, "reports"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(workspaceRoot, "test_public_ipc.py"), `import pytest
+
+
+def test_pass():
+    assert True
+
+
+def test_fail():
+    assert False
+
+
+@pytest.mark.skip(reason="skip")
+def test_skip():
+    pass
+
+
+@pytest.mark.xfail(reason="xfail")
+def test_xfail():
+    assert False
+`)
+	binDir := os.Getenv("SHELLBEAM_PYTEST_REAL_BIN_DIR")
+	if binDir == "" {
+		binDir = t.TempDir()
+		fixture, err := filepath.Abs(frozenFixturePath("9.1.1", "outcomes"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SHELLBEAM_PYTEST_FIXTURE", fixture)
+		shim := `#!/bin/sh
+set -eu
+out=""
+for arg in "$@"; do
+  case "$arg" in --junitxml=*) out="${arg#*=}" ;; esac
+done
+[ -n "$out" ]
+cp "$SHELLBEAM_PYTEST_FIXTURE" "$out"
+printf 'pytest shim: intentional failure\n'
+exit 1
+`
+		path := filepath.Join(binDir, "pytest")
+		if err := os.WriteFile(path, []byte(shim), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	store := openA1Store(t, stateDir)
+	workspace := saveStructuredCaptureWorkspace(t, store, workspaceRoot)
+	request := ipcadapter.RequestV2{
+		Action: "start", OperationID: "pytest-public-ipc", WorkspaceID: string(workspace.ID), CWD: ".", StructuredAdapter: structuredapp.PytestJUnitAdapterID,
+		Argv: []string{"pytest", "test_public_ipc.py", "--junitxml=reports/junit.xml", "-o", "junit_family=xunit2", "-o", "addopts="},
+	}
+	client, stop := startExecutionObservationDaemon(t, stateDir, runtimeDir)
+	first := callA1Terminal(t, client, request)
+	assertChildFailureWithOutput(t, first)
+	firstStructured := waitStructuredTerminal(t, client, request.OperationID)
+	assertPytestPublicIPCStructured(t, firstStructured)
+	stop()
+
+	client, stop = startExecutionObservationDaemon(t, stateDir, runtimeDir)
+	t.Cleanup(stop)
+	second := callA1Terminal(t, client, request)
+	if second.Receipt == nil || first.Receipt == nil || second.Receipt.SessionID != first.Receipt.SessionID {
+		t.Fatalf("restart replay first=%#v second=%#v", first.Receipt, second.Receipt)
+	}
+	secondStructured := waitStructuredTerminal(t, client, request.OperationID)
+	if secondStructured.DerivationKey != firstStructured.DerivationKey || secondStructured.SourceKind != core.StructuredInputArtifactBlob || secondStructured.SourceState != structuredapp.InputSourceRetained {
+		t.Fatalf("restart structured first=%#v second=%#v", firstStructured, secondStructured)
+	}
+
+	assertUnqualifiedPytestPublicIPCFallsBack(t, client, request)
+}
+
+func assertUnqualifiedPytestPublicIPCFallsBack(t *testing.T, client *ipcadapter.Client, qualified ipcadapter.RequestV2) {
+	t.Helper()
+	negative := qualified
+	negative.OperationID = "pytest-public-ipc-unqualified"
+	negative.StructuredAdapter = ""
+	negative.Argv = []string{"pytest", "test_public_ipc.py", "--junitxml=reports/unqualified.xml", "-o", "junit_family=xunit2"}
+	assertChildFailureWithOutput(t, callA1Terminal(t, client, negative))
+	response, err := client.CallV2(context.Background(), ipcadapter.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: negative.OperationID + "-structured", Action: "inspect.structured",
+		OperationID: negative.OperationID, MaxRecords: structuredapp.MaxListRecords,
+	})
+	if err != nil || !response.OK || response.Structured == nil || response.Structured.Status != structuredapp.InspectNotFound {
+		t.Fatalf("unqualified pytest created structured authority: response=%#v err=%v", response, err)
+	}
+}
+
+func assertPytestPublicIPCStructured(t *testing.T, got structuredapp.InspectResult) {
+	t.Helper()
+	if got.Status != structuredapp.InspectTerminal || got.Producer == nil || got.Producer.AdapterID != structuredapp.PytestJUnitAdapterID || got.ParseOutcome != core.ParseComplete || got.Completeness != core.CompletenessComplete || got.SourceKind != core.StructuredInputArtifactBlob || got.SourceState != structuredapp.InputSourceRetained || got.SemanticsCoverage == nil || got.SemanticsCoverage.Family != "xunit2" {
+		t.Fatalf("structured=%#v", got)
+	}
+	var pass, fail, skip, xfail bool
+	for _, record := range got.Records {
+		if record.Authority != core.AuthorityMechanical {
+			continue
+		}
+		if record.TestCase == nil {
+			continue
+		}
+		switch record.TestCase.Status {
+		case core.TestPassed:
+			pass = true
+		case core.TestFailed:
+			fail = true
+		case core.TestSkipped:
+			skip = true
+		}
+		if record.TestCase.ProducerDisposition != nil && record.TestCase.ProducerDisposition.Code == "pytest:xfail" {
+			xfail = true
+		}
+	}
+	if !pass || !fail || !skip || !xfail {
+		t.Fatalf("mechanical records missing pass=%v fail=%v skip=%v xfail=%v records=%#v", pass, fail, skip, xfail, got.Records)
 	}
 }

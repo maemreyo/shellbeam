@@ -722,15 +722,15 @@ git commit -m "feat: expose pytest structured results"
 - Fixture manifest records producer version, exact generator command, xunit2/addopts invocation and SHA-256 for every XML fixture. Normal unit/CI tests consume frozen bytes and require no installed pytest/network.
 - Release-qualification script creates throwaway venvs in `/tmp`, installs exact pytest lines only for deliberate qualification testing, then exercises real daemon/public IPC behavior; it is not ordinary spawn tax or a ShellBeam runtime dependency.
 
-- [ ] **Step 1: Generate producer-realistic fixtures for two qualified pytest lines**
+- [x] **Step 1: Generate producer-realistic fixtures for two qualified pytest lines**
 
 For each of `8.4.2` and `9.1.1`, generate: ordinary pass/fail/skip/xfail/non-strict-xpass/strict-xpass/error plus call-fail+teardown-error duplicate-entry fixture. Exact invocation includes explicit JUnit path, `-o junit_family=xunit2`, `-o addopts=`, and empty/absent `PYTEST_ADDOPTS`. Freeze XML SHA-256 and pytest version in manifest.
 
-- [ ] **Step 2: Prove fixture semantics against parser tests**
+- [x] **Step 2: Prove fixture semantics against parser tests**
 
 Run the same parser expectations for both version directories. Assert XPASS and setup/teardown distinctions remain unclaimed exactly as V1 coverage says.
 
-- [ ] **Step 3: Run qualification negative matrix mechanically**
+- [x] **Step 3: Run qualification negative matrix mechanically**
 
 Cover:
 
@@ -752,15 +752,15 @@ blob byte/store budget
 
 No negative may mutate child truth or create a mechanical blob-derived result.
 
-- [ ] **Step 4: Run crash/retention concurrency acceptance**
+- [x] **Step 4: Run crash/retention concurrency acceptance**
 
 Mechanically exercise committed blob + daemon restart before derivation, recovery claim surviving session GC, ref-acquire vs retire race, compaction+tombstone, and exact terminal/observation cut identity after restart. Assert recovery never reruns pytest or reopens JUnit workspace path.
 
-- [ ] **Step 5: Run real daemon end-to-end pytest path**
+- [x] **Step 5: Run real daemon end-to-end pytest path**
 
 Start a disposable daemon/state root, attach a temp git workspace, execute exact qualified pytest direct argv through public IPC, poll terminal receipt, wait for `inspect.structured`, and assert mechanical testcase/suite records plus terminal receipt remain independent. Repeat one negative invocation and assert no structured derivation while child execution result is preserved.
 
-- [ ] **Step 6: Commit qualification evidence**
+- [x] **Step 6: Commit qualification evidence**
 
 ```bash
 ./scripts/test-pytest-structured-results.sh
@@ -770,6 +770,13 @@ git add scripts/generate-pytest-junit-fixtures.sh scripts/test-pytest-structured
 git diff --cached --check
 git commit -m "test: qualify pytest structured results"
 ```
+
+
+**Task 11 completion evidence (2026-08-20):**
+- Frozen producer-realistic fixtures and manifest cover pytest `8.4.2` and `9.1.1`; manifest SHA-256 checks and frozen parser expectations pass without installed pytest/network.
+- `scripts/test-pytest-structured-results.sh` mechanically passes parser semantics, qualification negatives, crash/restart/retention/ref-retirement concurrency, and throwaway-venv real pytest acceptance for both qualified versions.
+- Public IPC E2E proves qualified pytest preserves independent child terminal truth, publishes retained artifact-backed structured results, replays the same session/derivation after daemon restart, and an unqualified auto-pytest invocation preserves child execution while `inspect.structured` remains `not_found`.
+- Qualification exposed two cross-boundary defects before freeze: non-session `metadata.json` was decoded as session state (`a2af72f`), and pytest capture identity was not bound consistently into direct/typed observation replay (`4bfaf78`). Both have dedicated RED→GREEN regressions.
 
 ---
 
