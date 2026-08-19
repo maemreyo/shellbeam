@@ -131,15 +131,19 @@ type daemonStructuredReader struct {
 	binder *structuredapp.Binder
 }
 
-func (r daemonStructuredReader) ReadOutputRange(ctx context.Context, ref structuredcore.RawOutputRef, offset int64, max int) ([]byte, error) {
-	return r.binder.ReadOutputRange(ctx, ref, offset, max)
+func (r daemonStructuredReader) ReadInputRange(ctx context.Context, ref structuredcore.StructuredInputRef, offset int64, max int) ([]byte, error) {
+	return r.binder.ReadInputRange(ctx, ref, offset, max)
 }
 
-func (r daemonStructuredReader) DescribeInput(ctx context.Context, ref structuredcore.RawOutputRef) (structuredapp.InputContext, error) {
+func (r daemonStructuredReader) DescribeInput(ctx context.Context, ref structuredcore.StructuredInputRef) (structuredapp.InputContext, error) {
 	if r.store == nil || r.binder == nil {
 		return structuredapp.InputContext{}, fmt.Errorf("structured reader unavailable")
 	}
-	snap, err := r.store.LoadSession(ctx, operation.SessionID(ref.SessionID))
+	raw, ok := ref.Raw()
+	if !ok {
+		return structuredapp.InputContext{}, fmt.Errorf("daemon raw structured reader requires raw output")
+	}
+	snap, err := r.store.LoadSession(ctx, operation.SessionID(raw.SessionID))
 	if err != nil {
 		return structuredapp.InputContext{}, err
 	}

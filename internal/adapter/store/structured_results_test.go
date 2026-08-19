@@ -217,14 +217,14 @@ func structuredDerivation(t *testing.T, version int, lifecycle core.Lifecycle, o
 	if err != nil {
 		t.Fatal(err)
 	}
-	return core.Derivation{SchemaVersion: 1, DerivationKey: key, SourceAuthorityRefs: []core.RawOutputRef{ref}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("b", 64), Lifecycle: lifecycle, ParseOutcome: outcome, Completeness: completeness}
+	return core.Derivation{SchemaVersion: core.SchemaVersion, DerivationKey: key, SourceAuthorityRefs: []core.StructuredInputRef{core.RawInputRef(ref)}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("b", 64), Lifecycle: lifecycle, ParseOutcome: outcome, Completeness: completeness}
 }
 func structuredArtifactRecord(d core.Derivation, authority core.Authority, name string) core.Record {
 	method := core.DerivationNativeFieldMapping
 	if authority == core.AuthorityAdvisory {
 		method = core.DerivationHeuristicExtraction
 	}
-	return core.Record{SchemaVersion: 1, RecordKind: core.RecordArtifactResult, Authority: authority, DerivationMethod: method, Producer: d.Producer, OperationID: "op-1", SourceRef: d.SourceAuthorityRefs[0], ArtifactResult: &core.ArtifactResult{Name: name, Status: "ok"}}
+	return core.Record{SchemaVersion: core.SchemaVersion, RecordKind: core.RecordArtifactResult, Authority: authority, DerivationMethod: method, Producer: d.Producer, OperationID: "op-1", SourceRef: d.SourceAuthorityRefs[0], ArtifactResult: &core.ArtifactResult{Name: name, Status: "ok"}}
 }
 func failNthAtomicWriter(point string, nth int) atomicWriter {
 	seen := 0

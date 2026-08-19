@@ -33,8 +33,8 @@ type InputStore interface {
 }
 
 type InputBinder interface {
-	BindTerminalOutput(context.Context, receipt.Receipt) (core.RawOutputRef, error)
-	ReadOutputRange(context.Context, core.RawOutputRef, int64, int) ([]byte, error)
+	BindTerminalOutput(context.Context, receipt.Receipt) (core.StructuredInputRef, error)
+	ReadInputRange(context.Context, core.StructuredInputRef, int64, int) ([]byte, error)
 }
 
 type Repository interface {
@@ -53,8 +53,8 @@ type InputContext struct {
 }
 
 type Reader interface {
-	ReadOutputRange(context.Context, core.RawOutputRef, int64, int) ([]byte, error)
-	DescribeInput(context.Context, core.RawOutputRef) (InputContext, error)
+	ReadInputRange(context.Context, core.StructuredInputRef, int64, int) ([]byte, error)
+	DescribeInput(context.Context, core.StructuredInputRef) (InputContext, error)
 }
 
 type Limits struct {
@@ -84,7 +84,7 @@ type ParseResult struct {
 type Adapter interface {
 	ID() string
 	Version() int
-	Parse(context.Context, core.RawOutputRef, Reader, Limits) (ParseResult, error)
+	Parse(context.Context, core.StructuredInputRef, Reader, Limits) (ParseResult, error)
 }
 
 func (c InputContext) Validate() error {

@@ -147,12 +147,12 @@ func (w *Worker) process(job workerJob) {
 	}
 	adapter := w.adapters[job.adapter]
 	producer := core.Producer{AdapterID: adapter.ID(), AdapterVersion: adapter.Version(), CapabilityVersion: workerCapabilityVersion}
-	key, err := core.DerivationKey([]core.RawOutputRef{ref}, producer, workerDerivationSchemaVersion, w.configHash)
+	key, err := core.DerivationKeyForInputs([]core.StructuredInputRef{ref}, producer, workerDerivationSchemaVersion, w.configHash)
 	if err != nil {
 		return
 	}
 	service := New(w.repository)
-	derivation, err := service.Begin(ctx, []core.RawOutputRef{ref}, producer, workerDerivationSchemaVersion, w.configHash)
+	derivation, err := service.Begin(ctx, []core.StructuredInputRef{ref}, producer, workerDerivationSchemaVersion, w.configHash)
 	if err != nil {
 		derivation, err = w.repository.GetDerivation(ctx, key)
 		if err != nil {

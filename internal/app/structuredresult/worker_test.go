@@ -20,20 +20,20 @@ type workerBinderFake struct {
 	calls int
 }
 
-func (b *workerBinderFake) BindTerminalOutput(context.Context, receipt.Receipt) (core.RawOutputRef, error) {
+func (b *workerBinderFake) BindTerminalOutput(context.Context, receipt.Receipt) (core.StructuredInputRef, error) {
 	b.calls++
-	return b.ref, nil
+	return core.RawInputRef(b.ref), nil
 }
-func (b *workerBinderFake) ReadOutputRange(context.Context, core.RawOutputRef, int64, int) ([]byte, error) {
+func (b *workerBinderFake) ReadInputRange(context.Context, core.StructuredInputRef, int64, int) ([]byte, error) {
 	return nil, nil
 }
 
 type workerReaderFake struct{}
 
-func (workerReaderFake) ReadOutputRange(context.Context, core.RawOutputRef, int64, int) ([]byte, error) {
+func (workerReaderFake) ReadInputRange(context.Context, core.StructuredInputRef, int64, int) ([]byte, error) {
 	return []byte(`{}`), nil
 }
-func (workerReaderFake) DescribeInput(context.Context, core.RawOutputRef) (InputContext, error) {
+func (workerReaderFake) DescribeInput(context.Context, core.StructuredInputRef) (InputContext, error) {
 	return InputContext{OperationID: "op-worker"}, nil
 }
 
@@ -100,7 +100,7 @@ type workerAdapter struct {
 
 func (a workerAdapter) ID() string   { return a.id }
 func (a workerAdapter) Version() int { return a.version }
-func (a workerAdapter) Parse(context.Context, core.RawOutputRef, Reader, Limits) (ParseResult, error) {
+func (a workerAdapter) Parse(context.Context, core.StructuredInputRef, Reader, Limits) (ParseResult, error) {
 	return a.parse()
 }
 

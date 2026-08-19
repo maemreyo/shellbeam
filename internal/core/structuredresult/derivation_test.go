@@ -20,7 +20,7 @@ func TestDerivationKeyIsStableAndLifecycleIsClosed(t *testing.T) {
 	if err != nil || changed == first {
 		t.Fatalf("adapter version did not change derivation key")
 	}
-	pending := Derivation{SchemaVersion: 1, DerivationKey: first, SourceAuthorityRefs: []RawOutputRef{ref}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("b", 64), Lifecycle: LifecyclePending, Completeness: CompletenessUnavailable}
+	pending := Derivation{SchemaVersion: SchemaVersionV1, DerivationKey: first, SourceAuthorityRefs: []StructuredInputRef{RawInputRef(ref)}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("b", 64), Lifecycle: LifecyclePending, Completeness: CompletenessUnavailable}
 	if err := pending.Validate(); err != nil {
 		t.Fatal(err)
 	}

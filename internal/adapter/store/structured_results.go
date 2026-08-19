@@ -65,14 +65,16 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if next.SchemaVersion != core.SchemaVersion {
+		return fmt.Errorf("structured_derivation_write_requires_v2")
+	}
 	if err := validateStructuredDerivation(next); err != nil {
 		return err
 	}
 	r.structuredMu.Lock()
 	defer r.structuredMu.Unlock()
 	path := r.derivationPath(next.DerivationKey)
-	var current core.Derivation
-	err := readPrivateJSON(path, maxStructuredMetadataBytes, &current)
+	current, err := readStructuredDerivation(path)
 	if errors.Is(err, ErrNotFound) {
 		if next.Lifecycle != core.LifecyclePending {
 			return fmt.Errorf("structured_derivation_must_start_pending")
@@ -85,7 +87,7 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 	if err := validateStructuredDerivation(current); err != nil {
 		return err
 	}
-	if reflect.DeepEqual(current, next) {
+	if reflect.DeepEqual(current, next) || sameDerivationReplay(current, next) {
 		return nil
 	}
 	if !sameDerivationIdentity(current, next) || !allowedDerivationTransition(current, next) {
@@ -125,7 +127,7 @@ func (r *Repository) replaceDerivation(ctx context.Context, path string, next co
 func (r *Repository) prepareStructuredObservation(ctx context.Context, derivation core.Derivation) (observation.ChangeSeq, app.StoreResult) {
 	correlation := observation.Correlation{}
 	if len(derivation.SourceAuthorityRefs) > 0 {
-		correlation = r.correlationForSession("", derivation.SourceAuthorityRefs[0].SessionID)
+		correlation = r.correlationForSession("", derivation.SourceAuthorityRefs[0].SessionID())
 	}
 	request := observation.PrepareRequest{
 		Kind: observation.EventStructuredChanged, Correlation: correlation,
@@ -141,8 +143,8 @@ func (r *Repository) finishStructuredObservation(seq observation.ChangeSeq, path
 	case app.NoDurableChange:
 		r.abortObservationBestEffort(seq, observationAbortWriteFailed)
 	case app.AmbiguousChange:
-		var got core.Derivation
-		if readPrivateJSON(path, maxStructuredMetadataBytes, &got) == nil && reflect.DeepEqual(got, want) {
+		got, err := readStructuredDerivation(path)
+		if err == nil && (reflect.DeepEqual(got, want) || sameDerivationReplay(got, want)) {
 			r.commitObservationBestEffort(seq)
 		}
 	}

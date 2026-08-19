@@ -33,6 +33,33 @@ type StructuredInputRef struct {
 	ArtifactBlob *ArtifactBlobRef    `json:"artifact_blob,omitempty"`
 }
 
+func RawInputRef(ref RawOutputRef) StructuredInputRef {
+	copy := ref
+	return StructuredInputRef{Kind: StructuredInputRawOutput, RawOutput: &copy}
+}
+
+func ArtifactInputRef(ref ArtifactBlobRef) StructuredInputRef {
+	copy := ref
+	return StructuredInputRef{Kind: StructuredInputArtifactBlob, ArtifactBlob: &copy}
+}
+
+func (r StructuredInputRef) Raw() (RawOutputRef, bool) {
+	if r.Kind != StructuredInputRawOutput || r.RawOutput == nil || r.ArtifactBlob != nil {
+		return RawOutputRef{}, false
+	}
+	return *r.RawOutput, true
+}
+
+func (r StructuredInputRef) SessionID() string {
+	if raw, ok := r.Raw(); ok {
+		return raw.SessionID
+	}
+	if r.Kind == StructuredInputArtifactBlob && r.ArtifactBlob != nil {
+		return r.ArtifactBlob.SessionID
+	}
+	return ""
+}
+
 type TerminalCutV1 struct {
 	SchemaVersion        int    `json:"schema_version"`
 	ReceiptSchemaVersion int    `json:"receipt_schema_version"`

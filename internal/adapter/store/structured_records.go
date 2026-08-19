@@ -56,17 +56,21 @@ func (r *Repository) PutRecords(ctx context.Context, key string, records []core.
 	if err != nil {
 		return err
 	}
+	for _, record := range records {
+		if record.SchemaVersion != core.SchemaVersion {
+			return fmt.Errorf("structured_record_write_requires_v2")
+		}
+	}
 	if err := validateRecordsForDerivation(records, derivation); err != nil {
 		return err
 	}
-	set := structuredRecordSet{SchemaVersion: 1, DerivationKey: key, Records: append([]core.Record(nil), records...)}
+	set := structuredRecordSet{SchemaVersion: core.SchemaVersion, DerivationKey: key, Records: append([]core.Record(nil), records...)}
 	path := r.recordPath(key)
-	var current structuredRecordSet
-	if err := readPrivateJSON(path, maxStructuredRecordFileBytes, &current); err == nil {
+	if current, err := readStructuredRecordSet(path, derivation); err == nil {
 		if err := validateStructuredRecordSet(current, derivation); err != nil {
 			return err
 		}
-		if !reflect.DeepEqual(current, set) {
+		if !sameRecordSetReplay(current, set) {
 			return fmt.Errorf("structured_records_conflict")
 		}
 		return r.ensureStructuredSummaryUnlocked(set)
@@ -98,13 +102,10 @@ func (r *Repository) ListRecords(ctx context.Context, key string, query structur
 	if derivation.Completeness == core.CompletenessCompacted {
 		return nil, ErrStructuredRecordsCompacted
 	}
-	var set structuredRecordSet
-	if err := readPrivateJSON(r.recordPath(key), maxStructuredRecordFileBytes, &set); errors.Is(err, ErrNotFound) {
+	set, err := readStructuredRecordSet(r.recordPath(key), derivation)
+	if errors.Is(err, ErrNotFound) {
 		return []core.Record{}, nil
 	} else if err != nil {
-		return nil, err
-	}
-	if err := validateStructuredRecordSet(set, derivation); err != nil {
 		return nil, err
 	}
 	if query.Offset > len(set.Records) {
@@ -128,6 +129,7 @@ func (r *Repository) CompactRecords(ctx context.Context, key string) error {
 	if err := r.markStructuredSummaryCompacted(ctx, key); err != nil {
 		return err
 	}
+	derivation.SchemaVersion = core.SchemaVersion
 	derivation.Completeness = core.CompletenessCompacted
 	if err := r.PutDerivation(ctx, derivation); err != nil {
 		return err
