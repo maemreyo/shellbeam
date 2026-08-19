@@ -606,6 +606,8 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 - Modify: `api/schema/mcp-output-v2.json`
 - Modify: `api/schema/ipc-v2.json`
 - Create: `api/schema/delegated_sessions_test.go`
+- Modify: `internal/adapter/ipc/protocol.go`
+- Modify: `internal/adapter/ipc/server_unix.go`
 - Modify: `internal/adapter/ipc/protocol_v2.go`
 - Modify: `internal/adapter/ipc/protocol_v2_fields.go`
 - Modify: `internal/adapter/ipc/response_v2.go`
