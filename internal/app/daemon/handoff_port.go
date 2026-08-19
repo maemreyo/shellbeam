@@ -18,6 +18,8 @@ type handoffCoordinator interface {
 	Wait(context.Context, handoffapp.WaitRequest) (handoffapp.WaitResult, error)
 	Abort(context.Context, string) (handoff.State, error)
 	Inspect(context.Context, string) (handoff.State, error)
+	BootstrapLocalHuman(context.Context, string) (handoffapp.LocalBootstrap, error)
+	BindLocalHuman(context.Context, string, delegatedapp.ProviderClientRef) (handoff.State, error)
 	AttachLocalHuman(context.Context, string, delegatedapp.HumanAttachSpec) (handoffapp.LocalAttachResult, error)
 	HumanControl(context.Context, handoff.ControlSignal) (handoffapp.ControlResult, error)
 }

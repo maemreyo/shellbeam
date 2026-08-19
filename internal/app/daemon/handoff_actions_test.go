@@ -2,11 +2,13 @@ package daemon_test
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
@@ -180,5 +182,79 @@ func TestHandoffAgentFenceWaitsForAlreadyAdmittedMutationDelivery(t *testing.T) 
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("handoff fence did not complete after old-authority delivery drained")
+	}
+}
+
+type h2LocalDaemonRuntime struct {
+	*delegatedStartRuntime
+	human delegatedapp.HumanClientObservation
+}
+
+func newH2LocalDaemonRuntime() *h2LocalDaemonRuntime {
+	return &h2LocalDaemonRuntime{delegatedStartRuntime: newDelegatedStartRuntime()}
+}
+func (r *h2LocalDaemonRuntime) AttachHuman(context.Context, delegated.ProviderRef, delegatedapp.HumanAttachSpec) (delegatedapp.HumanAttachResult, error) {
+	return delegatedapp.HumanAttachResult{}, errors.New("daemon local bind must not attach")
+}
+func (r *h2LocalDaemonRuntime) SetHumanWritable(_ context.Context, _ delegated.ProviderRef, client delegatedapp.ProviderClientRef, writable bool) error {
+	r.human.ClientRef = client
+	r.human.Present = true
+	r.human.ReadOnly = !writable
+	if writable {
+		r.human.ObservedOwner = delegated.OwnerHuman
+	} else {
+		r.human.ObservedOwner = delegated.OwnerNone
+	}
+	return nil
+}
+func (r *h2LocalDaemonRuntime) FenceHumanIngress(_ context.Context, _ delegated.ProviderRef, client delegatedapp.ProviderClientRef, epoch delegated.AuthorityEpoch) (delegatedapp.IngressFenceProof, error) {
+	r.human.ClientRef, r.human.ReadOnly, r.human.ObservedOwner = client, true, delegated.OwnerNone
+	return delegatedapp.IngressFenceProof{ClientRef: client, AuthorityEpoch: epoch, ProviderGeneration: r.human.ProviderGeneration, Fenced: true}, nil
+}
+func (r *h2LocalDaemonRuntime) InspectHumanClient(context.Context, delegated.ProviderRef, delegatedapp.ProviderClientRef) (delegatedapp.HumanClientObservation, error) {
+	return r.human, nil
+}
+func (*h2LocalDaemonRuntime) ArmWritableHumanControl(context.Context, delegated.ProviderRef, delegatedapp.ProviderClientRef, delegatedapp.HumanControlSpec) error {
+	return nil
+}
+func (*h2LocalDaemonRuntime) WaitWritableHumanControl(context.Context, delegated.ProviderRef, delegatedapp.ProviderClientRef, delegatedapp.HumanControlSpec) (handoff.HumanControlKind, error) {
+	return handoff.HumanControlStatus, nil
+}
+func (*h2LocalDaemonRuntime) PrepareReadOnlyLocalControl(context.Context, delegated.ProviderRef, delegatedapp.ProviderClientRef) error {
+	return nil
+}
+
+func TestLocalHandoffBootstrapAndBindDelegateToSharedCoordinator(t *testing.T) {
+	store := openDelegatedStartStore(t)
+	runtime := newH2LocalDaemonRuntime()
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "h2-local", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime})
+	started, err := svc.Start(t.Context(), func() app.StartRequest {
+		v := delegatedStartRequest()
+		v.OperationID = "op-h2-local-bootstrap"
+		return v
+	}())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := handoff.Request{HandoffID: "handoff-local-bootstrap", SessionID: started.SessionID, Reason: handoff.ReasonManualIntervention, Privacy: handoff.PrivacyStandard, Completion: handoff.Completion{Kind: handoff.CompletionManualReady}}
+	state, err := svc.RequestHandoff(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boot, err := svc.BootstrapLocalHuman(t.Context(), req.HandoffID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boot.HandoffID != req.HandoffID || boot.State != state || boot.ProviderRef.SessionID != started.SessionID {
+		t.Fatalf("bootstrap=%#v", boot)
+	}
+	client := delegatedapp.ProviderClientRef{Ref: "hclient_daemon_local"}
+	runtime.human = delegatedapp.HumanClientObservation{ClientRef: client, Present: true, ReadOnly: true, ObservedOwner: delegated.OwnerNone, ProviderGeneration: "gen_test"}
+	bound, err := svc.BindLocalHuman(t.Context(), req.HandoffID, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound.Phase != handoff.PhaseHumanOwned || bound.HumanClient == nil || bound.HumanClient.Ref != client.Ref {
+		t.Fatalf("bound=%#v", bound)
 	}
 }

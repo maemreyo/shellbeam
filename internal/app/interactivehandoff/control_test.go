@@ -101,6 +101,7 @@ func TestResumeRetryContinuesFromHumanConnectingWithoutRepeatingEpochRotation(t 
 	state.AuthorityEpoch++
 	state.DesiredOwner = delegated.OwnerHuman
 	state.Phase = handoff.PhaseHumanConnecting
+	state.HumanClient = nil
 	state.TransferBoundary = handoff.TransferBoundary{Kind: handoff.BoundaryProviderOrdered, Established: true}
 	store.state = state
 	store.binding.AuthorityEpoch = state.AuthorityEpoch
@@ -117,8 +118,13 @@ func TestResumeRetryContinuesFromHumanConnectingWithoutRepeatingEpochRotation(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State.Phase != handoff.PhaseHumanOwned || result.State.AuthorityEpoch != state.AuthorityEpoch {
+	if result.State.Phase != handoff.PhaseHumanConnecting || result.State.AuthorityEpoch != state.AuthorityEpoch || result.State.HumanClient != nil {
 		t.Fatalf("resume=%#v", result)
+	}
+	for _, call := range *calls {
+		if call == "human_writable" || call == "inspect_human" || call == "arm_human_control" {
+			t.Fatalf("partial resume repeated provider mutation: %v", *calls)
+		}
 	}
 }
 
@@ -130,5 +136,36 @@ func TestAbortRejectsStaleProviderGenerationFenceProof(t *testing.T) {
 	}
 	if store.state.Phase == handoff.PhaseAborted || store.binding.DesiredOwner == delegated.OwnerNone {
 		t.Fatalf("stale fence published abort state=%#v binding=%#v", store.state, store.binding)
+	}
+}
+
+func TestResumeAfterDetachedLocalControlReturnsFreshHumanConnectingWithoutOldClientMutation(t *testing.T) {
+	store, runtime, svc, calls, req := humanOwnedFixture(t)
+	aborted, err := svc.Abort(t.Context(), req.HandoffID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aborted.Phase != handoff.PhaseAborted || aborted.HumanClient == nil {
+		t.Fatalf("aborted=%#v", aborted)
+	}
+	// H0 read-only fallback detaches before the local control prompt. The old
+	// provider client is therefore gone and must never be made writable again.
+	runtime.human.Present = false
+	*calls = nil
+	sig := handoff.ControlSignal{HandoffID: req.HandoffID, AuthorityEpoch: aborted.AuthorityEpoch, ControlID: "resume-detached", Kind: handoff.HumanControlResume}
+	result, err := svc.HumanControl(t.Context(), sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State.Phase != handoff.PhaseHumanConnecting || result.State.AuthorityEpoch != aborted.AuthorityEpoch+1 || result.State.DesiredOwner != delegated.OwnerHuman || result.State.HumanClient != nil || result.State.HumanIngress != handoff.IngressFenced || result.State.AgentIngress != handoff.IngressFenced {
+		t.Fatalf("resume=%#v", result.State)
+	}
+	for _, call := range *calls {
+		if call == "inspect_human" || call == "human_writable" || call == "arm_human_control" {
+			t.Fatalf("detached resume touched old client: %v", *calls)
+		}
+	}
+	if store.binding.AuthorityEpoch != result.State.AuthorityEpoch || store.binding.DesiredOwner != delegated.OwnerHuman {
+		t.Fatalf("binding=%#v", store.binding)
 	}
 }

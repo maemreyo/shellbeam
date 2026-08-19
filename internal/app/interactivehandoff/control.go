@@ -172,48 +172,24 @@ func (s *Service) abortLoaded(ctx context.Context, state handoff.State) (handoff
 }
 
 func (s *Service) resume(ctx context.Context, signal handoff.ControlSignal, state handoff.State) (ControlResult, error) {
-	if state.Phase == handoff.PhaseHumanOwned {
+	if state.Phase == handoff.PhaseHumanConnecting {
+		// A response may have been lost after the durable resume transition.
+		// HUMAN_CONNECTING is the terminal state of the resume control itself;
+		// the local attach/bind path owns creation and proof of the next client.
 		return s.completeControl(ctx, signal, state, "resumed")
 	}
-	if state.HumanClient == nil {
+	if state.Phase != handoff.PhaseAborted {
 		return ControlResult{}, failure.New(failure.HandoffReclaimBlocked, map[string]string{"handoff_id": state.HandoffID, "reason": "resume_state"}, nil)
 	}
-	switch state.Phase {
-	case handoff.PhaseAborted:
-		state.AuthorityEpoch++
-		state.DesiredOwner = delegated.OwnerHuman
-		state.ProviderOwner = delegated.OwnerNone
-		state.AgentIngress = handoff.IngressFenced
-		state.HumanIngress = handoff.IngressFenced
-		state.Phase = handoff.PhaseHumanConnecting
-		state.TransferBoundary = handoff.TransferBoundary{Kind: handoff.BoundaryProviderOrdered, Established: true}
-		if err := s.advance(ctx, state); err != nil {
-			return ControlResult{}, err
-		}
-	case handoff.PhaseHumanConnecting:
-		if state.DesiredOwner != delegated.OwnerHuman || state.AgentIngress != handoff.IngressFenced || state.HumanIngress != handoff.IngressFenced {
-			return ControlResult{}, failure.New(failure.HandoffReclaimBlocked, map[string]string{"handoff_id": state.HandoffID, "reason": "resume_partial_state_unproven"}, nil)
-		}
-	default:
-		return ControlResult{}, failure.New(failure.HandoffReclaimBlocked, map[string]string{"handoff_id": state.HandoffID, "reason": "resume_state"}, nil)
-	}
-	ref, err := s.store.LoadDelegatedProviderRef(ctx, operation.SessionID(state.SessionID))
-	if err != nil {
-		return ControlResult{}, failure.Normalize(err)
-	}
-	client := delegatedapp.ProviderClientRef{Ref: state.HumanClient.Ref}
-	if err := s.store.MarkHumanWriteAuthorityGranted(ctx, operation.SessionID(state.SessionID)); err != nil {
-		return ControlResult{}, failure.Normalize(err)
-	}
-	obs, err := s.makeHumanWritable(ctx, ref, client, state)
-	if err != nil {
-		return ControlResult{}, err
-	}
-	state.Phase = handoff.PhaseHumanOwned
-	state.ProviderOwner = obs.ObservedOwner
-	state.HumanIngress = handoff.IngressWritable
+	state.AuthorityEpoch++
+	state.DesiredOwner = delegated.OwnerHuman
+	state.ProviderOwner = delegated.OwnerNone
+	state.AgentIngress = handoff.IngressFenced
+	state.HumanIngress = handoff.IngressFenced
+	state.Phase = handoff.PhaseHumanConnecting
+	state.HumanClient = nil
+	state.TransferBoundary = handoff.TransferBoundary{Kind: handoff.BoundaryProviderOrdered, Established: true}
 	if err := s.advance(ctx, state); err != nil {
-		_, _ = s.runtime.FenceHumanIngress(context.Background(), ref, client, state.AuthorityEpoch)
 		return ControlResult{}, err
 	}
 	return s.completeControl(ctx, signal, state, "resumed")

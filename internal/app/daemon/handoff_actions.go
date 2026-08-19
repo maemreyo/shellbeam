@@ -37,6 +37,20 @@ func (s *Service) InspectHandoff(ctx context.Context, id string) (handoff.State,
 	return s.handoff.Inspect(ctx, id)
 }
 
+func (s *Service) BootstrapLocalHuman(ctx context.Context, id string) (handoffapp.LocalBootstrap, error) {
+	if s == nil || s.handoff == nil {
+		return handoffapp.LocalBootstrap{}, handoffUnavailable()
+	}
+	return s.handoff.BootstrapLocalHuman(ctx, id)
+}
+
+func (s *Service) BindLocalHuman(ctx context.Context, id string, client delegatedapp.ProviderClientRef) (handoff.State, error) {
+	if s == nil || s.handoff == nil {
+		return handoff.State{}, handoffUnavailable()
+	}
+	return s.handoff.BindLocalHuman(ctx, id, client)
+}
+
 func (s *Service) AttachLocalHuman(ctx context.Context, id string, spec delegatedapp.HumanAttachSpec) (handoffapp.LocalAttachResult, error) {
 	if s == nil || s.handoff == nil {
 		return handoffapp.LocalAttachResult{}, handoffUnavailable()

@@ -25,7 +25,7 @@ func TestAttachLocalHumanOrdersReadOnlyProofProvenanceWritableAndPublish(t *test
 	if result.State.Phase != handoff.PhaseHumanOwned || result.State.ProviderOwner != delegated.OwnerHuman || result.State.HumanIngress != handoff.IngressWritable || result.State.AgentIngress != handoff.IngressFenced || result.State.HumanClient == nil || result.State.HumanClient.Ref != "hclient_1" {
 		t.Fatalf("result=%#v", result)
 	}
-	want := []string{"find", "load_ref", "attach_human", "inspect_human", "advance:human_connecting", "mark_human_provenance", "inspect_human", "human_writable", "inspect_human", "arm_human_control", "advance:human_owned"}
+	want := []string{"find", "load_ref", "attach_human", "inspect_human", "inspect_human", "advance:human_connecting", "mark_human_provenance", "inspect_human", "human_writable", "inspect_human", "arm_human_control", "advance:human_owned"}
 	if !reflect.DeepEqual(*calls, want) {
 		t.Fatalf("calls=%v want=%v", *calls, want)
 	}
@@ -134,5 +134,88 @@ func TestConcurrentAttachRetryCreatesOneProviderClientAndConverges(t *testing.T)
 	}
 	if got := runtime.attachCalls.Load(); got != 1 {
 		t.Fatalf("provider attach calls=%d want 1", got)
+	}
+}
+
+func TestLocalBootstrapReturnsOnlyDurableProviderRefAndConnectingState(t *testing.T) {
+	store, runtime, _, svc, calls, req := fixture(t)
+	state, err := svc.Request(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*calls = nil
+	got, err := svc.BootstrapLocalHuman(t.Context(), req.HandoffID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.HandoffID != req.HandoffID || got.ProviderRef != store.ref || got.State != state {
+		t.Fatalf("bootstrap=%#v", got)
+	}
+	if runtime.attachCalls.Load() != 0 {
+		t.Fatalf("bootstrap attached human: %d", runtime.attachCalls.Load())
+	}
+	if !reflect.DeepEqual(*calls, []string{"find", "load_ref"}) {
+		t.Fatalf("bootstrap calls=%v", *calls)
+	}
+}
+
+func TestBindLocalHumanUsesPrecreatedReadOnlyClientWithoutAttachAndPublishesHumanOwned(t *testing.T) {
+	_, runtime, _, svc, calls, req := fixture(t)
+	if _, err := svc.Request(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	*calls = nil
+	client := delegatedapp.ProviderClientRef{Ref: "hclient_1"}
+	got, err := svc.BindLocalHuman(t.Context(), req.HandoffID, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != handoff.PhaseHumanOwned || got.HumanClient == nil || got.HumanClient.Ref != client.Ref || got.HumanIngress != handoff.IngressWritable || got.ProviderOwner != delegated.OwnerHuman {
+		t.Fatalf("state=%#v", got)
+	}
+	if runtime.attachCalls.Load() != 0 {
+		t.Fatalf("bind invoked attach: %d", runtime.attachCalls.Load())
+	}
+	want := []string{"find", "load_ref", "inspect_human", "advance:human_connecting", "mark_human_provenance", "inspect_human", "human_writable", "inspect_human", "arm_human_control", "advance:human_owned"}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Fatalf("calls=%v want=%v", *calls, want)
+	}
+}
+
+func TestBindLocalHumanExactReplayDoesNotRetoggleOrReattach(t *testing.T) {
+	_, runtime, _, svc, calls, req := fixture(t)
+	if _, err := svc.Request(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	client := delegatedapp.ProviderClientRef{Ref: "hclient_1"}
+	first, err := svc.BindLocalHuman(t.Context(), req.HandoffID, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	*calls = nil
+	second, err := svc.BindLocalHuman(t.Context(), req.HandoffID, client)
+	if err != nil || second != first {
+		t.Fatalf("replay=%#v first=%#v err=%v", second, first, err)
+	}
+	if runtime.attachCalls.Load() != 0 {
+		t.Fatalf("replay attached: %d", runtime.attachCalls.Load())
+	}
+	for _, call := range *calls {
+		if call == "human_writable" || call == "mark_human_provenance" || call == "arm_human_control" {
+			t.Fatalf("replay repeated mutation: %v", *calls)
+		}
+	}
+}
+
+func TestBindLocalHumanDifferentClientConflictsAfterDurableBind(t *testing.T) {
+	_, _, _, svc, _, req := fixture(t)
+	if _, err := svc.Request(t.Context(), req); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.BindLocalHuman(t.Context(), req.HandoffID, delegatedapp.ProviderClientRef{Ref: "hclient_1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.BindLocalHuman(t.Context(), req.HandoffID, delegatedapp.ProviderClientRef{Ref: "hclient_other"}); !errors.Is(err, failure.HandoffConflict) {
+		t.Fatalf("different client err=%v", err)
 	}
 }

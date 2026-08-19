@@ -14,9 +14,11 @@ import (
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
 	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
+	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
@@ -30,6 +32,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	handoffcore "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
@@ -290,6 +293,27 @@ type daemonActions struct {
 	mutationScopes mutationScopeCoordinator
 	checkpoints    *checkpointapp.Service
 	inputTrace     *inputtraceapp.Inspector
+}
+
+func (a *daemonActions) BootstrapLocalHuman(ctx context.Context, id string) (handoffapp.LocalBootstrap, error) {
+	if a == nil || a.observation == nil {
+		return handoffapp.LocalBootstrap{}, fmt.Errorf("interactive handoff unavailable")
+	}
+	return a.observation.BootstrapLocalHuman(ctx, id)
+}
+
+func (a *daemonActions) BindLocalHuman(ctx context.Context, id string, client delegatedapp.ProviderClientRef) (handoffcore.State, error) {
+	if a == nil || a.observation == nil {
+		return handoffcore.State{}, fmt.Errorf("interactive handoff unavailable")
+	}
+	return a.observation.BindLocalHuman(ctx, id, client)
+}
+
+func (a *daemonActions) HandoffHumanControl(ctx context.Context, signal handoffcore.ControlSignal) (handoffapp.ControlResult, error) {
+	if a == nil || a.observation == nil {
+		return handoffapp.ControlResult{}, fmt.Errorf("interactive handoff unavailable")
+	}
+	return a.observation.HandoffHumanControl(ctx, signal)
 }
 
 func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {
