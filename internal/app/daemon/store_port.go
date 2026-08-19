@@ -4,6 +4,7 @@ package daemon
 import (
 	"context"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -55,6 +56,17 @@ type DelegatedSessionStore interface {
 	ListDelegatedRecoveryCandidates(context.Context) ([]delegated.Binding, error)
 	LoadDelegatedRecoveryState(context.Context, operation.SessionID) (DelegatedRecoveryState, error)
 	DelegatedOutputBytes(context.Context, operation.SessionID) (int64, error)
+}
+
+type InteractiveHandoffStore interface {
+	ReserveHandoff(context.Context, handoff.Request, handoff.State) (handoff.State, bool, StoreResult)
+	AdvanceHandoff(context.Context, handoff.State) StoreResult
+	LoadHandoff(context.Context, string) (handoff.Request, handoff.State, error)
+	ReserveControlSignal(context.Context, handoff.ControlSignal) (handoff.ControlSignal, string, bool, StoreResult)
+	CompleteControlSignal(context.Context, handoff.ControlSignal, string) (string, StoreResult)
+	ListHandoffRecoveryCandidates(context.Context) ([]handoff.State, error)
+	MarkHumanWriteAuthorityGranted(context.Context, operation.SessionID) StoreResult
+	LoadInputAuthorityProvenance(context.Context, operation.SessionID) (string, error)
 }
 
 type PersistentSessionStore interface {

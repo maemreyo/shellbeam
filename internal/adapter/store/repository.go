@@ -207,6 +207,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 	if err := repository.initDelegatedSessionStore(); err != nil {
 		return nil, err
 	}
+	if err := repository.initInteractiveHandoffStore(); err != nil {
+		return nil, err
+	}
 	if err := repository.initAdmissionLedger(); err != nil {
 		return nil, err
 	}
