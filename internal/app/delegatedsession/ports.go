@@ -37,6 +37,10 @@ type Observation struct {
 	OutputBytes        int64
 }
 
+type Detacher interface {
+	Detach(context.Context, core.ProviderRef) error
+}
+
 type Provider interface {
 	Identity() core.ProviderIdentity
 	ProviderRefForSession(string, time.Time) (core.ProviderRef, error)

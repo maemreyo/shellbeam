@@ -34,6 +34,7 @@ type MutationIdentity struct {
 	Kind          MutationKind   `json:"kind"`
 	IdempotencyID string         `json:"idempotency_id,omitempty"`
 	Offset        int64          `json:"offset"`
+	NextOffset    int64          `json:"next_offset"`
 	Fingerprint   string         `json:"fingerprint"`
 }
 
@@ -48,18 +49,18 @@ func (m MutationIdentity) Validate() error {
 		return err
 	}
 	if m.Kind == MutationWrite {
-		if m.IdempotencyID != "" || m.Offset < 0 {
+		if m.IdempotencyID != "" || m.Offset < 0 || m.NextOffset <= m.Offset {
 			return fmt.Errorf("invalid delegated write identity")
 		}
 		return nil
 	}
-	if !validOpaque(m.IdempotencyID, 128) || m.Offset != -1 {
+	if !validOpaque(m.IdempotencyID, 128) || m.Offset != -1 || m.NextOffset != -1 {
 		return fmt.Errorf("invalid delegated control identity")
 	}
 	return nil
 }
 
-const MutationRecordSchemaVersion = 1
+const MutationRecordSchemaVersion = 2
 
 type MutationState string
 

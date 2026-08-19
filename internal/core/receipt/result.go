@@ -76,20 +76,22 @@ type Result struct {
 }
 
 type ResultInput struct {
-	OperationID   string
-	ActivityID    string
-	WorkspaceID   string
-	SessionID     string
-	ContextEvents []workspace.ContextEvent
-	Advisories    []workspace.Advisory
-	State         session.State
-	Outcome       session.Outcome
-	Preview       string
-	RawBytes      int64
-	Cursor        int64
-	NextCursor    int64
-	Truncated     bool
-	Receipt       *Receipt
+	OperationID    string
+	ActivityID     string
+	WorkspaceID    string
+	SessionID      string
+	SessionMode    string
+	AuthorityEpoch delegated.AuthorityEpoch
+	ContextEvents  []workspace.ContextEvent
+	Advisories     []workspace.Advisory
+	State          session.State
+	Outcome        session.Outcome
+	Preview        string
+	RawBytes       int64
+	Cursor         int64
+	NextCursor     int64
+	Truncated      bool
+	Receipt        *Receipt
 }
 
 func NewResult(in ResultInput) (Result, error) {
@@ -102,6 +104,17 @@ func NewResult(in ResultInput) (Result, error) {
 	}
 	if in.NextCursor < in.Cursor || in.RawBytes < in.NextCursor {
 		return Result{}, fmt.Errorf("invalid output accounting")
+	}
+	if in.SessionMode == "" && in.AuthorityEpoch != 0 {
+		return Result{}, fmt.Errorf("authority epoch without delegated session mode")
+	}
+	if in.SessionMode != "" {
+		if in.SessionMode != delegated.ModeDelegatedInteractive {
+			return Result{}, fmt.Errorf("invalid delegated session mode")
+		}
+		if err := in.AuthorityEpoch.Validate(); err != nil {
+			return Result{}, err
+		}
 	}
 	result := Result{
 		SchemaVersion: 2,
@@ -120,6 +133,12 @@ func NewResult(in ResultInput) (Result, error) {
 		Receipt:       in.Receipt,
 		Failure:       in.Receipt.failureOf(),
 	}
+	if in.SessionMode == delegated.ModeDelegatedInteractive {
+		result.SessionMode = in.SessionMode
+		result.AuthorityEpoch = in.AuthorityEpoch
+		result.EvidenceAuthority = EvidenceAuthoritySessionLifecycleOnly
+		result.InputAuthorityProvenance = InputAuthorityAgentOnly
+	}
 	if in.Receipt != nil {
 		if in.Receipt.OperationID != in.OperationID || in.Receipt.SessionID != in.SessionID {
 			return Result{}, fmt.Errorf("receipt identity mismatch")
@@ -129,6 +148,9 @@ func NewResult(in ResultInput) (Result, error) {
 		}
 		result.Output.OutputComplete = in.Receipt.OutputComplete
 		if in.Receipt.SchemaVersion == 5 {
+			if in.SessionMode != "" && (in.SessionMode != in.Receipt.SessionMode || in.AuthorityEpoch != in.Receipt.AuthorityEpoch) {
+				return Result{}, fmt.Errorf("delegated live/receipt authority mismatch")
+			}
 			result.SessionMode = in.Receipt.SessionMode
 			result.AuthorityEpoch = in.Receipt.AuthorityEpoch
 			result.EvidenceAuthority = in.Receipt.EvidenceAuthority

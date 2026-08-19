@@ -29,7 +29,7 @@ func (s *Service) writeDelegated(ctx context.Context, live *liveSession, req Wri
 	if req.Chars == "" {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "chars"}, fmt.Errorf("delegated write requires chars"))
 	}
-	id := delegated.MutationIdentity{SessionID: req.SessionID, Epoch: req.AuthorityEpoch, Kind: delegated.MutationWrite, Offset: req.InputOffset, Fingerprint: delegatedFingerprint("write", req.Chars)}
+	id := delegated.MutationIdentity{SessionID: req.SessionID, Epoch: req.AuthorityEpoch, Kind: delegated.MutationWrite, Offset: req.InputOffset, NextOffset: req.InputOffset + int64(len([]byte(req.Chars))), Fingerprint: delegatedFingerprint("write", req.Chars)}
 
 	live.delegatedMutationMu.Lock()
 	defer live.delegatedMutationMu.Unlock()
@@ -91,7 +91,7 @@ func (s *Service) killDelegated(ctx context.Context, live *liveSession, req Kill
 	default:
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "signal"}, fmt.Errorf("unsupported delegated signal"))
 	}
-	id := delegated.MutationIdentity{SessionID: req.SessionID, Epoch: req.AuthorityEpoch, Kind: delegated.MutationKill, IdempotencyID: req.KillID, Offset: -1, Fingerprint: delegatedFingerprint("kill", req.Signal)}
+	id := delegated.MutationIdentity{SessionID: req.SessionID, Epoch: req.AuthorityEpoch, Kind: delegated.MutationKill, IdempotencyID: req.KillID, Offset: -1, NextOffset: -1, Fingerprint: delegatedFingerprint("kill", req.Signal)}
 
 	live.delegatedMutationMu.Lock()
 	defer live.delegatedMutationMu.Unlock()

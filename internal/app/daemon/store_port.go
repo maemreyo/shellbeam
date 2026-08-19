@@ -40,6 +40,10 @@ type Store interface {
 	Compact(context.Context, operation.SessionID) StoreResult
 }
 
+type DelegatedRecoveryState struct {
+	NextInputOffset int64
+}
+
 type DelegatedSessionStore interface {
 	ReserveDelegatedBinding(context.Context, delegated.Binding, delegated.ProviderRef) (delegated.Binding, bool, StoreResult)
 	AdvanceDelegatedBinding(context.Context, delegated.Binding) StoreResult
@@ -49,6 +53,8 @@ type DelegatedSessionStore interface {
 	ReserveDelegatedMutation(context.Context, delegated.MutationIdentity) (delegated.MutationRecord, bool, StoreResult)
 	CompleteDelegatedMutation(context.Context, delegated.MutationIdentity, delegated.MutationState, string) (delegated.MutationRecord, StoreResult)
 	ListDelegatedRecoveryCandidates(context.Context) ([]delegated.Binding, error)
+	LoadDelegatedRecoveryState(context.Context, operation.SessionID) (DelegatedRecoveryState, error)
+	DelegatedOutputBytes(context.Context, operation.SessionID) (int64, error)
 }
 
 type PersistentSessionStore interface {

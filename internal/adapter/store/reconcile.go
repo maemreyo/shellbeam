@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -56,6 +57,15 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 		if loadErr != nil && !errors.Is(loadErr, ErrNotFound) {
 			return loadErr
 		}
+		if loadErr == nil && reservation.SchemaVersion == 5 && reservation.SessionMode == delegated.ModeDelegatedInteractive {
+			deferToDelegated, delegatedErr := r.deferDelegatedCrashRecovery(ctx, reservation)
+			if delegatedErr != nil {
+				return delegatedErr
+			}
+			if deferToDelegated {
+				continue
+			}
+		}
 		if loadErr == nil && reservation.Persistent {
 			// A persistent reservation only has something to reattach to once a
 			// binding was written; that is what marks the point the supervisor
@@ -79,6 +89,33 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 	// the admission index is re-derived from the state store itself. Every
 	// later admission reads the counters instead of rescanning.
 	return r.ReconcileAdmission()
+}
+
+func (r *Repository) deferDelegatedCrashRecovery(ctx context.Context, reservation operation.Reservation) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	sid := reservation.SessionID
+	r.delegatedSessionMu.Lock()
+	defer r.delegatedSessionMu.Unlock()
+	marker, markerErr := r.loadDelegatedRecoveryMarkerLocked(sid)
+	if markerErr == nil {
+		if marker.Binding.OperationID != string(reservation.OperationID) || marker.Binding.SessionID != string(sid) {
+			return false, delegatedStateConflict(marker.Binding, "recovery_identity", nil)
+		}
+		return true, nil
+	}
+	if !errors.Is(markerErr, ErrNotFound) {
+		return false, markerErr
+	}
+	binding, bindingErr := r.loadDelegatedBindingLocked(sid)
+	if bindingErr == nil {
+		return false, delegatedStateConflict(binding, "recovery_marker_missing", nil)
+	}
+	if !errors.Is(bindingErr, ErrNotFound) {
+		return false, bindingErr
+	}
+	return false, nil
 }
 
 func (r *Repository) repairCommittedOperations(ctx context.Context) error {
@@ -138,6 +175,14 @@ func abandonedReceipt(snap session.Snapshot, reservation operation.Reservation, 
 		rec.ProjectCommand = reservation.ProjectCommand
 		if reservation.SchemaVersion == 4 && reservation.ProjectCommand == nil {
 			rec.Evidence = reservation.Evidence
+		}
+		if reservation.SchemaVersion == 5 {
+			rec.SessionMode = reservation.SessionMode
+			rec.AuthorityEpoch = reservation.AuthorityEpoch
+			rec.EvidenceAuthority = receipt.EvidenceAuthoritySessionLifecycleOnly
+			rec.InputAuthorityProvenance = receipt.InputAuthorityAgentOnly
+			rec.CaptureQuality = receipt.CaptureIncomplete
+			rec.CaptureReasons = []receipt.CaptureReason{receipt.CaptureReasonTransportGap}
 		}
 		return rec
 	}

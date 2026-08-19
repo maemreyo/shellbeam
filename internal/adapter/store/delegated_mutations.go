@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
@@ -141,4 +143,88 @@ func validDelegatedMutationTransition(from, to delegated.MutationState) bool {
 	default:
 		return false
 	}
+}
+
+func (r *Repository) LoadDelegatedRecoveryState(ctx context.Context, sid operation.SessionID) (app.DelegatedRecoveryState, error) {
+	if err := ctx.Err(); err != nil {
+		return app.DelegatedRecoveryState{}, err
+	}
+	if _, err := operation.ParseSessionID(string(sid)); err != nil {
+		return app.DelegatedRecoveryState{}, err
+	}
+	r.delegatedSessionMu.Lock()
+	defer r.delegatedSessionMu.Unlock()
+	binding, err := r.loadDelegatedBindingLocked(sid)
+	if err != nil {
+		return app.DelegatedRecoveryState{}, err
+	}
+	dir := r.delegatedSessionMutationDir(sid)
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return app.DelegatedRecoveryState{}, nil
+	}
+	if err != nil {
+		return app.DelegatedRecoveryState{}, delegatedRecoveryBlocked(binding, "mutation_ledger_read", err)
+	}
+	writes := make([]delegated.MutationIdentity, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return app.DelegatedRecoveryState{}, delegatedRecoveryBlocked(binding, "mutation_ledger_corrupt", fmt.Errorf("unexpected mutation directory"))
+		}
+		var rec delegated.MutationRecord
+		path := filepath.Join(dir, entry.Name())
+		if err := readPrivateJSON(path, maxDelegatedMutationRecordBytes, &rec); err != nil {
+			return app.DelegatedRecoveryState{}, delegatedRecoveryBlocked(binding, "mutation_ledger_corrupt", err)
+		}
+		if err := rec.Validate(); err != nil || rec.Identity.SessionID != string(sid) || entry.Name() != delegatedMutationKey(rec.Identity)+".json" {
+			return app.DelegatedRecoveryState{}, delegatedRecoveryBlocked(binding, "mutation_ledger_corrupt", err)
+		}
+		switch rec.State {
+		case delegated.MutationReserved, delegated.MutationDelivered, delegated.MutationOutcomeUnknown:
+			return app.DelegatedRecoveryState{}, delegatedRecoveryBlocked(binding, "mutation_unresolved", nil)
+		case delegated.MutationFailed:
+			continue
+		case delegated.MutationCompleted:
+			if rec.Identity.Kind == delegated.MutationWrite {
+				writes = append(writes, rec.Identity)
+			}
+		default:
+			return app.DelegatedRecoveryState{}, delegatedRecoveryBlocked(binding, "mutation_ledger_corrupt", nil)
+		}
+	}
+	sort.Slice(writes, func(i, j int) bool {
+		if writes[i].Offset == writes[j].Offset {
+			return writes[i].NextOffset < writes[j].NextOffset
+		}
+		return writes[i].Offset < writes[j].Offset
+	})
+	next := int64(0)
+	for _, id := range writes {
+		if id.Offset != next {
+			return app.DelegatedRecoveryState{}, delegatedRecoveryBlocked(binding, "mutation_write_gap", nil)
+		}
+		next = id.NextOffset
+	}
+	return app.DelegatedRecoveryState{NextInputOffset: next}, nil
+}
+
+func (r *Repository) DelegatedOutputBytes(ctx context.Context, sid operation.SessionID) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if _, err := operation.ParseSessionID(string(sid)); err != nil {
+		return 0, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return outputSize(filepath.Join(r.root, "sessions", string(sid), "output.log"))
+}
+
+func delegatedRecoveryBlocked(binding delegated.Binding, reason string, cause error) error {
+	return failure.New(failure.DelegatedReconcileBlocked, map[string]string{
+		"session_id":    binding.SessionID,
+		"provider_id":   binding.ProviderID,
+		"current_epoch": fmt.Sprint(binding.AuthorityEpoch),
+		"reason":        reason,
+	}, cause)
 }

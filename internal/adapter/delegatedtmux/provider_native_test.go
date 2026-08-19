@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -271,5 +272,83 @@ func TestNativeDelegatedWaitReportsTerminalWithoutPolling(t *testing.T) {
 	}
 	if !obs.Terminal || obs.ExitCode == nil || *obs.ExitCode != 9 || obs.Owner != core.OwnerNone {
 		t.Fatalf("wait=%#v", obs)
+	}
+}
+
+func TestNativeDelegatedDetachPreservesProviderSessionAndAllowsExactReattach(t *testing.T) {
+	p, _ := nativeProvider(t)
+	ref := nativeRef(t, p, "session_native_detach")
+	first := &nativeSink{}
+	spec := operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Shell: "/bin/sh", Executable: "/bin/sh", Command: "printf READY; IFS= read -r one; printf 'ONE:%s\\n' \"$one\"; IFS= read -r two; printf 'TWO:%s\\n' \"$two\"", CWD: t.TempDir()}
+	if _, err := p.Create(t.Context(), app.CreateRequest{ProviderRef: ref, SessionID: ref.SessionID, OperationID: "op_native_detach", Spec: spec, Output: first}); err != nil {
+		t.Fatalf("create: %s", nativeFailure(err))
+	}
+	t.Cleanup(func() { _ = p.Close(context.Background(), ref) })
+	waitContains(t, first, "READY")
+	before, err := p.state.load(ref.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Detach(t.Context(), ref); err != nil {
+		t.Fatalf("detach: %s", nativeFailure(err))
+	}
+	if _, err := p.Inspect(t.Context(), ref); !errors.Is(err, failure.DelegatedProviderLost) {
+		t.Fatalf("detached provider still had a control observer: %v", err)
+	}
+	after, err := p.state.load(ref.Ref)
+	if err != nil {
+		t.Fatalf("detach removed private state: %v", err)
+	}
+	if after.ProviderGeneration != before.ProviderGeneration || after.SocketPath != before.SocketPath || after.PaneID != before.PaneID {
+		t.Fatalf("detach changed provider identity: before=%#v after=%#v", before, after)
+	}
+	second := &nativeSink{}
+	obs, err := p.Reattach(t.Context(), ref, second)
+	if err != nil {
+		t.Fatalf("reattach: %s", nativeFailure(err))
+	}
+	if !obs.ProviderCurrent || obs.ProviderGeneration != before.ProviderGeneration || obs.Owner != core.OwnerAgent {
+		t.Fatalf("reattach=%#v", obs)
+	}
+	if err := p.Write(t.Context(), ref, []byte("one\ntwo\n")); err != nil {
+		t.Fatal(err)
+	}
+	waitContains(t, second, "ONE:one")
+	waitContains(t, second, "TWO:two")
+}
+
+func TestNativeDelegatedCloseConvergesAfterServerAlreadyDead(t *testing.T) {
+	p, root := nativeProvider(t)
+	suffix := strings.NewReplacer("-", "_", ".", "_").Replace(filepath.Base(root))
+	ref := nativeRef(t, p, "session_native_close_dead_"+suffix)
+	sink := &nativeSink{}
+	spec := operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Shell: "/bin/sh", Executable: "/bin/sh", Command: "printf READY; while :; do sleep 1; done", CWD: t.TempDir()}
+	if _, err := p.Create(t.Context(), app.CreateRequest{ProviderRef: ref, SessionID: ref.SessionID, OperationID: "op_native_close_dead", Spec: spec, Output: sink}); err != nil {
+		t.Fatalf("create: %s", nativeFailure(err))
+	}
+	waitContains(t, sink, "READY")
+	state, err := p.state.load(ref.Ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	process, err := os.FindProcess(state.ServerPID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := process.Signal(syscall.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(state.ServerPID, 0); errors.Is(err, syscall.ESRCH) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := p.Close(t.Context(), ref); err != nil {
+		t.Fatalf("close after dead server: %v", err)
+	}
+	if _, err := p.state.load(ref.Ref); !os.IsNotExist(err) {
+		t.Fatalf("private state remained after close: %v", err)
 	}
 }

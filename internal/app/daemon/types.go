@@ -129,9 +129,14 @@ type ServerInfo struct {
 }
 
 func (v View) StructuredResult() (receipt.Result, error) {
-	return receipt.NewResult(receipt.ResultInput{
+	input := receipt.ResultInput{
 		OperationID: v.OperationID, ActivityID: v.ActivityID, WorkspaceID: v.WorkspaceID, SessionID: v.SessionID, ContextEvents: v.ContextEvents, Advisories: v.Advisories, State: v.State, Outcome: v.Outcome,
 		Preview: v.Output, RawBytes: v.RawOutputBytes, Cursor: v.Cursor, NextCursor: v.NextCursor,
 		Truncated: v.Truncated, Receipt: v.Receipt,
-	})
+	}
+	if v.AuthorityEpoch > 0 {
+		input.SessionMode = delegated.ModeDelegatedInteractive
+		input.AuthorityEpoch = v.AuthorityEpoch
+	}
+	return receipt.NewResult(input)
 }

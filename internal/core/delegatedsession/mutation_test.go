@@ -13,6 +13,7 @@ func TestDecideMutationChecksKnownRetryBeforeCurrentAuthority(t *testing.T) {
 		Epoch:       1,
 		Kind:        MutationWrite,
 		Offset:      12,
+		NextOffset:  13,
 		Fingerprint: "fp-write-12",
 	}
 	known := &MutationRecord{Identity: incoming, Outcome: "delivered"}
@@ -32,6 +33,7 @@ func TestDecideMutationRejectsKnownFingerprintConflictBeforeAuthority(t *testing
 		Kind:          MutationKill,
 		IdempotencyID: "kill-1",
 		Offset:        -1,
+		NextOffset:    -1,
 		Fingerprint:   "fp-new",
 	}
 	knownIdentity := incoming
@@ -49,6 +51,7 @@ func TestDecideMutationAdmissionMatrix(t *testing.T) {
 		Kind:          MutationSignal,
 		IdempotencyID: "signal-4",
 		Offset:        -1,
+		NextOffset:    -1,
 		Fingerprint:   "fp-signal",
 	}
 
@@ -69,19 +72,40 @@ func TestDecideMutationAdmissionMatrix(t *testing.T) {
 	}
 }
 
+func TestMutationIdentityBindsWriteSpanAndControlHasNoSpan(t *testing.T) {
+	write := MutationIdentity{SessionID: "session-1", Epoch: 1, Kind: MutationWrite, Offset: 7, NextOffset: 10, Fingerprint: "fp-write"}
+	if err := write.Validate(); err != nil {
+		t.Fatalf("valid write span rejected: %v", err)
+	}
+	badWrite := write
+	badWrite.NextOffset = write.Offset
+	if err := badWrite.Validate(); err == nil {
+		t.Fatal("zero write span accepted")
+	}
+	control := MutationIdentity{SessionID: "session-1", Epoch: 1, Kind: MutationKill, IdempotencyID: "kill-1", Offset: -1, NextOffset: -1, Fingerprint: "fp-kill"}
+	if err := control.Validate(); err != nil {
+		t.Fatalf("valid control span rejected: %v", err)
+	}
+	badControl := control
+	badControl.NextOffset = 0
+	if err := badControl.Validate(); err == nil {
+		t.Fatal("control accepted write span")
+	}
+}
+
 func TestMutationIdentityValidationSeparatesWriteOffsetFromControlID(t *testing.T) {
-	write := MutationIdentity{SessionID: "session-1", Epoch: 1, Kind: MutationWrite, Offset: 0, Fingerprint: "fp-write"}
+	write := MutationIdentity{SessionID: "session-1", Epoch: 1, Kind: MutationWrite, Offset: 0, NextOffset: 1, Fingerprint: "fp-write"}
 	if err := write.Validate(); err != nil {
 		t.Fatalf("valid write rejected: %v", err)
 	}
-	control := MutationIdentity{SessionID: "session-1", Epoch: 1, Kind: MutationKill, IdempotencyID: "kill-1", Offset: -1, Fingerprint: "fp-kill"}
+	control := MutationIdentity{SessionID: "session-1", Epoch: 1, Kind: MutationKill, IdempotencyID: "kill-1", Offset: -1, NextOffset: -1, Fingerprint: "fp-kill"}
 	if err := control.Validate(); err != nil {
 		t.Fatalf("valid control mutation rejected: %v", err)
 	}
 	bad := []MutationIdentity{
-		{SessionID: "session-1", Epoch: 1, Kind: MutationWrite, IdempotencyID: "write-id", Offset: 0, Fingerprint: "fp"},
-		{SessionID: "session-1", Epoch: 1, Kind: MutationWrite, Offset: -1, Fingerprint: "fp"},
-		{SessionID: "session-1", Epoch: 1, Kind: MutationKill, Offset: -1, Fingerprint: "fp"},
+		{SessionID: "session-1", Epoch: 1, Kind: MutationWrite, IdempotencyID: "write-id", Offset: 0, NextOffset: 1, Fingerprint: "fp"},
+		{SessionID: "session-1", Epoch: 1, Kind: MutationWrite, Offset: -1, NextOffset: 0, Fingerprint: "fp"},
+		{SessionID: "session-1", Epoch: 1, Kind: MutationKill, Offset: -1, NextOffset: -1, Fingerprint: "fp"},
 		{SessionID: "session-1", Epoch: 1, Kind: MutationKill, IdempotencyID: "kill-1", Offset: 0, Fingerprint: "fp"},
 	}
 	for i, candidate := range bad {

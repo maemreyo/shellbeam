@@ -24,6 +24,14 @@ func TestDelegatedV5ReceiptValidation(t *testing.T) {
 	if err := base.Validate(); err != nil {
 		t.Fatalf("valid v5 rejected: %v", err)
 	}
+
+	incompleteSuccess := base
+	incompleteSuccess.OutputComplete = false
+	incompleteSuccess.CaptureQuality = CaptureIncomplete
+	incompleteSuccess.CaptureReasons = []CaptureReason{CaptureReasonTransportGap}
+	if err := incompleteSuccess.Validate(); err != nil {
+		t.Fatalf("v5 lifecycle success with truthful incomplete capture rejected: %v", err)
+	}
 	params := []project.ParameterBinding{{ID: "package", Kind: project.ParameterRepoPackage, Value: "./internal/app", Source: project.BindingSourceCaller, ProviderID: "go-repo-package", ProviderVersion: 1}}
 	fp, err := project.ParameterFingerprint(params)
 	if err != nil {

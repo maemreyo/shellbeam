@@ -234,7 +234,8 @@ func (r Receipt) validateCommonTruth() error {
 	}
 	if r.State == session.Completed && r.Outcome == session.Success {
 		reapRequired := r.SchemaVersion != 5
-		if !r.Spawn.Attempted || !r.Spawn.Succeeded || (reapRequired && !r.Exit.Reaped) || r.Exit.Code == nil || *r.Exit.Code != 0 || !r.OutputComplete || r.InputAcceptedBytes != r.InputDeliveredBytes {
+		outputCompleteRequired := r.SchemaVersion != 5
+		if !r.Spawn.Attempted || !r.Spawn.Succeeded || (reapRequired && !r.Exit.Reaped) || r.Exit.Code == nil || *r.Exit.Code != 0 || (outputCompleteRequired && !r.OutputComplete) || r.InputAcceptedBytes != r.InputDeliveredBytes {
 			return fmt.Errorf("success lacks complete evidence")
 		}
 	}

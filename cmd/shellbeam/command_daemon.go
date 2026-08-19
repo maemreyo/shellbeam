@@ -218,6 +218,9 @@ func serveDaemonRuntime(
 	if err = reconcilePersistentDaemonStartup(startupCtx, store, svc); err != nil {
 		return err
 	}
+	if err = reconcileDelegatedDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
 	server.MarkReady()
 	startHousekeeping(ctx, store, keep)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)

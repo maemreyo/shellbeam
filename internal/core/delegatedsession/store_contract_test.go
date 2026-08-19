@@ -44,7 +44,7 @@ func TestBindingCanonicalLifecycleAndProviderRefValidation(t *testing.T) {
 
 func TestMutationRecordStateMachineVocabulary(t *testing.T) {
 	now := time.Date(2026, 8, 18, 17, 30, 0, 0, time.UTC)
-	id := MutationIdentity{SessionID: "session-delegated-1", Epoch: 1, Kind: MutationWrite, Offset: 0, Fingerprint: "fp_01"}
+	id := MutationIdentity{SessionID: "session-delegated-1", Epoch: 1, Kind: MutationWrite, Offset: 0, NextOffset: 1, Fingerprint: "fp_01"}
 	for _, state := range []MutationState{MutationReserved, MutationDelivered, MutationCompleted, MutationFailed, MutationOutcomeUnknown} {
 		rec := MutationRecord{SchemaVersion: MutationRecordSchemaVersion, Identity: id, State: state, CreatedAt: now, UpdatedAt: now}
 		if err := rec.Validate(); err != nil {

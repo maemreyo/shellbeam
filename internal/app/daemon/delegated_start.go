@@ -225,7 +225,7 @@ func (s *Service) startDelegatedProvider(ctx context.Context, req StartRequest, 
 		live.activityID = activityID
 		live.mu.Unlock()
 	}
-	go s.delegatedWaitLoop(live)
+	s.startDelegatedWait(live)
 	view, viewErr := s.waitView(ctx, stored, sid, 0, req.YieldMS, req.MaxOutputBytes)
 	s.decorateNewStartView(&view, viewErr, stored, workspaceObservation, req.WorkspaceHint)
 	return view, viewErr
@@ -290,12 +290,14 @@ func (s *Service) delegatedStore() DelegatedSessionStore {
 }
 
 type delegatedTerminalSnapshot struct {
-	accepted    int64
-	delivered   int64
-	signal      receipt.SignalEvidence
-	target      session.State
-	outputBytes int64
-	binding     delegated.Binding
+	accepted     int64
+	delivered    int64
+	signal       receipt.SignalEvidence
+	target       session.State
+	outputBytes  int64
+	observerBase int64
+	captureGap   bool
+	binding      delegated.Binding
 }
 
 type delegatedTerminalDecision struct {
@@ -309,8 +311,22 @@ type delegatedTerminalDecision struct {
 	bindingLifecycle delegated.Lifecycle
 }
 
-func (s *Service) delegatedWaitLoop(live *liveSession) {
-	obs, waitErr := s.options.DelegatedRuntime.Wait(context.Background(), live.delegatedRef)
+func (s *Service) startDelegatedWait(live *liveSession) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	live.mu.Lock()
+	live.delegatedCancel = cancel
+	live.delegatedWaitDone = done
+	live.mu.Unlock()
+	go s.delegatedWaitLoop(ctx, live, done)
+}
+
+func (s *Service) delegatedWaitLoop(ctx context.Context, live *liveSession, done chan struct{}) {
+	defer close(done)
+	obs, waitErr := s.options.DelegatedRuntime.Wait(ctx, live.delegatedRef)
+	if ctx.Err() != nil {
+		return
+	}
 	snapshot := s.snapshotDelegatedFinalizing(live)
 	snapshot.binding = s.loadDelegatedBindingUntilAvailable(live.sessionID)
 	live.mu.Lock()
@@ -331,6 +347,7 @@ func (s *Service) snapshotDelegatedFinalizing(live *liveSession) delegatedTermin
 	return delegatedTerminalSnapshot{
 		accepted: live.accepted, delivered: live.delivered, signal: live.signal,
 		target: live.terminalTarget, outputBytes: live.outputBytes,
+		observerBase: live.delegatedObserverBase, captureGap: live.delegatedCaptureGap,
 	}
 }
 
@@ -340,20 +357,30 @@ func classifyDelegatedTerminal(snapshot delegatedTerminalSnapshot, obs delegated
 		decision.failureReason = "provider_lost"
 		decision.captureQuality = receipt.CaptureIncomplete
 		decision.captureReasons = []receipt.CaptureReason{receipt.CaptureReasonProviderLost}
+		if snapshot.captureGap {
+			decision.captureReasons = append(decision.captureReasons, receipt.CaptureReasonTransportGap)
+		}
 		decision.outputComplete = false
 		return decision
 	}
 	decision.bindingLifecycle = delegated.LifecycleTerminal
 	decision.exit.Code = obs.ExitCode
-	// Provider.Wait's final same-control-client tmux query is the qualified P12
-	// boundary. Its counter advances only after sink.Append succeeds.
-	if obs.OutputBytes != snapshot.outputBytes {
+	// A reattached control observer counts only bytes delivered after the new
+	// observer was established. Compare that forward-only count with the
+	// canonical durable delta, never with the session lifetime total.
+	observedDurableBytes := snapshot.outputBytes - snapshot.observerBase
+	if observedDurableBytes < 0 || obs.OutputBytes != observedDurableBytes {
 		decision.state, decision.outcome = session.Failed, session.Failure
 		decision.failureReason = "output_capture_failed"
 		decision.captureQuality = receipt.CaptureIncomplete
 		decision.captureReasons = []receipt.CaptureReason{receipt.CaptureReasonTransportGap}
 		decision.outputComplete = false
 		return decision
+	}
+	if snapshot.captureGap {
+		decision.captureQuality = receipt.CaptureIncomplete
+		decision.captureReasons = []receipt.CaptureReason{receipt.CaptureReasonTransportGap}
+		decision.outputComplete = false
 	}
 	switch {
 	case snapshot.target == session.Killed:

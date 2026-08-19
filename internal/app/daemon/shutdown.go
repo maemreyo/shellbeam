@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"context"
-	"github.com/maemreyo/shellbeam/internal/core/session"
 	"time"
+
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
 func (s *Service) Shutdown(ctx context.Context) error {
@@ -25,27 +27,20 @@ func (s *Service) Shutdown(ctx context.Context) error {
 	for _, l := range live {
 		l.mu.Lock()
 		persistent := l.persistent
+		delegated := l.delegated
 		handle := l.handle
+		delegatedCancel, delegatedDone, delegatedRef := l.delegatedCancel, l.delegatedWaitDone, l.delegatedRef
 		l.mu.Unlock()
+		if delegated {
+			if err := s.shutdownDelegatedSession(ctx, l, delegatedCancel, delegatedDone, delegatedRef); err != nil {
+				return err
+			}
+			continue
+		}
 		if persistent {
-			l.mu.Lock()
-			cancel, reconcileDone := l.persistentCancel, l.persistentReconcileDone
-			l.mu.Unlock()
-			if cancel != nil {
-				cancel()
+			if err := s.shutdownPersistentSession(ctx, l, handle); err != nil {
+				return err
 			}
-			if reconcileDone != nil {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-reconcileDone:
-				}
-			}
-			if handle != nil {
-				_ = handle.Close()
-			}
-			s.endManagedShell(l)
-			s.remove(l.sessionID)
 			continue
 		}
 		direct = append(direct, l)
@@ -110,4 +105,45 @@ func waitForSessions(ctx context.Context, live []*liveSession, grace time.Durati
 		}
 	}
 	return true, nil
+}
+
+func (s *Service) shutdownPersistentSession(ctx context.Context, live *liveSession, handle ProcessHandle) error {
+	live.mu.Lock()
+	cancel, reconcileDone := live.persistentCancel, live.persistentReconcileDone
+	live.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if reconcileDone != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-reconcileDone:
+		}
+	}
+	if handle != nil {
+		_ = handle.Close()
+	}
+	s.endManagedShell(live)
+	s.remove(live.sessionID)
+	return nil
+}
+
+func (s *Service) shutdownDelegatedSession(ctx context.Context, live *liveSession, cancel context.CancelFunc, done <-chan struct{}, ref delegated.ProviderRef) error {
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
+	}
+	if err := s.detachDelegatedRuntime(ctx, ref); err != nil {
+		return err
+	}
+	s.endManagedShell(live)
+	s.remove(live.sessionID)
+	return nil
 }

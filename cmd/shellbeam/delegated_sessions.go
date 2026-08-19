@@ -10,6 +10,7 @@ import (
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 )
 
 type delegatedProviderFactory func(stateDir, runtimeDir string) (daemonapp.DelegatedRuntime, error)
@@ -36,7 +37,7 @@ func composeDelegatedInteractive(ctx context.Context, goos, stateDir, runtimeDir
 	support := capability.DelegatedInteractiveSupport{
 		ProviderID: identity.ID, ProviderVersion: identity.Version, Platform: goos,
 		MaxMutationRecords:      storeadapter.DefaultMaxDelegatedMutationRecords,
-		DaemonRestartContinuity: false, HostRebootContinuity: false,
+		DaemonRestartContinuity: true, HostRebootContinuity: false,
 	}
 	return provider, catalog.WithDelegatedInteractive(support)
 }
@@ -53,4 +54,26 @@ func newQualifiedDelegatedProvider(stateDir, runtimeDir string) (daemonapp.Deleg
 	cfg := delegatedtmux.DarwinQualifiedConfig(filepath.Join(stateDir, "delegated-tmux"), tmuxPath)
 	cfg.RuntimeBase = runtimeDir
 	return delegatedtmux.New(cfg)
+}
+
+type delegatedStartupStore interface {
+	ListDelegatedRecoveryCandidates(context.Context) ([]delegated.Binding, error)
+}
+
+func reconcileDelegatedDaemonStartup(ctx context.Context, store delegatedStartupStore, svc *daemonapp.Service) error {
+	candidates, err := store.ListDelegatedRecoveryCandidates(ctx)
+	if err != nil {
+		return err
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	catalog := svc.CapabilityCatalog()
+	if catalog.Features[capability.FeatureDelegatedInteractive] != capability.Available || catalog.DelegatedInteractive == nil {
+		// A currently unavailable optional provider is not proof that an older
+		// private provider session is gone. Preserve recovery markers and let the
+		// ordinary daemon become ready without advertising delegated support.
+		return nil
+	}
+	return svc.ReconcileDelegatedStartup(ctx, candidates, daemonapp.DelegatedStartupOptions{})
 }

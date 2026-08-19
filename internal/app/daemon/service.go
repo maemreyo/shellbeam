@@ -94,6 +94,10 @@ type liveSession struct {
 	delegated               bool
 	delegatedRef            delegated.ProviderRef
 	delegatedBinding        delegated.Binding
+	delegatedObserverBase   int64
+	delegatedCaptureGap     bool
+	delegatedCancel         context.CancelFunc
+	delegatedWaitDone       chan struct{}
 	delegatedStartMu        sync.Mutex
 	delegatedMutationMu     sync.Mutex
 }

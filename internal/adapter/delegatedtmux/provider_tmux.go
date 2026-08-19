@@ -34,14 +34,13 @@ func (p *Provider) runTmux(ctx context.Context, socket string, args ...string) (
 	return string(out), err
 }
 func (p *Provider) killServer(ctx context.Context, socket string) error {
-	_, err := p.runTmux(ctx, socket, "kill-server")
+	out, err := p.runTmux(ctx, socket, "kill-server")
+	if err != nil && isServerGoneText(out) {
+		return nil
+	}
 	return err
 }
-func isServerGone(err error) bool {
-	if err == nil {
-		return false
-	}
-	text := err.Error()
+func isServerGoneText(text string) bool {
 	return strings.Contains(text, "no server running") || strings.Contains(text, "connection refused") || strings.Contains(text, "No such file")
 }
 

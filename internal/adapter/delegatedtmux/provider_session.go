@@ -347,6 +347,26 @@ func (p *Provider) inspectTerminalAfterExitRace(ctx context.Context, ref core.Pr
 	return p.observationFromFacts(control, state, facts), nil
 }
 
+func (p *Provider) Detach(ctx context.Context, ref core.ProviderRef) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := p.validateProviderRef(ref, ref.SessionID); err != nil {
+		return err
+	}
+	if _, err := p.state.load(ref.Ref); err != nil {
+		return providerLost(ref, "private_state", err)
+	}
+	p.mu.Lock()
+	control := p.controls[ref.Ref]
+	delete(p.controls, ref.Ref)
+	p.mu.Unlock()
+	if control != nil {
+		return control.close()
+	}
+	return nil
+}
+
 func (p *Provider) Close(ctx context.Context, ref core.ProviderRef) error {
 	if err := p.validateProviderRef(ref, ref.SessionID); err != nil {
 		return err
@@ -363,7 +383,7 @@ func (p *Provider) Close(ctx context.Context, ref core.ProviderRef) error {
 		_ = control.close()
 	}
 	if err == nil {
-		if killErr := p.killServer(ctx, state.SocketPath); killErr != nil && !isServerGone(killErr) {
+		if killErr := p.killServer(ctx, state.SocketPath); killErr != nil {
 			return killErr
 		}
 		_ = os.RemoveAll(filepath.Dir(state.SocketPath))

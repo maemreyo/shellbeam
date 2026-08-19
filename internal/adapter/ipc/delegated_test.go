@@ -93,6 +93,9 @@ func TestDelegatedIPCV2DispatchPreservesModeAndEpochIntoDaemon(t *testing.T) {
 	if a.start.SessionMode != delegated.ModeDelegatedInteractive || a.start.StdinMode != operation.StdinModeStream || a.start.TimeoutMode != operation.TimeoutModeUnlimited {
 		t.Fatalf("start=%#v", a.start)
 	}
+	if resp.Result == nil || resp.Result.SessionMode != delegated.ModeDelegatedInteractive || resp.Result.AuthorityEpoch != 1 || resp.Result.EvidenceAuthority != receipt.EvidenceAuthoritySessionLifecycleOnly || resp.Result.InputAuthorityProvenance != receipt.InputAuthorityAgentOnly {
+		t.Fatalf("live delegated result=%#v", resp.Result)
+	}
 	if err := s.dispatchV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "w", Action: "write", SessionID: "s", AuthorityEpoch: 9, InputOffset: 0, Chars: "x"}, &ResponseV2{}); err != nil {
 		t.Fatal(err)
 	}
