@@ -67,6 +67,9 @@ func (w *processExitWatcher) Wait(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if retryProcessWaitError(err) {
+				continue
+			}
 			return err
 		}
 		for _, event := range events[:n] {
@@ -84,6 +87,10 @@ func (w *processExitWatcher) Wait(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func retryProcessWaitError(err error) bool {
+	return errors.Is(err, unix.EINTR)
 }
 
 func (w *processExitWatcher) triggerCancel() error {

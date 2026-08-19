@@ -313,6 +313,8 @@ func TestDelegatedStartRetryAfterProviderResponseLossResumesSameSessionAndRef(t 
 	svc := app.NewService(st, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime})
 	req := delegatedStartRequest()
 	req.OperationID = "op-delegated-create-response-loss"
+	req.StdinMode = operation.StdinModeStream
+	req.TimeoutMode = operation.TimeoutModeUnlimited
 	if _, err := svc.Start(context.Background(), req); err == nil {
 		t.Fatal("first ambiguous provider create unexpectedly succeeded")
 	}

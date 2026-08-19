@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestDarwinProcessExitWatcherReportsKernelExitEvent(t *testing.T) {
@@ -49,5 +51,14 @@ func TestDarwinProcessExitWatcherCancelsWithoutPolling(t *testing.T) {
 	cancel()
 	if err := watcher.Wait(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel err=%v", err)
+	}
+}
+
+func TestDarwinProcessWaitRetriesOnlyInterrupts(t *testing.T) {
+	if !retryProcessWaitError(unix.EINTR) {
+		t.Fatal("EINTR must be retried")
+	}
+	if retryProcessWaitError(unix.EBADF) || retryProcessWaitError(context.Canceled) {
+		t.Fatal("non-EINTR wait errors must remain fail-closed")
 	}
 }
