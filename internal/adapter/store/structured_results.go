@@ -15,7 +15,7 @@ import (
 const maxStructuredMetadataBytes = 64 << 10
 
 func (r *Repository) initStructuredResultStore() error {
-	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir(), r.structuredCaptureAuthorityDir(), r.artifactBlobRoot(), r.artifactRecoveryRoot()} {
+	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir(), r.structuredCaptureAuthorityDir(), r.artifactBlobRoot(), r.artifactRecoveryRoot(), r.artifactBlobRefRoot(), r.artifactBlobTombstoneRoot()} {
 		if err := ensurePrivateDir(dir); err != nil {
 			return fmt.Errorf("structured result store: %w", err)
 		}
@@ -73,13 +73,14 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 	}
 	r.structuredMu.Lock()
 	defer r.structuredMu.Unlock()
+	return r.putDerivationUnlocked(ctx, next)
+}
+
+func (r *Repository) putDerivationUnlocked(ctx context.Context, next core.Derivation) error {
 	path := r.derivationPath(next.DerivationKey)
 	current, err := readStructuredDerivation(path)
 	if errors.Is(err, ErrNotFound) {
-		if next.Lifecycle != core.LifecyclePending {
-			return fmt.Errorf("structured_derivation_must_start_pending")
-		}
-		return r.writer.Create(path, next).Err
+		return r.createDerivationUnlocked(ctx, path, next)
 	}
 	if err != nil {
 		return err
@@ -88,12 +89,54 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 		return err
 	}
 	if reflect.DeepEqual(current, next) || sameDerivationReplay(current, next) {
-		return nil
+		return r.ensureVisibleDerivationArtifactAuthorityUnlocked(next)
 	}
 	if !sameDerivationIdentity(current, next) || !allowedDerivationTransition(current, next) {
 		return fmt.Errorf("structured_derivation_conflict")
 	}
+	if next.Completeness == core.CompletenessCompacted && current.Completeness != core.CompletenessCompacted && len(artifactRefsForDerivation(next)) > 0 {
+		return fmt.Errorf("artifact_compaction_requires_detail_protocol")
+	}
+	if current.Completeness != core.CompletenessCompacted {
+		if _, err := r.acquireDerivationBlobRefsUnlocked(next); err != nil {
+			return err
+		}
+	}
 	return r.replaceDerivation(ctx, path, next, structuredTransitionObservable(current, next))
+}
+
+func (r *Repository) createDerivationUnlocked(ctx context.Context, path string, next core.Derivation) error {
+	if next.Lifecycle != core.LifecyclePending {
+		return fmt.Errorf("structured_derivation_must_start_pending")
+	}
+	createdRefs, err := r.acquireDerivationBlobRefsUnlocked(next)
+	if err != nil {
+		return err
+	}
+	if err := r.writer.checkpoint("structured_derivation.create"); err != nil {
+		r.rollbackDerivationBlobRefsUnlocked(createdRefs)
+		return err
+	}
+	result := r.writer.Create(path, next)
+	if result.Err != nil {
+		observed, readErr := readStructuredDerivation(path)
+		if readErr == nil && reflect.DeepEqual(observed, next) {
+			return result.Err
+		}
+		r.rollbackDerivationBlobRefsUnlocked(createdRefs)
+		return result.Err
+	}
+	return r.releaseRecoveryClaimsForArtifactsUnlocked(artifactRefsForDerivation(next))
+}
+
+func (r *Repository) ensureVisibleDerivationArtifactAuthorityUnlocked(derivation core.Derivation) error {
+	if derivation.Completeness == core.CompletenessCompacted {
+		return nil
+	}
+	if _, err := r.acquireDerivationBlobRefsUnlocked(derivation); err != nil {
+		return err
+	}
+	return r.releaseRecoveryClaimsForArtifactsUnlocked(artifactRefsForDerivation(derivation))
 }
 
 func (r *Repository) GetDerivation(ctx context.Context, key string) (core.Derivation, error) {

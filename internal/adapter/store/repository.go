@@ -181,6 +181,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 	if err := repository.initStructuredResultStore(); err != nil {
 		return nil, err
 	}
+	if err := repository.RecoverStructuredArtifacts(context.Background()); err != nil {
+		return nil, err
+	}
 	if err := repository.initTelemetryStore(); err != nil {
 		return nil, err
 	}
