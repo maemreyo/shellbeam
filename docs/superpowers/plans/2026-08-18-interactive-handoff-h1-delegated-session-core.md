@@ -333,6 +333,9 @@ git -c core.hooksPath=.githooks commit -m "feat: persist delegated session inten
 - Modify: `internal/adapter/store/typed_intent.go`
 - Modify: `internal/adapter/store/typed_intent_test.go`
 - Modify: `internal/app/daemon/store_port.go`
+- Modify: `internal/app/daemon/types.go`
+- Modify: `internal/core/receipt/result.go`
+- Modify: `internal/core/receipt/result_test.go`
 
 **Interfaces:**
 - Produces: durable public-safe binding + private provider ref, `Lookup/Reserve/CompleteDelegatedMutation`, `ListDelegatedRecoveryCandidates`.
@@ -741,6 +744,7 @@ git -c core.hooksPath=.githooks commit -m "feat: expose delegated interactive co
 - Startup recovery must reconstruct the next agent `input_offset` from the durable delegated mutation ledger, not from in-memory counters. Only a unique contiguous prefix of completed successful write mutations is admissible. Any reserved/delivered/outcome-unknown mutation, conflicting/gapped write offsets, or unreadable mutation record fences startup reconciliation rather than guessing continuation.
 The restart implementation therefore closes the Task 4 persistence omission by binding `NextOffset` in every write mutation identity; this is internal pre-release schema evolution, not a change to the public `input_offset` semantic. Existing H1 fixtures/callsites must be updated together and no legacy record may be silently interpreted with a guessed span.
 - Restarted output accounting must distinguish canonical retained output bytes from bytes observed by the fresh Control Mode client. Because the private observer is not durable across daemon death and `capture-pane` replay is forbidden, a session that crosses daemon restart carries `transport_gap` capture truth unless a future provider proof can prove continuity; it must never claim `capture_quality=complete` merely because the reattached observer is healthy.
+- Native restart acceptance also closes the Task 7 live-result projection requirement: nonterminal delegated `start`/`poll` results must expose the current `session_mode`, `authority_epoch`, `evidence_authority=session_lifecycle_only`, and `input_authority_provenance=agent_only`; otherwise a v2 client cannot issue the required authority-gated write/kill after start. This metadata is derived from the already-proven live delegated view and must remain absent for ordinary sessions and all v1 surfaces.
 
 - [ ] **Step 1: RED restart matrix.**
 
