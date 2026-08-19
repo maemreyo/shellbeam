@@ -121,3 +121,33 @@ func canonicalVerifierState(values []VerifierSemanticState) []VerifierSemanticSt
 	})
 	return out
 }
+
+type ContextQualificationStatus string
+
+const (
+	ContextQualificationQualified   ContextQualificationStatus = "QUALIFIED"
+	ContextQualificationUnknown     ContextQualificationStatus = "UNKNOWN"
+	ContextQualificationUnavailable ContextQualificationStatus = "UNAVAILABLE"
+)
+
+type ContextQualificationResult struct {
+	Status                ContextQualificationStatus `json:"status"`
+	QualifiedContextClass ContextClass               `json:"qualified_context_class,omitempty"`
+	Qualification         *ContextQualification      `json:"qualification,omitempty"`
+}
+
+func (r ContextQualificationResult) Validate() error {
+	switch r.Status {
+	case ContextQualificationQualified:
+		if r.QualifiedContextClass.ValidateQualified() != nil || r.Qualification == nil || r.Qualification.Validate() != nil {
+			return fmt.Errorf("invalid qualified context result")
+		}
+	case ContextQualificationUnknown, ContextQualificationUnavailable:
+		if r.QualifiedContextClass != "" || r.Qualification != nil {
+			return fmt.Errorf("unqualified context result carries qualification")
+		}
+	default:
+		return fmt.Errorf("invalid context qualification status %q", r.Status)
+	}
+	return nil
+}

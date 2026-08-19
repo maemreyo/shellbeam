@@ -102,6 +102,10 @@ func (f *fakeEpisodeLedger) ListEpisodeRecords(_ context.Context, ep core.Episod
 					break
 				}
 			}
+		case core.RecordVerifierAssessment:
+			var v core.VerifierAssessment
+			_ = json.Unmarshal(r.Body, &v)
+			id = v.EpisodeID
 		case core.RecordSelectionCommit:
 			var v core.SelectionCommit
 			_ = json.Unmarshal(r.Body, &v)
@@ -149,7 +153,19 @@ func (f *fakeEpisodeLedger) FindEpisode(_ context.Context, id core.EpisodeID) (c
 	}
 	return core.Episode{}, false, nil
 }
-func (f *fakeEpisodeLedger) FindCandidate(context.Context, core.CandidateID) (core.Candidate, bool, error) {
+func (f *fakeEpisodeLedger) FindCandidate(_ context.Context, id core.CandidateID) (core.Candidate, bool, error) {
+	for _, r := range f.records {
+		if r.Kind != core.RecordCandidate {
+			continue
+		}
+		var candidate core.Candidate
+		if err := json.Unmarshal(r.Body, &candidate); err != nil {
+			return core.Candidate{}, false, err
+		}
+		if candidate.CandidateID == id {
+			return candidate, true, nil
+		}
+	}
 	return core.Candidate{}, false, nil
 }
 

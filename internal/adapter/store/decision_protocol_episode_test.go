@@ -161,3 +161,54 @@ func TestReviseCandidateRejectsCrossEpisodeRevision(t *testing.T) {
 		t.Fatal("cross-episode revision accepted")
 	}
 }
+
+func TestRecordAssessmentIsImmutableIdempotentAndEpisodeScoped(t *testing.T) {
+	r := openDecisionProtocolRepo(t, filepath.Join(t.TempDir(), "state"))
+	store := NewDecisionProtocolStore(r)
+	ctx := context.Background()
+	if _, _, err := store.CreateEpisode(ctx, dpStoredEpisode("ep-assessment")); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"cand-a", "cand-b"} {
+		if _, _, err := store.CreateCandidate(ctx, dpCandidate(id, "ep-assessment", "")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assessment := decisionprotocol.VerifierAssessment{AssessmentID: "assess-store", EpisodeID: "ep-assessment", ActorRef: "actor", DeclaredContextClass: decisionprotocol.ContextSameContext, PreferredCandidates: []decisionprotocol.CandidateID{"cand-a"}, SemanticRejections: []decisionprotocol.CandidateID{"cand-b"}, Rationale: "prefer A", CreatedAt: time.Unix(80, 0).UTC()}
+	first, created, err := store.RecordAssessment(ctx, assessment)
+	if err != nil || !created {
+		t.Fatalf("created=%v err=%v", created, err)
+	}
+	replay, created, err := store.RecordAssessment(ctx, assessment)
+	if err != nil || created || replay.CanonicalRecordSeq != first.CanonicalRecordSeq {
+		t.Fatalf("replay=%#v created=%v err=%v", replay, created, err)
+	}
+	changed := assessment
+	changed.Rationale = "different"
+	if _, _, err := store.RecordAssessment(ctx, changed); err == nil {
+		t.Fatal("different body reused immutable assessment id")
+	}
+	bad := assessment
+	bad.AssessmentID = "assess-bad"
+	bad.PreferredCandidates = []decisionprotocol.CandidateID{"cand-missing"}
+	if _, _, err := store.RecordAssessment(ctx, bad); err == nil {
+		t.Fatal("cross/missing candidate assessment accepted")
+	}
+	hw, err := store.CurrentHighWater(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, err := store.ListEpisodeRecords(ctx, "ep-assessment", hw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, record := range records {
+		if record.Kind == decisionprotocol.RecordVerifierAssessment {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("assessment records=%d", count)
+	}
+}

@@ -57,15 +57,32 @@ type VerificationSource interface {
 	QualifiedEvidenceForOperation(context.Context, operation.ID, VerificationObservationCut) (QualifiedEvidenceSet, error)
 }
 
+type AssessmentStore interface {
+	RecordAssessment(context.Context, core.VerifierAssessment) (core.CanonicalRecordEnvelope, bool, error)
+}
+
+type QualifyVerifierContextRequest struct {
+	EpisodeID            core.EpisodeID
+	ActorRef             string
+	DeclaredContextClass core.ContextClass
+	DeclaredProviderID   string
+}
+
+type VerifierContextQualifier interface {
+	QualifyVerifierContext(context.Context, QualifyVerifierContextRequest) (core.ContextQualificationResult, error)
+}
+
 type EpisodeDependencies struct {
-	Mutations    EpisodeMutationStore
-	Experiments  ExperimentMutationStore
-	Ledger       CanonicalLedgerStore
-	Workspaces   WorkspaceInspector
-	Snapshots    SourceSnapshotter
-	Receipts     ReceiptSource
-	Structured   StructuredSource
-	Verification VerificationSource
+	Mutations         EpisodeMutationStore
+	Experiments       ExperimentMutationStore
+	Ledger            CanonicalLedgerStore
+	Workspaces        WorkspaceInspector
+	Snapshots         SourceSnapshotter
+	Receipts          ReceiptSource
+	Structured        StructuredSource
+	Verification      VerificationSource
+	Assessments       AssessmentStore
+	VerifierQualifier VerifierContextQualifier
 }
 
 type ExperimentMutationStore interface {

@@ -259,3 +259,75 @@ func (r *Repository) validateCandidateRevisionLineageLocked(parent, child decisi
 		current = next
 	}
 }
+
+func (s *DecisionProtocolStore) RecordAssessment(_ context.Context, assessment decisionprotocol.VerifierAssessment) (decisionprotocol.CanonicalRecordEnvelope, bool, error) {
+	if s == nil || s.repository == nil {
+		return decisionprotocol.CanonicalRecordEnvelope{}, false, fmt.Errorf("decision protocol store unavailable")
+	}
+	if err := assessment.Validate(); err != nil {
+		return decisionprotocol.CanonicalRecordEnvelope{}, false, err
+	}
+	r := s.repository
+	r.decisionProtocolMu.Lock()
+	defer r.decisionProtocolMu.Unlock()
+	if err := r.recoverDecisionProtocolLocked(); err != nil {
+		return decisionprotocol.CanonicalRecordEnvelope{}, false, err
+	}
+	if _, _, found, err := r.findDecisionEpisodeLocked(assessment.EpisodeID); err != nil {
+		return decisionprotocol.CanonicalRecordEnvelope{}, false, err
+	} else if !found {
+		return decisionprotocol.CanonicalRecordEnvelope{}, false, fmt.Errorf("assessment episode unavailable")
+	}
+	for _, id := range append(append([]decisionprotocol.CandidateID(nil), assessment.PreferredCandidates...), assessment.SemanticRejections...) {
+		candidate, _, found, err := r.findDecisionCandidateLocked(id)
+		if err != nil {
+			return decisionprotocol.CanonicalRecordEnvelope{}, false, err
+		}
+		if !found || candidate.EpisodeID != assessment.EpisodeID {
+			return decisionprotocol.CanonicalRecordEnvelope{}, false, fmt.Errorf("assessment candidate unavailable in episode")
+		}
+	}
+	if existing, env, found, err := r.findDecisionAssessmentLocked(assessment.AssessmentID); err != nil {
+		return decisionprotocol.CanonicalRecordEnvelope{}, false, err
+	} else if found {
+		if !reflect.DeepEqual(existing, assessment) {
+			return decisionprotocol.CanonicalRecordEnvelope{}, false, fmt.Errorf("assessment id conflicts with different canonical body")
+		}
+		return env, false, nil
+	}
+	env, err := r.appendCanonicalRecordLocked(decisionprotocol.RecordVerifierAssessment, assessment)
+	return env, err == nil, err
+}
+
+func (r *Repository) findDecisionAssessmentLocked(id string) (decisionprotocol.VerifierAssessment, decisionprotocol.CanonicalRecordEnvelope, bool, error) {
+	hw, err := r.readDecisionProtocolHighWaterLocked()
+	if err != nil {
+		return decisionprotocol.VerifierAssessment{}, decisionprotocol.CanonicalRecordEnvelope{}, false, err
+	}
+	var found decisionprotocol.VerifierAssessment
+	var foundEnv decisionprotocol.CanonicalRecordEnvelope
+	count := 0
+	for seq := decisionprotocol.RecordSeq(1); seq <= hw; seq++ {
+		env, ok, err := r.loadDecisionProtocolRecordLocked(seq)
+		if err != nil {
+			return found, foundEnv, false, err
+		}
+		if !ok {
+			return found, foundEnv, false, fmt.Errorf("decision protocol ledger gap at %d", seq)
+		}
+		if env.Kind != decisionprotocol.RecordVerifierAssessment {
+			continue
+		}
+		var assessment decisionprotocol.VerifierAssessment
+		if err := json.Unmarshal(env.Body, &assessment); err != nil {
+			return found, foundEnv, false, err
+		}
+		if assessment.AssessmentID == id {
+			found, foundEnv, count = assessment, env, count+1
+		}
+	}
+	if count > 1 {
+		return found, foundEnv, false, fmt.Errorf("duplicate canonical verifier assessment identity")
+	}
+	return found, foundEnv, count == 1, nil
+}
