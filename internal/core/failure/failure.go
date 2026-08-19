@@ -93,6 +93,13 @@ const (
 	DelegatedProviderLost             Code = "delegated_provider_lost"
 	DelegatedProviderMismatch         Code = "delegated_provider_mismatch"
 	DelegatedReconcileBlocked         Code = "delegated_reconcile_blocked"
+	HandoffConflict                   Code = "handoff_conflict"
+	HandoffNotPending                 Code = "handoff_not_pending"
+	HandoffExpired                    Code = "handoff_expired"
+	HandoffClientLost                 Code = "handoff_client_lost"
+	HandoffReclaimBlocked             Code = "handoff_reclaim_blocked"
+	HumanControlUnreachable           Code = "human_control_unreachable"
+	HumanClientNotProven              Code = "human_client_not_proven"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
 	MediaPathNotFound                 Code = "media_path_not_found"
 	MediaPathUnsafe                   Code = "media_path_unsafe"
@@ -233,6 +240,13 @@ var publicSpecs = map[Code]publicSpec{
 	DelegatedProviderLost:             {message: "delegated session provider lost", retryable: true, details: keys("session_id", "provider_id", "provider_version", "reason")},
 	DelegatedProviderMismatch:         {message: "delegated session provider mismatch", details: keys("session_id", "provider_id", "provider_version", "expected_provider_id", "expected_provider_version")},
 	DelegatedReconcileBlocked:         {message: "delegated session reconciliation blocked", retryable: true, details: keys("session_id", "provider_id", "current_epoch", "reason")},
+	HandoffConflict:                   {message: "handoff conflicts with existing state", details: keys("handoff_id", "control_id", "phase")},
+	HandoffNotPending:                 {message: "handoff action is not pending", details: keys("handoff_id", "phase")},
+	HandoffExpired:                    {message: "handoff expired", details: keys("handoff_id")},
+	HandoffClientLost:                 {message: "handoff human client lost", retryable: true, details: keys("handoff_id", "reason")},
+	HandoffReclaimBlocked:             {message: "handoff reclaim blocked", retryable: true, details: keys("handoff_id", "reason", "phase")},
+	HumanControlUnreachable:           {message: "human control is unreachable", retryable: true, details: keys("handoff_id", "reason")},
+	HumanClientNotProven:              {message: "human client identity not proven", retryable: true, details: keys("handoff_id", "reason")},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
 	MediaPathNotFound:                 {message: "media path not found"},
 	MediaPathUnsafe:                   {message: "media path is unsafe"},
