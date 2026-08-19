@@ -176,3 +176,72 @@ func TestV2ReservationPersistsAndValidatesEnvironmentBinding(t *testing.T) {
 		t.Fatalf("v1 environment binding accepted: created=%v result=%#v", created, result)
 	}
 }
+
+func TestV2ReservationStructuredCaptureDigestIsPersistedAndReplayFrozen(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	r := openRecoveryRepository(t, root)
+	captureA := strings.Repeat("a", 64)
+	captureB := strings.Repeat("b", 64)
+	obsA, err := (operation.ObservationBinding{StructuredAdapter: "pytest-junit-xml", StructuredCaptureDigest: captureA}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := operation.Reservation{
+		SchemaVersion: 2, OperationID: "pytest-capture", SessionID: "pytest-capture-session",
+		RequestFingerprint: "request", ExecutionFingerprint: "execution", ObservationBindingFingerprint: obsA,
+		StructuredAdapter: "pytest-junit-xml", StructuredCaptureDigest: captureA,
+		ExecutionMode: operation.ExecutionModeArgv, Executable: "pytest", Argv: []string{"pytest", "--junitxml=out.xml"}, CWD: "/repo", DaemonIncarnation: "daemon",
+	}
+	stored, created, result := r.ReserveOperation(context.Background(), base)
+	if result.Err != nil || !created || stored.StructuredCaptureDigest != captureA {
+		t.Fatalf("stored=%#v created=%v result=%#v", stored, created, result)
+	}
+	replay := base
+	replay.SessionID = "new-session-must-not-win"
+	replay.ExecutionFingerprint = "new-execution-must-not-win"
+	stored, created, result = r.ReserveOperation(context.Background(), replay)
+	if result.Err != nil || created || stored.SessionID != base.SessionID || stored.StructuredCaptureDigest != captureA {
+		t.Fatalf("replay stored=%#v created=%v result=%#v", stored, created, result)
+	}
+
+	obsB, err := (operation.ObservationBinding{StructuredAdapter: "pytest-junit-xml", StructuredCaptureDigest: captureB}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	changed := base
+	changed.StructuredCaptureDigest = captureB
+	changed.ObservationBindingFingerprint = obsB
+	if _, _, got := r.ReserveOperation(context.Background(), changed); !errors.Is(got.Err, failure.OperationMetadataConflict) {
+		t.Fatalf("capture rebind result=%#v", got)
+	}
+
+	malformed := base
+	malformed.OperationID = "pytest-capture-malformed"
+	malformed.SessionID = "pytest-capture-malformed-session"
+	malformed.StructuredCaptureDigest = captureB // stale observation fingerprint still binds captureA
+	if _, created, got := r.ReserveOperation(context.Background(), malformed); got.Err == nil || created {
+		t.Fatalf("capture digest not committed by observation fingerprint was accepted: created=%v result=%#v", created, got)
+	}
+
+	loaded, err := r.LoadOperation(context.Background(), base.OperationID)
+	if err != nil || loaded.StructuredCaptureDigest != captureA {
+		t.Fatalf("loaded=%#v err=%v", loaded, err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "operations", string(base.OperationID)+".json"))
+	if err != nil || !strings.Contains(string(data), `"structured_capture_digest":"`+captureA+`"`) {
+		t.Fatalf("persisted capture digest missing data=%s err=%v", data, err)
+	}
+}
+
+func TestReservationRejectsStructuredCaptureDigestOutsideModernReplayBinding(t *testing.T) {
+	r := openRecoveryRepository(t, filepath.Join(t.TempDir(), "state"))
+	legacy := operation.Reservation{SchemaVersion: 1, OperationID: "legacy-capture", SessionID: "legacy-capture-session", Fingerprint: "legacy", StructuredCaptureDigest: strings.Repeat("a", 64), Command: "true", CWD: "/", Shell: "/bin/sh", DaemonIncarnation: "daemon"}
+	if _, created, result := r.ReserveOperation(context.Background(), legacy); result.Err == nil || created {
+		t.Fatalf("v1 structured capture accepted: created=%v result=%#v", created, result)
+	}
+
+	modern := operation.Reservation{SchemaVersion: 2, OperationID: "bad-capture", SessionID: "bad-capture-session", RequestFingerprint: "request", ExecutionFingerprint: "execution", ObservationBindingFingerprint: "observation", StructuredCaptureDigest: "bad", ExecutionMode: operation.ExecutionModeArgv, Executable: "pytest", Argv: []string{"pytest"}, CWD: "/", DaemonIncarnation: "daemon"}
+	if _, created, result := r.ReserveOperation(context.Background(), modern); result.Err == nil || created {
+		t.Fatalf("invalid capture digest accepted: created=%v result=%#v", created, result)
+	}
+}

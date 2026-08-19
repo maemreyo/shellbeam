@@ -1,6 +1,7 @@
 package operation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -298,5 +299,54 @@ func TestEvidenceContractChangesOnlyObservationBindingFingerprint(t *testing.T) 
 	}
 	if other == bound {
 		t.Fatal("evidence contract mutation did not change observation fingerprint")
+	}
+}
+
+func TestStructuredCaptureDigestPreservesLegacyObservationFingerprintsAndBindsModernAuthority(t *testing.T) {
+	legacyActivity, err := (ObservationBinding{ActivityID: "activity-capture"}).Fingerprint()
+	if err != nil || legacyActivity != "c1b2c61e35e39354efc7afbbaa4ade3ac109799df6935018e49d1fe3ee615a9e" {
+		t.Fatalf("legacy activity fingerprint moved: %q err=%v", legacyActivity, err)
+	}
+	legacyAdapter, err := (ObservationBinding{StructuredAdapter: "go-test-json"}).Fingerprint()
+	if err != nil || legacyAdapter != "3eba26c6cd014dbb33aa4d4ac40a8a369b5346b6777c198e52ba0f134e9c0870" {
+		t.Fatalf("legacy adapter fingerprint moved: %q err=%v", legacyAdapter, err)
+	}
+
+	captureA := strings.Repeat("a", 64)
+	captureB := strings.Repeat("b", 64)
+	boundA, err := (ObservationBinding{StructuredAdapter: "pytest-junit-xml", StructuredCaptureDigest: captureA}).Fingerprint()
+	if err != nil || boundA == "" || boundA == legacyAdapter {
+		t.Fatalf("capture A fingerprint=%q err=%v", boundA, err)
+	}
+	boundB, err := (ObservationBinding{StructuredAdapter: "pytest-junit-xml", StructuredCaptureDigest: captureB}).Fingerprint()
+	if err != nil || boundB == "" || boundB == boundA {
+		t.Fatalf("capture B fingerprint=%q err=%v", boundB, err)
+	}
+	captureOnly, err := (ObservationBinding{StructuredCaptureDigest: captureA}).Fingerprint()
+	if err != nil || captureOnly == "" {
+		t.Fatalf("capture-only fingerprint=%q err=%v", captureOnly, err)
+	}
+	if _, err := (ObservationBinding{StructuredCaptureDigest: "not-a-digest"}).Fingerprint(); err == nil {
+		t.Fatal("invalid structured capture digest accepted")
+	}
+}
+
+func TestStructuredCaptureDigestDoesNotChangeRequestOrExecutionFingerprint(t *testing.T) {
+	intent := Intent{Argv: []string{"pytest", "--junitxml=out.xml"}, CWD: "/tmp"}
+	requestBefore, err := intent.RequestFingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	executionBefore, err := intent.ExecutionFingerprint("/usr/bin/pytest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (ObservationBinding{StructuredCaptureDigest: strings.Repeat("c", 64)}).Fingerprint(); err != nil {
+		t.Fatal(err)
+	}
+	requestAfter, _ := intent.RequestFingerprint()
+	executionAfter, _ := intent.ExecutionFingerprint("/usr/bin/pytest")
+	if requestBefore != requestAfter || executionBefore != executionAfter {
+		t.Fatalf("capture authority leaked into execution semantics request=%q/%q execution=%q/%q", requestBefore, requestAfter, executionBefore, executionAfter)
 	}
 }

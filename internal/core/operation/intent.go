@@ -284,11 +284,12 @@ func validTraceExecutionDigest(value string) bool {
 }
 
 type ObservationBinding struct {
-	ActivityID          string                              `json:"activity_id,omitempty"`
-	Intent              *DeclaredIntent                     `json:"intent,omitempty"`
-	StructuredAdapter   string                              `json:"structured_adapter,omitempty"`
-	Evidence            *evidence.Contract                  `json:"evidence,omitempty"`
-	VerificationAttempt *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
+	ActivityID              string                              `json:"activity_id,omitempty"`
+	Intent                  *DeclaredIntent                     `json:"intent,omitempty"`
+	StructuredAdapter       string                              `json:"structured_adapter,omitempty"`
+	StructuredCaptureDigest string                              `json:"structured_capture_digest,omitempty"`
+	Evidence                *evidence.Contract                  `json:"evidence,omitempty"`
+	VerificationAttempt     *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
 }
 
 func ValidStructuredAdapterID(value string) bool {
@@ -306,13 +307,25 @@ func ValidStructuredAdapterID(value string) bool {
 
 func (b ObservationBinding) Fingerprint() (string, error) {
 	base, err := b.legacyFingerprint()
-	if err != nil || b.VerificationAttempt == nil {
-		return base, err
+	if err != nil {
+		return "", err
 	}
-	if b.Evidence == nil {
-		return "", fmt.Errorf("verification attempt requires evidence contract")
+	if b.VerificationAttempt != nil {
+		if b.Evidence == nil {
+			return "", fmt.Errorf("verification attempt requires evidence contract")
+		}
+		base, err = bindVerificationAttemptFingerprint("observation", base, b.VerificationAttempt)
+		if err != nil {
+			return "", err
+		}
 	}
-	return bindVerificationAttemptFingerprint("observation", base, b.VerificationAttempt)
+	if b.StructuredCaptureDigest == "" {
+		return base, nil
+	}
+	if !ValidStructuredCaptureDigest(b.StructuredCaptureDigest) {
+		return "", fmt.Errorf("invalid structured capture digest")
+	}
+	return bindStructuredCaptureFingerprint(base, b.StructuredCaptureDigest)
 }
 
 func (b ObservationBinding) legacyFingerprint() (string, error) {
@@ -386,6 +399,27 @@ func (b ObservationBinding) legacyFingerprint() (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func ValidStructuredCaptureDigest(value string) bool {
+	return validTraceExecutionDigest(value)
+}
+
+func bindStructuredCaptureFingerprint(base, digest string) (string, error) {
+	if !ValidStructuredCaptureDigest(digest) {
+		return "", fmt.Errorf("invalid structured capture digest")
+	}
+	encoded, err := json.Marshal(struct {
+		Version                 int    `json:"version"`
+		Kind                    string `json:"kind"`
+		BaseFingerprint         string `json:"base_fingerprint"`
+		StructuredCaptureDigest string `json:"structured_capture_digest"`
+	}{Version: 5, Kind: "observation", BaseFingerprint: base, StructuredCaptureDigest: digest})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
 }
 
