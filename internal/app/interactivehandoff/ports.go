@@ -66,3 +66,10 @@ type WaitResult struct {
 	State    handoff.State
 	TimedOut bool
 }
+
+// ExactClientProver exposes only the H2 fact needed by presentation recovery:
+// whether this handoff currently has an exact provider-proven human client.
+// It does not grant authority and must not infer presence from terminal UI state.
+type ExactClientProver interface {
+	ExactHumanClientPresent(context.Context, string) (bool, error)
+}
