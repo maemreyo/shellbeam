@@ -1,7 +1,7 @@
 # ShellBeam Decision Protocol Design
 
 Date: 2026-08-19
-Status: semantic freeze amended after independent review; pending final independent review before implementation planning
+Status: semantic freeze approved; implementation planning may proceed from merged main
 Scope: one bounded Decision Protocol subsystem that persists candidate reasoning state, preregistered experiments, server-derived observation evaluation, declarative protocol floors, semantic selection CAS, budget ceilings, and qualified override authorization without turning ShellBeam into a planner, scheduler, or LLM runtime
 
 ## 1. Decision
