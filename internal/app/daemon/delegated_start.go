@@ -419,6 +419,9 @@ func (s *Service) delegatedTerminalReceipt(live *liveSession, snapshot delegated
 	rec.Spawn = live.spawn
 	rec.Exit = decision.exit
 	rec.Signal = snapshot.signal
+	if rec.SchemaVersion == 5 {
+		rec.InputAuthorityProvenance = s.delegatedTerminalInputAuthorityProvenance(live.sessionID)
+	}
 	s.attachWorkspaceProvenance(&rec, live.workspace)
 	return rec
 }
