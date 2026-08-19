@@ -82,7 +82,7 @@ func TestRequirementEvaluationBindsCurrentObligationWithoutMutatingEvidence(t *t
 	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
 	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
 	before := candidate
-	got := EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil)
+	got := EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil)
 	result := oneRequirement(t, got)
 	if result.Status != core.EvidenceSatisfied || result.PolicyDigest == "" || result.RuleID != "security" || result.ObligationID == "" || result.RequirementID != "integration" || result.EvaluationID == "" {
 		t.Fatalf("evaluation=%#v", result)
@@ -95,7 +95,7 @@ func TestRequirementEvaluationBindsCurrentObligationWithoutMutatingEvidence(t *t
 func TestCheapInsufficientEvidenceCannotSatisfyStrongerRequirement(t *testing.T) {
 	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
 	cheap := sufficiencyCandidate('a', core.ProviderStaticFormatCheck, core.AuthorityMechanical, core.CandidatePass)
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{cheap}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil))
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{cheap}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
 	if got.Status != core.EvidenceInsufficient || got.ReasonCode != "provider_semantics_mismatch" {
 		t.Fatalf("cheap provider satisfied stronger requirement: %#v", got)
 	}
@@ -104,7 +104,7 @@ func TestCheapInsufficientEvidenceCannotSatisfyStrongerRequirement(t *testing.T)
 func TestRequirementMinimumAuthorityRejectsAdvisoryProviderEvidence(t *testing.T) {
 	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
 	advisory := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityAdvisory, core.CandidatePass)
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{advisory}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil))
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{advisory}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
 	if got.Status != core.EvidenceInsufficient || got.ReasonCode != "evidence_authority_insufficient" {
 		t.Fatalf("advisory evidence satisfied mechanical requirement: %#v", got)
 	}
@@ -116,7 +116,7 @@ func TestProjectCommandBindingElevatesOnlyCurrentRequirementSemantics(t *testing
 	requirement.ExpectedProjectBindingDigest = sufficiencyDigest('4')
 	candidate := sufficiencyCandidate('a', core.ProviderProjectCommand, core.AuthorityMechanical, core.CandidatePass)
 	before := candidate
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, ProviderAvailability{}, nil))
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, ProviderAvailability{}, nil, nil))
 	if got.Status != core.EvidenceSatisfied {
 		t.Fatalf("bound project command did not satisfy current semantic class: %#v", got)
 	}
@@ -125,7 +125,7 @@ func TestProjectCommandBindingElevatesOnlyCurrentRequirementSemantics(t *testing
 	}
 	mismatch := candidate
 	mismatch.ProjectBindingDigest = sufficiencyDigest('5')
-	got = oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{mismatch}, Coverage: core.CoverageComplete}, ProviderAvailability{}, nil))
+	got = oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{mismatch}, Coverage: core.CoverageComplete}, ProviderAvailability{}, nil, nil))
 	if got.Status != core.EvidenceInsufficient || got.ReasonCode != "project_binding_mismatch" {
 		t.Fatalf("old project binding satisfied current requirement: %#v", got)
 	}
@@ -135,7 +135,7 @@ func TestStaleEvidenceCannotSatisfyCurrentRequirement(t *testing.T) {
 	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
 	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
 	candidate.Freshness = core.CandidateStale
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil))
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
 	if got.Status != core.EvidenceInsufficient || got.ReasonCode != "evidence_stale" {
 		t.Fatalf("stale evidence satisfied current requirement: %#v", got)
 	}
@@ -166,7 +166,7 @@ func TestEnvironmentDependentEvidenceRequiresDeclaredBinding(t *testing.T) {
 			requirement.Requirement.Environment = tc.requirement
 			candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
 			tc.mutate(&candidate)
-			got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), tc.current))
+			got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), tc.current, nil))
 			if got.Status != core.EvidenceInsufficient || got.ReasonCode != tc.reason {
 				t.Fatalf("environment constraint=%#v", got)
 			}
@@ -178,7 +178,7 @@ func TestEnvironmentDependentEvidenceRequiresDeclaredBinding(t *testing.T) {
 	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
 	candidate.EnvironmentFingerprint = sufficiencyDigest('6')
 	candidate.EnvironmentFingerprintVersion = 1
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil))
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
 	if got.Status != core.EvidenceUnavailable || got.ReasonCode != "current_environment_unavailable" {
 		t.Fatalf("missing current environment=%#v", got)
 	}
@@ -195,14 +195,14 @@ func TestRequirementLiteralFailureAmbiguousIncompleteAndContradiction(t *testing
 		{core.CandidateAmbiguous, core.EvidenceUnknown},
 	} {
 		candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, tc.result)
-		got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil))
+		got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
 		if got.Status != tc.want {
 			t.Fatalf("result=%s evaluation=%#v", tc.result, got)
 		}
 	}
 	fail := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidateFail)
 	pass := sufficiencyCandidate('b', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{fail, pass}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil))
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{fail, pass}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
 	if got.Status != core.EvidenceInconsistent {
 		t.Fatalf("compatible contradiction=%#v", got)
 	}
@@ -220,7 +220,7 @@ func TestRequirementNoCandidateUsesMechanicalProviderAvailability(t *testing.T) 
 		{AvailabilityUnknown, core.EvidenceUnknown, "provider_availability_unknown"},
 	} {
 		providers := ProviderAvailability{ByClass: map[core.ProviderClass]Availability{core.ProviderIntegrationTest: tc.availability}}
-		got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Coverage: core.CoverageComplete}, providers, nil))
+		got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Coverage: core.CoverageComplete}, providers, nil, nil))
 		if got.Status != tc.want || got.ReasonCode != tc.reason {
 			t.Fatalf("availability=%s got=%#v", tc.availability, got)
 		}
@@ -230,7 +230,7 @@ func TestRequirementNoCandidateUsesMechanicalProviderAvailability(t *testing.T) 
 func TestBoundedEvidenceHistoryCannotSatisfyMandatoryStability(t *testing.T) {
 	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
 	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageBounded}, available(core.ProviderIntegrationTest), nil))
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageBounded}, available(core.ProviderIntegrationTest), nil, nil))
 	if got.Status == core.EvidenceSatisfied || got.ReasonCode != "bounded_evidence_history" {
 		t.Fatalf("bounded history satisfied mandatory requirement: %#v", got)
 	}
@@ -241,19 +241,19 @@ func TestRiskControlsAreLiteralRequirementsWithoutResidualRisk(t *testing.T) {
 	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
 	obligation := sufficiencyObligation(requirement)
 	obligation.RiskClass = core.RiskRiskDriven
-	got := EvaluateObligation(obligation, CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil)
+	got := EvaluateObligation(obligation, CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil)
 	if got.EvidenceStatus != core.EvidenceSatisfied {
 		t.Fatalf("literal risk control evaluation=%#v", got)
 	}
 }
 
-func TestQuiescenceRequirementStaysUnavailableUntilTask4(t *testing.T) {
+func TestQuiescenceRequirementWithoutObservationIsUnavailable(t *testing.T) {
 	requirement := sufficiencyRequirement("quiescence", core.ProviderIntegrationTest)
 	requirement.Requirement.RequireQuiescence = true
 	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
-	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil))
-	if got.Status != core.EvidenceUnavailable || got.ReasonCode != "quiescence_not_implemented" {
-		t.Fatalf("Task3 invented quiescence proof: %#v", got)
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest), nil, nil))
+	if got.Status != core.EvidenceUnavailable || got.ReasonCode != "quiescence_unavailable" {
+		t.Fatalf("missing quiescence observation overclaimed: %#v", got)
 	}
 }
 
@@ -262,7 +262,7 @@ func TestObligationEvidenceStatusFoldPrecedence(t *testing.T) {
 	unknownReq := sufficiencyRequirement("unknown", core.ProviderStaticFormatCheck)
 	fail := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidateFail)
 	ambiguous := sufficiencyCandidate('b', core.ProviderStaticFormatCheck, core.AuthorityMechanical, core.CandidateAmbiguous)
-	got := EvaluateObligation(sufficiencyObligation(failReq, unknownReq), CandidateResultSet{Candidates: []core.EvidenceCandidate{fail, ambiguous}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest, core.ProviderStaticFormatCheck), nil)
+	got := EvaluateObligation(sufficiencyObligation(failReq, unknownReq), CandidateResultSet{Candidates: []core.EvidenceCandidate{fail, ambiguous}, Coverage: core.CoverageComplete}, available(core.ProviderIntegrationTest, core.ProviderStaticFormatCheck), nil, nil)
 	if got.EvidenceStatus != core.EvidenceFailed || len(got.RequirementResults) != 2 {
 		t.Fatalf("obligation fold=%#v", got)
 	}

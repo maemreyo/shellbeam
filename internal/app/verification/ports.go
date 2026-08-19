@@ -3,6 +3,8 @@ package verification
 import (
 	"context"
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
+	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 
 	"github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -130,4 +132,19 @@ type CandidateResultSet struct {
 // CurrentEnvironmentSource exposes only validated core environment bindings.
 type CurrentEnvironmentSource interface {
 	CurrentBinding(context.Context, string) (environment.Binding, bool, error)
+}
+
+// TerminalReceiptSource exposes immutable terminal receipt truth for quiescence.
+type TerminalReceiptSource interface {
+	LoadReceipt(context.Context, operation.SessionID) (receipt.Receipt, error)
+}
+
+// PersistentBindingSource exposes only ShellBeam-owned persistent bindings.
+type PersistentBindingSource interface {
+	ListPersistentBindings(context.Context, persistentsession.InspectRequest) (persistentsession.BindingPage, error)
+}
+
+// LifecycleQuiescenceSource is an optional qualified provider proof.
+type LifecycleQuiescenceSource interface {
+	QuiescenceForOperation(context.Context, string) (core.QuiescenceObservation, bool, error)
 }

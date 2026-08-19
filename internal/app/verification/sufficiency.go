@@ -32,14 +32,14 @@ func (a Availability) Validate() error {
 	}
 }
 
-func EvaluateObligation(obligation core.VerificationObligation, candidates CandidateResultSet, providers ProviderAvailability, currentEnvironment *environment.Binding) core.ObligationEvaluation {
+func EvaluateObligation(obligation core.VerificationObligation, candidates CandidateResultSet, providers ProviderAvailability, currentEnvironment *environment.Binding, quiescence map[string]core.QuiescenceObservation) core.ObligationEvaluation {
 	out := core.ObligationEvaluation{ObligationID: obligation.ObligationID}
 	if err := obligation.Validate(); err != nil {
 		out.EvidenceStatus = core.EvidenceUnknown
 		return out
 	}
 	for _, bound := range obligation.EvidenceRequirements {
-		result := evaluateRequirement(obligation, bound, candidates, providers, currentEnvironment)
+		result := evaluateRequirement(obligation, bound, candidates, providers, currentEnvironment, quiescence)
 		out.RequirementResults = append(out.RequirementResults, result)
 		out.EvidenceRefs = append(out.EvidenceRefs, result.EvidenceRefs...)
 	}
@@ -48,7 +48,7 @@ func EvaluateObligation(obligation core.VerificationObligation, candidates Candi
 	return out
 }
 
-func evaluateRequirement(obligation core.VerificationObligation, bound core.BoundEvidenceRequirement, candidates CandidateResultSet, providers ProviderAvailability, currentEnvironment *environment.Binding) core.RequirementEvaluation {
+func evaluateRequirement(obligation core.VerificationObligation, bound core.BoundEvidenceRequirement, candidates CandidateResultSet, providers ProviderAvailability, currentEnvironment *environment.Binding, quiescence map[string]core.QuiescenceObservation) core.RequirementEvaluation {
 	requirement := bound.Requirement
 	refs := candidateEvidenceRefs(candidates.Candidates)
 	result := core.RequirementEvaluation{
@@ -102,7 +102,7 @@ func evaluateRequirement(obligation core.VerificationObligation, bound core.Boun
 	stability := EvaluateStability(requirement.Stability, requirement.Flake, CandidateResultSet{Candidates: environmentCandidates, Coverage: candidates.Coverage, Diagnostics: candidates.Diagnostics})
 	status, reason = stabilityStatus(stability)
 	if requirement.RequireQuiescence && status == core.EvidenceSatisfied {
-		return setResult(core.EvidenceUnavailable, "quiescence_not_implemented")
+		status, reason = evaluateQuiescence(environmentCandidates, quiescence)
 	}
 	return setResult(status, reason)
 }
@@ -279,4 +279,30 @@ func sortedUniqueEvidenceRefs(refs []string) []string {
 		}
 	}
 	return out[:n]
+}
+
+func evaluateQuiescence(candidates []core.EvidenceCandidate, observations map[string]core.QuiescenceObservation) (core.EvidenceStatus, string) {
+	if len(candidates) == 0 {
+		return core.EvidenceUnavailable, "quiescence_unavailable"
+	}
+	for _, candidate := range candidates {
+		observation, ok := observations[candidate.OperationID]
+		if !ok {
+			return core.EvidenceUnavailable, "quiescence_unavailable"
+		}
+		if observation.Validate() != nil {
+			return core.EvidenceUnknown, "quiescence_unknown"
+		}
+		switch observation.Status {
+		case core.QuiescenceComplete:
+			continue
+		case core.QuiescenceIncomplete:
+			return core.EvidenceInsufficient, "undeclared_live_resources"
+		case core.QuiescenceUnknown:
+			return core.EvidenceUnknown, "quiescence_unknown"
+		default:
+			return core.EvidenceUnavailable, "quiescence_unavailable"
+		}
+	}
+	return core.EvidenceSatisfied, ""
 }
