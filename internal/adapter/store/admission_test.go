@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -395,5 +396,28 @@ func BenchmarkReserveOperation(b *testing.B) {
 				b.Fatalf("benchmark loop performed %d full-tree scans", got-scansBefore)
 			}
 		})
+	}
+}
+
+func TestScanActiveSessionsDoesNotDecodeNonSessionMetadata(t *testing.T) {
+	r := admissionRepository(t, 4)
+	foreignDir := filepath.Join(r.root, "structured", "artifact-blobs", "abl_test")
+	if err := os.MkdirAll(foreignDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	foreign := []byte(`{"schema_version":1,"commit_state":"retained"}` + "\n")
+	if err := os.WriteFile(filepath.Join(foreignDir, "metadata.json"), foreign, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	active, bytes, err := r.scanActiveSessions()
+	if err != nil {
+		t.Fatalf("scan decoded non-session metadata: %v", err)
+	}
+	if len(active) != 0 {
+		t.Fatalf("active=%v", active)
+	}
+	if bytes < int64(len(foreign)) {
+		t.Fatalf("state bytes=%d want at least %d", bytes, len(foreign))
 	}
 }

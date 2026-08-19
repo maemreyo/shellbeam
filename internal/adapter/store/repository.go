@@ -375,7 +375,7 @@ func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 		if info.Mode().IsRegular() && !isAdmissionIndex(path) {
 			bytes += info.Size()
 		}
-		if filepath.Base(path) == "metadata.json" {
+		if filepath.Base(path) == "metadata.json" && filepath.Dir(filepath.Dir(path)) == filepath.Join(r.root, "sessions") {
 			if strings.HasPrefix(filepath.Base(filepath.Dir(path)), gcStagingPrefix) {
 				// Withdrawn from view by retention; it counts for nothing.
 				return nil
