@@ -49,6 +49,7 @@ type Repository struct {
 	observationVisibilityMu  sync.RWMutex
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
+	blobBudgetMu             sync.Mutex
 	telemetryMu              sync.Mutex
 	inputTraceMu             sync.Mutex
 	reproMu                  sync.Mutex
@@ -79,7 +80,8 @@ type Repository struct {
 	stateBytesRefreshWG  sync.WaitGroup
 	// fullScans counts full-tree scans of the state store. Admission must not
 	// increment it; the regression test asserts that.
-	fullScans atomic.Uint64
+	fullScans        atomic.Uint64
+	blobReservations map[string]int64
 }
 
 const (
@@ -168,7 +170,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }}
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, blobReservations: map[string]int64{}}
 	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
 	if err := repository.initObservationStore(); err != nil {
 		return nil, err

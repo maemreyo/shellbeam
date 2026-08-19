@@ -15,7 +15,7 @@ import (
 const maxStructuredMetadataBytes = 64 << 10
 
 func (r *Repository) initStructuredResultStore() error {
-	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir(), r.structuredCaptureAuthorityDir()} {
+	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir(), r.structuredCaptureAuthorityDir(), r.artifactBlobRoot(), r.artifactRecoveryRoot()} {
 		if err := ensurePrivateDir(dir); err != nil {
 			return fmt.Errorf("structured result store: %w", err)
 		}
