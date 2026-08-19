@@ -613,6 +613,7 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 - Modify: `internal/adapter/mcp/input.go`
 - Modify: `internal/adapter/mcp/input_fields.go`
 - Modify: `internal/adapter/mcp/call.go`
+- Modify: `internal/adapter/mcp/legacy_catalog.go`
 - Modify: `internal/adapter/mcp/request.go`
 - Modify: `internal/adapter/mcp/server.go`
 - Create: `internal/adapter/mcp/delegated_test.go`
@@ -690,6 +691,7 @@ Do not expose private provider refs/socket/pane IDs in result or errors.
 Add daemon/evidence-worker RED tests proving a delegated schema-5 reservation with test/build intent produces **no ordinary evidence record**, even when its lifecycle receipt is terminal success with complete capture. This is independent from capture completeness.
 
 Ensure one MCP tool registration remains; v1 output omits all H1 fields/features.
+A legacy client that polls a session created by a modern delegated client may observe ordinary status/output, but any receipt newer than the v1-advertised receipt set is projected as `receipt:null`; never downgrade or expose receipt v5 through v1. Legacy catalog projection removes delegated feature/support metadata and receipt schema v5.
 
 - [ ] **Step 6: Run receipt/schema/adapter/capability tests and commit.**
 
