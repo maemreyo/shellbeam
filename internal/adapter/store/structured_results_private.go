@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/source"
 	core "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
@@ -121,6 +122,9 @@ func (r *Repository) structuredSummaryDir() string {
 func (r *Repository) structuredOperationDir() string {
 	return filepath.Join(r.structuredRoot(), "operations")
 }
+func (r *Repository) structuredCaptureAuthorityDir() string {
+	return filepath.Join(r.structuredRoot(), "capture-authority")
+}
 func (r *Repository) rawOutputRefPath(sessionID string) string {
 	return filepath.Join(r.structuredInputDir(), sessionID+".json")
 }
@@ -135,6 +139,9 @@ func (r *Repository) summaryPath(key string) string {
 }
 func (r *Repository) structuredOperationPath(operationID string) string {
 	return filepath.Join(r.structuredOperationDir(), operationID+".json")
+}
+func (r *Repository) captureAuthorityPath(operationID operation.ID) string {
+	return filepath.Join(r.structuredCaptureAuthorityDir(), string(operationID)+".json")
 }
 func (r *Repository) structuredSubjectPresent(ctx context.Context, subject string) (bool, error) {
 	parts := strings.Split(subject, ":")

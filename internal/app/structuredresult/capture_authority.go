@@ -8,6 +8,57 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
+const CaptureAuthorityRecordSchemaV1 = 1
+
+type CaptureAuthorityState string
+
+const (
+	CaptureAuthorityPrepared             CaptureAuthorityState = "prepared"
+	CaptureAuthorityManagedPathCollision CaptureAuthorityState = "managed_path_collision"
+	CaptureAuthorityAbandoned            CaptureAuthorityState = "abandoned"
+)
+
+type CaptureAuthorityRecord struct {
+	SchemaVersion           int                   `json:"schema_version"`
+	Authority               CaptureAuthority      `json:"authority"`
+	StructuredCaptureDigest string                `json:"structured_capture_digest"`
+	State                   CaptureAuthorityState `json:"state"`
+}
+
+func NewCaptureAuthorityRecord(authority CaptureAuthority) (CaptureAuthorityRecord, error) {
+	if err := authority.Validate(); err != nil {
+		return CaptureAuthorityRecord{}, err
+	}
+	digest, err := authority.StructuredCaptureDigest()
+	if err != nil {
+		return CaptureAuthorityRecord{}, err
+	}
+	return CaptureAuthorityRecord{
+		SchemaVersion: CaptureAuthorityRecordSchemaV1,
+		Authority:     authority, StructuredCaptureDigest: digest, State: CaptureAuthorityPrepared,
+	}, nil
+}
+
+func (r CaptureAuthorityRecord) Validate() error {
+	if r.SchemaVersion != CaptureAuthorityRecordSchemaV1 || r.Authority.Validate() != nil || !validStructuredAuthorityDigest(r.StructuredCaptureDigest) {
+		return fmt.Errorf("invalid capture authority record")
+	}
+	want, err := r.Authority.StructuredCaptureDigest()
+	if err != nil || want != r.StructuredCaptureDigest {
+		return fmt.Errorf("capture authority digest mismatch")
+	}
+	switch r.State {
+	case CaptureAuthorityPrepared, CaptureAuthorityManagedPathCollision, CaptureAuthorityAbandoned:
+		return nil
+	default:
+		return fmt.Errorf("invalid capture authority state")
+	}
+}
+
+func (r CaptureAuthorityRecord) AllowsMechanicalCapture() bool {
+	return r.Validate() == nil && r.State == CaptureAuthorityPrepared
+}
+
 const (
 	ArtifactCaptureIntentSchemaV1 = 1
 	CaptureAuthoritySchemaV1      = 1
