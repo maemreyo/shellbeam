@@ -47,7 +47,7 @@
 - Core packages use the Go standard library only.
 - Production hard cap 500 lines/file, test hard cap 800 lines/file, function hard cap 80 lines, interface hard cap 8 methods. Split by responsibility before exceeding a cap.
 - Preserve unrelated work. No push, PR, merge, or cleanup unless explicitly requested.
-- Every product-code task follows focused RED → minimum GREEN → targeted tests → `go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json` → `git diff --check` → tracked commit. `SHELLBEAM_BASE_REF` must be bound in Task 0 to the exact implementation base.
+- Every product-code task follows focused RED → minimum GREEN → targeted tests → `go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json` → `git diff --check` → tracked commit. Task 0 persists the exact implementation base in baseline evidence and creates `scripts/decision-protocol-v1-implementation-base.sh`; every Task 1–13 must re-read and verify that durable authority before using `SHELLBEAM_BASE_REF`. A process-local export from an earlier task is never authoritative.
 
 ---
 
@@ -158,12 +158,17 @@ docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md   # create
 
 **Files:**
 - Create during implementation: `docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md`
+- Create during implementation: `scripts/decision-protocol-v1-implementation-base.sh`
 - Read-only gate: `docs/superpowers/specs/2026-08-19-decision-protocol-design.md`
 - Read-only gate: `docs/superpowers/plans/2026-08-19-decision-protocol-v1-traceability.json`
 
 **Interfaces:**
-- Produces an exact implementation base SHA exported as `SHELLBEAM_BASE_REF` for every later dirty/devctl gate.
-- Produces one baseline evidence document recording main SHA, frozen spec SHA, `go version`, full-suite result, targeted existing admission/policy primitive results, and overlap audit against any main advancement since plan authoring.
+- Resolves the **current local `main` ref**, not the planning worktree HEAD, and requires the plan-authoring base to remain its ancestor.
+- Audits owner overlap over `plan_authoring_base..current_main` before implementation. Any overlap in the frozen owner set stops execution and requires plan amendment/re-review.
+- If current `main` advanced only outside the owner set, integrates/rebases the implementation workspace onto that exact accepted `main` SHA before product code changes.
+- Persists that exact accepted `main` SHA as `implementation_base` in baseline evidence. The evidence file is the durable base authority; shell environment is not.
+- Creates `scripts/decision-protocol-v1-implementation-base.sh`, which every Task 1–13 invokes to rebind `SHELLBEAM_BASE_REF`, verify current `main` still equals the recorded base, and verify the recorded base remains an ancestor of implementation HEAD.
+- Produces baseline evidence recording accepted main SHA, frozen spec SHA, `go version`, full-suite result, targeted existing admission/policy primitive results, and owner-overlap audit.
 - Does not modify product code.
 
 - [ ] **Step 1: Verify plan/spec integrity before touching product code**
@@ -186,23 +191,40 @@ PASS invariants=48/48 sections=57/57 tasks=14/14
 
 Worktree must be clean before implementation begins.
 
-- [ ] **Step 2: Bind exact execution base and audit plan-authoring drift**
+- [ ] **Step 2: Resolve current `main`, audit plan-authoring drift, and integrate the implementation workspace**
 
 Run:
 
 ```bash
-export SHELLBEAM_BASE_REF="$(git rev-parse HEAD)"
-printf '%s\n' "$SHELLBEAM_BASE_REF"
-git merge-base --is-ancestor 27207d94b097040b571081c8c49d9c09487460c5 "$SHELLBEAM_BASE_REF"
-git diff --name-only 27207d94b097040b571081c8c49d9c09487460c5.."$SHELLBEAM_BASE_REF" -- \
+PLAN_AUTHORING_BASE=27207d94b097040b571081c8c49d9c09487460c5
+CURRENT_MAIN="$(git rev-parse main)"
+printf 'plan_authoring_base=%s\ncurrent_main=%s\n' "$PLAN_AUTHORING_BASE" "$CURRENT_MAIN"
+
+git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$CURRENT_MAIN"
+
+OWNER_DRIFT="$(git diff --name-only "$PLAN_AUTHORING_BASE".."$CURRENT_MAIN" -- \
   internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification \
   internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge \
-  internal/core/capability cmd/shellbeam api/schema
+  internal/core/capability cmd/shellbeam api/schema)"
+if [ -n "$OWNER_DRIFT" ]; then
+  printf '%s\n' "$OWNER_DRIFT"
+  echo 'Decision Protocol owner overlap since plan authoring; stop for plan amendment/re-review.' >&2
+  exit 1
+fi
+
+if ! git merge-base --is-ancestor "$CURRENT_MAIN" HEAD; then
+  test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PLAN_AUTHORING_BASE"
+  git rebase --onto "$CURRENT_MAIN" "$PLAN_AUTHORING_BASE"
+fi
+
+git merge-base --is-ancestor "$CURRENT_MAIN" HEAD
+IMPLEMENTATION_BASE="$CURRENT_MAIN"
+printf 'accepted_implementation_base=%s\n' "$IMPLEMENTATION_BASE"
 ```
 
-Expected: authoring base is an ancestor. If the file list is non-empty, stop and amend/re-review the plan before implementation; do not silently execute against changed owners.
+The only allowed automatic integration is replaying the already-reviewed planning commits onto a `current_main` whose Decision Protocol owner diff is empty. Any owner overlap or unexpected merge-base topology stops; do not silently resolve product-owner changes inside Task 0.
 
-- [ ] **Step 3: Run the unchanged full baseline and targeted primitive regression**
+- [ ] **Step 3: Run the unchanged full baseline and targeted primitive regression on the accepted base lineage**
 
 Run:
 
@@ -213,16 +235,21 @@ go test ./internal/core/operation ./internal/core/verification ./internal/app/ve
 
 Expected: both commands exit 0. A baseline failure is investigated before Decision Protocol code is written.
 
-- [ ] **Step 4: Record the baseline evidence from the bound values**
+- [ ] **Step 4: Persist the implementation base authority and exact rebinding helper**
 
-After Step 3 exits 0, run this exact command in the same shell where `SHELLBEAM_BASE_REF` is exported:
+This step MUST be valid in a fresh shell; it does not consume variables exported by Step 2. Re-resolve and re-audit the accepted base before writing evidence:
 
 ```bash
+PLAN_AUTHORING_BASE=27207d94b097040b571081c8c49d9c09487460c5
+IMPLEMENTATION_BASE="$(git rev-parse main)"
+git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$IMPLEMENTATION_BASE"
+test -z "$(git diff --name-only "$PLAN_AUTHORING_BASE".."$IMPLEMENTATION_BASE" --   internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification   internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge   internal/core/capability cmd/shellbeam api/schema)"
+git merge-base --is-ancestor "$IMPLEMENTATION_BASE" HEAD
 GO_VERSION="$(go version)"
 cat > docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md <<EOFBASE
 # Decision Protocol V1 Implementation Baseline
 
-- implementation_base: `${SHELLBEAM_BASE_REF}`
+- implementation_base: `${IMPLEMENTATION_BASE}`
 - plan_authoring_base: `27207d94b097040b571081c8c49d9c09487460c5`
 - frozen_spec_sha256: `6cf49426243f26e8bec862c29651304ccc4abd5e1f91947f9899fe21fd72f7fa`
 - go_version: `${GO_VERSION}`
@@ -230,14 +257,39 @@ cat > docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md <<EO
 - targeted_admission_policy_store: PASS
 - owner_overlap_since_plan_authoring: NONE
 EOFBASE
+
+cat > scripts/decision-protocol-v1-implementation-base.sh <<'EOFSCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+EVIDENCE="$ROOT/docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md"
+base="$(awk -F'`' '/^- implementation_base: `/ {print $2; exit}' "$EVIDENCE")"
+if [[ ! "$base" =~ ^[0-9a-f]{40}$ ]]; then
+  echo 'invalid or missing Decision Protocol implementation_base evidence' >&2
+  exit 1
+fi
+current_main="$(git -C "$ROOT" rev-parse main)"
+if [ "$current_main" != "$base" ]; then
+  printf 'Decision Protocol implementation base drift: recorded=%s current_main=%s\n' "$base" "$current_main" >&2
+  exit 42
+fi
+git -C "$ROOT" merge-base --is-ancestor "$base" HEAD || {
+  echo 'Decision Protocol implementation HEAD is not descended from recorded implementation base' >&2
+  exit 1
+}
+printf '%s\n' "$base"
+EOFSCRIPT
+chmod +x scripts/decision-protocol-v1-implementation-base.sh
 ```
 
-Because Step 2 stops on any owner overlap, `NONE` is a proved precondition here rather than a handwritten guess.
+If `main` advances after this point, the helper fails closed before the next task. Do not edit the evidence by hand to chase `main`; stop, repeat the Task-0 owner audit/integration gate, update the durable base authority, and re-review if any owner overlap appears.
 
-- [ ] **Step 5: Verify and commit the baseline evidence**
+- [ ] **Step 5: Verify the durable authority and commit baseline evidence/helper**
 
 ```bash
-git add docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+test "$SHELLBEAM_BASE_REF" = "$(git rev-parse main)"
+git add docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md scripts/decision-protocol-v1-implementation-base.sh
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "test: bind decision protocol implementation baseline"
 ```
@@ -245,6 +297,15 @@ git -c core.hooksPath=.githooks commit -m "test: bind decision protocol implemen
 ---
 
 ### Task 1: Define the closed Decision Protocol core contracts
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/core/decisionprotocol/identity.go`
@@ -390,6 +451,7 @@ Expected: PASS.
 
 ```bash
 go test ./internal/core/decisionprotocol -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/core/decisionprotocol
 git diff --cached --check
@@ -399,6 +461,15 @@ git -c core.hooksPath=.githooks commit -m "feat: add decision protocol core cont
 ---
 
 ### Task 2: Add the append-only canonical ledger and Decision Policy authority
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/adapter/store/decision_protocol_paths.go`
@@ -414,6 +485,8 @@ git -c core.hooksPath=.githooks commit -m "feat: add decision protocol core cont
 
 **Interfaces:**
 - Canonical ledger sequence is store-owned and monotonic under `decisionProtocolMu`.
+- **All 17 frozen canonical record kinds use the same ledger authority.** `DecisionPolicySnapshot` and `DecisionPolicyActivation` are not a parallel policy truth store.
+- `policies/`, `activations/`, and `effective/` paths are secondary indexes/materializations only. They may accelerate lookup but are rebuildable from canonical policy records and never outrank the ledger.
 - Event journal `observation.ChangeSeq` is never used as a `DecisionProjectionCutRef` high-water.
 - Policy activation mirrors existing verification CAS semantics but is a separate store namespace/domain and uses exactly `explicit_caller`.
 - New governed episode creation later consumes `CurrentEffectivePolicy(ctx, repositoryID, episodeKind)`; callers cannot pass a historical activation as authority.
@@ -434,9 +507,28 @@ type PolicyStore interface {
     ActivatePolicyCAS(context.Context, decisionprotocol.PolicyActivationCommit) (decisionprotocol.PolicyActivationWriteResult, error)
     CurrentEffectivePolicy(context.Context, string, decisionprotocol.EpisodeKind) (decisionprotocol.PolicySnapshot, decisionprotocol.PolicyActivation, bool, error)
 }
+
+type PutPolicySnapshotRequest struct {
+    RepositoryID string
+    Snapshot     decisionprotocol.PolicySnapshot
+}
+
+type ActivatePolicyRequest struct {
+    RepositoryID                 string
+    ActivationID                 string
+    PolicyDigest                 string
+    ProposalGeneration           uint64
+    ExpectedPreviousPolicyDigest string
+    ActorRef                     string
+}
+
+func (s *Service) PutPolicySnapshot(context.Context, PutPolicySnapshotRequest) (decisionprotocol.PolicySnapshot, error)
+func (s *Service) ActivatePolicy(context.Context, ActivatePolicyRequest) (decisionprotocol.PolicyActivation, error)
 ```
 
-- [ ] **Step 1: Write RED tests for monotonic ledger order, replay cuts, immutable policy snapshots, and activation CAS**
+`PutPolicySnapshotRequest.RepositoryID` must equal `Snapshot.RepositoryID`. `ActivatePolicyRequest.RepositoryID` is server-resolved by Task 11 from the authenticated workspace/repository binding; `activation_generation` and `activated_at` are server/store assigned. Empty `ExpectedPreviousPolicyDigest` means first activation only; it is not an alias for “ignore CAS”.
+
+- [ ] **Step 1: Write RED tests for monotonic ledger order, replay cuts, canonical policy participation, immutable snapshots, and activation CAS**
 
 Minimum tests:
 
@@ -444,6 +536,8 @@ Minimum tests:
 func TestDecisionProtocolLedgerAssignsMonotonicCanonicalRecordSeq(t *testing.T)
 func TestDecisionProtocolCutListsOnlyEpisodeRecordsAtOrBelowHighWater(t *testing.T)
 func TestDecisionProtocolLedgerDoesNotUseObservationChangeSeq(t *testing.T)
+func TestDecisionPolicySnapshotCreatesCanonicalLedgerRecordAndSecondaryIndex(t *testing.T)
+func TestDecisionPolicyActivationCreatesCanonicalLedgerRecordAndSecondaryIndexes(t *testing.T)
 func TestDecisionPolicySnapshotConflictingDigestBodyFails(t *testing.T)
 func TestDecisionPolicyActivationFirstAndReplacementUseExplicitCallerCAS(t *testing.T)
 func TestCurrentEffectivePolicyFiltersByEpisodeKind(t *testing.T)
@@ -457,7 +551,7 @@ go test ./internal/adapter/store ./internal/app/decisionprotocol -run 'DecisionP
 
 Expected: RED.
 
-- [ ] **Step 2: Implement the durable ledger layout and recovery validation**
+- [ ] **Step 2: Implement the durable canonical ledger and secondary-index layout**
 
 Use this private layout:
 
@@ -466,40 +560,69 @@ Use this private layout:
   ledger/
     high_water.json
     records/<20-digit-seq>.json
-  policies/<repository-id>/<policy-digest>.json
-  activations/<repository-id>/<activation-id>.json
-  effective/<repository-id>/<episode-kind>.json
-  indexes/episodes/<episode-id>/<20-digit-seq>.json
+  policies/<repository-id>/<policy-digest>.json             # secondary materialization
+  activations/<repository-id>/<activation-id>.json          # secondary materialization
+  effective/<repository-id>/<episode-kind>.json             # secondary current index
+  indexes/episodes/<episode-id>/<20-digit-seq>.json          # secondary canonical lookup index
 ```
 
-`high_water.json` is a store index, not canonical semantic body. Under `decisionProtocolMu`, append writes the record file plus episode index then advances the high-water only after durable record/index creation. Recovery validates that high-water never points past a missing canonical record; gaps/corrupt index return an error rather than silently skipping truth.
+All mutation paths share a private `appendCanonicalRecordLocked` helper under `decisionProtocolMu`. `PutPolicySnapshot` must append/replay `RecordPolicySnapshot` through that helper before/materialized together with `policies/...`; `ActivatePolicyCAS` must append/replay `RecordPolicyActivation` through that helper and update `activations/...` + `effective/...`. App code must never implement policy truth by writing only the secondary paths.
 
-- [ ] **Step 3: Implement immutable policy snapshots and explicit-caller activation CAS**
+Canonical sequence allocation is `current_repaired_high_water + 1`; sequence paths are never reused. The record body/envelope is durable before any high-water advance. Required secondary indexes/materializations are created or repaired from the canonical record before high-water advances. `PutPolicySnapshot`/`ActivatePolicyCAS` return success only after the canonical record, required secondary materializations, and advanced high-water are all durable/cross-validated; a lost response replays the same canonical intent rather than creating a second record.
 
-Mirror the proven verification pattern: immutable snapshot create, activation intent fingerprint, current effective index, replay of the same activation intent, conflict on changed intent, and current-effective lookup by episode kind. Validation must reject any activation authority other than:
+- [ ] **Step 3: Implement one exact startup/reopen recovery policy for ledger split points**
+
+Recovery under `decisionProtocolMu` is deterministic and must implement these exact cases:
+
+```text
+record N durable / required secondary index absent / high-water=N-1
+→ validate record N, rebuild all required indexes/materializations from record N, then advance high-water to N
+
+record N + required secondary indexes durable / high-water=N-1
+→ validate record/index agreement, then advance high-water to N
+
+high-water=N / record N missing or corrupt
+→ store-internal canonical-ledger corruption error; do not repair forward and do not admit another append
+
+high-water=N / contiguous record N+1 absent / no higher record path
+→ next append allocates N+1
+
+high-water=N / record N+1 absent but any record path >N+1 exists
+→ store-internal canonical-ledger corruption error; do not reuse the gap
+
+high-water=N / valid contiguous record N+1 exists after crash
+→ recover N+1 as above, advance, and continue scanning contiguous records until stable
+```
+
+A policy snapshot/activation canonical record is subject to exactly the same recovery. If a policy index disagrees with canonical body, canonical truth wins only by **deterministic rebuild**; ambiguous/conflicting canonical records are corruption, not a “choose newest file” heuristic. The next append sequence is determined only after this recovery completes, so crash recovery cannot collide with or reuse an already durable sequence.
+
+- [ ] **Step 4: Implement immutable policy snapshots and explicit-caller activation CAS over canonical truth**
+
+Mirror the proven verification pattern: immutable snapshot content digest, activation intent fingerprint, current-effective index, exact replay of the same activation intent, conflict on changed intent, and current-effective lookup by episode kind. Validation must reject any activation authority other than:
 
 ```go
 const AuthorityExplicitCaller = "explicit_caller"
 ```
 
-Do not accept `DecisionAuthorityAttestation` here.
+Do not accept `DecisionAuthorityAttestation` here. `CurrentEffectivePolicy` must be reconstructable from canonical `RecordPolicySnapshot`/`RecordPolicyActivation` even if all `policies/`, `activations/`, and `effective/` materializations are deleted.
 
-- [ ] **Step 4: Add fault tests for ambiguous write boundaries and recovery**
+- [ ] **Step 5: Add fault tests for every canonical/index/high-water split point**
 
-Inject failures through the existing `atomicWriter` checkpoints. Required assertions:
+Inject failures through the existing `atomicWriter` checkpoints. Required assertions cover every recovery case from Step 3, plus:
 
 ```text
-record durable + high-water not durable -> recovery discovers/repairs or reports bounded recoverable state without dropping record
-high-water durable + missing record -> corrupt-state error
-activation record durable + effective index not durable -> exact replay may finish CAS if previous effective digest still matches
+policy snapshot canonical record durable + policy materialization absent -> rebuild from ledger
+policy activation canonical record durable + activation/effective indexes absent -> rebuild exact effective state from ledger
+secondary policy files present without a corresponding canonical record -> store-internal corruption error; never promoted to truth or silently ignored
 ```
 
 Do not introduce a second transaction framework.
 
-- [ ] **Step 5: Run the task gate and commit**
+- [ ] **Step 6: Run the task gate and commit**
 
 ```bash
 go test ./internal/adapter/store ./internal/app/decisionprotocol -run 'DecisionProtocol|DecisionPolicy' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/adapter/store internal/app/decisionprotocol
 git diff --cached --check
@@ -509,6 +632,15 @@ git -c core.hooksPath=.githooks commit -m "feat: persist decision protocol ledge
 ---
 
 ### Task 3: Implement governed episode creation, candidate revision CAS, and base projection
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/app/decisionprotocol/episode.go`
@@ -605,6 +737,7 @@ Use immutable `revises_candidate_id` edges. Reject cycles, missing parents, cros
 ```bash
 go test ./internal/core/decisionprotocol ./internal/app/decisionprotocol ./internal/adapter/store -run 'DecisionEpisode|Candidate|ReviseCandidate' -count=1
 go test -race ./internal/adapter/store -run 'ReviseCandidate' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/app/decisionprotocol internal/adapter/store
 git diff --cached --check
@@ -614,6 +747,15 @@ git -c core.hooksPath=.githooks commit -m "feat: add decision episodes and candi
 ---
 
 ### Task 4: Implement experiment definition, preregistration, sealing, and authoritative replay cuts
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/app/decisionprotocol/experiment.go`
@@ -717,6 +859,7 @@ Close/abort mutual exclusion is enforced by store CAS, not only app checks.
 
 ```bash
 go test ./internal/core/decisionprotocol ./internal/app/decisionprotocol ./internal/adapter/store -run 'Experiment|Prediction|Discrimination|Seal' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/app/decisionprotocol internal/adapter/store
 git diff --cached --check
@@ -726,6 +869,15 @@ git -c core.hooksPath=.githooks commit -m "feat: preregister decision protocol e
 ---
 
 ### Task 5: Bind experiments into immutable operation admission and replay identity
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Modify: `internal/core/operation/intent.go`
@@ -815,19 +967,22 @@ with this private shape:
 
 ```go
 type experimentAdmissionClaim struct {
-    SchemaVersion                 int    `json:"schema_version"`
-    ExperimentID                  string `json:"experiment_id"`
-    OperationID                   string `json:"operation_id"`
-    SessionID                     string `json:"session_id"`
-    SourceGeneration              string `json:"source_generation"`
-    AcceptedRequestFingerprint    string `json:"accepted_request_fingerprint"`
-    AcceptedExecutionFingerprint  string `json:"accepted_execution_fingerprint"`
-    AcceptedObservationFingerprint string `json:"accepted_observation_binding_fingerprint"`
-    LinkSemanticFingerprint       string `json:"link_semantic_fingerprint"`
+    SchemaVersion                  int       `json:"schema_version"`
+    LinkID                         string    `json:"link_id"`
+    ExperimentID                   string    `json:"experiment_id"`
+    OperationID                    string    `json:"operation_id"`
+    SessionID                      string    `json:"session_id"`
+    WorkspaceID                    string    `json:"workspace_id"`
+    SourceGeneration               string    `json:"source_generation"`
+    AcceptedRequestFingerprint     string    `json:"accepted_request_fingerprint"`
+    AcceptedExecutionFingerprint   string    `json:"accepted_execution_fingerprint"`
+    AcceptedObservationFingerprint string    `json:"accepted_observation_binding_fingerprint"`
+    AdmittedAt                     time.Time `json:"admitted_at"`
+    LinkSemanticFingerprint        string    `json:"link_semantic_fingerprint"`
 }
 ```
 
-The claim is a private recovery/index fact, **not an 18th canonical record**. It reserves the experiment's single V1 execution slot across process restart. Same experiment + same semantic claim replays; any different operation/fingerprint claim returns `EXPERIMENT_EXECUTION_LIMIT_REACHED`/metadata conflict before new reservation or spawn.
+The claim is a private recovery/index fact, **not an 18th canonical record**. It reserves the experiment's single V1 execution slot across process restart. Before the claim is first written, allocate/freeze `LinkID`, server-resolved `WorkspaceID`, and one UTC `AdmittedAt` from the injected store clock; those values are then replay identity, not regenerated during recovery. Together with the existing IDs/fingerprints, the claim contains every non-derivable field required to reconstruct the exact frozen `ExperimentExecutionLink`. `LinkSemanticFingerprint` covers the complete canonical link semantic body but is never treated as a reversible source. Same experiment + same semantic claim replays; any different operation/fingerprint/link-body claim returns `EXPERIMENT_EXECUTION_LIMIT_REACHED`/metadata conflict before new reservation or spawn.
 
 New-operation sequence under the three locks:
 
@@ -839,7 +994,7 @@ append/replay the canonical ExperimentExecutionLink matching the claim
 return successful admission only after link is durable and cross-validated
 ```
 
-Existing-operation replay checks request/observation fingerprints **before** consulting current experiment metadata. If the exact private claim + operation reservation exist but the canonical link is missing, retry reconstructs the exact link from the frozen claim; it may not reinterpret the operation from live caller fields. If reconstruction cannot become durable, return failure and do not spawn.
+Existing-operation replay checks request/observation fingerprints **before** consulting current experiment metadata. If the exact private claim + operation reservation exist but the canonical link is missing, retry reconstructs the exact link from `LinkID`, `ExperimentID`, `OperationID`, `SessionID`, `WorkspaceID`, `SourceGeneration`, all three accepted fingerprints, and `AdmittedAt` frozen in the claim; it may not regenerate identity/time or reinterpret the operation from live caller fields. If reconstruction cannot become durable, return failure and do not spawn.
 
 If reservation/session metadata became durable but the claim/link cannot be made consistent, use the existing pre-spawn admission-failure compensation pattern to terminalize the reserved session as abandoned/ambiguous. **Do not release/reassign the durable experiment claim to another operation in V1.** Once the first claim is durable, that experiment is pinned to that operation identity for retry/recovery; if the exact admission cannot be completed, the caller may abort E1 and create E2. This keeps `one experiment = one attempt` and removes a delete/reassignment race from the recovery index. Never leave an active capacity slot plus a silently reusable experiment.
 
@@ -866,6 +1021,7 @@ Update existing strict schema fixtures so modern reservation JSON accepts option
 ```bash
 go test ./internal/core/operation ./internal/app/daemon ./internal/adapter/store ./api/schema -run 'DecisionProtocol|Experiment.*Admission|ObservationBindingFingerprint|ProjectCommandReplay' -count=1
 go test -race ./internal/app/daemon ./internal/adapter/store -run 'Experiment.*Admission|Replay' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/core/operation internal/app/daemon internal/adapter/store api/schema
 git diff --cached --check
@@ -875,6 +1031,15 @@ git -c core.hooksPath=.githooks commit -m "feat: bind decision experiments at ex
 ---
 
 ### Task 6: Materialize complete typed observations and close/abort experiments safely
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/app/decisionprotocol/observation.go`
@@ -900,10 +1065,23 @@ type ReceiptSource interface {
 type StructuredSource interface {
     InspectStructured(context.Context, structuredapp.InspectRequest) (structuredapp.InspectResult, error)
 }
+type VerificationObservationCut struct {
+    EvidenceIndexGeneration uint64
+}
+
+type QualifiedEvidenceSet struct {
+    Cut        VerificationObservationCut
+    Candidates []verification.EvidenceCandidate
+    Coverage   verification.Coverage
+}
+
 type VerificationSource interface {
-    QualifiedEvidenceForOperation(context.Context, operation.ID, uint64) ([]verification.EvidenceCandidate, error)
+    AcquireVerificationObservationCut(context.Context, operation.ID) (VerificationObservationCut, error)
+    QualifiedEvidenceForOperation(context.Context, operation.ID, VerificationObservationCut) (QualifiedEvidenceSet, error)
 }
 ```
+
+`VerificationObservationCut.EvidenceIndexGeneration` is the evidence-inspection observation-index high-water (`index_generation`) frozen for this linked operation's verification read. It is **not** a `DecisionProjectionCutRef`, canonical Decision Protocol record sequence, generic event-journal replay authority, or structured-result `DerivationKey`. Observation materialization acquires this cut exactly once after the linked operation is terminal and relevant provider/structured settlement checks have reached the materialization point; the same cut value is then passed to the complete evidence scan and retained in the derivation basis. Do not re-acquire a later cut halfway through one binding. `QualifiedEvidenceForOperation` must enumerate the complete operation-attributable set at or below that exact cut and return explicit coverage; bounded/expired/incomplete coverage makes `VERIFICATION_RESULT` indeterminate. Structured-result derivation identity/version/completeness is frozen separately and participates independently in `derivation_cut_digest`.
 
 Store materialization primitive:
 
@@ -996,6 +1174,7 @@ Construct linked operation evidence containing one qualifying PASS and one quali
 ```bash
 go test ./internal/app/decisionprotocol ./internal/adapter/store -run 'Observation|Predicate|CloseExperiment|AbortExperiment|RealizedDiscrimination' -count=1
 go test -race ./internal/adapter/store -run 'ObservationMaterialization' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/app/decisionprotocol internal/adapter/store
 git diff --cached --check
@@ -1005,6 +1184,15 @@ git -c core.hooksPath=.githooks commit -m "feat: derive decision experiment obse
 ---
 
 ### Task 7: Implement candidate-scoped policy evaluation, budget admission, and semantic projections
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/app/decisionprotocol/evaluate.go`
@@ -1112,6 +1300,7 @@ Allowed transitions such as `candidate.create`, `experiment.define`, `close_unre
 
 ```bash
 go test ./internal/core/decisionprotocol ./internal/app/decisionprotocol -run 'Requirement|Gate|Budget|Projection|Plateau' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/core/decisionprotocol internal/app/decisionprotocol
 git diff --cached --check
@@ -1121,6 +1310,15 @@ git -c core.hooksPath=.githooks commit -m "feat: evaluate decision protocol gate
 ---
 
 ### Task 8: Add verifier assessments with a hard provenance firewall
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/app/decisionprotocol/assessment.go`
@@ -1205,6 +1403,7 @@ Equivalent replay of the same immutable assessment must not create a second sema
 
 ```bash
 go test ./internal/app/decisionprotocol ./internal/adapter/store -run 'Assessment|Verifier|ContextQualification|ProjectionDigest' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/app/decisionprotocol internal/adapter/store
 git diff --cached --check
@@ -1214,6 +1413,15 @@ git -c core.hooksPath=.githooks commit -m "feat: record qualified decision verif
 ---
 
 ### Task 9: Implement selection proposal, semantic CAS, durable idempotency, and close-unresolved
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/app/decisionprotocol/selection.go`
@@ -1320,6 +1528,7 @@ Exactly one terminal fact succeeds. Loser gets `EPISODE_TERMINAL_CONFLICT`. Asse
 ```bash
 go test ./internal/app/decisionprotocol ./internal/adapter/store -run 'Selection|CloseUnresolved|Idempotency|Terminal' -count=1
 go test -race ./internal/adapter/store -run 'Selection|Terminal' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/app/decisionprotocol internal/adapter/store
 git diff --cached --check
@@ -1329,6 +1538,15 @@ git -c core.hooksPath=.githooks commit -m "feat: commit decision selections atom
 ---
 
 ### Task 10: Implement trusted authority materialization, override intent, and commit-time requalification
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/app/decisionprotocol/authority.go`
@@ -1344,6 +1562,22 @@ git -c core.hooksPath=.githooks commit -m "feat: commit decision selections atom
 - Exact V1 class comparison is domain/class_id/version equality. Scope comparison is typed exact repository, optional episode semantics defined by provider contract, and exact action kind `COMMIT_SELECTION_OVERRIDE`; no wildcard strings.
 - V1 has no generic core attestation-revocation record.
 - `DecisionOverride` records explicit bounded intent over exact candidate/policy/projection/blocker digest. `SelectionCommit` stores the immutable authorization cut used at commit.
+
+Override application request is locked as:
+
+```go
+type CreateOverrideRequest struct {
+    EpisodeID                  decisionprotocol.EpisodeID
+    CandidateID                decisionprotocol.CandidateID
+    ExpectedPolicyDigest       string
+    ExpectedProjectionDigest   string
+    BlockingRequirementDigest  string
+    AuthorityAttestationRef    string
+    Reason                     string
+}
+```
+
+`CreateOverrideRequest` deliberately has no caller `ActorRef`. The service loads the referenced trusted attestation, requires its scope to cover the exact episode/action, and writes `DecisionOverride.actor_ref` from the attested/provider-owned actor identity. A caller audit label cannot become override authority identity.
 
 Provider interface:
 
@@ -1395,12 +1629,12 @@ policy_digest
 projection_digest
 blocking_requirement_digest
 blocking_requirements
-actor_ref
+actor_ref                  # server-derived from the referenced trusted attestation/provider principal
 authority_attestation_ref
 reason
 ```
 
-It does not assert future authority validity. If the caller supplies a stale projection/blocker digest, return `OVERRIDE_SCOPE_STALE`/`PROJECTION_CONFLICT` rather than widening intent.
+It does not assert future authority validity. Caller input does not contain an override actor identity. If the caller supplies a stale projection/blocker digest, return `OVERRIDE_SCOPE_STALE`/`PROJECTION_CONFLICT` rather than widening intent.
 
 - [ ] **Step 4: Revalidate authority at the selection commit authorization point**
 
@@ -1442,6 +1676,7 @@ For same candidate B and projection, race a normal commit with an override commi
 ```bash
 go test ./internal/core/decisionprotocol ./internal/app/decisionprotocol ./internal/adapter/store -run 'Authority|Attestation|Override|Selection' -count=1
 go test -race ./internal/adapter/store -run 'Override|Selection' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/core/decisionprotocol internal/app/decisionprotocol internal/adapter/store
 git diff --cached --check
@@ -1451,6 +1686,15 @@ git -c core.hooksPath=.githooks commit -m "feat: authorize decision protocol ove
 ---
 
 ### Task 11: Expose the bounded Decision Protocol surface through IPC v2, bridge, MCP, and schemas
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `internal/adapter/ipc/decision_protocol_v2.go`
@@ -1528,41 +1772,99 @@ type DecisionAuthorityMaterializeInputV1 struct {
 }
 
 type DecisionRequestV1 struct {
-    EpisodeID                 string                               `json:"episode_id,omitempty"`
-    CandidateID               string                               `json:"candidate_id,omitempty"`
-    ParentCandidateID         string                               `json:"parent_candidate_id,omitempty"`
-    ExperimentID              string                               `json:"experiment_id,omitempty"`
-    Policy                    *decisionprotocol.PolicySnapshot     `json:"policy,omitempty"`
-    Candidate                 *DecisionCandidateInputV1            `json:"candidate,omitempty"`
-    Prediction                *DecisionPredictionInputV1           `json:"prediction,omitempty"`
-    Assessment                *DecisionAssessmentInputV1           `json:"assessment,omitempty"`
-    AuthorityRequest          *DecisionAuthorityMaterializeInputV1 `json:"authority_request,omitempty"`
-    ActorRef                  string                               `json:"actor_ref,omitempty"`
-    ExpectedPolicyDigest      string                               `json:"expected_policy_digest,omitempty"`
-    ExpectedActivationRef     string                               `json:"expected_activation_ref,omitempty"`
-    ExpectedProjectionDigest  string                               `json:"expected_projection_digest,omitempty"`
-    IdempotencyKey            string                               `json:"idempotency_key,omitempty"`
-    OverrideRef               string                               `json:"override_ref,omitempty"`
-    Reason                    string                               `json:"reason,omitempty"`
+    EpisodeID                    string                               `json:"episode_id,omitempty"`
+    EpisodeKind                  decisionprotocol.EpisodeKind         `json:"episode_kind,omitempty"`
+    PredecessorEpisodeID         string                               `json:"predecessor_episode_id,omitempty"`
+    CandidateID                  string                               `json:"candidate_id,omitempty"`
+    ParentCandidateID            string                               `json:"parent_candidate_id,omitempty"`
+    ExperimentID                 string                               `json:"experiment_id,omitempty"`
+    Policy                       *decisionprotocol.PolicySnapshot     `json:"policy,omitempty"`
+    ActivationID                 string                               `json:"activation_id,omitempty"`
+    PolicyDigest                 string                               `json:"policy_digest,omitempty"`
+    ProposalGeneration           *uint64                              `json:"proposal_generation,omitempty"`
+    ExpectedPreviousPolicyDigest string                               `json:"expected_previous_policy_digest,omitempty"`
+    Candidate                    *DecisionCandidateInputV1            `json:"candidate,omitempty"`
+    Prediction                   *DecisionPredictionInputV1           `json:"prediction,omitempty"`
+    Assessment                   *DecisionAssessmentInputV1           `json:"assessment,omitempty"`
+    AuthorityRequest             *DecisionAuthorityMaterializeInputV1 `json:"authority_request,omitempty"`
+    AuthorityAttestationRef      string                               `json:"authority_attestation_ref,omitempty"`
+    ActorRef                     string                               `json:"actor_ref,omitempty"`
+    ExpectedPolicyDigest         string                               `json:"expected_policy_digest,omitempty"`
+    ExpectedActivationRef        string                               `json:"expected_activation_ref,omitempty"`
+    ExpectedProjectionDigest     string                               `json:"expected_projection_digest,omitempty"`
+    BlockingRequirementDigest    string                               `json:"blocking_requirement_digest,omitempty"`
+    IdempotencyKey               string                               `json:"idempotency_key,omitempty"`
+    OverrideRef                  string                               `json:"override_ref,omitempty"`
+    AbortPhase                   decisionprotocol.AbortPhase          `json:"abort_phase,omitempty"`
+    UnresolvedDimensions         *[]string                            `json:"unresolved_dimensions,omitempty"`
+    Reason                       string                               `json:"reason,omitempty"`
 }
 ```
 
-These four `*InputV1` structs are **adapter DTOs owned by `internal/adapter/ipc`**, not new core canonical types. IPC/MCP map them to the application request structs already defined by Tasks 3/4/8/10. They intentionally omit all server-owned canonical fields (`canonical_record_seq`, qualified context, materialized observation results, trusted attestation body).
+These four nested `*InputV1` structs plus `DecisionRequestV1` are **adapter DTOs owned by `internal/adapter/ipc`**, not new core canonical types. IPC/MCP map them losslessly to the application contracts defined by Tasks 2/3/4/8/9/10. `RepositoryID`, `WorkspaceID`, current source generation, effective policy activation, activation generation/time, canonical record sequence, qualified verifier context, observation results, and trusted authority actor identity are server-derived and therefore intentionally absent as caller-writable fields. `proposal_generation` is a pointer because zero is a valid scalar and action validation must distinguish omitted from explicitly supplied zero.
+
+The **machine-readable authority** for action-to-request mapping is `action_request_matrix` in `docs/superpowers/plans/2026-08-19-decision-protocol-v1-traceability.json`; Task 11 implementation/schema tests must match it exactly. Human-readable equivalent:
+
+| Action | Required caller fields | Optional caller fields | Server-derived / never caller-authoritative |
+|---|---|---|---|
+| `decision.policy.snapshot` | `policy` | — | current repository compatibility check; canonical seq/index materialization |
+| `decision.policy.activate` | `activation_id`, `policy_digest`, `proposal_generation`, `actor_ref` | `expected_previous_policy_digest` | repository ID, `activation_generation`, `activated_at`, authority=`explicit_caller` |
+| `decision.create` | `episode_id`, `episode_kind`, `actor_ref` | `predecessor_episode_id`, `expected_policy_digest`, `expected_activation_ref` | repository/workspace/source generation and current effective applicable activation |
+| `decision.inspect` | `episode_id` | `candidate_id` | projection/canonical cut |
+| `decision.evaluate` | `episode_id`, `candidate_id` | — | projection/canonical cut |
+| `decision.close_unresolved` | `episode_id`, `actor_ref`, `expected_projection_digest`, `reason`, `unresolved_dimensions` | — | terminal sequence/time |
+| `decision.candidate.create` | `episode_id`, `candidate`, `actor_ref` | — | `declared_at` |
+| `decision.candidate.revise` | `episode_id`, `parent_candidate_id`, `candidate`, `actor_ref` | — | parent activeness/lineage and `declared_at` |
+| `decision.experiment.define` | `episode_id`, `experiment_id`, `actor_ref` | — | `declared_at` |
+| `decision.prediction.bind` | `episode_id`, `experiment_id`, `prediction` | — | source generation and `committed_at` |
+| `decision.experiment.seal` | `experiment_id`, `actor_ref` | — | sealed digest/base cut/pairs/time |
+| `decision.experiment.close` | `experiment_id`, `actor_ref` | — | server-derived observation binding/closure time |
+| `decision.experiment.abort` | `experiment_id`, `abort_phase`, `actor_ref`, `reason` | — | execution-link relation/time |
+| `decision.assessment.record` | `episode_id`, `assessment`, `actor_ref` | — | qualified context/provider cut if available |
+| `decision.selection.propose` | `episode_id`, `candidate_id`, `actor_ref` | `reason` | `proposal_id`, proposal time; `reason` maps to canonical rationale |
+| `decision.override.create` | `episode_id`, `candidate_id`, `expected_policy_digest`, `expected_projection_digest`, `blocking_requirement_digest`, `authority_attestation_ref`, `reason` | — | `override_id`, trusted actor identity from attestation/provider principal; exact current blocker set validation/time |
+| `decision.selection.commit` | `episode_id`, `candidate_id`, `actor_ref`, `expected_policy_digest`, `expected_projection_digest`, `idempotency_key` | `override_ref` | `commit_id`, semantic intent fingerprint/terminal seq/time and override authorization cut |
+| `decision.authority.materialize` | `authority_request` | — | **trusted actor identity/principal**, resolver qualification, attestation body/id/time |
+
+Per-action validation rejects every field not present in that row. In particular, `decision.authority.materialize` and `decision.override.create` reject caller `actor_ref`; `MaterializeAuthorityRequest.ActorRef` and canonical `DecisionOverride.actor_ref` are populated only from the trusted transport/provider/attestation identity in Tasks 10/12. `decision.policy.activate.expected_previous_policy_digest` is an optional CAS field because first activation has no previous digest; omission is meaningful only for the first-activation path. `decision.close_unresolved.unresolved_dimensions` is required as an explicit array (empty is valid) so omission cannot be confused with transport loss. The shared DTO therefore uses `*[]string`: nil means absent, while a non-nil pointer to an empty slice round-trips as `[]` through IPC/bridge/MCP.
+
+Adapter mapping aliases are also frozen:
+
+```text
+DecisionRequestV1.expected_projection_digest
+  → CloseUnresolvedRequest.ProjectionDigest for decision.close_unresolved
+  → CommitSelectionRequest.ExpectedProjectionDigest for decision.selection.commit
+  → CreateOverrideRequest.ExpectedProjectionDigest for decision.override.create
+
+DecisionRequestV1.reason
+  → SelectionProposal.Rationale for decision.selection.propose
+  → CloseUnresolvedRequest.Reason / CreateOverrideRequest.Reason / AbortExperiment reason for their exact actions
+
+DecisionRequestV1.abort_phase
+  → AbortExperiment AbortPhase
+
+DecisionRequestV1.authority_attestation_ref + blocking_requirement_digest
+  → CreateOverrideRequest exact identity fields
+```
+
+No adapter may substitute a server-derived value for a missing required caller field merely because the application layer could theoretically load it.
+
 
 - [ ] **Step 1: Write RED strict-decode/action-field tests**
 
-For every action, test one valid minimum payload, one missing-required-field payload, and one cross-action field rejection. Minimum security tests:
+Build the test table from the exact 18-row request matrix above: for every action, test one valid minimum payload, every required-field omission, every optional-field acceptance, and representative cross-action field rejection. Add explicit mapping tests for `PutPolicySnapshotRequest`, `ActivatePolicyRequest`, `CreateEpisodeRequest`, `AbortExperiment`, `CloseUnresolvedRequest`, `CreateOverride`, and `CommitSelection` so no transport field is silently server-invented or dropped. Minimum security tests:
 
 ```go
 func TestDecisionAssessmentInputRejectsQualifiedContextFields(t *testing.T)
 func TestDecisionAuthorityInputRejectsCallerAttestationBody(t *testing.T)
+func TestDecisionAuthorityMaterializeRejectsCallerActorRef(t *testing.T)
 func TestDecisionObservationResultsHaveNoCallerInputField(t *testing.T)
 func TestStartAcceptsOptionalExperimentIDAndPollRejectsIt(t *testing.T)
 ```
 
 - [ ] **Step 2: Implement IPC v2 mapping and daemon action interface**
 
-Add focused decision methods to `ipc.Actions` through a composed sub-interface so the existing interface stays under the eight-method hard cap; follow the verification/mutation-scope split-file pattern. `inspect/evaluate` handlers call projection only and never `Start`.
+Add focused decision methods to `ipc.Actions` through a composed sub-interface so the existing interface stays under the eight-method hard cap; follow the verification/mutation-scope split-file pattern. Map `decision.policy.snapshot` exactly to Task-2 `PutPolicySnapshotRequest` and `decision.policy.activate` exactly to `ActivatePolicyRequest`; resolve repository/workspace/trusted transport context server-side only where the action matrix marks it server-derived. `inspect/evaluate` handlers call projection only and never `Start`.
 
 - [ ] **Step 3: Implement bridge forwarding and preserve structured typed responses**
 
@@ -1580,6 +1882,7 @@ Add closed definitions for action enums, nested decision request declarations, b
 
 ```bash
 go test ./internal/adapter/ipc ./internal/adapter/mcp ./internal/app/bridge ./api/schema -run 'Decision|ExperimentID' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add internal/adapter/ipc internal/adapter/mcp internal/app/bridge api/schema
 git diff --cached --check
@@ -1589,6 +1892,15 @@ git -c core.hooksPath=.githooks commit -m "feat: expose decision protocol transp
 ---
 
 ### Task 12: Compose the daemon runtime, capability advertisement, compatibility firewall, and built-in authority provider
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `cmd/shellbeam/decision_protocol.go`
@@ -1605,7 +1917,7 @@ git -c core.hooksPath=.githooks commit -m "feat: expose decision protocol transp
 **Interfaces:**
 - Compose one Decision Protocol service from the existing store, canonical source-generation provider, receipt/structured/verification readers, and authority resolver registry.
 - Advertise capability only when canonical store initialization and required read-side dependencies are available.
-- V1 built-in authority provider may qualify only exact class `{domain:"shellbeam", class_id:"explicit_caller", version:1}` under the current authenticated OS-user/explicit-call boundary. It must not claim repository ownership/maintainership. Future provider classes plug into the registry without changing Decision Protocol schema.
+- V1 built-in authority provider may qualify only exact class `{domain:"shellbeam", class_id:"explicit_caller", version:1}` under the current authenticated OS-user/explicit-call boundary. The attested `actor_ref` is provider/transport-derived from that authenticated boundary (for the built-in Unix IPC provider, an exact provider-owned binding to the accepted peer UID); an arbitrary caller-supplied audit label must never be copied into a qualified attestation as actor identity. It must not claim repository ownership/maintainership. Future provider classes plug into the registry without changing Decision Protocol schema.
 - Repositories with no explicitly activated applicable Decision Policy cannot create a governed episode; ordinary ShellBeam remains unchanged and does not acquire implicit hard gates.
 
 Capability shape:
@@ -1637,7 +1949,7 @@ func TestRepositoryWithoutActivatedDecisionPolicyKeepsOrdinaryStartSemantics(t *
 
 - [ ] **Step 3: Implement the exact built-in explicit-caller resolver and registry**
 
-Registry key is exact authority class domain/id/version. Built-in provider returns QUALIFIED only for the current trusted ShellBeam explicit caller scope/action contract. Requests for `repository_owner`, `maintainer`, arbitrary domains, or wildcard-like strings return UNKNOWN/UNAVAILABLE, never a promoted class.
+Registry key is exact authority class domain/id/version. Thread a trusted caller principal from the authenticated IPC/bridge boundary into authority materialization without exposing a JSON field that can forge it. For Unix IPC the principal binds to the peer UID already accepted by `authListener`; MCP/bridge forwarding preserves that server-owned principal and cannot replace it with `decision.actor_ref`. The built-in provider's exact V1 actor binding is `shellbeam:explicit_caller:uid:<decimal-peer-uid>` and is constructed only from the accepted peer UID. The built-in provider derives its canonical attestation `actor_ref` from this provider-owned principal and returns QUALIFIED only for the current trusted ShellBeam explicit caller scope/action contract. Requests for `repository_owner`, `maintainer`, arbitrary domains, wildcard-like strings, or caller attempts to substitute the actor identity return UNKNOWN/UNAVAILABLE or strict-input rejection, never a promoted class.
 
 - [ ] **Step 4: Add compatibility regression tests for ordinary execution/replay**
 
@@ -1652,6 +1964,7 @@ Composition test commits a protocol-clear candidate and then inspects downstream
 ```bash
 go test ./internal/core/capability ./internal/app/decisionprotocol ./cmd/shellbeam -run 'DecisionProtocol|ExplicitCaller|OrdinaryStart|CandidateCommit' -count=1
 go test ./internal/core/operation ./internal/app/daemon ./internal/adapter/store -run 'Fingerprint|Replay|Reservation' -count=1
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git add cmd/shellbeam internal/core/capability internal/app/decisionprotocol
 git diff --cached --check
@@ -1661,6 +1974,15 @@ git -c core.hooksPath=.githooks commit -m "feat: compose decision protocol runti
 ---
 
 ### Task 13: Prove end-to-end protocol, restart recovery, concurrency/security invariants, and final acceptance
+
+**Mandatory pre-task base gate — run before editing any file in this task:**
+
+```bash
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
+```
+
+If this fails, stop before making task-local edits and return to the Task-0 drift/integration gate. Do not continue on a stale implementation base.
+
 
 **Files:**
 - Create: `cmd/shellbeam/decision_protocol_acceptance_test.go`
@@ -1772,6 +2094,7 @@ Run all of these from a cleanly built worktree state after the Task-13 code is s
 go test ./internal/core/decisionprotocol ./internal/app/decisionprotocol ./internal/adapter/store ./internal/app/daemon ./internal/adapter/ipc ./internal/adapter/mcp ./internal/app/bridge ./api/schema ./cmd/shellbeam -count=1
 go test -race ./internal/app/decisionprotocol ./internal/adapter/store ./internal/app/daemon ./internal/adapter/ipc ./cmd/shellbeam -run 'DecisionProtocol|Experiment|Selection|Override' -count=1
 go test ./...
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 go run ./tools/devctl test --dirty --base "$SHELLBEAM_BASE_REF" --json
 git diff --check
 python3 scripts/check-decision-protocol-v1-plan-traceability.py
@@ -1800,6 +2123,7 @@ Before declaring implementation complete, verify every frozen invariant is mappe
 
 ```bash
 python3 scripts/check-decision-protocol-v1-plan-traceability.py
+export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"
 git log --oneline "$SHELLBEAM_BASE_REF"..HEAD
 git diff --check "$SHELLBEAM_BASE_REF"..HEAD
 go test ./...

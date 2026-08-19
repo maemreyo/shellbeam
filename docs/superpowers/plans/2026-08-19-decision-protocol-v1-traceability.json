@@ -889,5 +889,300 @@
         13
       ]
     }
+  ],
+  "implementation_base_protocol": {
+    "plan_authoring_base": "27207d94b097040b571081c8c49d9c09487460c5",
+    "durable_authority": "docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md#implementation_base",
+    "rebind_helper": "scripts/decision-protocol-v1-implementation-base.sh",
+    "current_main_ref": "main",
+    "owner_overlap_policy": "stop_and_rereview",
+    "tasks_requiring_rebind": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13
+    ]
+  },
+  "canonical_policy_ledger_protocol": {
+    "source_of_truth": "decision_protocol/ledger/records/<canonical_record_seq>.json",
+    "canonical_record_kinds": [
+      "DecisionPolicySnapshot",
+      "DecisionPolicyActivation"
+    ],
+    "secondary_materializations": [
+      "policies/",
+      "activations/",
+      "effective/"
+    ],
+    "recovery": "repair_contiguous_canonical_records_then_advance_high_water; gaps_or_high_water_missing_record_fail_closed"
+  },
+  "action_request_matrix": [
+    {
+      "action": "decision.policy.snapshot",
+      "required": [
+        "policy"
+      ],
+      "optional": [],
+      "server_derived": [
+        "repository_compatibility",
+        "canonical_record_seq"
+      ]
+    },
+    {
+      "action": "decision.policy.activate",
+      "required": [
+        "activation_id",
+        "policy_digest",
+        "proposal_generation",
+        "actor_ref"
+      ],
+      "optional": [
+        "expected_previous_policy_digest"
+      ],
+      "server_derived": [
+        "repository_id",
+        "activation_generation",
+        "activated_at",
+        "explicit_caller_authority"
+      ]
+    },
+    {
+      "action": "decision.create",
+      "required": [
+        "episode_id",
+        "episode_kind",
+        "actor_ref"
+      ],
+      "optional": [
+        "predecessor_episode_id",
+        "expected_policy_digest",
+        "expected_activation_ref"
+      ],
+      "server_derived": [
+        "repository_id",
+        "workspace_id",
+        "source_generation",
+        "current_effective_activation"
+      ]
+    },
+    {
+      "action": "decision.inspect",
+      "required": [
+        "episode_id"
+      ],
+      "optional": [
+        "candidate_id"
+      ],
+      "server_derived": [
+        "projection_cut"
+      ]
+    },
+    {
+      "action": "decision.evaluate",
+      "required": [
+        "episode_id",
+        "candidate_id"
+      ],
+      "optional": [],
+      "server_derived": [
+        "projection_cut"
+      ]
+    },
+    {
+      "action": "decision.close_unresolved",
+      "required": [
+        "episode_id",
+        "actor_ref",
+        "expected_projection_digest",
+        "reason",
+        "unresolved_dimensions"
+      ],
+      "optional": [],
+      "server_derived": [
+        "terminal_sequence",
+        "closed_at"
+      ]
+    },
+    {
+      "action": "decision.candidate.create",
+      "required": [
+        "episode_id",
+        "candidate",
+        "actor_ref"
+      ],
+      "optional": [],
+      "server_derived": [
+        "declared_at"
+      ]
+    },
+    {
+      "action": "decision.candidate.revise",
+      "required": [
+        "episode_id",
+        "parent_candidate_id",
+        "candidate",
+        "actor_ref"
+      ],
+      "optional": [],
+      "server_derived": [
+        "parent_activeness",
+        "lineage",
+        "declared_at"
+      ]
+    },
+    {
+      "action": "decision.experiment.define",
+      "required": [
+        "episode_id",
+        "experiment_id",
+        "actor_ref"
+      ],
+      "optional": [],
+      "server_derived": [
+        "declared_at"
+      ]
+    },
+    {
+      "action": "decision.prediction.bind",
+      "required": [
+        "episode_id",
+        "experiment_id",
+        "prediction"
+      ],
+      "optional": [],
+      "server_derived": [
+        "source_generation",
+        "committed_at"
+      ]
+    },
+    {
+      "action": "decision.experiment.seal",
+      "required": [
+        "experiment_id",
+        "actor_ref"
+      ],
+      "optional": [],
+      "server_derived": [
+        "sealed_prediction_digest",
+        "base_projection_cut",
+        "potential_discrimination_pairs",
+        "sealed_at"
+      ]
+    },
+    {
+      "action": "decision.experiment.close",
+      "required": [
+        "experiment_id",
+        "actor_ref"
+      ],
+      "optional": [],
+      "server_derived": [
+        "observation_binding",
+        "closed_at"
+      ]
+    },
+    {
+      "action": "decision.experiment.abort",
+      "required": [
+        "experiment_id",
+        "abort_phase",
+        "actor_ref",
+        "reason"
+      ],
+      "optional": [],
+      "server_derived": [
+        "execution_link_relation",
+        "aborted_at"
+      ]
+    },
+    {
+      "action": "decision.assessment.record",
+      "required": [
+        "episode_id",
+        "assessment",
+        "actor_ref"
+      ],
+      "optional": [],
+      "server_derived": [
+        "qualified_context",
+        "context_qualification"
+      ]
+    },
+    {
+      "action": "decision.selection.propose",
+      "required": [
+        "episode_id",
+        "candidate_id",
+        "actor_ref"
+      ],
+      "optional": [
+        "reason"
+      ],
+      "server_derived": [
+        "proposal_id",
+        "created_at"
+      ]
+    },
+    {
+      "action": "decision.override.create",
+      "required": [
+        "episode_id",
+        "candidate_id",
+        "expected_policy_digest",
+        "expected_projection_digest",
+        "blocking_requirement_digest",
+        "authority_attestation_ref",
+        "reason"
+      ],
+      "optional": [],
+      "server_derived": [
+        "override_id",
+        "trusted_actor_ref",
+        "current_blocker_validation",
+        "created_at"
+      ]
+    },
+    {
+      "action": "decision.selection.commit",
+      "required": [
+        "episode_id",
+        "candidate_id",
+        "actor_ref",
+        "expected_policy_digest",
+        "expected_projection_digest",
+        "idempotency_key"
+      ],
+      "optional": [
+        "override_ref"
+      ],
+      "server_derived": [
+        "commit_id",
+        "semantic_intent_fingerprint",
+        "terminal_sequence",
+        "committed_at",
+        "override_authorization_cut"
+      ]
+    },
+    {
+      "action": "decision.authority.materialize",
+      "required": [
+        "authority_request"
+      ],
+      "optional": [],
+      "server_derived": [
+        "trusted_actor_ref",
+        "resolver_qualification",
+        "attestation_body"
+      ]
+    }
   ]
 }

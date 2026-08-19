@@ -43,6 +43,93 @@ for name in canonical_records:
 actions=['decision.policy.snapshot','decision.policy.activate','decision.create','decision.inspect','decision.evaluate','decision.close_unresolved','decision.candidate.create','decision.candidate.revise','decision.experiment.define','decision.prediction.bind','decision.experiment.seal','decision.experiment.close','decision.experiment.abort','decision.assessment.record','decision.selection.propose','decision.override.create','decision.selection.commit','decision.authority.materialize']
 for action in actions:
     if action not in plan: errors.append(f"plan missing action {action}")
+
+# Cross-task transport contract: the trace file is the machine-readable 18-action request matrix.
+matrix_items=meta.get('action_request_matrix',[])
+matrix={x.get('action'):x for x in matrix_items}
+if set(matrix) != set(actions): errors.append(f"action request matrix actions={sorted(matrix)}")
+expected_request_fields={
+    'decision.policy.snapshot':({'policy'},set()),
+    'decision.policy.activate':({'activation_id','policy_digest','proposal_generation','actor_ref'},{'expected_previous_policy_digest'}),
+    'decision.create':({'episode_id','episode_kind','actor_ref'},{'predecessor_episode_id','expected_policy_digest','expected_activation_ref'}),
+    'decision.inspect':({'episode_id'},{'candidate_id'}),
+    'decision.evaluate':({'episode_id','candidate_id'},set()),
+    'decision.close_unresolved':({'episode_id','actor_ref','expected_projection_digest','reason','unresolved_dimensions'},set()),
+    'decision.candidate.create':({'episode_id','candidate','actor_ref'},set()),
+    'decision.candidate.revise':({'episode_id','parent_candidate_id','candidate','actor_ref'},set()),
+    'decision.experiment.define':({'episode_id','experiment_id','actor_ref'},set()),
+    'decision.prediction.bind':({'episode_id','experiment_id','prediction'},set()),
+    'decision.experiment.seal':({'experiment_id','actor_ref'},set()),
+    'decision.experiment.close':({'experiment_id','actor_ref'},set()),
+    'decision.experiment.abort':({'experiment_id','abort_phase','actor_ref','reason'},set()),
+    'decision.assessment.record':({'episode_id','assessment','actor_ref'},set()),
+    'decision.selection.propose':({'episode_id','candidate_id','actor_ref'},{'reason'}),
+    'decision.override.create':({'episode_id','candidate_id','expected_policy_digest','expected_projection_digest','blocking_requirement_digest','authority_attestation_ref','reason'},set()),
+    'decision.selection.commit':({'episode_id','candidate_id','actor_ref','expected_policy_digest','expected_projection_digest','idempotency_key'},{'override_ref'}),
+    'decision.authority.materialize':({'authority_request'},set()),
+}
+for action,(required_fields,optional_fields) in expected_request_fields.items():
+    item=matrix.get(action,{})
+    got_required=set(item.get('required',[])); got_optional=set(item.get('optional',[]))
+    if got_required != required_fields: errors.append(f"{action} required fields={sorted(got_required)}")
+    if got_optional != optional_fields: errors.append(f"{action} optional fields={sorted(got_optional)}")
+    if got_required & got_optional: errors.append(f"{action} required/optional overlap")
+    if len(item.get('server_derived',[])) != len(set(item.get('server_derived',[]))): errors.append(f"{action} duplicate server-derived fields")
+if 'trusted_actor_ref' not in set(matrix.get('decision.authority.materialize',{}).get('server_derived',[])):
+    errors.append('authority materialize lacks server-derived trusted_actor_ref')
+if 'actor_ref' in set(matrix.get('decision.authority.materialize',{}).get('required',[])+matrix.get('decision.authority.materialize',{}).get('optional',[])):
+    errors.append('authority materialize exposes caller actor_ref')
+if 'actor_ref' in set(matrix.get('decision.override.create',{}).get('required',[])+matrix.get('decision.override.create',{}).get('optional',[])):
+    errors.append('override create exposes caller actor_ref')
+if 'trusted_actor_ref' not in set(matrix.get('decision.override.create',{}).get('server_derived',[])):
+    errors.append('override create lacks server-derived trusted_actor_ref')
+
+# Every caller field in the matrix must be representable by the bounded DecisionRequestV1 DTO.
+dto_match=re.search(r'type DecisionRequestV1 struct \{(.*?)\n\}',plan,re.S)
+if not dto_match:
+    errors.append('DecisionRequestV1 block missing')
+else:
+    dto_fields=set(re.findall(r'json:\"([^,\"]+)',dto_match.group(1)))
+    matrix_fields=set()
+    for item in matrix.values():
+        matrix_fields.update(item.get('required',[])); matrix_fields.update(item.get('optional',[]))
+    if dto_fields != matrix_fields:
+        errors.append(f"DecisionRequestV1 fields mismatch matrix missing={sorted(matrix_fields-dto_fields)} extra={sorted(dto_fields-matrix_fields)}")
+
+# Task 0 durable implementation-base authority and per-task rebinding.
+base_proto=meta.get('implementation_base_protocol',{})
+if base_proto.get('plan_authoring_base') != meta.get('plan_authoring_base'): errors.append('implementation base protocol authoring base mismatch')
+if base_proto.get('durable_authority') != 'docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md#implementation_base': errors.append('implementation base durable authority mismatch')
+if base_proto.get('rebind_helper') != 'scripts/decision-protocol-v1-implementation-base.sh': errors.append('implementation base helper mismatch')
+if base_proto.get('current_main_ref') != 'main': errors.append('implementation base current-main authority mismatch')
+if base_proto.get('owner_overlap_policy') != 'stop_and_rereview': errors.append('implementation base owner-overlap policy mismatch')
+if base_proto.get('tasks_requiring_rebind') != list(range(1,14)): errors.append('implementation base task rebind set mismatch')
+helper_call='export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"'
+for task in range(1,14):
+    start=re.search(rf'^### Task {task}:',plan,re.M)
+    next_task=re.search(rf'^### Task {task+1}:',plan,re.M) if task < 13 else re.search(r'^## Plan Completion Gate',plan,re.M)
+    if not start or not next_task: errors.append(f"cannot isolate task {task} for base binding")
+    else:
+        block=plan[start.start():next_task.start()]
+        if helper_call not in block: errors.append(f"task {task} does not rebind durable implementation base")
+        files_pos=block.find('**Files:**')
+        helper_pos=block.find(helper_call)
+        if files_pos < 0 or helper_pos < 0 or helper_pos > files_pos: errors.append(f"task {task} base gate is not before file-edit instructions")
+if 'export SHELLBEAM_BASE_REF="$(git rev-parse HEAD)"' in plan: errors.append('plan still binds implementation base from planning HEAD')
+
+# Policy snapshot/activation must participate in the same canonical ledger as all other records.
+policy_proto=meta.get('canonical_policy_ledger_protocol',{})
+if set(policy_proto.get('canonical_record_kinds',[])) != {'DecisionPolicySnapshot','DecisionPolicyActivation'}: errors.append('canonical policy ledger kinds mismatch')
+if policy_proto.get('source_of_truth') != 'decision_protocol/ledger/records/<canonical_record_seq>.json': errors.append('canonical policy ledger source mismatch')
+if set(policy_proto.get('secondary_materializations',[])) != {'policies/','activations/','effective/'}: errors.append('canonical policy secondary materializations mismatch')
+for anchor in ['`PutPolicySnapshot` must append/replay `RecordPolicySnapshot`','ActivatePolicyCAS` must append/replay `RecordPolicyActivation`','secondary indexes/materializations only']:
+    if anchor not in plan: errors.append(f"plan missing canonical policy ledger anchor {anchor}")
+
+# Recovery/admission/cut precision blockers from independent plan review.
+for anchor in ['type PutPolicySnapshotRequest struct','type ActivatePolicyRequest struct','type CreateOverrideRequest struct','LinkID                         string','WorkspaceID                    string','AdmittedAt                     time.Time','VerificationObservationCut','EvidenceIndexGeneration uint64','AcquireVerificationObservationCut','proposal_generation,omitempty','expected_previous_policy_digest,omitempty','authority_attestation_ref,omitempty','blocking_requirement_digest,omitempty','abort_phase,omitempty','UnresolvedDimensions         *[]string','unresolved_dimensions,omitempty']:
+    if anchor not in plan: errors.append(f"plan missing precision anchor {anchor}")
+if 'QualifiedEvidenceForOperation(context.Context, operation.ID, uint64)' in plan: errors.append('verification cut still uses untyped uint64')
+if 'DECISION_CANONICAL_LEDGER_CORRUPT' in plan: errors.append('plan invented non-frozen Decision reason code')
 reason_codes=['CANDIDATE_REVISION_CONFLICT','EXPERIMENT_ALREADY_SEALED','EXPERIMENT_EXECUTION_LIMIT_REACHED','EXPERIMENT_NOT_SEALED','OBSERVATION_NOT_SETTLED','EXPERIMENT_OBSERVATION_BINDING_CONFLICT','STALE_EPISODE_SOURCE_GENERATION','PROJECTION_CONFLICT','POLICY_CONFLICT','EPISODE_TERMINAL_CONFLICT','TERMINAL_SELECTION_CONFLICT','IDEMPOTENCY_CONFLICT','PROTOCOL_BLOCKED','PROTOCOL_INDETERMINATE','OVERRIDE_SCOPE_STALE','OVERRIDE_AUTHORITY_NOT_ADMISSIBLE','AUTHORITY_REQUIREMENT_UNAVAILABLE']
 for code in reason_codes:
     if code not in plan: errors.append(f"plan missing reason code {code}")
