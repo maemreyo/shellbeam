@@ -717,14 +717,22 @@ git -c core.hooksPath=.githooks commit -m "feat: expose delegated interactive co
 **Files:**
 - Create: `internal/app/delegatedsession/reattach.go`
 - Create: `internal/app/delegatedsession/reattach_test.go`
+- Modify: `internal/app/delegatedsession/ports.go`
+- Modify: `internal/app/daemon/delegated_port.go`
+- Modify: `internal/adapter/delegatedtmux/provider_session.go`
+- Modify: `internal/adapter/delegatedtmux/provider_native_test.go`
 - Create: `internal/app/daemon/delegated_reconcile.go`
 - Create: `internal/app/daemon/delegated_reconcile_test.go`
 - Modify: `internal/app/daemon/persistent_startup.go` or the shared startup reconciliation coordinator without weakening B1 behavior.
 - Modify: `internal/app/daemon/shutdown.go`
 - Create: `cmd/shellbeam/delegated_runtime_acceptance_test.go`
+- Modify: `cmd/shellbeam/delegated_sessions.go`
+- Modify: `cmd/shellbeam/command_daemon.go`
 
 **Interfaces:**
 - Startup reconciliation consumes canonical delegated recovery candidates and provider observations; yields exact current agent authority or fenced/lost state.
+- Delegated provider shutdown needs a distinct `Detach` primitive: it closes only ShellBeam's control observer/ownership attachment while preserving the private tmux server, provider-private state, child/session identity, and recovery marker. `Close` retains terminal cleanup semantics and may destroy the provider session only after terminal publication.
+- On successful native restart acceptance Task 8 may flip `daemon_restart_continuity=true`; it must remain false until that acceptance is proven in the same task.
 
 - [ ] **Step 1: RED restart matrix.**
 
