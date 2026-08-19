@@ -789,11 +789,11 @@ git commit -m "test: qualify pytest structured results"
 **Interfaces:**
 - Produces final exact implementation HEAD/source fingerprint/checkpoint receipt used by merge/deploy.
 
-- [ ] **Step 1: Static architecture/compatibility audit**
+- [x] **Step 1: Static architecture/compatibility audit**
 
 Mechanically scan that the implementation contains one MCP tool, no generic JUnit fallback, no pytest flag/config injection, no workspace-path reopen after Phase A, no session-retention blob deletion, no parser-based child-outcome rewrite, and no hidden pytest version subprocess on ordinary structured start.
 
-- [ ] **Step 2: Run focused package + race gates**
+- [x] **Step 2: Run focused package + race gates**
 
 ```bash
 go test ./internal/core/structuredresult ./internal/core/operation ./internal/app/structuredresult ./internal/app/daemon ./internal/adapter/localfs ./internal/adapter/store ./internal/adapter/structured/gojson ./internal/adapter/structured/pytestjunit ./internal/adapter/ipc ./internal/adapter/mcp ./internal/core/capability ./api/schema ./cmd/shellbeam -count=1
@@ -803,7 +803,7 @@ git diff --check
 go run ./tools/devctl test --dirty --base main
 ```
 
-- [ ] **Step 3: Run release qualification + full repository verification**
+- [x] **Step 3: Run release qualification + full repository verification**
 
 ```bash
 ./scripts/test-pytest-structured-results.sh
@@ -813,7 +813,7 @@ go run ./tools/devctl verify --checkpoint --base main --json
 
 Require `command=verify`, `selection=full`, `status=passed`, `exit_code=0`, exact committed source fingerprint and exact final feature HEAD.
 
-- [ ] **Step 4: Concurrent-main audit before merge**
+- [x] **Step 4: Concurrent-main audit before merge**
 
 Fetch `origin/main`, compare local `main`, feature merge-base and exact changed-file overlaps. Rebase only if current main has advanced; resolve semantic overlaps individually and rerun affected/full gates as required. Never merge stale verification evidence across a changed source fingerprint.
 
@@ -824,6 +824,14 @@ Fast-forward local main when possible, verify merged HEAD/tree, build the exact 
 - [ ] **Step 6: Cleanup only after live deploy proof**
 
 Remove implementation worktree/branch only when merged main is verified/deployed and no unmerged dirt remains. Preserve fixture/evidence artifacts committed by Task 11.
+
+
+**Task 12 pre-merge verification evidence (2026-08-20):**
+- Static architecture/compatibility audit: PASS for the single `local_shell` MCP surface, no generic JUnit fallback, no pytest flag/config injection, no workspace reopen after Phase A, no session-retention artifact deletion, no parser child-outcome rewrite, and no hidden pytest-version subprocess on ordinary starts.
+- Focused non-race package gate: PASS. Focused race gate: PASS. `devctl check` PASS and `devctl test --dirty --base main` PASS (`.build/receipts/20260819T173448.440130000Z-test.json`).
+- Release qualification: PASS with real pytest `8.4.2` and `9.1.1`. The first full-repository pass exposed stale repro fixtures still constructing raw-only schema-v1 persisted inputs; `bf1a399` migrated them through `StructuredInputRef`/schema v2, after which `go test ./... -count=1` passed including `internal/app/repro` and `tests/integration`.
+- Implementation-byte checkpoint before this evidence-only plan update: HEAD `bf1a399732177de5d8b7a7f372c5830f187d85b8`; `devctl verify --checkpoint --base main --json` returned `command=verify`, `selection=full`, `status=passed`, `exit_code=0`, source fingerprint `4b60984836bd414f266f9ebcf2ae0e83ed59f6bf3a50d71dfd11effd2ddbe673`. A final checkpoint is rerun after this evidence-only commit so merge/deploy never relies on a stale fingerprint.
+- Concurrent-main audit after `git fetch origin main`: local `main=27207d94b097040b571081c8c49d9c09487460c5`, `origin/main=f84c2a2aa28a05a598f152ef7b4670930c3a9691`, local-only commits `31`, origin-only commits `0`; local main is the feature merge-base/ancestor, so `rebase_required=false`.
 
 ---
 
