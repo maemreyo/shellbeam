@@ -633,7 +633,7 @@ evidence_authority = session_lifecycle_only
 ```
 
 - H1 emits only `output_complete=true + capture_quality=complete + capture_reasons=[] + input_authority_provenance=agent_only`. H2/H4 may monotonically add later provenance/reasons without receipt-version fork.
-- New capability: `delegated_interactive` with provider/version, daemon-restart continuity, host-reboot false, current H1 limits.
+- New capability: `delegated_interactive` with provider/version, platform scope, current H1 limits, `daemon_restart_continuity=false`, and `host_reboot_continuity=false`. Task 8 may flip daemon-restart continuity only after restart reconciliation + native acceptance pass; Task 7 must not advertise future continuity.
 - Modern start supports `session_mode`; modern delegated write/kill requires `authority_epoch`.
 - Modern result includes delegated authority/capture/provenance fields only for delegated sessions.
 - Result delegated metadata is optional top-level `session_mode`, `authority_epoch`, `evidence_authority`, and `input_authority_provenance`; `output.capture_quality` and `output.capture_reasons` are optional and appear only for delegated receipt v5. Provider-proven delegated exit status maps child state to `exited` without claiming daemon reap.
@@ -676,6 +676,7 @@ Runtime later enforces epoch required for an actual delegated target.
 - [ ] **Step 3: Add capability projection only when production provider composition is qualified/current.**
 
 Capability discovery must be side-effect free: it may use startup qualification state/configured provider identity, but `inspect.server` must not start tmux.
+Production composition is optional and fail-closed per platform: on unqualified/non-Darwin/missing-or-mismatched tmux, ordinary daemon startup continues with no delegated runtime and no delegated capability. On exact qualified Darwin tmux, startup performs one provider Probe, injects that runtime, and derives capability from the successful probe; later inspect.server only clones that frozen catalog and performs no tmux work.
 
 - [ ] **Step 4: Add IPC/MCP lossless mapping and failure projection.**
 
