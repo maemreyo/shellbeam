@@ -260,3 +260,58 @@ func (a DecisionPolicyActivation) Validate() error {
 	}
 	return nil
 }
+
+// PolicySnapshot and PolicyActivation are compatibility names for the frozen
+// canonical Decision Policy record bodies. They do not introduce new record
+// shapes or JSON identities.
+type PolicySnapshot = DecisionPolicySnapshot
+type PolicyActivation = DecisionPolicyActivation
+
+type PolicyActivationIntent struct {
+	ActivationID                  string `json:"activation_id"`
+	RepositoryID                  string `json:"repository_id"`
+	PreviousEffectivePolicyDigest string `json:"previous_effective_policy_digest"`
+	ProposedPolicyDigest          string `json:"proposed_policy_digest"`
+	ProposalGeneration            string `json:"proposal_generation"`
+	Authority                     string `json:"authority"`
+	ActorRef                      string `json:"actor_ref"`
+}
+
+func (i PolicyActivationIntent) Validate() error {
+	if !boundedToken(i.ActivationID, 128) || !boundedToken(i.RepositoryID, 128) ||
+		(i.PreviousEffectivePolicyDigest != "absent" && !validDerived(i.PreviousEffectivePolicyDigest, "pol_")) ||
+		!validDerived(i.ProposedPolicyDigest, "pol_") || !validGeneration(i.ProposalGeneration) ||
+		i.Authority != AuthorityExplicitCaller || !boundedToken(i.ActorRef, 192) {
+		return fmt.Errorf("invalid decision policy activation intent")
+	}
+	return nil
+}
+
+type PolicyActivationCommit struct {
+	Intent               PolicyActivationIntent `json:"intent"`
+	ActivationGeneration string                 `json:"activation_generation"`
+}
+
+func (c PolicyActivationCommit) Validate() error {
+	if err := c.Intent.Validate(); err != nil {
+		return err
+	}
+	if !validGeneration(c.ActivationGeneration) {
+		return fmt.Errorf("invalid decision policy activation generation")
+	}
+	return nil
+}
+
+func PolicyActivationIntentFingerprint(i PolicyActivationIntent) (string, error) {
+	if err := i.Validate(); err != nil {
+		return "", err
+	}
+	return canonicalHash("ifp_", i)
+}
+
+type PolicyActivationWriteResult struct {
+	Record    PolicyActivation `json:"record"`
+	Created   bool             `json:"created"`
+	Replayed  bool             `json:"replayed"`
+	Effective bool             `json:"effective"`
+}
