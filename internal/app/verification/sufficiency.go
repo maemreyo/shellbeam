@@ -2,6 +2,7 @@ package verification
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
@@ -305,4 +306,29 @@ func evaluateQuiescence(candidates []core.EvidenceCandidate, observations map[st
 		}
 	}
 	return core.EvidenceSatisfied, ""
+}
+
+// GateForPolicyState prevents an absent/invalid policy from becoming an
+// accidental clear zero-obligation gate. When an older durable policy remains
+// effective, its obligations continue to govern regardless of proposal state.
+func GateForPolicyState(state PolicyState, hasEffective bool, obligations []core.VerificationObligation, evaluations map[string]core.ObligationEvaluation) (core.GateEvaluation, error) {
+	if hasEffective {
+		return core.FoldGate(obligations, evaluations)
+	}
+	reason := ""
+	switch state {
+	case PolicyStateAbsent:
+		reason = "policy_absent"
+	case PolicyStateInvalid:
+		reason = "policy_invalid"
+	case PolicyStateUnsupported:
+		reason = "policy_unsupported"
+	case PolicyStateProposalPending:
+		reason = "policy_proposal_pending"
+	case PolicyStateEffective:
+		reason = "effective_policy_unavailable"
+	default:
+		return core.GateEvaluation{}, fmt.Errorf("invalid verification policy state")
+	}
+	return core.GateEvaluation{Status: core.GateIndeterminate, ReasonCodes: []string{reason}}, nil
 }

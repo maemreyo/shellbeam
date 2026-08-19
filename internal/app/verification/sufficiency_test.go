@@ -267,3 +267,36 @@ func TestObligationEvidenceStatusFoldPrecedence(t *testing.T) {
 		t.Fatalf("obligation fold=%#v", got)
 	}
 }
+
+func TestGateForPolicyStateNeverTreatsMissingEffectivePolicyAsClear(t *testing.T) {
+	for _, state := range []PolicyState{PolicyStateAbsent, PolicyStateInvalid, PolicyStateUnsupported} {
+		t.Run(string(state), func(t *testing.T) {
+			got, err := GateForPolicyState(state, false, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != core.GateIndeterminate || len(got.ReasonCodes) != 1 || got.ReasonCodes[0] != "policy_"+string(state) {
+				t.Fatalf("got=%#v", got)
+			}
+		})
+	}
+	pending, err := GateForPolicyState(PolicyStateProposalPending, false, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Status != core.GateIndeterminate || len(pending.ReasonCodes) != 1 || pending.ReasonCodes[0] != "policy_proposal_pending" {
+		t.Fatalf("pending=%#v", pending)
+	}
+}
+
+func TestGateForPolicyStateUsesOlderEffectivePolicyWhileProposalPending(t *testing.T) {
+	o := sufficiencyObligation(sufficiencyRequirement("integration", core.ProviderIntegrationTest))
+	e := core.ObligationEvaluation{ObligationID: o.ObligationID, EvidenceStatus: core.EvidenceSatisfied}
+	got, err := GateForPolicyState(PolicyStateProposalPending, true, []core.VerificationObligation{o}, map[string]core.ObligationEvaluation{o.ObligationID: e})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != core.GateClear || got.Breakdown.EvidenceSatisfied != 1 {
+		t.Fatalf("got=%#v", got)
+	}
+}

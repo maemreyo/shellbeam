@@ -96,3 +96,113 @@ func normalizeEvaluationEvidenceRefs(refs []string) ([]string, error) {
 func boundedOptionalToken(value string, max int) bool {
 	return value == "" || boundedToken(value, max)
 }
+
+type GateBreakdown struct {
+	EvidenceSatisfied int `json:"evidence_satisfied"`
+	Waived            int `json:"waived"`
+	Blocking          int `json:"blocking"`
+	Indeterminate     int `json:"indeterminate"`
+}
+
+type GateEvaluation struct {
+	Status      GateStatus    `json:"status"`
+	Breakdown   GateBreakdown `json:"breakdown"`
+	ReasonCodes []string      `json:"reason_codes,omitempty"`
+}
+
+func (g GateBreakdown) Validate() error {
+	if g.EvidenceSatisfied < 0 || g.Waived < 0 || g.Blocking < 0 || g.Indeterminate < 0 {
+		return fmt.Errorf("invalid gate breakdown")
+	}
+	return nil
+}
+
+func (g GateEvaluation) Validate() error {
+	if g.Status.Validate() != nil || g.Breakdown.Validate() != nil {
+		return fmt.Errorf("invalid gate evaluation")
+	}
+	if len(g.ReasonCodes) > 32 {
+		return fmt.Errorf("too many gate reasons")
+	}
+	for i, reason := range g.ReasonCodes {
+		if !boundedToken(reason, 128) || (i > 0 && g.ReasonCodes[i-1] >= reason) {
+			return fmt.Errorf("invalid gate reason codes")
+		}
+	}
+	return nil
+}
+
+func FoldGate(obligations []VerificationObligation, evaluations map[string]ObligationEvaluation) (GateEvaluation, error) {
+	out := GateEvaluation{Status: GateClear}
+	seen := make(map[string]bool, len(obligations))
+	reasons := map[string]bool{}
+	for _, obligation := range obligations {
+		if err := obligation.Validate(); err != nil {
+			return GateEvaluation{}, err
+		}
+		if seen[obligation.ObligationID] {
+			return GateEvaluation{}, fmt.Errorf("duplicate obligation id")
+		}
+		seen[obligation.ObligationID] = true
+		switch obligation.Disposition {
+		case DispositionDeferred, DispositionOptional, DispositionNotTriggered:
+			continue
+		case DispositionRequiredNow, DispositionWaived:
+		default:
+			return GateEvaluation{}, fmt.Errorf("invalid gate obligation disposition")
+		}
+		evaluation, ok := evaluations[obligation.ObligationID]
+		if !ok || evaluation.ObligationID != obligation.ObligationID || evaluation.Validate() != nil {
+			return GateEvaluation{}, fmt.Errorf("missing or invalid obligation evaluation")
+		}
+		if obligation.Disposition == DispositionWaived {
+			out.Breakdown.Waived++
+			continue
+		}
+		switch evaluation.EvidenceStatus {
+		case EvidenceSatisfied:
+			out.Breakdown.EvidenceSatisfied++
+		case EvidenceFailed, EvidenceInsufficient, EvidenceInconsistent:
+			out.Breakdown.Blocking++
+			reasons[gateEvidenceReason(evaluation.EvidenceStatus)] = true
+		case EvidenceNotEvaluated, EvidenceUnknown, EvidenceUnavailable:
+			out.Breakdown.Indeterminate++
+			reasons[gateEvidenceReason(evaluation.EvidenceStatus)] = true
+		default:
+			return GateEvaluation{}, fmt.Errorf("invalid gate evidence status")
+		}
+	}
+	if out.Breakdown.Blocking > 0 {
+		out.Status = GateBlocked
+	} else if out.Breakdown.Indeterminate > 0 {
+		out.Status = GateIndeterminate
+	}
+	out.ReasonCodes = make([]string, 0, len(reasons))
+	for reason := range reasons {
+		out.ReasonCodes = append(out.ReasonCodes, reason)
+	}
+	sort.Strings(out.ReasonCodes)
+	if err := out.Validate(); err != nil {
+		return GateEvaluation{}, err
+	}
+	return out, nil
+}
+
+func gateEvidenceReason(status EvidenceStatus) string {
+	switch status {
+	case EvidenceFailed:
+		return "evidence_failed"
+	case EvidenceInsufficient:
+		return "evidence_insufficient"
+	case EvidenceInconsistent:
+		return "evidence_inconsistent"
+	case EvidenceNotEvaluated:
+		return "evidence_not_evaluated"
+	case EvidenceUnknown:
+		return "evidence_unknown"
+	case EvidenceUnavailable:
+		return "evidence_unavailable"
+	default:
+		return "evidence_status_invalid"
+	}
+}
