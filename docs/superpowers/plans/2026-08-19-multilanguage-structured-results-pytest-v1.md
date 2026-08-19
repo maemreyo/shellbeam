@@ -92,7 +92,7 @@
 - Produces additive schema-v2 `StructuredInputRef`, `ArtifactBlobRef`, cut types and producer metadata consumed by later tasks without breaking the existing raw-only public structs in this commit.
 - Keep existing `DerivationKey([]RawOutputRef, ...)` as the exact legacy/raw API and algorithm. Add `DerivationKeyForInputs([]StructuredInputRef, ...)`: all-raw refs delegate to `DerivationKey` and therefore produce the exact legacy key; any artifact/mixed refs use the v2 tagged-union envelope. Persistence schema version alone never changes raw derivation identity.
 
-- [ ] **Step 1: Write RED closed-union and blob-ref identity tests**
+- [x] **Step 1: Write RED closed-union and blob-ref identity tests**
 
 Use exact public shapes:
 
@@ -126,11 +126,11 @@ Tests reject unknown kind, zero/two branches, invalid digest/size/path/cut, and 
 Run: `go test ./internal/core/structuredresult -run 'StructuredInput|ArtifactBlob|Cut' -count=1`
 Expected: FAIL because v2 input types do not exist.
 
-- [ ] **Step 2: Implement the minimal v2 union/cut validators**
+- [x] **Step 2: Implement the minimal v2 union/cut validators**
 
 `TerminalCutV1` binds receipt schema version + 64-hex canonical receipt digest. `ObservationCutV1` binds schema version `1` + 64-hex canonical observation payload digest. No timestamp/random/current-daemon fields are accepted as identity.
 
-- [ ] **Step 3: Write RED tests for producer metadata and artifact entry identity**
+- [x] **Step 3: Write RED tests for producer metadata and artifact entry identity**
 
 ```go
 type ProducerTestDisposition struct { Namespace string; VocabularyVersion int; Code string }
@@ -142,7 +142,7 @@ type TestSuiteAggregate struct { Tests, Failures, Errors, Skipped int }
 
 Core validates bounded envelopes only; it does not switch on `pytest:xfail` to decide verification truth.
 
-- [ ] **Step 4: Add v2 key/metadata contracts without breaking current raw structs**
+- [x] **Step 4: Add v2 key/metadata contracts without breaking current raw structs**
 
 Add `DerivationKeyForInputs`, producer disposition/coverage/address/entry-ref/aggregate validators and deterministic artifact `RecordID` helper, but leave existing `Derivation.SourceAuthorityRefs []RawOutputRef` and `Record.SourceRef RawOutputRef` unchanged until Task 2 migrates their callers atomically.
 
@@ -150,7 +150,7 @@ Add an explicit regression proving `DerivationKeyForInputs(v2 raw union) == Deri
 
 Keep `TestStatus` exactly `pass|fail|skip|error`.
 
-- [ ] **Step 5: Run focused regression and commit**
+- [x] **Step 5: Run focused regression and commit**
 
 ```bash
 go test ./internal/core/structuredresult -count=1

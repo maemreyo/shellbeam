@@ -50,3 +50,35 @@ func TestDerivationRejectsUnboundedSourceRefsAndUnsafeProducerText(t *testing.T)
 		t.Fatal("control-bearing producer id accepted")
 	}
 }
+
+func TestDerivationKeyForRawUnionPreservesLegacyIdentity(t *testing.T) {
+	raw := RawOutputRef{SessionID: "session-raw-key", StartByte: 2, EndByte: 9, SHA256: strings.Repeat("a", 64)}
+	producer := Producer{AdapterID: "go-test-json", AdapterVersion: 1, CapabilityVersion: 1}
+	config := strings.Repeat("b", 64)
+	legacy, err := DerivationKey([]RawOutputRef{raw}, producer, 1, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	modern, err := DerivationKeyForInputs([]StructuredInputRef{{Kind: StructuredInputRawOutput, RawOutput: &raw}}, producer, 1, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if modern != legacy {
+		t.Fatalf("raw union changed historical derivation identity: legacy=%s modern=%s", legacy, modern)
+	}
+}
+
+func TestDerivationKeyForArtifactInputIncludesBlobProvenance(t *testing.T) {
+	blob := testArtifactBlobRef()
+	producer := Producer{AdapterID: "pytest-junit-xml", AdapterVersion: 1, CapabilityVersion: 1}
+	config := strings.Repeat("b", 64)
+	first, err := DerivationKeyForInputs([]StructuredInputRef{{Kind: StructuredInputArtifactBlob, ArtifactBlob: &blob}}, producer, 2, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob.TerminalCut.ReceiptDigest = strings.Repeat("e", 64)
+	changed, err := DerivationKeyForInputs([]StructuredInputRef{{Kind: StructuredInputArtifactBlob, ArtifactBlob: &blob}}, producer, 2, config)
+	if err != nil || changed == first {
+		t.Fatalf("artifact provenance did not change derivation identity: first=%s changed=%s err=%v", first, changed, err)
+	}
+}
