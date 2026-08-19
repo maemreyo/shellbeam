@@ -6,6 +6,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 
 	core "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 )
 
 type Service struct{ provider Provider }
@@ -47,4 +48,75 @@ func (s *Service) Close(ctx context.Context, ref core.ProviderRef) error {
 
 func delegatedUnavailable() error {
 	return failure.New(failure.DelegatedSessionUnavailable, map[string]string{"reason": "provider_unconfigured"}, nil)
+}
+
+func (s *Service) humanProvider() (HumanProvider, error) {
+	if s == nil || s.provider == nil {
+		return nil, humanProviderUnavailable()
+	}
+	provider, ok := s.provider.(HumanProvider)
+	if !ok {
+		return nil, humanProviderUnavailable()
+	}
+	return provider, nil
+}
+
+func (s *Service) AttachHuman(ctx context.Context, ref core.ProviderRef, spec HumanAttachSpec) (HumanAttachResult, error) {
+	provider, err := s.humanProvider()
+	if err != nil {
+		return HumanAttachResult{}, err
+	}
+	return provider.AttachHuman(ctx, ref, spec)
+}
+
+func (s *Service) SetHumanWritable(ctx context.Context, ref core.ProviderRef, client ProviderClientRef, writable bool) error {
+	provider, err := s.humanProvider()
+	if err != nil {
+		return err
+	}
+	return provider.SetHumanWritable(ctx, ref, client, writable)
+}
+
+func (s *Service) FenceHumanIngress(ctx context.Context, ref core.ProviderRef, client ProviderClientRef, epoch core.AuthorityEpoch) (IngressFenceProof, error) {
+	provider, err := s.humanProvider()
+	if err != nil {
+		return IngressFenceProof{}, err
+	}
+	return provider.FenceHumanIngress(ctx, ref, client, epoch)
+}
+
+func (s *Service) InspectHumanClient(ctx context.Context, ref core.ProviderRef, client ProviderClientRef) (HumanClientObservation, error) {
+	provider, err := s.humanProvider()
+	if err != nil {
+		return HumanClientObservation{}, err
+	}
+	return provider.InspectHumanClient(ctx, ref, client)
+}
+
+func (s *Service) ArmWritableHumanControl(ctx context.Context, ref core.ProviderRef, client ProviderClientRef, spec HumanControlSpec) error {
+	provider, err := s.humanProvider()
+	if err != nil {
+		return err
+	}
+	return provider.ArmWritableHumanControl(ctx, ref, client, spec)
+}
+
+func (s *Service) WaitWritableHumanControl(ctx context.Context, ref core.ProviderRef, client ProviderClientRef, spec HumanControlSpec) (handoff.HumanControlKind, error) {
+	provider, err := s.humanProvider()
+	if err != nil {
+		return "", err
+	}
+	return provider.WaitWritableHumanControl(ctx, ref, client, spec)
+}
+
+func (s *Service) PrepareReadOnlyLocalControl(ctx context.Context, ref core.ProviderRef, client ProviderClientRef) error {
+	provider, err := s.humanProvider()
+	if err != nil {
+		return err
+	}
+	return provider.PrepareReadOnlyLocalControl(ctx, ref, client)
+}
+
+func humanProviderUnavailable() error {
+	return failure.New(failure.HumanControlUnreachable, map[string]string{"reason": "provider_unconfigured"}, nil)
 }
