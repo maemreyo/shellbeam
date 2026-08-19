@@ -214,8 +214,11 @@ git -c core.hooksPath=.githooks commit -m "feat: define interactive handoff stat
 - Create: `internal/adapter/store/interactive_handoff_restart.go`
 - Create: `internal/adapter/store/interactive_handoff_restart_test.go`
 - Modify: `internal/app/daemon/store_port.go`
-- Modify: `internal/adapter/store/delegated_sessions.go`
-- Modify: `internal/adapter/store/delegated_sessions_test.go`
+- Modify: `internal/adapter/store/repository.go` to initialize the H2 handoff/provenance directories.
+
+H1's `delegatedsession.Binding` schema remains unchanged. `input_authority_provenance` is monotonic delegated-session truth persisted in a private per-session sidecar under the same `delegatedSessionMu`; absence means `agent_only`, while the only persisted promoted value is `human_write_authority_granted`. Task 5/Task 9 read that sidecar when constructing H2 terminal truth. Do not smuggle this H2 state into the already-qualified H1 binding schema.
+
+Cross-file handoff-state + delegated-binding authority transitions use a durable private transaction marker under the same `delegatedSessionMu`. A partial transaction is never interpreted as granted authority: restart/recovery exposes both ingress directions fenced until the marker is deterministically completed or reconciliation blocks.
 
 **Interfaces:**
 - Produces atomic `ReserveHandoff`, `AdvanceHandoff`, `LoadHandoff`, `ReserveControlSignal`, `CompleteControlSignal`, `ListHandoffRecoveryCandidates`, plus `MarkHumanWriteAuthorityGranted(session_id)` as an irreversible delegated-session provenance update.
@@ -234,13 +237,13 @@ Known exact `ready`/`abort` signal from old epoch replays prior outcome; unseen 
 
 - [ ] **Step 4: Persist human-client identity as provider-safe opaque ref only.**
 
-Before any provider call can make a human client writable, durably call `MarkHumanWriteAuthorityGranted`. A crash after this mark but before actual writability is conservatively recorded as possible human influence; it must never be rolled back to `agent_only`.
+Before any provider call can make a human client writable, durably call `MarkHumanWriteAuthorityGranted`. Persist this as the private delegated-session provenance sidecar described above, and provide a read-side API so receipt/restart paths cannot fall back to a hard-coded `agent_only`. A crash after this mark but before actual writability is conservatively recorded as possible human influence; it must never be rolled back to `agent_only`.
 
 Public state may expose `attached=true`, provider/terminal friendly identity later, but not private tmux socket/client token required for provider control.
 
 - [ ] **Step 5: Fault/restart tests.**
 
-Fault after epoch rotation before provider fence/attach must recover to both ingress denied until reconciliation proves the next safe step.
+Fault after epoch rotation before provider fence/attach must leave/recover a durable transaction marker and expose both ingress directions fenced until reconciliation proves the next safe step. Retry must finish the exact transaction rather than create a second epoch transition, and a completed/reclaimed `AGENT_OWNED` handoff must not remain an active recovery candidate.
 
 - [ ] **Step 6: Focused/race/commit.**
 
