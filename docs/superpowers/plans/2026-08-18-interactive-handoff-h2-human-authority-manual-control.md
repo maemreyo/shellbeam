@@ -336,12 +336,19 @@ git -c core.hooksPath=.githooks commit -m "feat: fence human delegated ingress"
 - Modify: `internal/app/daemon/store_port.go`
 - Modify: `internal/adapter/store/interactive_handoffs.go`
 - Modify: `internal/adapter/store/interactive_handoffs_test.go`
+- Modify: `internal/adapter/store/delegated_mutations.go`
+- Modify: `internal/adapter/store/delegated_mutations_test.go`
+- Modify: `internal/app/daemon/delegated_control.go`
+- Modify: `internal/app/daemon/delegated_control_test.go`
 
 **Interfaces:**
 - Public service methods: `Request`, `Wait`, `Abort`, `Inspect`.
 - Private/local methods: `AttachLocalHuman`, `HumanControl`.
 - Add durable `FindHandoff` so exact `handoff_id` replay is resolved before provider freshness/authority checks; lost-response retry must not require a currently healthy provider merely to rediscover already-durable state.
 - Daemon owns one shared `interactivehandoff.Service`/condition channel for the process lifetime; do not construct one coordinator per action or use package-global handoff state.
+- The handoff epoch/owner rotation and any newly seen delegated mutation reservation must serialize on the same store authority lock. Existing durable mutation replay remains before authority; a new reservation rechecks exact current epoch + `LIVE` + desired agent owner under that lock.
+- `FenceAgentIngress` must also serialize with the live delegated mutation lane long enough to drain any mutation already admitted under the old epoch through provider delivery. A rotated durable owner alone is not proof that pre-fence provider delivery has finished.
+- Same-handoff orchestration/provider side effects use bounded fixed sharded mutation locks; no unbounded per-handoff lock registry and no global serialization of unrelated handoffs.
 
 - [ ] **Step 1: RED-test agent→human ordering.**
 
