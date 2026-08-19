@@ -1,0 +1,893 @@
+{
+  "schema_version": 1,
+  "spec_path": "docs/superpowers/specs/2026-08-19-decision-protocol-design.md",
+  "spec_sha256": "6cf49426243f26e8bec862c29651304ccc4abd5e1f91947f9899fe21fd72f7fa",
+  "plan_path": "docs/superpowers/plans/2026-08-19-decision-protocol-v1.md",
+  "plan_authoring_base": "27207d94b097040b571081c8c49d9c09487460c5",
+  "tasks": [
+    {
+      "task": 0,
+      "title": "Bind the implementation base and prove the unchanged baseline"
+    },
+    {
+      "task": 1,
+      "title": "Define the closed Decision Protocol core contracts"
+    },
+    {
+      "task": 2,
+      "title": "Add the append-only canonical ledger and Decision Policy authority"
+    },
+    {
+      "task": 3,
+      "title": "Implement governed episode creation, candidate revision CAS, and base projection"
+    },
+    {
+      "task": 4,
+      "title": "Implement experiment definition, preregistration, sealing, and authoritative replay cuts"
+    },
+    {
+      "task": 5,
+      "title": "Bind experiments into immutable operation admission and replay identity"
+    },
+    {
+      "task": 6,
+      "title": "Materialize complete typed observations and close/abort experiments safely"
+    },
+    {
+      "task": 7,
+      "title": "Implement candidate-scoped policy evaluation, budget admission, and semantic projections"
+    },
+    {
+      "task": 8,
+      "title": "Add verifier assessments with a hard provenance firewall"
+    },
+    {
+      "task": 9,
+      "title": "Implement selection proposal, semantic CAS, durable idempotency, and close-unresolved"
+    },
+    {
+      "task": 10,
+      "title": "Implement trusted authority materialization, override intent, and commit-time requalification"
+    },
+    {
+      "task": 11,
+      "title": "Expose the bounded Decision Protocol surface through IPC v2, bridge, MCP, and schemas"
+    },
+    {
+      "task": 12,
+      "title": "Compose the daemon runtime, capability advertisement, compatibility firewall, and built-in authority provider"
+    },
+    {
+      "task": 13,
+      "title": "Prove end-to-end protocol, restart recovery, concurrency/security invariants, and final acceptance"
+    }
+  ],
+  "sections": [
+    {
+      "section": 1,
+      "title": "Decision",
+      "tasks": [
+        0,
+        13
+      ]
+    },
+    {
+      "section": 2,
+      "title": "Why this belongs in ShellBeam",
+      "tasks": [
+        1,
+        12
+      ]
+    },
+    {
+      "section": 3,
+      "title": "Hard non-goals",
+      "tasks": [
+        0,
+        11,
+        12
+      ]
+    },
+    {
+      "section": 4,
+      "title": "Architectural principles",
+      "tasks": [
+        1,
+        7,
+        12
+      ]
+    },
+    {
+      "section": 5,
+      "title": "Canonical record set",
+      "tasks": [
+        1,
+        2
+      ]
+    },
+    {
+      "section": 6,
+      "title": "Policy snapshot and activation identity",
+      "tasks": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "section": 7,
+      "title": "`DecisionEpisode`",
+      "tasks": [
+        1,
+        3
+      ]
+    },
+    {
+      "section": 8,
+      "title": "Candidate model and revision semantics",
+      "tasks": [
+        1,
+        3
+      ]
+    },
+    {
+      "section": 9,
+      "title": "Experiment canonical lifecycle",
+      "tasks": [
+        1,
+        4
+      ]
+    },
+    {
+      "section": 10,
+      "title": "Experiment definition never schedules work",
+      "tasks": [
+        4,
+        5
+      ]
+    },
+    {
+      "section": 11,
+      "title": "V1 execution cardinality",
+      "tasks": [
+        5
+      ]
+    },
+    {
+      "section": 12,
+      "title": "Prediction binding and preregistration",
+      "tasks": [
+        1,
+        4
+      ]
+    },
+    {
+      "section": 13,
+      "title": "Typed observation predicate contract",
+      "tasks": [
+        1,
+        6
+      ]
+    },
+    {
+      "section": 14,
+      "title": "Prediction evaluation taxonomy",
+      "tasks": [
+        1,
+        6
+      ]
+    },
+    {
+      "section": 15,
+      "title": "Observation dimension and potential discrimination",
+      "tasks": [
+        1,
+        4
+      ]
+    },
+    {
+      "section": 16,
+      "title": "`ExperimentSeal` and seal-time discrimination cut",
+      "tasks": [
+        4,
+        6
+      ]
+    },
+    {
+      "section": 17,
+      "title": "Server-derived observation domain",
+      "tasks": [
+        6
+      ]
+    },
+    {
+      "section": 18,
+      "title": "`ExperimentObservationBinding`",
+      "tasks": [
+        1,
+        6
+      ]
+    },
+    {
+      "section": 19,
+      "title": "Observation settling, close, and abort",
+      "tasks": [
+        6
+      ]
+    },
+    {
+      "section": 20,
+      "title": "Realized discrimination",
+      "tasks": [
+        6,
+        7
+      ]
+    },
+    {
+      "section": 21,
+      "title": "Decision Policy",
+      "tasks": [
+        1,
+        7
+      ]
+    },
+    {
+      "section": 22,
+      "title": "Candidate challenge requirement",
+      "tasks": [
+        3,
+        7
+      ]
+    },
+    {
+      "section": 23,
+      "title": "Prediction evaluation requirement",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "section": 24,
+      "title": "Discrimination requirement",
+      "tasks": [
+        4,
+        6,
+        7
+      ]
+    },
+    {
+      "section": 25,
+      "title": "Verifier assessment requirement",
+      "tasks": [
+        8
+      ]
+    },
+    {
+      "section": 26,
+      "title": "Requirement and candidate-contract statuses",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "section": 27,
+      "title": "Protocol gate",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "section": 28,
+      "title": "Eligibility, protocol gate, and commit preconditions are distinct",
+      "tasks": [
+        7,
+        9,
+        10
+      ]
+    },
+    {
+      "section": 29,
+      "title": "Budget ceiling",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "section": 30,
+      "title": "Decision projection and digests",
+      "tasks": [
+        7,
+        8
+      ]
+    },
+    {
+      "section": 31,
+      "title": "Source-generation integrity",
+      "tasks": [
+        3,
+        9
+      ]
+    },
+    {
+      "section": 32,
+      "title": "Selection proposal",
+      "tasks": [
+        9
+      ]
+    },
+    {
+      "section": 33,
+      "title": "Selection commit CAS and idempotency",
+      "tasks": [
+        1,
+        9
+      ]
+    },
+    {
+      "section": 34,
+      "title": "Close unresolved",
+      "tasks": [
+        9
+      ]
+    },
+    {
+      "section": 35,
+      "title": "Override policy",
+      "tasks": [
+        1,
+        10
+      ]
+    },
+    {
+      "section": 36,
+      "title": "Authority domain model",
+      "tasks": [
+        1,
+        10
+      ]
+    },
+    {
+      "section": 37,
+      "title": "`DecisionAuthorityAttestation`",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 38,
+      "title": "No generic V1 attestation-revocation record",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 39,
+      "title": "Authority qualification contract",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 40,
+      "title": "Override intent",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 41,
+      "title": "Revalidate authority at commit authorization point",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 42,
+      "title": "Authorization linearization and external revocation race",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 43,
+      "title": "Persisted override authorization cut",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 44,
+      "title": "Expiry/revocation after commit",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 45,
+      "title": "Scope matching",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 46,
+      "title": "Override race semantics",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "section": 47,
+      "title": "Model-facing operations",
+      "tasks": [
+        11
+      ]
+    },
+    {
+      "section": 48,
+      "title": "Model-facing projection",
+      "tasks": [
+        7,
+        11
+      ]
+    },
+    {
+      "section": 49,
+      "title": "Integration with verification semantics",
+      "tasks": [
+        6,
+        7,
+        12,
+        13
+      ]
+    },
+    {
+      "section": 50,
+      "title": "Production vs benchmark/oracle analytics",
+      "tasks": [
+        13
+      ]
+    },
+    {
+      "section": 51,
+      "title": "V1 sequencing and mutation boundary",
+      "tasks": [
+        12,
+        13
+      ]
+    },
+    {
+      "section": 52,
+      "title": "Compatibility and rollout",
+      "tasks": [
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "section": 53,
+      "title": "Error/result taxonomy guidance",
+      "tasks": [
+        11,
+        13
+      ]
+    },
+    {
+      "section": 54,
+      "title": "Concurrency invariants",
+      "tasks": [
+        3,
+        4,
+        5,
+        6,
+        9,
+        10,
+        13
+      ]
+    },
+    {
+      "section": 55,
+      "title": "Security and authority invariants",
+      "tasks": [
+        8,
+        10,
+        13
+      ]
+    },
+    {
+      "section": 56,
+      "title": "Frozen V1 invariants",
+      "tasks": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13
+      ]
+    },
+    {
+      "section": 57,
+      "title": "Final architectural statement",
+      "tasks": [
+        12,
+        13
+      ]
+    }
+  ],
+  "invariants": [
+    {
+      "invariant": 1,
+      "text": "Canonical Decision Protocol truth is append-only; lifecycle is projected.",
+      "tasks": [
+        1,
+        2,
+        3,
+        4,
+        6,
+        9,
+        10
+      ]
+    },
+    {
+      "invariant": 2,
+      "text": "New governed episodes bind the server-resolved current effective applicable policy activation; callers cannot select historical weaker activations.",
+      "tasks": [
+        2,
+        3
+      ]
+    },
+    {
+      "invariant": 3,
+      "text": "Episode policy snapshot/activation is durably bound and immutable for episode lifetime.",
+      "tasks": [
+        2,
+        3
+      ]
+    },
+    {
+      "invariant": 4,
+      "text": "Candidate revision is immutable replacement with active-parent CAS.",
+      "tasks": [
+        3
+      ]
+    },
+    {
+      "invariant": 5,
+      "text": "Candidate revision does not implicitly inherit predictions.",
+      "tasks": [
+        3,
+        4
+      ]
+    },
+    {
+      "invariant": 6,
+      "text": "Prediction declaration happens-before experiment observability.",
+      "tasks": [
+        4
+      ]
+    },
+    {
+      "invariant": 7,
+      "text": "Experiment definition/seal/close never schedules execution.",
+      "tasks": [
+        4
+      ]
+    },
+    {
+      "invariant": 8,
+      "text": "V1 permits at most one observation-producing execution link per experiment.",
+      "tasks": [
+        5
+      ]
+    },
+    {
+      "invariant": 9,
+      "text": "Experiment identity is part of immutable operation replay/observation identity; omitted/changed bindings conflict on the same `operation_id`.",
+      "tasks": [
+        5
+      ]
+    },
+    {
+      "invariant": 10,
+      "text": "Successful experiment-linked admission and durable `ExperimentExecutionLink` are recovery-indivisible before spawn.",
+      "tasks": [
+        5
+      ]
+    },
+    {
+      "invariant": 11,
+      "text": "Protocol observation truth is server-derived, complete for the linked observation domain, and non-cherry-pickable.",
+      "tasks": [
+        6
+      ]
+    },
+    {
+      "invariant": 12,
+      "text": "At most one canonical `ExperimentObservationBinding` exists per experiment; same semantic cut replays, different cut conflicts.",
+      "tasks": [
+        6
+      ]
+    },
+    {
+      "invariant": 13,
+      "text": "Every linked execution must have a terminal observation binding before selection commit, including post-link aborted experiments.",
+      "tasks": [
+        6,
+        9
+      ]
+    },
+    {
+      "invariant": 14,
+      "text": "Verification-result observation sets are attributable to the linked operation and frozen derivation cut, not arbitrary workspace history.",
+      "tasks": [
+        6
+      ]
+    },
+    {
+      "invariant": 15,
+      "text": "ShellBeam evaluates typed declared expectations, never semantic hypothesis truth.",
+      "tasks": [
+        6
+      ]
+    },
+    {
+      "invariant": 16,
+      "text": "V1 predicate kinds are closed and versioned; there is no generic expression DSL.",
+      "tasks": [
+        1,
+        4,
+        6
+      ]
+    },
+    {
+      "invariant": 17,
+      "text": "REQUIRED mismatch is an implicit candidate-contract blocker only when determinately evaluated.",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "invariant": 18,
+      "text": "Unevaluated or indeterminate REQUIRED prediction does not silently become a blocker.",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "invariant": 19,
+      "text": "Candidate-scoped policy evaluation uses four bounded V1 requirement kinds: challenge, prediction evaluation, discrimination, verifier assessment.",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "invariant": 20,
+      "text": "Caller-declared verifier context has no hard-gate authority; exact required context matches only server/provider-qualified context materialized into the assessment.",
+      "tasks": [
+        8
+      ]
+    },
+    {
+      "invariant": 21,
+      "text": "Discrimination qualification is frozen at seal time against then-eligible candidate lineages.",
+      "tasks": [
+        4,
+        7
+      ]
+    },
+    {
+      "invariant": 22,
+      "text": "Realized discrimination is experiment-local against an authoritative canonical-ledger replay cut and excludes its own aggregate requirement/gate status.",
+      "tasks": [
+        4,
+        6,
+        7
+      ]
+    },
+    {
+      "invariant": 23,
+      "text": "Verification predicates evaluate the complete compatible qualified attributable evidence set, not a favorable individual record.",
+      "tasks": [
+        6
+      ]
+    },
+    {
+      "invariant": 24,
+      "text": "Protocol fold is deterministic: BLOCKED > INDETERMINATE > CLEAR.",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "invariant": 25,
+      "text": "Budget admission is a separate ceiling and never changes protocol satisfaction.",
+      "tasks": [
+        7
+      ]
+    },
+    {
+      "invariant": 26,
+      "text": "Projection digest represents semantic epistemic/protocol state, including normalized verifier semantic state; audit digest represents exact history.",
+      "tasks": [
+        7,
+        8
+      ]
+    },
+    {
+      "invariant": 27,
+      "text": "`expected_projection_digest` is the semantic CAS token for selection commit.",
+      "tasks": [
+        9
+      ]
+    },
+    {
+      "invariant": 28,
+      "text": "Source-generation mismatch fail-closes V1 selection and cannot be overridden.",
+      "tasks": [
+        3,
+        9
+      ]
+    },
+    {
+      "invariant": 29,
+      "text": "Selection proposal has no transition authority.",
+      "tasks": [
+        9
+      ]
+    },
+    {
+      "invariant": 30,
+      "text": "Selection commit and close-unresolved share one atomic episode-terminal boundary.",
+      "tasks": [
+        9
+      ]
+    },
+    {
+      "invariant": 31,
+      "text": "Selection commit persists durable idempotency key + semantic intent fingerprint transactionally with terminalization.",
+      "tasks": [
+        9
+      ]
+    },
+    {
+      "invariant": 32,
+      "text": "Normal and override commits are epistemically distinct even for the same candidate.",
+      "tasks": [
+        9,
+        10
+      ]
+    },
+    {
+      "invariant": 33,
+      "text": "Override never rewrites blockers as satisfied.",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "invariant": 34,
+      "text": "`OverridePolicy.allowed=true` requires an exact authority class; `allowed=false` forbids one.",
+      "tasks": [
+        1,
+        10
+      ]
+    },
+    {
+      "invariant": 35,
+      "text": "DecisionAuthorityAttestation is immutable capability proof with only trusted resolver/provider-backed canonical producers; current qualification is resolver-derived.",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "invariant": 36,
+      "text": "V1 has no authority lattice, wildcard authority equivalence, or generic core revocation ledger.",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "invariant": 37,
+      "text": "Decision Policy activation authority is `explicit_caller`; Decision Authority Attestation does not authorize policy activation in V1.",
+      "tasks": [
+        2,
+        10
+      ]
+    },
+    {
+      "invariant": 38,
+      "text": "Override authority is revalidated at terminal commit authorization time.",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "invariant": 39,
+      "text": "Only `QUALIFIED` exact-class/exact-scope authority may authorize a new override commit.",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "invariant": 40,
+      "text": "Override intent covers the exact current candidate/policy/projection/blocker set.",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "invariant": 41,
+      "text": "SelectionCommit persists the exact override authorization cut used to authorize history.",
+      "tasks": [
+        10
+      ]
+    },
+    {
+      "invariant": 42,
+      "text": "Later expiry/revocation does not rewrite a durable historical commit.",
+      "tasks": [
+        10,
+        13
+      ]
+    },
+    {
+      "invariant": 43,
+      "text": "Failed/non-durable commit retry must revalidate authority; replay of durable idempotent success does not.",
+      "tasks": [
+        9,
+        10,
+        13
+      ]
+    },
+    {
+      "invariant": 44,
+      "text": "`VerifierAssessment` is a separate non-evidence ontology.",
+      "tasks": [
+        1,
+        8
+      ]
+    },
+    {
+      "invariant": 45,
+      "text": "Policy/projection exposes constraints and allowed protocol transitions, never recommended engineering next actions.",
+      "tasks": [
+        7,
+        11,
+        12
+      ]
+    },
+    {
+      "invariant": 46,
+      "text": "Candidate committed does not imply implementation verified or task done.",
+      "tasks": [
+        12,
+        13
+      ]
+    },
+    {
+      "invariant": 47,
+      "text": "Oracle-gap metrics are unavailable unless candidate evaluation is genuinely exhaustive under a qualifying oracle.",
+      "tasks": [
+        13
+      ]
+    },
+    {
+      "invariant": 48,
+      "text": "`CLOSED_UNRESOLVED` remains the truthful terminal escape from an unsatisfied or unresolvable protocol.",
+      "tasks": [
+        9,
+        13
+      ]
+    }
+  ]
+}
