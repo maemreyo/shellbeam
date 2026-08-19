@@ -371,11 +371,12 @@ type MutationIdentity struct {
     Kind          delegatedsession.MutationKind
     IdempotencyID string
     Offset        int64
+    NextOffset    int64
     Fingerprint   string
 }
 ```
 
-For writes, `IdempotencyID` is empty and `Offset` is the existing agent input offset. For kill/signal/transfer/provider mutations, use a stable request/control ID and `Offset=-1` internally.
+For writes, `IdempotencyID` is empty, `Offset` is the existing agent input offset, and `NextOffset` is the exact post-write agent input offset (`Offset + submitted byte length`). `NextOffset` is part of the exact durable identity but not the logical path key, so a retry at the same logical offset with a changed span or fingerprint conflicts. For kill/signal/transfer/provider mutations, use a stable request/control ID and `Offset=-1, NextOffset=-1` internally.
 
 - [ ] **Step 4: Implement durable reserve-before-provider-delivery.**
 
@@ -738,6 +739,7 @@ git -c core.hooksPath=.githooks commit -m "feat: expose delegated interactive co
 - Delegated provider shutdown needs a distinct `Detach` primitive: it closes only ShellBeam's control observer/ownership attachment while preserving the private tmux server, provider-private state, child/session identity, and recovery marker. `Close` retains terminal cleanup semantics and may destroy the provider session only after terminal publication.
 - On successful native restart acceptance Task 8 may flip `daemon_restart_continuity=true`; it must remain false until that acceptance is proven in the same task.
 - Startup recovery must reconstruct the next agent `input_offset` from the durable delegated mutation ledger, not from in-memory counters. Only a unique contiguous prefix of completed successful write mutations is admissible. Any reserved/delivered/outcome-unknown mutation, conflicting/gapped write offsets, or unreadable mutation record fences startup reconciliation rather than guessing continuation.
+The restart implementation therefore closes the Task 4 persistence omission by binding `NextOffset` in every write mutation identity; this is internal pre-release schema evolution, not a change to the public `input_offset` semantic. Existing H1 fixtures/callsites must be updated together and no legacy record may be silently interpreted with a guessed span.
 - Restarted output accounting must distinguish canonical retained output bytes from bytes observed by the fresh Control Mode client. Because the private observer is not durable across daemon death and `capture-pane` replay is forbidden, a session that crosses daemon restart carries `transport_gap` capture truth unless a future provider proof can prove continuity; it must never claim `capture_quality=complete` merely because the reattached observer is healthy.
 
 - [ ] **Step 1: RED restart matrix.**
