@@ -132,3 +132,23 @@ func TestMCPV1SchemasValidateEveryBranch(t *testing.T) {
 		}
 	}
 }
+
+func TestMCPOutputV2AllowsBoundedTypedFailureDetails(t *testing.T) {
+	payload := map[string]any{
+		"schema_version": 2.0,
+		"ok":             false,
+		"action":         "inspect.workspace",
+		"error": map[string]any{
+			"code":      "workspace_root_missing",
+			"message":   "workspace root is missing",
+			"retryable": false,
+			"details": map[string]any{
+				"workspace_id": "ws_01K00000000000000000000000",
+				"reason":       "root_missing",
+			},
+		},
+	}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(payload); err != nil {
+		t.Fatalf("typed failure details rejected: %v", err)
+	}
+}
