@@ -263,6 +263,25 @@ func (r *Repository) finishHandoffAdvanceTransactionLocked(tx handoffTransaction
 	return tx.Record.State, false, app.StoreResult{Durability: app.DurableChange}
 }
 
+func (r *Repository) FindHandoff(ctx context.Context, handoffID string) (handoff.Request, handoff.State, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return handoff.Request{}, handoff.State{}, false, err
+	}
+	if !validHandoffStoreID(handoffID) {
+		return handoff.Request{}, handoff.State{}, false, failure.New(failure.InvalidInput, map[string]string{"field": "handoff_id"}, nil)
+	}
+	r.delegatedSessionMu.Lock()
+	defer r.delegatedSessionMu.Unlock()
+	record, err := r.loadHandoffRecordLocked(handoffID)
+	if errors.Is(err, ErrNotFound) {
+		return handoff.Request{}, handoff.State{}, false, nil
+	}
+	if err != nil {
+		return handoff.Request{}, handoff.State{}, false, err
+	}
+	return record.Request, record.State, true, nil
+}
+
 func (r *Repository) LoadHandoff(ctx context.Context, handoffID string) (handoff.Request, handoff.State, error) {
 	if err := ctx.Err(); err != nil {
 		return handoff.Request{}, handoff.State{}, err

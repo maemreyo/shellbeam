@@ -164,8 +164,12 @@ func (s *Service) admitDelegatedMutation(ctx context.Context, live *liveSession,
 	if err != nil {
 		return delegated.MutationRecord{}, false, failure.Normalize(err)
 	}
-	if binding.Lifecycle != delegated.LifecycleLive {
-		return delegated.MutationRecord{}, false, failure.New(failure.SessionControlNotOwned, map[string]string{"session_id": id.SessionID, "owner": string(delegated.OwnerNone), "required_owner": string(delegated.OwnerAgent), "current_epoch": fmt.Sprint(binding.AuthorityEpoch)}, nil)
+	if binding.Lifecycle != delegated.LifecycleLive || binding.DesiredOwner != delegated.OwnerAgent {
+		owner := binding.DesiredOwner
+		if binding.Lifecycle != delegated.LifecycleLive {
+			owner = delegated.OwnerNone
+		}
+		return delegated.MutationRecord{}, false, failure.New(failure.SessionControlNotOwned, map[string]string{"session_id": id.SessionID, "owner": string(owner), "required_owner": string(delegated.OwnerAgent), "current_epoch": fmt.Sprint(binding.AuthorityEpoch)}, nil)
 	}
 	obs, err := s.options.DelegatedRuntime.Inspect(ctx, live.delegatedRef)
 	if err != nil {

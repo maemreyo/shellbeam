@@ -197,3 +197,39 @@ func TestDelegatedEOFIsRejectedBeforeMutationReserveOrProvider(t *testing.T) {
 		t.Fatalf("EOF touched provider inspects=%d writes=%d", runtime.inspects.Load(), runtime.writes.Load())
 	}
 }
+
+func TestHumanDesiredOwnerRejectsUnseenAgentWriteAndKillBeforeReserveOrProvider(t *testing.T) {
+	repository := openDelegatedStartStore(t)
+	store := &recordingDelegatedMutationStore{Repository: repository}
+	runtime := newDelegatedStartRuntime()
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime})
+	start := delegatedStartRequest()
+	start.OperationID = "op-human-owned-agent-deny"
+	view, err := svc.Start(t.Context(), start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := repository.LoadDelegatedBinding(t.Context(), operation.SessionID(view.SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.AuthorityEpoch++
+	binding.DesiredOwner = delegated.OwnerHuman
+	binding.UpdatedAt = binding.UpdatedAt.Add(time.Second)
+	if result := repository.AdvanceDelegatedBinding(t.Context(), binding); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	beforeInspect := runtime.inspects.Load()
+	if _, err := svc.Write(t.Context(), app.WriteRequest{SessionID: view.SessionID, AuthorityEpoch: binding.AuthorityEpoch, InputOffset: 0, Chars: "x"}); !errors.Is(err, failure.SessionControlNotOwned) {
+		t.Fatalf("write err=%v", err)
+	}
+	if _, err := svc.Kill(t.Context(), app.KillRequest{SessionID: view.SessionID, AuthorityEpoch: binding.AuthorityEpoch, KillID: "kill-human-owned", Signal: "TERM"}); !errors.Is(err, failure.SessionControlNotOwned) {
+		t.Fatalf("kill err=%v", err)
+	}
+	if store.reserves.Load() != 0 {
+		t.Fatalf("human-owned controls reserved mutations=%d", store.reserves.Load())
+	}
+	if runtime.inspects.Load() != beforeInspect || runtime.writes.Load() != 0 || runtime.signals.Load() != 0 {
+		t.Fatalf("human-owned controls touched provider inspects %d->%d writes=%d signals=%d", beforeInspect, runtime.inspects.Load(), runtime.writes.Load(), runtime.signals.Load())
+	}
+}

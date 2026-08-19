@@ -6,20 +6,32 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
 
+func reserveLiveMutationBinding(t *testing.T, r *Repository, binding delegated.Binding, ref delegated.ProviderRef) delegated.Binding {
+	t.Helper()
+	if _, _, got := r.ReserveDelegatedBinding(context.Background(), binding, ref); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	binding.Lifecycle = delegated.LifecycleLive
+	binding.UpdatedAt = binding.UpdatedAt.Add(time.Second)
+	if got := r.AdvanceDelegatedBinding(context.Background(), binding); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	return binding
+}
+
 func TestDelegatedMutationLedgerExactReplayConflictAndTransitions(t *testing.T) {
 	r := delegatedRepository(t, filepath.Join(t.TempDir(), "state"), 8)
 	res := task4DelegatedReservation("op-mutation", "session-mutation", "")
 	reserveDelegatedOperation(t, r, res)
 	binding, ref := delegatedBindingAndRef(res, "provider_ref_mutation")
-	if _, _, got := r.ReserveDelegatedBinding(context.Background(), binding, ref); got.Err != nil {
-		t.Fatal(got.Err)
-	}
+	binding = reserveLiveMutationBinding(t, r, binding, ref)
 
 	id := delegated.MutationIdentity{SessionID: binding.SessionID, Epoch: 1, Kind: delegated.MutationWrite, Offset: 0, NextOffset: 1, Fingerprint: "write_fp_01"}
 	rec, created, got := r.ReserveDelegatedMutation(context.Background(), id)
@@ -61,9 +73,7 @@ func TestDelegatedMutationLedgerIsBoundedWithoutEvictingReplayAuthority(t *testi
 	res := task4DelegatedReservation("op-limit", "session-limit", "")
 	reserveDelegatedOperation(t, r, res)
 	binding, ref := delegatedBindingAndRef(res, "provider_ref_limit")
-	if _, _, got := r.ReserveDelegatedBinding(context.Background(), binding, ref); got.Err != nil {
-		t.Fatal(got.Err)
-	}
+	binding = reserveLiveMutationBinding(t, r, binding, ref)
 	ids := []delegated.MutationIdentity{
 		{SessionID: binding.SessionID, Epoch: 1, Kind: delegated.MutationWrite, Offset: 0, NextOffset: 1, Fingerprint: "fp0"},
 		{SessionID: binding.SessionID, Epoch: 1, Kind: delegated.MutationWrite, Offset: 1, NextOffset: 2, Fingerprint: "fp1"},
@@ -94,9 +104,7 @@ func TestDelegatedRecoveryStateReconstructsContiguousCompletedWritePrefix(t *tes
 	res := task4DelegatedReservation("op-recovery-offset", "session-recovery-offset", "")
 	reserveDelegatedOperation(t, r, res)
 	binding, ref := delegatedBindingAndRef(res, "provider_ref_recovery_offset")
-	if _, _, got := r.ReserveDelegatedBinding(context.Background(), binding, ref); got.Err != nil {
-		t.Fatal(got.Err)
-	}
+	binding = reserveLiveMutationBinding(t, r, binding, ref)
 	writes := []delegated.MutationIdentity{
 		{SessionID: binding.SessionID, Epoch: 1, Kind: delegated.MutationWrite, Offset: 0, NextOffset: 3, Fingerprint: "fp-recovery-0"},
 		{SessionID: binding.SessionID, Epoch: 1, Kind: delegated.MutationWrite, Offset: 3, NextOffset: 5, Fingerprint: "fp-recovery-3"},
@@ -158,9 +166,7 @@ func TestDelegatedRecoveryStateFencesUnresolvedGapAndCorruptLedger(t *testing.T)
 			res := task4DelegatedReservation("op-recovery-"+name, "session-recovery-"+name, "")
 			reserveDelegatedOperation(t, r, res)
 			binding, ref := delegatedBindingAndRef(res, "provider_ref_recovery_"+name)
-			if _, _, got := r.ReserveDelegatedBinding(context.Background(), binding, ref); got.Err != nil {
-				t.Fatal(got.Err)
-			}
+			binding = reserveLiveMutationBinding(t, r, binding, ref)
 			mutate(t, r, binding)
 			if _, err := r.LoadDelegatedRecoveryState(context.Background(), operation.SessionID(binding.SessionID)); !errors.Is(err, failure.DelegatedReconcileBlocked) {
 				t.Fatalf("err=%v want delegated_reconcile_blocked", err)
@@ -181,5 +187,37 @@ func TestDelegatedOutputBytesUsesRetainedExtent(t *testing.T) {
 	got, err := r.DelegatedOutputBytes(context.Background(), res.SessionID)
 	if err != nil || got != 8 {
 		t.Fatalf("bytes=%d err=%v", got, err)
+	}
+}
+
+func TestDelegatedMutationReserveRechecksCurrentAuthorityUnderStoreLock(t *testing.T) {
+	r := delegatedRepository(t, filepath.Join(t.TempDir(), "state"), 8)
+	res := task4DelegatedReservation("op-authority-race", "session-authority-race", "")
+	reserveDelegatedOperation(t, r, res)
+	binding, ref := delegatedBindingAndRef(res, "provider_ref_authority_race")
+	binding = reserveLiveMutationBinding(t, r, binding, ref)
+
+	known := delegated.MutationIdentity{SessionID: binding.SessionID, Epoch: 1, Kind: delegated.MutationWrite, Offset: 0, NextOffset: 1, Fingerprint: "fp-known-before-handoff"}
+	if _, created, got := r.ReserveDelegatedMutation(context.Background(), known); got.Err != nil || !created {
+		t.Fatalf("known reserve created=%v result=%#v", created, got)
+	}
+
+	binding.AuthorityEpoch = 2
+	binding.DesiredOwner = delegated.OwnerHuman
+	binding.UpdatedAt = binding.UpdatedAt.Add(time.Second)
+	if got := r.AdvanceDelegatedBinding(context.Background(), binding); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+
+	if replay, created, got := r.ReserveDelegatedMutation(context.Background(), known); got.Err != nil || created || replay.Identity != known {
+		t.Fatalf("known replay after handoff rec=%#v created=%v result=%#v", replay, created, got)
+	}
+	stale := delegated.MutationIdentity{SessionID: binding.SessionID, Epoch: 1, Kind: delegated.MutationWrite, Offset: 1, NextOffset: 2, Fingerprint: "fp-stale-after-handoff"}
+	if _, _, got := r.ReserveDelegatedMutation(context.Background(), stale); !errors.Is(got.Err, failure.StaleControlGeneration) {
+		t.Fatalf("stale unseen reserve err=%v", got.Err)
+	}
+	currentButHuman := delegated.MutationIdentity{SessionID: binding.SessionID, Epoch: 2, Kind: delegated.MutationWrite, Offset: 1, NextOffset: 2, Fingerprint: "fp-human-owned"}
+	if _, _, got := r.ReserveDelegatedMutation(context.Background(), currentButHuman); !errors.Is(got.Err, failure.SessionControlNotOwned) {
+		t.Fatalf("human-owned unseen reserve err=%v", got.Err)
 	}
 }

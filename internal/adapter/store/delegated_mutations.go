@@ -42,9 +42,6 @@ func (r *Repository) ReserveDelegatedMutation(ctx context.Context, id delegated.
 	sid := operation.SessionID(id.SessionID)
 	r.delegatedSessionMu.Lock()
 	defer r.delegatedSessionMu.Unlock()
-	if _, err := r.loadDelegatedBindingLocked(sid); err != nil {
-		return delegated.MutationRecord{}, false, app.StoreResult{Err: err}
-	}
 	if existing, err := r.loadDelegatedMutationLocked(id); err == nil {
 		if existing.Identity != id {
 			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, nil, nil)}
@@ -52,6 +49,16 @@ func (r *Repository) ReserveDelegatedMutation(ctx context.Context, id delegated.
 		return existing, false, app.StoreResult{Durability: app.DurableChange}
 	} else if !errors.Is(err, ErrNotFound) {
 		return delegated.MutationRecord{}, false, app.StoreResult{Err: err}
+	}
+	binding, err := r.loadDelegatedBindingLocked(sid)
+	if err != nil {
+		return delegated.MutationRecord{}, false, app.StoreResult{Err: err}
+	}
+	if binding.AuthorityEpoch != id.Epoch {
+		return delegated.MutationRecord{}, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.StaleControlGeneration, map[string]string{"session_id": id.SessionID, "expected_epoch": fmt.Sprint(binding.AuthorityEpoch), "current_epoch": fmt.Sprint(id.Epoch)}, nil)}
+	}
+	if binding.Lifecycle != delegated.LifecycleLive || binding.DesiredOwner != delegated.OwnerAgent {
+		return delegated.MutationRecord{}, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.SessionControlNotOwned, map[string]string{"session_id": id.SessionID, "owner": string(binding.DesiredOwner), "required_owner": string(delegated.OwnerAgent), "current_epoch": fmt.Sprint(binding.AuthorityEpoch)}, nil)}
 	}
 	dir := r.delegatedSessionMutationDir(sid)
 	if err := ensurePrivateDir(dir); err != nil {

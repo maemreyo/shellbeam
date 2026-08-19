@@ -102,3 +102,22 @@ func h2HandoffRequestAndState(binding delegated.Binding, suffix string) (handoff
 	}
 	return req, state
 }
+
+func TestFindHandoffDistinguishesMissingFromDurableReplay(t *testing.T) {
+	r, _, req, state := h2HandoffFixture(t, filepath.Join(t.TempDir(), "state"), "find")
+	stored, created, result := r.ReserveHandoff(context.Background(), req, state)
+	if result.Err != nil || !created || stored != state {
+		t.Fatalf("reserve handoff stored=%#v created=%v result=%#v", stored, created, result)
+	}
+	gotReq, gotState, found, err := r.FindHandoff(context.Background(), req.HandoffID)
+	if err != nil || !found || gotReq != req || gotState != state {
+		t.Fatalf("find durable req=%#v state=%#v found=%v err=%v", gotReq, gotState, found, err)
+	}
+	_, _, found, err = r.FindHandoff(context.Background(), "handoff-missing")
+	if err != nil || found {
+		t.Fatalf("find missing found=%v err=%v", found, err)
+	}
+	if _, _, _, err := r.FindHandoff(context.Background(), "../escape"); !errors.Is(err, failure.InvalidInput) {
+		t.Fatalf("unsafe find err=%v want invalid_input", err)
+	}
+}

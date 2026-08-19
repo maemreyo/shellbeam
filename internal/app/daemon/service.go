@@ -40,6 +40,7 @@ type Service struct {
 	mediaReadBudget      time.Duration
 	mediaAfter           func(time.Duration) <-chan time.Time
 	mediaWorkerDone      chan struct{}
+	handoff              handoffCoordinator
 }
 
 // timeoutSource values name who chose the bound a receipt reports.
@@ -122,10 +123,12 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	if mediaBudget <= 0 {
 		mediaBudget = media.AcquisitionBudget
 	}
-	return &Service{
+	service := &Service{
 		store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{},
 		mediaSlots: make(chan struct{}, media.MaxConcurrentReads), mediaReadBudget: mediaBudget, mediaAfter: time.After,
 	}
+	configureHandoffCoordinator(service)
+	return service
 }
 
 func NewServiceWithExecutionContext(store Store, owner ProcessOwner, resolver WorkspaceResolver, observer WorkspaceObserver, tracker ActivityTracker, options Options) *Service {
