@@ -114,6 +114,29 @@ else:
     if dto_fields != matrix_fields:
         errors.append(f"DecisionRequestV1 fields mismatch matrix missing={sorted(matrix_fields-dto_fields)} extra={sorted(dto_fields-matrix_fields)}")
 
+# Task 0 baseline evidence heredoc is intentionally expandable for shell variables,
+# so Markdown backticks in its body must be escaped or the shell executes them.
+baseline_heredoc=re.search(
+    r'cat > docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline\.md <<EOFBASE\n(.*?)\nEOFBASE',
+    plan,
+    re.S,
+)
+if not baseline_heredoc:
+    errors.append('Task 0 expandable baseline evidence heredoc missing')
+else:
+    body=baseline_heredoc.group(1)
+    if re.search(r'(?<!\\)`', body):
+        errors.append('Task 0 expandable baseline evidence heredoc contains unescaped Markdown backtick')
+    for heredoc_anchor in [
+        r'- implementation_base: \`${IMPLEMENTATION_BASE}\`',
+        r'- previous_implementation_base: \`${PREVIOUS_IMPLEMENTATION_BASE}\`',
+        r'- plan_authoring_base: \`27207d94b097040b571081c8c49d9c09487460c5\`',
+        r'- frozen_spec_sha256: \`6cf49426243f26e8bec862c29651304ccc4abd5e1f91947f9899fe21fd72f7fa\`',
+        r'- go_version: \`${GO_VERSION}\`',
+    ]:
+        if heredoc_anchor not in body:
+            errors.append(f'Task 0 baseline evidence heredoc missing escaped anchor {heredoc_anchor}')
+
 # Task 0 durable implementation-base authority and per-task rebinding.
 base_proto=meta.get('implementation_base_protocol',{})
 if base_proto.get('plan_authoring_base') != meta.get('plan_authoring_base'): errors.append('implementation base protocol authoring base mismatch')
@@ -126,7 +149,7 @@ if base_proto.get('previous_base_source') != 'recorded_implementation_base_or_pl
 if base_proto.get('owner_audit_base') != 'plan_authoring_base': errors.append('implementation owner-audit base mismatch')
 if base_proto.get('integration_replay_base') != 'previous_implementation_base': errors.append('implementation replay-base mismatch')
 if base_proto.get('repeatable_main_drift') is not True: errors.append('implementation repeated-main-drift protocol missing')
-for anchor in ['PREVIOUS_IMPLEMENTATION_BASE','git merge-base --is-ancestor "$PREVIOUS_IMPLEMENTATION_BASE" "$CURRENT_MAIN"','test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PREVIOUS_IMPLEMENTATION_BASE"','git rebase --onto "$CURRENT_MAIN" "$PREVIOUS_IMPLEMENTATION_BASE"','previous_implementation_base: `${PREVIOUS_IMPLEMENTATION_BASE}`']:
+for anchor in ['PREVIOUS_IMPLEMENTATION_BASE','git merge-base --is-ancestor "$PREVIOUS_IMPLEMENTATION_BASE" "$CURRENT_MAIN"','test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PREVIOUS_IMPLEMENTATION_BASE"','git rebase --onto "$CURRENT_MAIN" "$PREVIOUS_IMPLEMENTATION_BASE"',r'previous_implementation_base: \`${PREVIOUS_IMPLEMENTATION_BASE}\`']:
     if anchor not in plan: errors.append(f'plan missing repeated-main-drift anchor {anchor}')
 if 'test "$(git merge-base HEAD "$CURRENT_MAIN")" = "$PLAN_AUTHORING_BASE"' in plan: errors.append('Task 0 still hardcodes plan authoring base as replay topology boundary')
 helper_call='export SHELLBEAM_BASE_REF="$(scripts/decision-protocol-v1-implementation-base.sh)"'
