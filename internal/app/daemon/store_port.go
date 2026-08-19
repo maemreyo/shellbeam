@@ -62,6 +62,7 @@ type InteractiveHandoffStore interface {
 	ReserveHandoff(context.Context, handoff.Request, handoff.State) (handoff.State, bool, StoreResult)
 	AdvanceHandoff(context.Context, handoff.State) StoreResult
 	LoadHandoff(context.Context, string) (handoff.Request, handoff.State, error)
+	RecoverHandoff(context.Context, string) (handoff.State, StoreResult)
 	FindHandoff(context.Context, string) (handoff.Request, handoff.State, bool, error)
 	ReserveControlSignal(context.Context, handoff.ControlSignal) (handoff.ControlSignal, string, bool, StoreResult)
 	CompleteControlSignal(context.Context, handoff.ControlSignal, string) (string, StoreResult)

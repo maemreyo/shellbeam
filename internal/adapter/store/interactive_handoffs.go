@@ -12,6 +12,7 @@ import (
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
+	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
 
@@ -48,10 +49,11 @@ func (v handoffRecord) validate() error {
 }
 
 type handoffTransaction struct {
-	SchemaVersion int               `json:"schema_version"`
-	Record        handoffRecord     `json:"record"`
-	PriorBinding  delegated.Binding `json:"prior_binding"`
-	TargetBinding delegated.Binding `json:"target_binding"`
+	SchemaVersion   int                     `json:"schema_version"`
+	Record          handoffRecord           `json:"record"`
+	PriorBinding    delegated.Binding       `json:"prior_binding"`
+	TargetBinding   delegated.Binding       `json:"target_binding"`
+	ObservationSeqs []observation.ChangeSeq `json:"observation_seqs,omitempty"`
 }
 
 func (v handoffTransaction) validate() error {
@@ -72,6 +74,19 @@ func (v handoffTransaction) validate() error {
 	}
 	if v.TargetBinding.AuthorityEpoch < v.PriorBinding.AuthorityEpoch || v.TargetBinding.AuthorityEpoch != v.Record.State.AuthorityEpoch || v.TargetBinding.DesiredOwner != v.Record.State.DesiredOwner {
 		return fmt.Errorf("handoff transaction authority mismatch")
+	}
+	if len(v.ObservationSeqs) > 4 {
+		return fmt.Errorf("handoff transaction observation overflow")
+	}
+	seen := map[observation.ChangeSeq]struct{}{}
+	for _, seq := range v.ObservationSeqs {
+		if seq == 0 {
+			return fmt.Errorf("invalid handoff transaction observation")
+		}
+		if _, ok := seen[seq]; ok {
+			return fmt.Errorf("duplicate handoff transaction observation")
+		}
+		seen[seq] = struct{}{}
 	}
 	return nil
 }
@@ -132,10 +147,21 @@ func (r *Repository) ReserveHandoff(ctx context.Context, req handoff.Request, in
 	if err := tx.validate(); err != nil {
 		return handoff.State{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
+	seqs, prepared := r.prepareHandoffObservations(ctx, initial, []handoffObservationSpec{handoffCreateObservationSpec(initial)})
+	if prepared.Err != nil {
+		return handoff.State{}, false, prepared
+	}
+	tx.ObservationSeqs = append([]observation.ChangeSeq(nil), seqs...)
+	if err := tx.validate(); err != nil {
+		return handoff.State{}, false, r.finishHandoffObservations(seqs, app.StoreResult{Durability: app.NoDurableChange, Err: err}, nil)
+	}
 	if result := r.writer.Create(r.interactiveHandoffTransactionPath(req.HandoffID), tx); result.Err != nil {
+		result = r.finishHandoffObservations(seqs, result, func() bool { return r.handoffObservationTransactionMatchesLocked(tx, true) })
 		return handoff.State{}, false, result
 	}
-	return r.finishHandoffTransactionLocked(tx, true)
+	state, created, result := r.finishHandoffTransactionLocked(tx, true)
+	result = r.finishHandoffObservations(seqs, result, func() bool { return r.handoffObservationTransactionMatchesLocked(tx, true) })
+	return state, created, result
 }
 
 func validateInitialH2Handoff(req handoff.Request, state handoff.State) error {
@@ -164,7 +190,7 @@ func (r *Repository) finishHandoffTransactionLocked(tx handoffTransaction, creat
 	}
 	if reflect.DeepEqual(current, tx.PriorBinding) {
 		if result := r.writer.Replace(r.delegatedBindingPath(operation.SessionID(current.SessionID)), tx.TargetBinding); result.Err != nil {
-			return handoff.State{}, false, result
+			return handoff.State{}, false, handoffTransactionResult(result)
 		}
 	} else if !reflect.DeepEqual(current, tx.TargetBinding) {
 		return handoff.State{}, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.HandoffReclaimBlocked, map[string]string{"handoff_id": tx.Record.Request.HandoffID, "reason": "binding_transaction_mismatch"}, nil)}
@@ -176,7 +202,7 @@ func (r *Repository) finishHandoffTransactionLocked(tx handoffTransaction, creat
 		}
 	} else if errors.Is(err, ErrNotFound) {
 		if result := r.writer.Create(path, tx.Record); result.Err != nil {
-			return handoff.State{}, false, result
+			return handoff.State{}, false, handoffTransactionResult(result)
 		}
 	} else {
 		return handoff.State{}, false, app.StoreResult{Durability: app.DurableChange, Err: err}
@@ -197,7 +223,15 @@ func (r *Repository) AdvanceHandoff(ctx context.Context, want handoff.State) app
 	r.delegatedSessionMu.Lock()
 	defer r.delegatedSessionMu.Unlock()
 	if tx, err := r.loadHandoffTransactionLocked(want.HandoffID); err == nil {
-		if _, _, result := r.finishHandoffAdvanceTransactionLocked(tx); result.Err != nil {
+		result := r.reconcileHandoffTransactionLocked(want.HandoffID)
+		if result.Err != nil {
+			return result
+		}
+		result = r.finishHandoffObservations(tx.ObservationSeqs, result, func() bool {
+			current, loadErr := r.loadHandoffRecordLocked(want.HandoffID)
+			return loadErr == nil && current.State == tx.Record.State
+		})
+		if result.Err != nil {
 			return result
 		}
 	} else if !errors.Is(err, ErrNotFound) {
@@ -217,10 +251,16 @@ func (r *Repository) AdvanceHandoff(ctx context.Context, want handoff.State) app
 	if err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
+	specs := handoffAdvanceObservationSpecs(record.State, want)
+	seqs, prepared := r.prepareHandoffObservations(ctx, want, specs)
+	if prepared.Err != nil {
+		return prepared
+	}
 	bindingChange := binding.AuthorityEpoch != want.AuthorityEpoch || binding.DesiredOwner != want.DesiredOwner
 	if bindingChange {
 		if want.AuthorityEpoch <= binding.AuthorityEpoch {
-			return app.StoreResult{Durability: app.DurableChange, Err: handoffConflict(want.HandoffID, "owner_change_without_epoch_rotation")}
+			result := app.StoreResult{Durability: app.NoDurableChange, Err: handoffConflict(want.HandoffID, "owner_change_without_epoch_rotation")}
+			return r.finishHandoffObservations(seqs, result, nil)
 		}
 		now := r.now().UTC()
 		target := binding
@@ -230,16 +270,23 @@ func (r *Repository) AdvanceHandoff(ctx context.Context, want handoff.State) app
 		nextRecord := record
 		nextRecord.State = want
 		nextRecord.UpdatedAt = monotonicHandoffTime(now, record.UpdatedAt)
-		tx := handoffTransaction{SchemaVersion: handoffStoreSchemaVersion, Record: nextRecord, PriorBinding: binding, TargetBinding: target}
+		tx := handoffTransaction{SchemaVersion: handoffStoreSchemaVersion, Record: nextRecord, PriorBinding: binding, TargetBinding: target, ObservationSeqs: append([]observation.ChangeSeq(nil), seqs...)}
+		if err := tx.validate(); err != nil {
+			return r.finishHandoffObservations(seqs, app.StoreResult{Durability: app.NoDurableChange, Err: err}, nil)
+		}
 		if result := r.writer.Create(r.interactiveHandoffTransactionPath(want.HandoffID), tx); result.Err != nil && !errors.Is(result.Err, os.ErrExist) {
-			return result
+			return r.finishHandoffObservations(seqs, result, func() bool { return r.handoffObservationTransactionMatchesLocked(tx, false) })
 		}
 		_, _, result := r.finishHandoffAdvanceTransactionLocked(tx)
-		return result
+		return r.finishHandoffObservations(seqs, result, func() bool { return r.handoffObservationTransactionMatchesLocked(tx, false) })
 	}
 	record.State = want
 	record.UpdatedAt = monotonicHandoffTime(r.now().UTC(), record.UpdatedAt)
-	return r.writer.Replace(r.interactiveHandoffRecordPath(want.HandoffID), record)
+	result := r.writer.Replace(r.interactiveHandoffRecordPath(want.HandoffID), record)
+	return r.finishHandoffObservations(seqs, result, func() bool {
+		current, loadErr := r.loadHandoffRecordLocked(want.HandoffID)
+		return loadErr == nil && current.State == want
+	})
 }
 
 func (r *Repository) finishHandoffAdvanceTransactionLocked(tx handoffTransaction) (handoff.State, bool, app.StoreResult) {
@@ -249,18 +296,25 @@ func (r *Repository) finishHandoffAdvanceTransactionLocked(tx handoffTransaction
 	}
 	if reflect.DeepEqual(current, tx.PriorBinding) {
 		if result := r.writer.Replace(r.delegatedBindingPath(operation.SessionID(current.SessionID)), tx.TargetBinding); result.Err != nil {
-			return handoff.State{}, false, result
+			return handoff.State{}, false, handoffTransactionResult(result)
 		}
 	} else if !reflect.DeepEqual(current, tx.TargetBinding) {
 		return handoff.State{}, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.HandoffReclaimBlocked, map[string]string{"handoff_id": tx.Record.Request.HandoffID, "reason": "advance_binding_mismatch"}, nil)}
 	}
 	if result := r.writer.Replace(r.interactiveHandoffRecordPath(tx.Record.Request.HandoffID), tx.Record); result.Err != nil {
-		return handoff.State{}, false, result
+		return handoff.State{}, false, handoffTransactionResult(result)
 	}
 	if err := r.removeHandoffTransactionLocked(tx.Record.Request.HandoffID); err != nil {
 		return tx.Record.State, false, app.StoreResult{Durability: app.AmbiguousChange, Err: err}
 	}
 	return tx.Record.State, false, app.StoreResult{Durability: app.DurableChange}
+}
+
+func handoffTransactionResult(result app.StoreResult) app.StoreResult {
+	if result.Err != nil && result.Durability == app.NoDurableChange {
+		result.Durability = app.DurableChange
+	}
+	return result
 }
 
 func (r *Repository) FindHandoff(ctx context.Context, handoffID string) (handoff.Request, handoff.State, bool, error) {

@@ -84,3 +84,20 @@ func TestDelegatedReconcileReattachBoundFailsClosedOnBindingRefProviderOrAuthori
 		})
 	}
 }
+
+func TestDelegatedReconcileReattachBoundAllowsFencedContinuityForHandoffOwnedBinding(t *testing.T) {
+	for _, owner := range []core.Owner{core.OwnerHuman, core.OwnerNone} {
+		t.Run(string(owner), func(t *testing.T) {
+			binding, ref := reattachBinding()
+			binding.DesiredOwner = owner
+			provider := &reattachProvider{identity: binding.ProviderIdentity(), obs: Observation{Provider: binding.ProviderIdentity(), ProviderCurrent: true, ProviderGeneration: "gen_handoff", Owner: core.OwnerAgent}}
+			result, err := New(provider).ReattachBound(t.Context(), ReattachRequest{Binding: binding, ProviderRef: ref, Output: &reattachSink{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if provider.calls != 1 || !result.Authority.Fenced || result.Authority.Owner != core.OwnerNone || result.Authority.Epoch != binding.AuthorityEpoch || result.Observation.ProviderGeneration != "gen_handoff" {
+				t.Fatalf("owner=%q result=%#v calls=%d", owner, result, provider.calls)
+			}
+		})
+	}
+}

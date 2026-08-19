@@ -96,7 +96,9 @@ func ProjectPublicState(v State, createdAt, updatedAt time.Time) (PublicState, e
 		created, updated := createdAt.UTC(), updatedAt.UTC()
 		out.CreatedAt, out.UpdatedAt = &created, &updated
 	}
-	if status == StatusReclaimBlocked {
+	if v.FailureCode != "" {
+		out.FailureCode = string(v.FailureCode)
+	} else if status == StatusReclaimBlocked {
 		out.FailureCode = string(failure.HandoffReclaimBlocked)
 	}
 	if v.Phase == PhaseHumanConnecting && v.HumanClient == nil {

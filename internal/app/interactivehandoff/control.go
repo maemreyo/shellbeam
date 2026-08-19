@@ -172,6 +172,9 @@ func (s *Service) abortLoaded(ctx context.Context, state handoff.State) (handoff
 }
 
 func (s *Service) resume(ctx context.Context, signal handoff.ControlSignal, state handoff.State) (ControlResult, error) {
+	if state.FailureCode == failure.HandoffExpired {
+		return ControlResult{}, failure.New(failure.HandoffExpired, map[string]string{"handoff_id": state.HandoffID}, nil)
+	}
 	if state.Phase == handoff.PhaseHumanConnecting {
 		// A response may have been lost after the durable resume transition.
 		// HUMAN_CONNECTING is the terminal state of the resume control itself;

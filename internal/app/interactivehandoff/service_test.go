@@ -73,6 +73,15 @@ func (s *fakeStore) AdvanceHandoff(_ context.Context, state handoff.State) error
 	}
 	return nil
 }
+func (s *fakeStore) RecoverHandoff(context.Context, string) (handoff.State, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.call("recover_handoff")
+	if !s.found {
+		return handoff.State{}, errors.New("missing")
+	}
+	return s.state, nil
+}
 func (s *fakeStore) LoadHandoff(context.Context, string) (handoff.Request, handoff.State, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

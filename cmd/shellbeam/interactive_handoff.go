@@ -10,6 +10,30 @@ import (
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 )
 
+type handoffStartupStore interface {
+	ListHandoffRecoveryCandidates(context.Context) ([]handoff.State, error)
+}
+
+type handoffStartupReconciler interface {
+	CapabilityCatalog() capability.Catalog
+	ReconcileHandoffStartup(context.Context, []handoff.State, daemonapp.HandoffStartupOptions) error
+}
+
+func reconcileHandoffDaemonStartup(ctx context.Context, store handoffStartupStore, svc handoffStartupReconciler) error {
+	candidates, err := store.ListHandoffRecoveryCandidates(ctx)
+	if err != nil {
+		return err
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	catalog := svc.CapabilityCatalog()
+	if catalog.Features[capability.FeatureInteractiveHandoff] != capability.Available || catalog.InteractiveHandoff == nil {
+		return nil
+	}
+	return svc.ReconcileHandoffStartup(ctx, candidates, daemonapp.HandoffStartupOptions{})
+}
+
 func composeInteractiveHandoffCapability(catalog capability.Catalog, runtime daemonapp.DelegatedRuntime) capability.Catalog {
 	if runtime == nil || catalog.Features[capability.FeatureDelegatedInteractive] != capability.Available || catalog.DelegatedInteractive == nil {
 		return catalog

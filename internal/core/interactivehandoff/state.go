@@ -151,6 +151,7 @@ type State struct {
 	CaptureState       CaptureState             `json:"capture_state"`
 	HumanClient        *HumanClientRef          `json:"human_client,omitempty"`
 	ProviderGeneration string                   `json:"provider_generation"`
+	FailureCode        failure.Code             `json:"failure_code,omitempty"`
 }
 
 func (v State) Validate() error {
@@ -197,6 +198,11 @@ func (v State) Validate() error {
 	}
 	if v.HumanIngress == IngressWritable && v.HumanClient == nil {
 		return fmt.Errorf("human writable without proven client ref")
+	}
+	switch v.FailureCode {
+	case "", failure.HandoffClientLost, failure.HandoffReclaimBlocked, failure.HandoffExpired:
+	default:
+		return fmt.Errorf("invalid handoff failure code")
 	}
 	if v.PrivacyState == PrivacyStateStandard && (v.PrivacyRelease != PrivacyReleaseNotRequired || v.CaptureState != CapturePublic) {
 		return fmt.Errorf("standard privacy state mismatch")

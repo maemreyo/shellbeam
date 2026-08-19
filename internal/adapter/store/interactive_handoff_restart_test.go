@@ -41,7 +41,7 @@ func TestHandoffCrashAfterEpochRotationRecoversBothIngressFenced(t *testing.T) {
 	r.writer.fail = func(point string) error {
 		if point == "create.write" {
 			createWrites++
-			if createWrites == 2 {
+			if createWrites == 3 {
 				return errors.New("inject handoff record failure after binding rotation")
 			}
 		}
@@ -150,5 +150,39 @@ func TestHumanWriteAuthorityProvenanceRejectsUnsafeSessionIdentity(t *testing.T)
 	}
 	if _, err := r.LoadInputAuthorityProvenance(context.Background(), unsafe); !errors.Is(err, failure.InvalidInput) {
 		t.Fatalf("unsafe provenance load err=%v", err)
+	}
+}
+
+func TestRecoverHandoffSettlesReserveTransactionWithoutInventingIngressProof(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	r, binding, req, initial := h2HandoffFixture(t, root, "recover-canonical")
+	createWrites := 0
+	r.writer.fail = func(point string) error {
+		if point == "create.write" {
+			createWrites++
+			if createWrites == 3 {
+				return errors.New("inject record failure")
+			}
+		}
+		return nil
+	}
+	if _, _, result := r.ReserveHandoff(context.Background(), req, initial); result.Err == nil {
+		t.Fatal("faulted reserve unexpectedly succeeded")
+	}
+
+	reopened := delegatedRepository(t, root, 64)
+	got, result := reopened.RecoverHandoff(context.Background(), req.HandoffID)
+	if result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if got != initial || got.AgentIngress != handoff.IngressUnknown {
+		t.Fatalf("recovered=%#v want canonical initial=%#v", got, initial)
+	}
+	rotated, err := reopened.LoadDelegatedBinding(context.Background(), operation.SessionID(binding.SessionID))
+	if err != nil || rotated.AuthorityEpoch != initial.AuthorityEpoch || rotated.DesiredOwner != initial.DesiredOwner {
+		t.Fatalf("binding=%#v err=%v", rotated, err)
+	}
+	if _, err := os.Stat(reopened.interactiveHandoffTransactionPath(req.HandoffID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("transaction remains: %v", err)
 	}
 }

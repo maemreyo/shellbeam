@@ -82,6 +82,7 @@ func (s *Service) bindLocalHumanLocked(ctx context.Context, ref delegated.Provid
 			return handoff.State{}, failure.New(failure.HumanClientNotProven, map[string]string{"handoff_id": state.HandoffID, "reason": "prebound_client_not_read_only"}, nil)
 		}
 		state.HumanClient = &handoff.HumanClientRef{Ref: client.Ref}
+		state.FailureCode = ""
 		state.ProviderOwner = delegated.OwnerNone
 		if err := s.advance(ctx, state); err != nil {
 			return handoff.State{}, err

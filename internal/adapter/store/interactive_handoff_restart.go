@@ -143,6 +143,29 @@ func (r *Repository) ListHandoffRecoveryCandidates(ctx context.Context) ([]hando
 	return out, nil
 }
 
+func (r *Repository) RecoverHandoff(ctx context.Context, id string) (handoff.State, app.StoreResult) {
+	if err := ctx.Err(); err != nil {
+		return handoff.State{}, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
+	if !validHandoffStoreID(id) {
+		return handoff.State{}, app.StoreResult{Durability: app.NoDurableChange, Err: failure.New(failure.InvalidInput, map[string]string{"field": "handoff_id"}, nil)}
+	}
+	r.delegatedSessionMu.Lock()
+	defer r.delegatedSessionMu.Unlock()
+	if _, err := r.loadHandoffTransactionLocked(id); err == nil {
+		if result := r.reconcileHandoffTransactionLocked(id); result.Err != nil {
+			return handoff.State{}, result
+		}
+	} else if !errors.Is(err, ErrNotFound) {
+		return handoff.State{}, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
+	record, err := r.loadHandoffRecordLocked(id)
+	if err != nil {
+		return handoff.State{}, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
+	return record.State, app.StoreResult{Durability: app.DurableChange}
+}
+
 func (r *Repository) loadHandoffTransactionLocked(id string) (handoffTransaction, error) {
 	var out handoffTransaction
 	if err := readPrivateJSON(r.interactiveHandoffTransactionPath(id), maxHandoffTransactionBytes, &out); err != nil {
@@ -167,9 +190,43 @@ func (r *Repository) reconcileHandoffTransactionLocked(id string) app.StoreResul
 	if err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	_, _, result := r.finishHandoffTransactionLocked(tx, false)
-	if errors.Is(result.Err, failure.HandoffReclaimBlocked) {
-		return result
+	_, recordErr := r.loadHandoffRecordLocked(id)
+	var result app.StoreResult
+	switch {
+	case errors.Is(recordErr, ErrNotFound):
+		_, _, result = r.finishHandoffTransactionLocked(tx, false)
+	case recordErr == nil:
+		_, _, result = r.finishHandoffAdvanceTransactionLocked(tx)
+	default:
+		return app.StoreResult{Durability: app.NoDurableChange, Err: recordErr}
 	}
 	return result
+}
+
+func (r *Repository) reconcileHandoffTransactions(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.delegatedSessionMu.Lock()
+	defer r.delegatedSessionMu.Unlock()
+	entries, err := os.ReadDir(r.interactiveHandoffTransactionDir())
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			return fmt.Errorf("invalid handoff transaction entry")
+		}
+		id := entry.Name()[:len(entry.Name())-len(".json")]
+		if !validHandoffStoreID(id) {
+			return fmt.Errorf("invalid handoff transaction identity")
+		}
+		if result := r.reconcileHandoffTransactionLocked(id); result.Err != nil {
+			return result.Err
+		}
+	}
+	return nil
 }

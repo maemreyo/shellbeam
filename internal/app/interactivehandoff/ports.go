@@ -17,6 +17,7 @@ type Store interface {
 	ReserveHandoff(context.Context, handoff.Request, handoff.State) (handoff.State, bool, error)
 	AdvanceHandoff(context.Context, handoff.State) error
 	LoadHandoff(context.Context, string) (handoff.Request, handoff.State, error)
+	RecoverHandoff(context.Context, string) (handoff.State, error)
 	LoadDelegatedBinding(context.Context, operation.SessionID) (delegated.Binding, error)
 	LoadDelegatedProviderRef(context.Context, operation.SessionID) (delegated.ProviderRef, error)
 	ReserveControlSignal(context.Context, handoff.ControlSignal) (handoff.ControlSignal, string, bool, error)

@@ -15,6 +15,8 @@ import (
 )
 
 type handoffCoordinator interface {
+	Reconcile(context.Context, string) (handoff.State, error)
+	Expire(context.Context, string) (handoff.State, error)
 	Request(context.Context, handoff.Request) (handoff.State, error)
 	Wait(context.Context, handoffapp.WaitRequest) (handoffapp.WaitResult, error)
 	Abort(context.Context, string) (handoff.State, error)
@@ -63,6 +65,10 @@ func (a handoffStoreAdapter) AdvanceHandoff(ctx context.Context, state handoff.S
 }
 func (a handoffStoreAdapter) LoadHandoff(ctx context.Context, id string) (handoff.Request, handoff.State, error) {
 	return a.handoff.LoadHandoff(ctx, id)
+}
+func (a handoffStoreAdapter) RecoverHandoff(ctx context.Context, id string) (handoff.State, error) {
+	state, result := a.handoff.RecoverHandoff(ctx, id)
+	return state, handoffStoreError(result)
 }
 func (a handoffStoreAdapter) LoadDelegatedBinding(ctx context.Context, id operation.SessionID) (delegated.Binding, error) {
 	return a.delegated.LoadDelegatedBinding(ctx, id)

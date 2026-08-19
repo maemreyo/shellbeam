@@ -2,8 +2,10 @@ package interactivehandoff
 
 import (
 	"testing"
+	"time"
 
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 )
 
 func TestDerivedStatusRequiresCanonicalAuthorityFacts(t *testing.T) {
@@ -60,5 +62,28 @@ func TestDerivedStatusProjectsTransferAndAbortWithoutGrantingAuthority(t *testin
 	aborted.DesiredOwner = delegated.OwnerNone
 	if got := ProjectStatus(aborted); got != StatusAborted {
 		t.Fatalf("aborted status=%q", got)
+	}
+}
+
+func TestPublicProjectionCarriesOnlyBoundedHandoffFailureCode(t *testing.T) {
+	state := agentOwnedState()
+	state.Phase = PhaseReclaimPending
+	state.DesiredOwner = delegated.OwnerHuman
+	state.ProviderOwner = delegated.OwnerNone
+	state.AgentIngress = IngressFenced
+	state.HumanIngress = IngressUnknown
+	state.TransferBoundary = TransferBoundary{Kind: BoundaryNone}
+	state.HumanClient = &HumanClientRef{Ref: "hclient_failure"}
+	state.FailureCode = failure.HandoffClientLost
+	got, err := ProjectPublicState(state, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.FailureCode != string(failure.HandoffClientLost) {
+		t.Fatalf("failure_code=%q", got.FailureCode)
+	}
+	state.FailureCode = failure.DelegatedProviderMismatch
+	if err := state.ValidateH2(); err == nil {
+		t.Fatal("unbounded provider failure accepted in canonical handoff state")
 	}
 }

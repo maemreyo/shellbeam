@@ -37,6 +37,13 @@ func (s *Service) InspectHandoff(ctx context.Context, id string) (handoff.State,
 	return s.handoff.Inspect(ctx, id)
 }
 
+func (s *Service) ExpireHandoff(ctx context.Context, id string) (handoff.State, error) {
+	if s == nil || s.handoff == nil {
+		return handoff.State{}, handoffUnavailable()
+	}
+	return s.handoff.Expire(ctx, id)
+}
+
 func (s *Service) BootstrapLocalHuman(ctx context.Context, id string) (handoffapp.LocalBootstrap, error) {
 	if s == nil || s.handoff == nil {
 		return handoffapp.LocalBootstrap{}, handoffUnavailable()

@@ -57,6 +57,13 @@ func (s *Service) ReattachBound(ctx context.Context, req ReattachRequest) (Reatt
 		return ReattachResult{Observation: obs, Authority: authority}, nil
 	}
 	if authority.Fenced || authority.Owner != core.OwnerAgent {
+		if obs.Owner.Validate() == nil && req.Binding.DesiredOwner != core.OwnerAgent {
+			// H2 may durably own or revoke the authority generation while the H1
+			// provider control observer still identifies the delegated pane as
+			// agent-side. Reattach transport/session continuity in a fenced state;
+			// only the handoff reconciler may grant the next actor.
+			return ReattachResult{Observation: obs, Authority: authority}, nil
+		}
 		return ReattachResult{}, failure.New(failure.DelegatedReconcileBlocked, map[string]string{"session_id": req.Binding.SessionID, "provider_id": identity.ID, "current_epoch": fmt.Sprint(req.Binding.AuthorityEpoch), "reason": "provider_authority_unproven"}, nil)
 	}
 	return ReattachResult{Observation: obs, Authority: authority}, nil
