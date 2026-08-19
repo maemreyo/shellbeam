@@ -29,3 +29,11 @@ func TestVerificationSemanticsCapabilityRejectsInvalidLimits(t *testing.T) {
 		t.Fatal("invalid support advertised")
 	}
 }
+
+func TestVerificationSemanticsSupportV2AdvertisesV1DecodeCompatibility(t *testing.T) {
+	support := VerificationSemanticsSupport{SchemaVersions: []int{1, 2}, PolicySchemaVersions: []int{1}, MaxDomains: 16, MaxRelations: 512, MaxObligations: 256, MaxPolicyGaps: 128, MaxPolicyRules: 128, MaxClassifications: 128, MaxEvidenceRequirementsPerRule: 32}
+	catalog := Baseline(Limits{}).WithVerificationSemantics(support)
+	if catalog.VerificationSemantics == nil || len(catalog.VerificationSemantics.SchemaVersions) != 2 || catalog.VerificationSemantics.SchemaVersions[0] != 1 || catalog.VerificationSemantics.SchemaVersions[1] != 2 {
+		t.Fatalf("v2 support not advertised: %#v", catalog.VerificationSemantics)
+	}
+}

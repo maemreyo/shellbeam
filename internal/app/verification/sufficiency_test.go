@@ -300,3 +300,13 @@ func TestGateForPolicyStateUsesOlderEffectivePolicyWhileProposalPending(t *testi
 		t.Fatalf("got=%#v", got)
 	}
 }
+
+func TestBoundedEmptyEvidenceHistoryCannotBecomeNoEvidence(t *testing.T) {
+	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
+	requirement.Requirement.ProjectCommandID = "test_package"
+	requirement.ExpectedProjectBindingDigest = sufficiencyDigest('4')
+	got := oneRequirement(t, EvaluateObligation(sufficiencyObligation(requirement), CandidateResultSet{Coverage: core.CoverageBounded, Diagnostics: []string{"evidence_history_page_limit"}}, ProviderAvailability{}, nil, nil))
+	if got.Status != core.EvidenceUnknown || got.ReasonCode != "bounded_evidence_history" {
+		t.Fatalf("bounded empty history became absence proof: %#v", got)
+	}
+}

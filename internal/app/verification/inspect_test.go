@@ -2,9 +2,11 @@ package verification
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
+	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	core "github.com/maemreyo/shellbeam/internal/core/verification"
 	"github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -255,4 +257,131 @@ func mustPolicyDigestInspect(t *testing.T, p core.PolicyContent) string {
 		t.Fatal(err)
 	}
 	return d
+}
+
+type inspectEvidenceCandidates struct {
+	result CandidateResultSet
+	calls  int
+	last   CandidateQuery
+}
+
+func (s *inspectEvidenceCandidates) Candidates(_ context.Context, query CandidateQuery) (CandidateResultSet, error) {
+	s.calls++
+	s.last = query
+	return s.result, nil
+}
+
+type inspectEnvironmentCurrent struct {
+	binding environment.Binding
+	found   bool
+	calls   int
+}
+
+func (s *inspectEnvironmentCurrent) CurrentBinding(context.Context, string) (environment.Binding, bool, error) {
+	s.calls++
+	return s.binding, s.found, nil
+}
+
+type inspectQuiescenceObserver struct{ calls int }
+
+func (s *inspectQuiescenceObserver) Observe(context.Context, string, string, string) (core.QuiescenceObservation, bool, error) {
+	s.calls++
+	return core.QuiescenceObservation{}, false, nil
+}
+
+type inspectCostHistories struct {
+	values map[string]CostHistory
+	calls  int
+	ids    []string
+}
+
+func (s *inspectCostHistories) Histories(_ context.Context, ids []string) (map[string]CostHistory, error) {
+	s.calls++
+	s.ids = append([]string(nil), ids...)
+	return s.values, nil
+}
+
+func TestInspectionV2EvaluatesEvidenceThenGateThenCost(t *testing.T) {
+	a, snap := inspectEffective(t, "p1")
+	svc, _, obligations, _ := newInspectService(t, PolicyLoadResult{State: PolicyLoadAbsent}, a, true, snap, true)
+	requirement := sufficiencyRequirement("integration", core.ProviderIntegrationTest)
+	obligation := sufficiencyObligation(requirement)
+	obligations.result = ObligationResult{Obligations: []core.VerificationObligation{obligation}}
+	candidate := sufficiencyCandidate('a', core.ProviderIntegrationTest, core.AuthorityMechanical, core.CandidatePass)
+	candidate.WorkspaceID = string(inspectWorkspace().ID)
+	evidenceSource := &inspectEvidenceCandidates{result: CandidateResultSet{Candidates: []core.EvidenceCandidate{candidate}, Coverage: core.CoverageComplete}}
+	environmentSource := &inspectEnvironmentCurrent{}
+	quiescenceSource := &inspectQuiescenceObserver{}
+	costSource := &inspectCostHistories{values: map[string]CostHistory{}}
+	if err := svc.BindEvaluationSources(EvaluationSources{Evidence: evidenceSource, Environment: environmentSource, Quiescence: quiescenceSource, Costs: costSource}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Inspect(context.Background(), InspectRequest{WorkspaceID: string(inspectWorkspace().ID), Phase: core.PhaseCheckpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SchemaVersion != 2 || got.Gate.Status != core.GateClear || got.Gate.Breakdown.EvidenceSatisfied != 1 {
+		t.Fatalf("inspection gate=%#v schema=%d", got.Gate, got.SchemaVersion)
+	}
+	if len(got.Obligations) != 1 || got.Obligations[0].EvidenceStatus != core.EvidenceSatisfied || len(got.Obligations[0].EvidenceRefs) != 1 {
+		t.Fatalf("legacy-compatible obligations not evidence-aware: %#v", got.Obligations)
+	}
+	if len(got.ObligationViews) != 1 || got.ObligationViews[0].EvidenceStatus != core.EvidenceSatisfied || got.ObligationViews[0].SufficiencyBasis != obligation.SufficiencyBasis || len(got.ObligationViews[0].RequirementResults) != 1 {
+		t.Fatalf("obligation views=%#v", got.ObligationViews)
+	}
+	if len(got.CostSummary) != 1 || got.CostSummary[0].Cost.WallMS.Quality != core.CostQualityUnavailable || got.CostSummary[0].Cost.ProviderCost.Quality != core.CostQualityUnavailable || got.CostSummary[0].Cost.ModelCost.Quality != core.CostQualityUnavailable {
+		t.Fatalf("cost summary=%#v", got.CostSummary)
+	}
+	if evidenceSource.calls != 1 || environmentSource.calls != 0 || quiescenceSource.calls != 0 || costSource.calls != 1 {
+		t.Fatalf("calls evidence=%d environment=%d quiescence=%d cost=%d", evidenceSource.calls, environmentSource.calls, quiescenceSource.calls, costSource.calls)
+	}
+}
+
+func TestInspectionV2MissingEffectivePolicyIsIndeterminateWithoutEvidenceReads(t *testing.T) {
+	svc, _, _, _ := newInspectService(t, PolicyLoadResult{State: PolicyLoadAbsent}, core.PolicyActivation{}, false, core.PolicySnapshot{}, false)
+	evidenceSource := &inspectEvidenceCandidates{}
+	if err := svc.BindEvaluationSources(EvaluationSources{Evidence: evidenceSource}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Inspect(context.Background(), InspectRequest{WorkspaceID: string(inspectWorkspace().ID), Phase: core.PhaseCheckpoint})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SchemaVersion != 2 || got.Gate.Status != core.GateIndeterminate || len(got.Gate.ReasonCodes) != 1 || got.Gate.ReasonCodes[0] != "policy_absent" {
+		t.Fatalf("got=%#v", got)
+	}
+	if evidenceSource.calls != 0 {
+		t.Fatal("evidence read without effective policy")
+	}
+}
+
+func TestInspectionV2RemainsDecodableByStageALegacyView(t *testing.T) {
+	type legacyInspection struct {
+		SchemaVersion    int                           `json:"schema_version"`
+		Phase            core.Phase                    `json:"phase"`
+		RepositoryID     string                        `json:"repository_id"`
+		WorkspaceID      string                        `json:"workspace_id"`
+		SourceGeneration string                        `json:"source_generation"`
+		PolicyState      PolicyState                   `json:"policy_state"`
+		Affected         core.AffectedSurfaceSummary   `json:"affected_surface"`
+		Obligations      []core.VerificationObligation `json:"obligations"`
+		PolicyGaps       []core.PolicyGap              `json:"policy_gaps,omitempty"`
+	}
+	o := sufficiencyObligation(sufficiencyRequirement("integration", core.ProviderIntegrationTest))
+	input := Inspection{
+		SchemaVersion: 2, Phase: core.PhaseCheckpoint, RepositoryID: string(inspectWorkspace().RepositoryID), WorkspaceID: string(inspectWorkspace().ID),
+		SourceGeneration: o.AppliesToGeneration, PolicyState: PolicyStateEffective, Obligations: []core.VerificationObligation{o},
+		Gate: core.GateEvaluation{Status: core.GateIndeterminate}, ObligationViews: []ObligationView{},
+	}
+	encoded, err := json.Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy legacyInspection
+	if err := json.Unmarshal(encoded, &legacy); err != nil {
+		t.Fatalf("stage-a decoder rejected additive v2 response: %v", err)
+	}
+	if legacy.SchemaVersion != 2 || legacy.Phase != input.Phase || legacy.WorkspaceID != input.WorkspaceID || len(legacy.Obligations) != 1 || legacy.Obligations[0].ObligationID != o.ObligationID {
+		t.Fatalf("legacy decode lost stable fields: %#v", legacy)
+	}
 }

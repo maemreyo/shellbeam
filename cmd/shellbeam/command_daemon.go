@@ -11,6 +11,7 @@ import (
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
 	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	verificationadapter "github.com/maemreyo/shellbeam/internal/adapter/verification"
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
 	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
@@ -108,7 +109,11 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		store, projectLoader, store, projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
 		projectapp.ReadinessOptions{},
 	)
-	verificationRuntime := composeVerificationRuntime(store, workspaceSvc, workspaceObserver, deltaSampler, activitySvc, projectSvc, projectBinder)
+	environmentSvc := environmentapp.NewService(
+		environmentadapter.NewHost(), projectEnvironmentManifestProvider{project: projectSvc}, environmentadapter.NewHostProber(),
+		environmentapp.Options{DefaultExecution: environmentcore.ExecutionContext{Mode: "shell", Identity: cfg.Shell}},
+	)
+	verificationRuntime := composeVerificationRuntime(store, workspaceSvc, workspaceObserver, deltaSampler, activitySvc, projectSvc, projectBinder, verificationadapter.NewEnvironmentSource(environmentSvc))
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
 		DefaultTimeoutMS:     cfg.DefaultTimeoutMS,
@@ -126,10 +131,6 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		InputTraceWorker:     inputTraceRuntime.Worker,
 		HermeticRuntime:      hermeticRuntime,
 	})
-	environmentSvc := environmentapp.NewService(
-		environmentadapter.NewHost(), projectEnvironmentManifestProvider{project: projectSvc}, environmentadapter.NewHostProber(),
-		environmentapp.Options{DefaultExecution: environmentcore.ExecutionContext{Mode: "shell", Identity: cfg.Shell}},
-	)
 	processSvc := processapp.NewService(
 		processadapter.NewHostInspector(), svc, processapp.Options{Ports: processadapter.NewHostPortInspector()},
 	)
@@ -216,6 +217,13 @@ func serveDaemonRuntime(
 	actions.structured = observationRuntime.structured
 	actions.telemetry = telemetryRuntime.service
 	actions.evidence = evidenceRuntime.inspector
+	verificationRuntime, ok := actions.verification.(*daemonVerificationRuntime)
+	if !ok || verificationRuntime == nil {
+		return fmt.Errorf("verification runtime unavailable")
+	}
+	if err = verificationRuntime.bindRuntimeEvaluationSources(store, evidenceRuntime, telemetryRuntime); err != nil {
+		return err
+	}
 	actions.repro = reproapp.New(store)
 	observationRuntime.startMaterialization(ctx)
 	evidenceRuntime.startRecovery(ctx)

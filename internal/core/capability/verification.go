@@ -13,7 +13,19 @@ type VerificationSemanticsSupport struct {
 }
 
 func (s VerificationSemanticsSupport) ValidV1() bool {
-	return len(s.SchemaVersions) == 1 && s.SchemaVersions[0] == 1 && len(s.PolicySchemaVersions) == 1 && s.PolicySchemaVersions[0] == 1 && s.MaxDomains == 16 && s.MaxRelations == 512 && s.MaxObligations == 256 && s.MaxPolicyGaps == 128 && s.MaxPolicyRules == 128 && s.MaxClassifications == 128 && s.MaxEvidenceRequirementsPerRule == 32
+	return len(s.SchemaVersions) == 1 && s.SchemaVersions[0] == 1 && s.validPolicyAndLimits()
+}
+
+func (s VerificationSemanticsSupport) Valid() bool {
+	if !s.validPolicyAndLimits() {
+		return false
+	}
+	return (len(s.SchemaVersions) == 1 && s.SchemaVersions[0] == 1) ||
+		(len(s.SchemaVersions) == 2 && s.SchemaVersions[0] == 1 && s.SchemaVersions[1] == 2)
+}
+
+func (s VerificationSemanticsSupport) validPolicyAndLimits() bool {
+	return len(s.PolicySchemaVersions) == 1 && s.PolicySchemaVersions[0] == 1 && s.MaxDomains == 16 && s.MaxRelations == 512 && s.MaxObligations == 256 && s.MaxPolicyGaps == 128 && s.MaxPolicyRules == 128 && s.MaxClassifications == 128 && s.MaxEvidenceRequirementsPerRule == 32
 }
 func (s VerificationSemanticsSupport) clone() VerificationSemanticsSupport {
 	out := s
@@ -23,7 +35,7 @@ func (s VerificationSemanticsSupport) clone() VerificationSemanticsSupport {
 }
 func (c Catalog) WithVerificationSemantics(s VerificationSemanticsSupport) Catalog {
 	out := c.Clone()
-	if !s.ValidV1() {
+	if !s.Valid() {
 		return out
 	}
 	out.Features[FeatureVerificationSemantics] = Available

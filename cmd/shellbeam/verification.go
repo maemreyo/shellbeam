@@ -23,8 +23,9 @@ type daemonVerificationCoordinator interface {
 }
 
 type daemonVerificationRuntime struct {
-	inspection *verificationapp.InspectionService
-	policy     *verificationapp.PolicyService
+	inspection  *verificationapp.InspectionService
+	policy      *verificationapp.PolicyService
+	environment verificationapp.CurrentEnvironmentSource
 }
 
 func composeVerificationRuntime(
@@ -35,6 +36,7 @@ func composeVerificationRuntime(
 	activities *activityapp.Service,
 	projects *projectapp.Service,
 	binder *projectapp.Binder,
+	environment verificationapp.CurrentEnvironmentSource,
 ) *daemonVerificationRuntime {
 	loader := verificationadapter.NewPolicyLoader()
 	commands := verificationadapter.NewProjectCommandSource(binder)
@@ -43,7 +45,26 @@ func composeVerificationRuntime(
 	policy := verificationapp.NewPolicyService(store, loader, store, store, observer, projects, commands)
 	obligations := verificationapp.NewObligationMatcher(commands)
 	inspection := verificationapp.NewInspectionService(workspaces, loader, store, affected, obligations, policy, projects, verificationadapter.NewStarterSource())
-	return &daemonVerificationRuntime{inspection: inspection, policy: policy}
+	return &daemonVerificationRuntime{inspection: inspection, policy: policy, environment: environment}
+}
+
+func (r *daemonVerificationRuntime) BindEvaluationSources(sources verificationapp.EvaluationSources) error {
+	if r == nil || r.inspection == nil {
+		return fmt.Errorf("verification inspection unavailable")
+	}
+	return r.inspection.BindEvaluationSources(sources)
+}
+
+func (r *daemonVerificationRuntime) bindRuntimeEvaluationSources(store *storeadapter.Repository, evidenceRuntime *executionEvidenceRuntime, telemetryRuntime *executionTelemetryRuntime) error {
+	if r == nil || store == nil || evidenceRuntime == nil || evidenceRuntime.inspector == nil || telemetryRuntime == nil || telemetryRuntime.service == nil {
+		return fmt.Errorf("verification evaluation runtime unavailable")
+	}
+	return r.BindEvaluationSources(verificationapp.EvaluationSources{
+		Evidence:    verificationadapter.NewEvidenceSource(evidenceRuntime.inspector, store),
+		Environment: r.environment,
+		Quiescence:  verificationadapter.NewQuiescenceSource(store, store, nil),
+		Costs:       verificationadapter.NewTelemetrySource(telemetryRuntime.service),
+	})
 }
 
 func (r *daemonVerificationRuntime) InspectVerification(ctx context.Context, req verificationapp.InspectRequest) (verificationapp.Inspection, error) {
@@ -109,5 +130,5 @@ func (a *daemonActions) RevokeVerificationWaiver(ctx context.Context, req verifi
 }
 
 func verificationSemanticsSupport() capability.VerificationSemanticsSupport {
-	return capability.VerificationSemanticsSupport{SchemaVersions: []int{1}, PolicySchemaVersions: []int{1}, MaxDomains: 16, MaxRelations: 512, MaxObligations: 256, MaxPolicyGaps: 128, MaxPolicyRules: 128, MaxClassifications: 128, MaxEvidenceRequirementsPerRule: 32}
+	return capability.VerificationSemanticsSupport{SchemaVersions: []int{1, 2}, PolicySchemaVersions: []int{1}, MaxDomains: 16, MaxRelations: 512, MaxObligations: 256, MaxPolicyGaps: 128, MaxPolicyRules: 128, MaxClassifications: 128, MaxEvidenceRequirementsPerRule: 32}
 }

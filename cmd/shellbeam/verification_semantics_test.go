@@ -402,7 +402,7 @@ func verificationWaiverAndPartialScenarios(t *testing.T, client *ipcadapter.Clie
 		appendVerificationFile(t, repo, "docs/guide.md", "waiver change\n")
 		before := inspectVerificationSemantics(t, client, workspace, "waiver-before")
 		docs := requireVerificationObligation(t, before, "docs-contract")
-		if docs.Disposition != verificationcore.DispositionRequiredNow || docs.EvidenceStatus != verificationcore.EvidenceNotEvaluated {
+		if docs.Disposition != verificationcore.DispositionRequiredNow || docs.EvidenceStatus != verificationcore.EvidenceUnknown {
 			t.Fatalf("before waiver=%#v", docs)
 		}
 		req := verificationWaiverRequest(workspace, "wv_stage_a_docs", digest, "docs-contract", before.SourceGeneration)
@@ -411,7 +411,7 @@ func verificationWaiverAndPartialScenarios(t *testing.T, client *ipcadapter.Clie
 			t.Fatalf("waiver response=%#v err=%v", response, err)
 		}
 		docs = requireVerificationObligation(t, inspectVerificationSemantics(t, client, workspace, "waiver-after"), "docs-contract")
-		if docs.Disposition != verificationcore.DispositionWaived || docs.WaiverID != "wv_stage_a_docs" || docs.EvidenceStatus != verificationcore.EvidenceNotEvaluated {
+		if docs.Disposition != verificationcore.DispositionWaived || docs.WaiverID != "wv_stage_a_docs" || docs.EvidenceStatus != verificationcore.EvidenceUnknown {
 			t.Fatalf("waiver rewrote evidence truth: %#v", docs)
 		}
 	})

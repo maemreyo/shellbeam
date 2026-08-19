@@ -68,6 +68,10 @@ func evaluateRequirement(obligation core.VerificationObligation, bound core.Boun
 		return setResult(core.EvidenceUnavailable, "project_binding_unavailable")
 	}
 	if len(candidates.Candidates) == 0 {
+		switch candidates.Coverage {
+		case core.CoverageBounded, core.CoveragePartial, core.CoverageUnknown:
+			return setResult(core.EvidenceUnknown, "bounded_evidence_history")
+		}
 		return noEvidenceResult(setResult, requirement, bound, providers)
 	}
 	valid := validCandidates(candidates.Candidates)

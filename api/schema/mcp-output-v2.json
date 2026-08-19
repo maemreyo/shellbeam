@@ -5,7 +5,57 @@
   "type": "object",
   "unevaluatedProperties": false,
   "$defs": {
-    "verification_semantics_support": {"type":"object","additionalProperties":false,"properties":{"schema_versions":{"type":"array","const":[1]},"policy_schema_versions":{"type":"array","const":[1]},"max_domains":{"const":16},"max_relations":{"const":512},"max_obligations":{"const":256},"max_policy_gaps":{"const":128},"max_policy_rules":{"const":128},"max_classifications":{"const":128},"max_evidence_requirements_per_rule":{"const":32}},"required":["schema_versions","policy_schema_versions","max_domains","max_relations","max_obligations","max_policy_gaps","max_policy_rules","max_classifications","max_evidence_requirements_per_rule"]},
+    "verification_semantics_support": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_versions": {
+          "type": "array",
+          "const": [
+            1,
+            2
+          ]
+        },
+        "policy_schema_versions": {
+          "type": "array",
+          "const": [
+            1
+          ]
+        },
+        "max_domains": {
+          "const": 16
+        },
+        "max_relations": {
+          "const": 512
+        },
+        "max_obligations": {
+          "const": 256
+        },
+        "max_policy_gaps": {
+          "const": 128
+        },
+        "max_policy_rules": {
+          "const": 128
+        },
+        "max_classifications": {
+          "const": 128
+        },
+        "max_evidence_requirements_per_rule": {
+          "const": 32
+        }
+      },
+      "required": [
+        "schema_versions",
+        "policy_schema_versions",
+        "max_domains",
+        "max_relations",
+        "max_obligations",
+        "max_policy_gaps",
+        "max_policy_rules",
+        "max_classifications",
+        "max_evidence_requirements_per_rule"
+      ]
+    },
     "verification_provider_ref": {"type":"object","additionalProperties":false,"properties":{"id":{"type":"string","minLength":1,"maxLength":128},"version":{"type":"integer","minimum":1}},"required":["id","version"]},
     "verification_subject": {"type":"object","additionalProperties":false,"properties":{"kind":{"enum":["path","source_ref","package","project_command","policy_surface_class"]},"value":{"type":"string","minLength":1,"maxLength":2048}},"required":["kind","value"]},
     "verification_affected_domain": {"type":"object","additionalProperties":false,"properties":{"domain_id":{"type":"string","pattern":"^dom_[0-9a-f]{64}$"},"kind":{"enum":["source_selection","go_import_graph","policy_classification"]},"derivation_authority":{"enum":["authoritative","mechanical","advisory"]},"coverage":{"enum":["complete","bounded","partial","unknown"]},"provider":{"$ref":"#/$defs/verification_provider_ref"},"source_generation":{"oneOf":[{"const":""},{"type":"string","pattern":"^gen_[0-9a-f]{64}$"}]},"provenance_refs":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":2048}},"captured_at":{"type":"string","format":"date-time"},"caveats":{"type":"array","maxItems":32,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}}},"required":["domain_id","kind","derivation_authority","coverage","source_generation","provenance_refs","captured_at"]},
@@ -22,7 +72,426 @@
     "verification_policy_proposal_summary": {"type":"object","additionalProperties":false,"properties":{"policy_id":{"type":"string","minLength":1,"maxLength":128},"policy_digest":{"type":"string","pattern":"^pol_[0-9a-f]{64}$"},"proposal_origin":{"enum":["repository_authored","starter_profile","generated_proposal"]},"profile_origin":{"type":"string","minLength":1,"maxLength":256}},"required":["policy_id","policy_digest","proposal_origin"]},
     "verification_obligation": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"obligation_id":{"type":"string","pattern":"^obl_[0-9a-f]{64}$"},"policy_digest":{"type":"string","pattern":"^pol_[0-9a-f]{64}$"},"source_rule_id":{"type":"string","minLength":1,"maxLength":128},"trigger_refs":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":2048}},"affected_scope_refs":{"type":"array","minItems":1,"maxItems":256,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":2048}},"ownership":{"enum":["application_owned","integration_owned","delegated"]},"risk_class":{"enum":["scale_driven","risk_driven","context_driven","delegated"]},"required_phase":{"enum":["inner_loop","checkpoint","pre_merge","release","nightly","periodic"]},"sufficiency_basis":{"type":"string","minLength":1,"maxLength":1024},"minimum_affected_authority":{"enum":["authoritative","mechanical","advisory"]},"evidence_requirements":{"type":"array","maxItems":32,"items":{"$ref":"#/$defs/verification_bound_evidence_requirement"}},"applies_to_generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"disposition":{"enum":["required_now","deferred","optional","not_triggered","waived"]},"evidence_status":{"enum":["not_evaluated","satisfied","failed","insufficient","inconsistent","unknown","unavailable"]},"evidence_refs":{"type":"array","maxItems":256,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":2048}},"waiver_id":{"type":"string","pattern":"^wv_[A-Za-z0-9_-]{1,121}$"}},"required":["schema_version","obligation_id","policy_digest","source_rule_id","trigger_refs","affected_scope_refs","ownership","required_phase","sufficiency_basis","minimum_affected_authority","evidence_requirements","applies_to_generation","disposition","evidence_status"]},
     "verification_policy_gap": {"type":"object","additionalProperties":false,"properties":{"gap_id":{"type":"string","pattern":"^gap_[0-9a-f]{64}$"},"surface_ref":{"type":"string","minLength":1,"maxLength":2048},"declared_class":{"type":"string","minLength":1,"maxLength":128},"classification_source":{"type":"string","minLength":1,"maxLength":128},"missing_policy_class":{"type":"string","minLength":1,"maxLength":128},"authority":{"enum":["authoritative","mechanical","advisory"]},"provenance_refs":{"type":"array","minItems":1,"maxItems":128,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":2048}}},"required":["gap_id","surface_ref","declared_class","classification_source","missing_policy_class","authority","provenance_refs"]},
-    "verification_inspection": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"phase":{"enum":["inner_loop","checkpoint","pre_merge","release","nightly","periodic"]},"repository_id":{"type":"string","pattern":"^repo_[0-9A-HJKMNP-TV-Z]{26}$"},"workspace_id":{"type":"string","pattern":"^ws_[0-9A-HJKMNP-TV-Z]{26}$"},"source_generation":{"oneOf":[{"const":""},{"type":"string","pattern":"^gen_[0-9a-f]{64}$"}]},"effective_policy":{"$ref":"#/$defs/verification_policy_summary"},"proposed_policy":{"$ref":"#/$defs/verification_policy_proposal_summary"},"policy_state":{"enum":["absent","effective","proposal_pending","invalid","unsupported"]},"affected_surface":{"$ref":"#/$defs/verification_affected_summary"},"obligations":{"type":"array","maxItems":256,"items":{"$ref":"#/$defs/verification_obligation"}},"policy_gaps":{"type":"array","maxItems":128,"items":{"$ref":"#/$defs/verification_policy_gap"}}},"required":["schema_version","phase","repository_id","workspace_id","source_generation","policy_state","affected_surface","obligations"]},
+    "verification_gate_breakdown": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evidence_satisfied": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "waived": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocking": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "indeterminate": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "evidence_satisfied",
+        "waived",
+        "blocking",
+        "indeterminate"
+      ]
+    },
+    "verification_gate_evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "clear",
+            "blocked",
+            "indeterminate"
+          ]
+        },
+        "breakdown": {
+          "$ref": "#/$defs/verification_gate_breakdown"
+        },
+        "reason_codes": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "required": [
+        "status",
+        "breakdown"
+      ]
+    },
+    "verification_requirement_evaluation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "evaluation_id": {
+          "type": "string",
+          "pattern": "^eval_[0-9a-f]{64}$"
+        },
+        "policy_digest": {
+          "type": "string",
+          "pattern": "^pol_[0-9a-f]{64}$"
+        },
+        "rule_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "obligation_id": {
+          "type": "string",
+          "pattern": "^obl_[0-9a-f]{64}$"
+        },
+        "requirement_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "status": {
+          "enum": [
+            "not_evaluated",
+            "satisfied",
+            "failed",
+            "insufficient",
+            "inconsistent",
+            "unknown",
+            "unavailable"
+          ]
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^ev_[0-9a-f]{64}$"
+          }
+        },
+        "reason_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "evaluation_id",
+        "policy_digest",
+        "rule_id",
+        "obligation_id",
+        "requirement_id",
+        "status"
+      ]
+    },
+    "verification_obligation_view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "obligation_id": {
+          "type": "string",
+          "pattern": "^obl_[0-9a-f]{64}$"
+        },
+        "source_rule_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "disposition": {
+          "enum": [
+            "required_now",
+            "deferred",
+            "optional",
+            "not_triggered",
+            "waived"
+          ]
+        },
+        "evidence_status": {
+          "enum": [
+            "not_evaluated",
+            "satisfied",
+            "failed",
+            "insufficient",
+            "inconsistent",
+            "unknown",
+            "unavailable"
+          ]
+        },
+        "sufficiency_basis": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "requirement_results": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/verification_requirement_evaluation"
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "maxItems": 256,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^ev_[0-9a-f]{64}$"
+          }
+        },
+        "waiver_id": {
+          "type": "string",
+          "pattern": "^wv_[A-Za-z0-9_-]{1,121}$"
+        },
+        "reason_codes": {
+          "type": "array",
+          "maxItems": 64,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        }
+      },
+      "required": [
+        "obligation_id",
+        "source_rule_id",
+        "disposition",
+        "evidence_status",
+        "sufficiency_basis",
+        "requirement_results"
+      ]
+    },
+    "verification_cost_metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "quality": {
+          "enum": [
+            "exact",
+            "platform_reported",
+            "sampled",
+            "unavailable"
+          ]
+        },
+        "latest": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p50": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "p95": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "samples": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "quality"
+      ]
+    },
+    "verification_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "project_command_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "wall_ms": {
+          "$ref": "#/$defs/verification_cost_metric"
+        },
+        "output_bytes": {
+          "$ref": "#/$defs/verification_cost_metric"
+        },
+        "cpu_user_ms": {
+          "$ref": "#/$defs/verification_cost_metric"
+        },
+        "cpu_system_ms": {
+          "$ref": "#/$defs/verification_cost_metric"
+        },
+        "max_rss_bytes": {
+          "$ref": "#/$defs/verification_cost_metric"
+        },
+        "process_count_peak": {
+          "$ref": "#/$defs/verification_cost_metric"
+        },
+        "provider_cost": {
+          "$ref": "#/$defs/verification_cost_metric"
+        },
+        "model_cost": {
+          "$ref": "#/$defs/verification_cost_metric"
+        }
+      },
+      "required": [
+        "wall_ms",
+        "output_bytes",
+        "cpu_user_ms",
+        "cpu_system_ms",
+        "max_rss_bytes",
+        "process_count_peak",
+        "provider_cost",
+        "model_cost"
+      ]
+    },
+    "verification_bound_requirement_cost": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "obligation_id": {
+          "type": "string",
+          "pattern": "^obl_[0-9a-f]{64}$"
+        },
+        "requirement_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "provider_class": {
+          "enum": [
+            "project_command",
+            "static_format_check",
+            "focused_behavior_test",
+            "integration_test",
+            "typecheck_compiler",
+            "schema_compatibility",
+            "browser_user_journey",
+            "native_platform_verification",
+            "artifact_digest",
+            "resource_measurement",
+            "release_check"
+          ]
+        },
+        "project_command_id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+        },
+        "execution": {
+          "$ref": "#/$defs/verification_execution_semantics"
+        },
+        "cost": {
+          "$ref": "#/$defs/verification_cost"
+        }
+      },
+      "required": [
+        "obligation_id",
+        "requirement_id",
+        "provider_class",
+        "execution",
+        "cost"
+      ]
+    },
+    "verification_inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": 2
+        },
+        "phase": {
+          "enum": [
+            "inner_loop",
+            "checkpoint",
+            "pre_merge",
+            "release",
+            "nightly",
+            "periodic"
+          ]
+        },
+        "repository_id": {
+          "type": "string",
+          "pattern": "^repo_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "workspace_id": {
+          "type": "string",
+          "pattern": "^ws_[0-9A-HJKMNP-TV-Z]{26}$"
+        },
+        "source_generation": {
+          "oneOf": [
+            {
+              "const": ""
+            },
+            {
+              "type": "string",
+              "pattern": "^gen_[0-9a-f]{64}$"
+            }
+          ]
+        },
+        "effective_policy": {
+          "$ref": "#/$defs/verification_policy_summary"
+        },
+        "proposed_policy": {
+          "$ref": "#/$defs/verification_policy_proposal_summary"
+        },
+        "policy_state": {
+          "enum": [
+            "absent",
+            "effective",
+            "proposal_pending",
+            "invalid",
+            "unsupported"
+          ]
+        },
+        "affected_surface": {
+          "$ref": "#/$defs/verification_affected_summary"
+        },
+        "gate": {
+          "$ref": "#/$defs/verification_gate_evaluation"
+        },
+        "obligations": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/verification_obligation"
+          }
+        },
+        "obligation_views": {
+          "type": "array",
+          "maxItems": 256,
+          "items": {
+            "$ref": "#/$defs/verification_obligation_view"
+          }
+        },
+        "policy_gaps": {
+          "type": "array",
+          "maxItems": 128,
+          "items": {
+            "$ref": "#/$defs/verification_policy_gap"
+          }
+        },
+        "cost_summary": {
+          "type": "array",
+          "maxItems": 8192,
+          "items": {
+            "$ref": "#/$defs/verification_bound_requirement_cost"
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "phase",
+        "repository_id",
+        "workspace_id",
+        "source_generation",
+        "policy_state",
+        "affected_surface",
+        "gate",
+        "obligations",
+        "obligation_views"
+      ]
+    },
     "verification_policy_preview": {"type":"object","additionalProperties":false,"properties":{"state":{"enum":["absent","valid","invalid","unsupported"]},"proposal":{"$ref":"#/$defs/verification_policy_proposal"},"rendered_toml":{"type":"string","minLength":1,"maxLength":65536},"advisories":{"type":"array","maxItems":64,"uniqueItems":true,"items":{"type":"string","minLength":1,"maxLength":512}},"raw_digest":{"type":"string","minLength":1,"maxLength":128},"code":{"type":"string","minLength":1,"maxLength":128}},"required":["state"]},
     "verification_policy_activation": {"type":"object","additionalProperties":false,"properties":{"schema_version":{"const":1},"activation_id":{"type":"string","pattern":"^act_[A-Za-z0-9_-]{1,120}$"},"intent_fingerprint":{"type":"string","pattern":"^ifp_[0-9a-f]{64}$"},"repository_id":{"type":"string","pattern":"^repo_[0-9A-HJKMNP-TV-Z]{26}$"},"previous_effective_policy_digest":{"oneOf":[{"const":"absent"},{"type":"string","pattern":"^pol_[0-9a-f]{64}$"}]},"proposed_policy_digest":{"type":"string","pattern":"^pol_[0-9a-f]{64}$"},"proposal_origin":{"enum":["repository_authored","starter_profile","generated_proposal"]},"profile_origin":{"type":"string","minLength":1,"maxLength":256},"proposal_generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"activation_generation":{"type":"string","pattern":"^gen_[0-9a-f]{64}$"},"authority":{"type":"string","minLength":1,"maxLength":64},"actor":{"type":"string","minLength":1,"maxLength":128},"activated_at":{"type":"string","format":"date-time"}},"required":["schema_version","activation_id","intent_fingerprint","repository_id","previous_effective_policy_digest","proposed_policy_digest","proposal_origin","proposal_generation","activation_generation","authority","actor","activated_at"]},
     "verification_activation_result": {"type":"object","additionalProperties":false,"properties":{"record":{"$ref":"#/$defs/verification_policy_activation"},"created":{"type":"boolean"},"replayed":{"type":"boolean"},"effective":{"type":"boolean"}},"required":["record","created","replayed","effective"]},

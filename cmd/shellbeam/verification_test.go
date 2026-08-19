@@ -2,13 +2,16 @@ package main
 
 import (
 	"context"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
+	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	verificationcore "github.com/maemreyo/shellbeam/internal/core/verification"
 )
 
@@ -42,13 +45,13 @@ func (f *fakeDaemonVerification) RevokeVerificationWaiver(_ context.Context, r v
 	return verificationcore.RevocationWriteResult{Replayed: true}, nil
 }
 
-func TestVerificationCatalogAdvertisesExactV1Support(t *testing.T) {
+func TestVerificationCatalogAdvertisesV1AndV2InspectionSupport(t *testing.T) {
 	got := daemonCatalog(capability.Limits{})
 	if got.Features[capability.FeatureVerificationSemantics] != capability.Available || got.VerificationSemantics == nil {
 		t.Fatalf("catalog=%#v", got.VerificationSemantics)
 	}
 	s := got.VerificationSemantics
-	if !reflect.DeepEqual(s.SchemaVersions, []int{1}) || !reflect.DeepEqual(s.PolicySchemaVersions, []int{1}) || s.MaxDomains != 16 || s.MaxRelations != 512 || s.MaxObligations != 256 || s.MaxPolicyGaps != 128 || s.MaxPolicyRules != 128 || s.MaxClassifications != 128 || s.MaxEvidenceRequirementsPerRule != 32 {
+	if !reflect.DeepEqual(s.SchemaVersions, []int{1, 2}) || !reflect.DeepEqual(s.PolicySchemaVersions, []int{1}) || s.MaxDomains != 16 || s.MaxRelations != 512 || s.MaxObligations != 256 || s.MaxPolicyGaps != 128 || s.MaxPolicyRules != 128 || s.MaxClassifications != 128 || s.MaxEvidenceRequirementsPerRule != 32 {
 		t.Fatalf("support=%#v", s)
 	}
 }
@@ -124,5 +127,70 @@ func TestOrdinarySessionActionsDoNotCallVerification(t *testing.T) {
 	}
 	if verification.calls != 0 {
 		t.Fatalf("ordinary session actions called verification %d times", verification.calls)
+	}
+}
+
+type verificationEvidenceSourceStub struct{}
+
+func (verificationEvidenceSourceStub) Candidates(context.Context, verificationapp.CandidateQuery) (verificationapp.CandidateResultSet, error) {
+	return verificationapp.CandidateResultSet{Coverage: verificationcore.CoverageComplete}, nil
+}
+
+type verificationEnvironmentSourceStub struct{}
+
+func (verificationEnvironmentSourceStub) CurrentBinding(context.Context, string) (environmentcore.Binding, bool, error) {
+	return environmentcore.Binding{}, false, nil
+}
+
+type verificationQuiescenceSourceStub struct{}
+
+func (verificationQuiescenceSourceStub) Observe(context.Context, string, string, string) (verificationcore.QuiescenceObservation, bool, error) {
+	return verificationcore.QuiescenceObservation{}, false, nil
+}
+
+type verificationCostSourceStub struct{}
+
+func (verificationCostSourceStub) Histories(context.Context, []string) (map[string]verificationapp.CostHistory, error) {
+	return map[string]verificationapp.CostHistory{}, nil
+}
+
+func TestVerificationRuntimeBindsReadOnlyEvaluationSourcesExactlyOnce(t *testing.T) {
+	runtime := &daemonVerificationRuntime{inspection: verificationapp.NewInspectionService(nil, nil, nil, nil, nil, nil, nil, nil)}
+	sources := verificationapp.EvaluationSources{
+		Evidence: verificationEvidenceSourceStub{}, Environment: verificationEnvironmentSourceStub{},
+		Quiescence: verificationQuiescenceSourceStub{}, Costs: verificationCostSourceStub{},
+	}
+	if err := runtime.BindEvaluationSources(sources); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.BindEvaluationSources(sources); err == nil {
+		t.Fatal("second evaluation-source bind accepted")
+	}
+}
+
+func TestVerificationRuntimeBindsProductionReadOnlySourcesWithoutExecutor(t *testing.T) {
+	store, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 8, MaxSessionOutput: 1 << 20, MaxTotalState: 16 << 20, ControlReserve: 1024})
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidenceRuntime, err := newExecutionEvidenceRuntime(store, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer evidenceRuntime.shutdown(context.Background())
+	telemetryRuntime, err := newExecutionTelemetryRuntime(store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer telemetryRuntime.shutdown(context.Background())
+	runtime := &daemonVerificationRuntime{
+		inspection:  verificationapp.NewInspectionService(nil, nil, nil, nil, nil, nil, nil, nil),
+		environment: verificationEnvironmentSourceStub{},
+	}
+	if err := runtime.bindRuntimeEvaluationSources(store, evidenceRuntime, telemetryRuntime); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.bindRuntimeEvaluationSources(store, evidenceRuntime, telemetryRuntime); err == nil {
+		t.Fatal("production evaluation sources rebound")
 	}
 }

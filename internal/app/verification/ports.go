@@ -159,6 +159,17 @@ type CostHistory struct {
 	SamplesAvailable int
 }
 
+type QuiescenceObserver interface {
+	Observe(context.Context, string, string, string) (core.QuiescenceObservation, bool, error)
+}
+
+type EvaluationSources struct {
+	Evidence    EvidenceCandidateSource
+	Environment CurrentEnvironmentSource
+	Quiescence  QuiescenceObserver
+	Costs       CostHistorySource
+}
+
 type CostHistorySource interface {
 	Histories(context.Context, []string) (map[string]CostHistory, error)
 }

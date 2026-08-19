@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
@@ -90,5 +91,51 @@ func TestVerificationKeepsExactlyOneLocalShellTool(t *testing.T) {
 	}
 	if len(tools.Tools) != 1 || tools.Tools[0].Name != "local_shell" {
 		t.Fatalf("tools=%#v", tools.Tools)
+	}
+}
+
+func TestVerificationInspectionV2StructuredContentPreservesTruthWithoutCompletionClaim(t *testing.T) {
+	oblFailed := "obl_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	oblNotTriggered := "obl_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	evFail := "ev_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	evPass := "ev_dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	policy := "pol_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	evaluationID, err := verificationcore.EvaluationID(verificationcore.EvaluationIdentityInput{PolicyDigest: policy, RuleID: "race", ObligationID: oblFailed, RequirementID: "race", EvidenceRefs: []string{evFail, evPass}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := verificationcore.CostMetric{Quality: verificationcore.CostQualityUnavailable}
+	inspection := verificationapp.Inspection{
+		SchemaVersion: 2, Phase: verificationcore.PhaseCheckpoint,
+		RepositoryID: "repo_01K00000000000000000000000", WorkspaceID: "ws_01K00000000000000000000000",
+		SourceGeneration: "gen_1111111111111111111111111111111111111111111111111111111111111111",
+		PolicyState:      verificationapp.PolicyStateEffective,
+		Gate:             verificationcore.GateEvaluation{Status: verificationcore.GateClear, Breakdown: verificationcore.GateBreakdown{Waived: 1}},
+		Obligations:      []verificationcore.VerificationObligation{},
+		ObligationViews: []verificationapp.ObligationView{
+			{ObligationID: oblNotTriggered, SourceRuleID: "browser", Disposition: verificationcore.DispositionNotTriggered, EvidenceStatus: verificationcore.EvidenceNotEvaluated, SufficiencyBasis: "browser policy considered but not triggered", RequirementResults: []verificationcore.RequirementEvaluation{}},
+			{ObligationID: oblFailed, SourceRuleID: "race", Disposition: verificationcore.DispositionWaived, EvidenceStatus: verificationcore.EvidenceInconsistent, SufficiencyBasis: "race evidence", WaiverID: "wv_ci_only", EvidenceRefs: []string{evFail, evPass}, ReasonCodes: []string{"contradictory_evidence", "evidence_stale"}, RequirementResults: []verificationcore.RequirementEvaluation{{EvaluationID: evaluationID, PolicyDigest: policy, RuleID: "race", ObligationID: oblFailed, RequirementID: "race", Status: verificationcore.EvidenceInconsistent, EvidenceRefs: []string{evFail, evPass}, ReasonCode: "contradictory_evidence"}}},
+		},
+		PolicyGaps:  []verificationcore.PolicyGap{{GapID: "gap_ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", SurfaceRef: "internal/auth", DeclaredClass: "security_sensitive", ClassificationSource: "security", MissingPolicyClass: "security_sensitive", Authority: verificationcore.AuthorityMechanical, ProvenanceRefs: []string{"policy:" + policy}}},
+		CostSummary: []verificationcore.BoundRequirementCost{{ObligationID: oblFailed, RequirementID: "race", ProviderClass: verificationcore.ProviderIntegrationTest, Cost: verificationcore.VerificationCost{WallMS: unavailable, OutputBytes: unavailable, CPUUserMS: unavailable, CPUSystemMS: unavailable, MaxRSSBytes: unavailable, ProcessPeak: unavailable, ProviderCost: unavailable, ModelCost: unavailable}}},
+	}
+	result := successV2(input{Action: "inspect.verification"}, bridge.Response{Verification: &inspection})
+	if result.IsError {
+		t.Fatalf("unexpected error result %#v", result)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(encoded)
+	for _, required := range []string{"not_triggered", "waived", "inconsistent", evFail, evPass, "evidence_stale", "unavailable", "policy_gaps", `"status":"clear"`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("structured verification output missing %q: %s", required, text)
+		}
+	}
+	for _, forbidden := range []string{"task_complete", "work_complete", "safe_to_finish"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("structured verification output leaked completion truth %q: %s", forbidden, text)
+		}
 	}
 }

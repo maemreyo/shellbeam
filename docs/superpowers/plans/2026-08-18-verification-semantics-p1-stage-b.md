@@ -816,9 +816,10 @@ git -c core.hooksPath=.githooks commit -m "feat: fold verification gate status"
 **Files:**
 - Modify: `internal/app/verification/inspect.go`
 - Modify: `internal/app/verification/inspect_test.go`
-- Modify: `internal/adapter/ipc/verification_protocol_v2.go` and focused verification transport tests
-- Modify: `internal/adapter/mcp/verification_input.go`, `internal/adapter/mcp/verification_call.go`, and focused tests
-- Modify: `internal/app/bridge/verification.go` verification response types
+- Verify: `internal/adapter/ipc/verification_protocol_v2.go` typed `*Inspection` pass-through; schema + focused verification transport tests own the v2 wire contract
+- Verify: `internal/adapter/mcp/verification_input.go` / `verification_call.go` typed pass-through; extend focused structured-content tests for the v2 truth surface
+- Verify: `internal/app/bridge/verification.go` typed verification response path (no production diff required when the additive `Inspection` type propagates unchanged)
+- Modify: `cmd/shellbeam/verification.go`, `cmd/shellbeam/command_daemon.go`, and focused verification runtime tests for read-only production source binding before daemon readiness
 - Modify: `internal/core/capability/verification.go` and thin catalog projection only if schema-v2 metadata changes
 - Modify: `api/schema/ipc-v2.json`
 - Modify: `api/schema/mcp-output-v2.json`
@@ -860,11 +861,13 @@ type InspectionV2 struct {
 
 `ObligationView` does not copy raw evidence logs or full policy rules; stable IDs/references remain the deep-inspection path.
 
-- [ ] **Step 1: Write failing schema-v1/v2 compatibility tests**
+**Implementation compatibility note (2026-08-19):** Stage B keeps the Stage-A raw `obligations []VerificationObligation` field in the JSON response so existing Go clients can continue decoding the policy/bound-requirement surface, and adds `obligation_views []ObligationView` as the bounded evidence-aware model-facing projection. This is an additive compatibility shape for the pseudocode above: `schema_version=2`, `gate`, `obligation_views`, and `cost_summary` are new; no raw evidence log is copied. Capability metadata advertises inspection schemas `[1,2]` while policy schema remains `[1]`. Production startup late-binds the already-existing evidence inspector, current-environment service, terminal receipt/persistent store, and telemetry service before daemon readiness; the lifecycle-positive quiescence provider remains deliberately absent, so production cannot invent `complete`.
+
+- [x] **Step 1: Write failing schema-v1/v2 compatibility tests**
 
 Prove Stage-A v1 response remains decodable where existing clients depend on it; v2 adds gate/evidence fields; unknown response fields still follow existing versioned transport rules; legacy catalog projection omits unsupported v2 metadata.
 
-- [ ] **Step 2: Write failing model-facing honesty tests**
+- [x] **Step 2: Write failing model-facing honesty tests**
 
 Fixtures MUST verify rendered structured content contains:
 
@@ -878,13 +881,13 @@ policy gaps separately from mandatory obligations
 `gate.status=clear` renders only verification-gate meaning and never `task_complete`, `work_complete`, `safe_to_finish`, or equivalent completion truth
 ```
 
-- [ ] **Step 3: Run RED**
+- [x] **Step 3: Run RED**
 
 ```bash
 go test ./internal/app/verification ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema -run 'Verification|InspectionV2|Gate' -count=1
 ```
 
-- [ ] **Step 4: Wire evidence, quiescence, cost, and gate evaluation**
+- [x] **Step 4: Wire evidence, quiescence, cost, and gate evaluation**
 
 Order inside `Inspect`:
 
@@ -903,7 +906,7 @@ load effective/proposed policy authority
 
 Cost projection happens after gate/sufficiency and cannot feed back into prior steps.
 
-- [ ] **Step 5: Run GREEN/race and commit**
+- [x] **Step 5: Run GREEN/race and commit**
 
 ```bash
 gofmt -w internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge internal/core/capability
