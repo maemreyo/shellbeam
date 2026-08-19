@@ -25,6 +25,7 @@ import (
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
@@ -113,6 +114,10 @@ type RequestV2 struct {
 	Mode                     mutationscopecore.Mode            `json:"mode,omitempty"`
 	Paths                    []string                          `json:"paths,omitempty"`
 	TTLMS                    int64                             `json:"ttl_ms,omitempty"`
+	HandoffID                string                            `json:"handoff_id,omitempty"`
+	HandoffReason            handoff.Reason                    `json:"reason,omitempty"`
+	HandoffPrivacy           handoff.Privacy                   `json:"privacy,omitempty"`
+	HandoffCompletion        *handoff.Completion               `json:"completion,omitempty"`
 }
 
 type ResponseV2 struct {
@@ -151,6 +156,8 @@ type ResponseV2 struct {
 	Code                             *codeintel.Result                   `json:"code,omitempty"`
 	OutputView                       *outputview.Result                  `json:"output_view,omitempty"`
 	Sessions                         *persistent.InspectPage             `json:"sessions,omitempty"`
+	Handoff                          *handoff.PublicState                `json:"handoff,omitempty"`
+	HandoffTimedOut                  bool                                `json:"handoff_timed_out,omitempty"`
 	Error                            *Error                              `json:"error,omitempty"`
 }
 
@@ -246,6 +253,8 @@ func validateRequestV2(v RequestV2) error {
 		if err := (outputview.Request{SessionID: v.SessionID, Selector: *v.Selector, Continuation: v.Continuation}).Validate(); err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "read_output"}, err)
 		}
+	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+		return validateHandoffRequestV2(v)
 	case "write":
 		if v.SessionID == "" || (v.Chars == "" && !v.EOF) || (v.Chars != "" && v.EOF) {
 			return failure.New(failure.InvalidInput, map[string]string{"reason": "invalid_write"}, fmt.Errorf("invalid write request"))

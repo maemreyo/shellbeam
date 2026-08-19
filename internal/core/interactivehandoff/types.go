@@ -77,8 +77,15 @@ type Request struct {
 	Completion Completion `json:"completion"`
 }
 
+func ValidateHandoffID(value string) error {
+	if !validOpaque(value, 128) {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "handoff_id"}, nil)
+	}
+	return nil
+}
+
 func (v Request) Validate() error {
-	if !validOpaque(v.HandoffID, 128) || !validOpaque(v.SessionID, 128) {
+	if ValidateHandoffID(v.HandoffID) != nil || !validOpaque(v.SessionID, 128) {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "handoff_identity"}, nil)
 	}
 	if err := v.Reason.Validate(); err != nil {

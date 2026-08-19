@@ -36,6 +36,7 @@ const (
 	FeatureInputTracing           Feature = "input_tracing"
 	FeatureResourceEnforcement    Feature = "resource_enforcement"
 	FeatureDelegatedInteractive   Feature = "delegated_interactive"
+	FeatureInteractiveHandoff     Feature = "interactive_handoff"
 )
 
 type Limits struct {
@@ -130,6 +131,16 @@ type Limits struct {
 	InputTraceWorkerQueueDepth           int   `json:"input_trace_worker_queue_depth,omitempty"`
 }
 
+type InteractiveHandoffSupport struct {
+	ManualStandard     bool `json:"manual_standard"`
+	Secret             bool `json:"secret"`
+	AutomaticReadiness bool `json:"automatic_readiness"`
+}
+
+func (s InteractiveHandoffSupport) ValidH2() bool {
+	return s.ManualStandard && !s.Secret && !s.AutomaticReadiness
+}
+
 type DelegatedInteractiveSupport struct {
 	ProviderID              string `json:"provider_id"`
 	ProviderVersion         int    `json:"provider_version"`
@@ -178,6 +189,7 @@ type Catalog struct {
 	Media                             *MediaSupport                `json:"media,omitempty"`
 	InputTracing                      *InputTracingSupport         `json:"input_tracing,omitempty"`
 	DelegatedInteractive              *DelegatedInteractiveSupport `json:"delegated_interactive,omitempty"`
+	InteractiveHandoff                *InteractiveHandoffSupport   `json:"interactive_handoff,omitempty"`
 	Features                          map[Feature]Availability     `json:"features"`
 	Limits                            Limits                       `json:"limits"`
 }
@@ -209,6 +221,7 @@ var targetFeatures = []Feature{
 	FeatureInputTracing,
 	FeatureResourceEnforcement,
 	FeatureDelegatedInteractive,
+	FeatureInteractiveHandoff,
 }
 
 func TargetFeatures() []Feature {
@@ -285,6 +298,10 @@ func (c Catalog) Clone() Catalog {
 	if c.DelegatedInteractive != nil {
 		support := *c.DelegatedInteractive
 		out.DelegatedInteractive = &support
+	}
+	if c.InteractiveHandoff != nil {
+		support := *c.InteractiveHandoff
+		out.InteractiveHandoff = &support
 	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
@@ -450,6 +467,17 @@ func (c Catalog) WithDelegatedInteractive(support DelegatedInteractiveSupport) C
 	if !foundV5 {
 		out.ReceiptSchemaVersions = append(out.ReceiptSchemaVersions, 5)
 	}
+	return out
+}
+
+func (c Catalog) WithInteractiveHandoff(support InteractiveHandoffSupport) Catalog {
+	out := c.Clone()
+	if !support.ValidH2() || out.Features[FeatureDelegatedInteractive] != Available || out.DelegatedInteractive == nil {
+		return out
+	}
+	out.Features[FeatureInteractiveHandoff] = Available
+	copy := support
+	out.InteractiveHandoff = &copy
 	return out
 }
 

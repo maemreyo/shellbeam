@@ -330,3 +330,19 @@ func validHandoffStoreID(value string) bool {
 	}
 	return true
 }
+
+func (r *Repository) LoadHandoffTimestamps(ctx context.Context, handoffID string) (time.Time, time.Time, error) {
+	if err := ctx.Err(); err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	if !validHandoffStoreID(handoffID) {
+		return time.Time{}, time.Time{}, failure.New(failure.InvalidInput, map[string]string{"field": "handoff_id"}, nil)
+	}
+	r.delegatedSessionMu.Lock()
+	defer r.delegatedSessionMu.Unlock()
+	record, err := r.loadHandoffRecordLocked(handoffID)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	return record.CreatedAt.UTC(), record.UpdatedAt.UTC(), nil
+}

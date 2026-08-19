@@ -68,3 +68,36 @@ func (s *Service) HandoffHumanControl(ctx context.Context, signal handoff.Contro
 func handoffUnavailable() error {
 	return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "interactive_handoff"}, nil)
 }
+
+func (s *Service) RequestHandoffPublic(ctx context.Context, req handoff.Request) (handoff.PublicState, error) {
+	state, err := s.RequestHandoff(ctx, req)
+	if err != nil {
+		return handoff.PublicState{}, err
+	}
+	return s.handoff.ProjectPublic(ctx, state)
+}
+
+func (s *Service) WaitHandoffPublic(ctx context.Context, req handoffapp.WaitRequest) (handoff.PublicState, bool, error) {
+	result, err := s.WaitHandoff(ctx, req)
+	if err != nil {
+		return handoff.PublicState{}, false, err
+	}
+	state, err := s.handoff.ProjectPublic(ctx, result.State)
+	return state, result.TimedOut, err
+}
+
+func (s *Service) AbortHandoffPublic(ctx context.Context, id string) (handoff.PublicState, error) {
+	state, err := s.AbortHandoff(ctx, id)
+	if err != nil {
+		return handoff.PublicState{}, err
+	}
+	return s.handoff.ProjectPublic(ctx, state)
+}
+
+func (s *Service) InspectHandoffPublic(ctx context.Context, id string) (handoff.PublicState, error) {
+	state, err := s.InspectHandoff(ctx, id)
+	if err != nil {
+		return handoff.PublicState{}, err
+	}
+	return s.handoff.ProjectPublic(ctx, state)
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
@@ -22,6 +23,7 @@ type handoffCoordinator interface {
 	BindLocalHuman(context.Context, string, delegatedapp.ProviderClientRef) (handoff.State, error)
 	AttachLocalHuman(context.Context, string, delegatedapp.HumanAttachSpec) (handoffapp.LocalAttachResult, error)
 	HumanControl(context.Context, handoff.ControlSignal) (handoffapp.ControlResult, error)
+	ProjectPublic(context.Context, handoff.State) (handoff.PublicState, error)
 }
 
 type handoffStoreAdapter struct {
@@ -81,6 +83,16 @@ func (a handoffStoreAdapter) MarkHumanWriteAuthorityGranted(ctx context.Context,
 }
 func (a handoffStoreAdapter) LoadInputAuthorityProvenance(ctx context.Context, id operation.SessionID) (string, error) {
 	return a.handoff.LoadInputAuthorityProvenance(ctx, id)
+}
+
+func (a handoffStoreAdapter) LoadHandoffTimestamps(ctx context.Context, id string) (time.Time, time.Time, error) {
+	store, ok := a.handoff.(interface {
+		LoadHandoffTimestamps(context.Context, string) (time.Time, time.Time, error)
+	})
+	if !ok {
+		return time.Time{}, time.Time{}, failure.New(failure.PersistenceUnavailable, map[string]string{"feature": "interactive_handoff_timestamps"}, nil)
+	}
+	return store.LoadHandoffTimestamps(ctx, id)
 }
 
 func handoffStoreError(result StoreResult) error {

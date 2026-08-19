@@ -90,6 +90,15 @@ func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
 		if failed != nil {
 			return failed
 		}
+	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+		if out.Handoff == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "handoff projection missing", false)
+		}
+		body["handoff"] = out.Handoff
+		if action == "handoff.wait" {
+			body["timed_out"] = out.HandoffTimedOut
+		}
+		summary = fmt.Sprintf("%s: %s", action, out.Handoff.Status)
 	case "write", "kill":
 		body["view"] = controlView(out.View)
 		summary = fmt.Sprintf("%s session %s: %s", action, out.View.SessionID, out.View.State)

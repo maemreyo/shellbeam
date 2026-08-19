@@ -91,6 +91,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	catalog = inputTraceRuntime.Catalog
 	processOwner, catalog := composeResourceEnforcement(catalog, nil)
 	delegatedRuntime, catalog := composeDelegatedInteractiveRuntime(ctx, paths.StateDir, paths.RuntimeDir, catalog)
+	catalog = composeInteractiveHandoffCapability(catalog, delegatedRuntime)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {

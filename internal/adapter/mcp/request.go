@@ -1,15 +1,19 @@
 package mcp
 
 import (
+	"time"
+
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	mutationapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -36,6 +40,12 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 		request.Media = mediaRequestFromInput(in)
 	case "start":
 		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionMode: in.SessionMode, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone()}
+	case "handoff.request":
+		request.HandoffRequest = handoff.Request{HandoffID: in.HandoffID, SessionID: in.SessionID, Reason: in.HandoffReason, Privacy: in.HandoffPrivacy, Completion: *in.HandoffCompletion}
+	case "handoff.wait":
+		request.HandoffWait = handoffapp.WaitRequest{HandoffID: in.HandoffID, Yield: time.Duration(in.YieldMS) * time.Millisecond}
+	case "handoff.abort", "inspect.handoff":
+		request.HandoffID = in.HandoffID
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: in.YieldMS, MaxOutputBytes: in.MaxOutputBytes}
 	case "read_output":

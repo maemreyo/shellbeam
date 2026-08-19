@@ -1,7 +1,9 @@
 package daemon_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -256,5 +258,37 @@ func TestLocalHandoffBootstrapAndBindDelegateToSharedCoordinator(t *testing.T) {
 	}
 	if bound.Phase != handoff.PhaseHumanOwned || bound.HumanClient == nil || bound.HumanClient.Ref != client.Ref {
 		t.Fatalf("bound=%#v", bound)
+	}
+}
+
+func TestPublicHandoffProjectionUsesDurableTimestampsAndOmitsProviderPrivateState(t *testing.T) {
+	store := openDelegatedStartStore(t)
+	runtime := newH2LocalDaemonRuntime()
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "h2-public", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime})
+	startReq := delegatedStartRequest()
+	startReq.OperationID = "op-h2-public-projection"
+	started, err := svc.Start(t.Context(), startReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := handoff.Request{HandoffID: "handoff-public-projection", SessionID: started.SessionID, Reason: handoff.ReasonManualIntervention, Privacy: handoff.PrivacyStandard, Completion: handoff.Completion{Kind: handoff.CompletionManualReady}}
+	public, err := svc.RequestHandoffPublic(t.Context(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if public.CreatedAt == nil || public.UpdatedAt == nil || public.UpdatedAt.Before(*public.CreatedAt) {
+		t.Fatalf("timestamps=%v %v", public.CreatedAt, public.UpdatedAt)
+	}
+	if public.Status != handoff.StatusHumanConnecting || public.HandoffID != req.HandoffID || public.SessionID != started.SessionID || len(public.AttachArgv) != 5 || public.AttachArgv[4] != req.HandoffID {
+		t.Fatalf("public=%#v", public)
+	}
+	wire, err := json.Marshal(public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"gen_test", "provider_generation", "human_client", "client_ref", "provider_ref", "tmux_control_mode"} {
+		if bytes.Contains(wire, []byte(forbidden)) {
+			t.Fatalf("public projection leaked %q: %s", forbidden, wire)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
@@ -157,4 +158,21 @@ func (s *Service) changeChannel() <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.changed
+}
+
+// ProjectPublic converts canonical authority state into the bounded public view.
+// Production stores provide durable record timestamps; test-only stores may omit
+// that optional metadata capability and therefore project timestamps as absent.
+func (s *Service) ProjectPublic(ctx context.Context, state handoff.State) (handoff.PublicState, error) {
+	var createdAt, updatedAt time.Time
+	if timestamps, ok := s.store.(interface {
+		LoadHandoffTimestamps(context.Context, string) (time.Time, time.Time, error)
+	}); ok {
+		var err error
+		createdAt, updatedAt, err = timestamps.LoadHandoffTimestamps(ctx, state.HandoffID)
+		if err != nil {
+			return handoff.PublicState{}, failure.Normalize(err)
+		}
+	}
+	return handoff.ProjectPublicState(state, createdAt, updatedAt)
 }

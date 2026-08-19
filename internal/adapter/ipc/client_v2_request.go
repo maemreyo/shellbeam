@@ -18,6 +18,8 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	switch in.Action {
 	case "start":
 		applyStartV2(req, in)
+	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+		applyBridgeHandoffV2(req, in)
 	case "poll":
 		req.SessionID = in.Poll.SessionID
 		req.Cursor = in.Poll.Cursor
@@ -87,6 +89,23 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		applyBridgeKillV2(req, in)
 	}
 
+}
+
+func applyBridgeHandoffV2(req *RequestV2, in bridge.Request) {
+	switch in.Action {
+	case "handoff.request":
+		req.HandoffID = in.HandoffRequest.HandoffID
+		req.SessionID = in.HandoffRequest.SessionID
+		req.HandoffReason = in.HandoffRequest.Reason
+		req.HandoffPrivacy = in.HandoffRequest.Privacy
+		completion := in.HandoffRequest.Completion
+		req.HandoffCompletion = &completion
+	case "handoff.wait":
+		req.HandoffID = in.HandoffWait.HandoffID
+		req.YieldMS = in.HandoffWait.Yield.Milliseconds()
+	case "handoff.abort", "inspect.handoff":
+		req.HandoffID = in.HandoffID
+	}
 }
 
 func applyBridgeWriteV2(req *RequestV2, in bridge.Request) {

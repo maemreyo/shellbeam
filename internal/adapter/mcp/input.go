@@ -19,6 +19,7 @@ import (
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	mutationcore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -96,6 +97,10 @@ type input struct {
 	Mode                mutationcore.Mode                 `json:"mode,omitempty"`
 	Paths               []string                          `json:"paths,omitempty"`
 	TTLMS               int64                             `json:"ttl_ms,omitempty"`
+	HandoffID           string                            `json:"handoff_id,omitempty"`
+	HandoffReason       handoff.Reason                    `json:"reason,omitempty"`
+	HandoffPrivacy      handoff.Privacy                   `json:"privacy,omitempty"`
+	HandoffCompletion   *handoff.Completion               `json:"completion,omitempty"`
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -138,6 +143,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
 		return fmt.Errorf("persistent sessions require modern protocol")
 	}
+	if isPublicHandoffAction(v.Action) || hasField(raw, "handoff_id") || hasField(raw, "privacy") || hasField(raw, "completion") || hasField(raw, "reason") {
+		return fmt.Errorf("interactive handoff requires modern protocol")
+	}
 	if v.Action == "inspect.server" {
 		if err := validateV2FieldSet(v.Action, raw); err != nil {
 			return err
@@ -155,6 +163,8 @@ func validateV2(v input) error {
 	switch v.Action {
 	case "read_media":
 		return validateMediaInput(v)
+	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+		return validateHandoffInputV2(v)
 	case "read_output":
 		if v.Selector == nil {
 			return fmt.Errorf("read_output requires selector")

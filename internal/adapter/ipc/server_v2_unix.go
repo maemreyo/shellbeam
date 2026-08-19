@@ -105,6 +105,8 @@ func (s *Server) dispatchV2(ctx context.Context, req RequestV2, resp *ResponseV2
 		}
 	case "capabilities.negotiate", "read_media":
 		err = dispatchMediaV2(ctx, req, resp, s.actions)
+	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+		err = s.handoffV2(ctx, req, resp)
 	case "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		err = s.inspectV2(ctx, req, resp)
 	}

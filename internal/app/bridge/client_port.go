@@ -9,6 +9,7 @@ import (
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
@@ -21,6 +22,7 @@ import (
 	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
@@ -64,6 +66,9 @@ type Request struct {
 	CheckpointRestore        checkpointcore.RestoreRequest
 	CheckpointID             string
 	InputTraceInspect        inputtraceapp.InspectRequest
+	HandoffRequest           handoff.Request
+	HandoffWait              handoffapp.WaitRequest
+	HandoffID                string
 }
 type Response struct {
 	View                   daemon.View
@@ -93,6 +98,8 @@ type Response struct {
 	Sessions               *persistent.InspectPage
 	NegotiatedMedia        *capability.NegotiatedMedia
 	Media                  *media.Result
+	Handoff                *handoff.PublicState
+	HandoffTimedOut        bool
 	Code                   string
 	Message                string
 	Retryable              bool
