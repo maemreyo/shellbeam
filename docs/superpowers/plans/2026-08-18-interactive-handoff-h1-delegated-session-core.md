@@ -512,6 +512,9 @@ Canonical delegated output uses the existing daemon `Store.AppendOutput` port th
 - Modify: `internal/app/daemon/admission.go`
 - Modify: `internal/app/daemon/execution_policy.go`
 - Modify: `internal/app/daemon/execution_policy_test.go`
+- Modify: `internal/core/operation/project_command.go`
+- Modify: `internal/core/operation/delegated_identity.go`
+- Modify: `internal/core/operation/delegated_intent_test.go`
 - Modify: `internal/app/daemon/bindings.go`
 - Modify: `internal/app/daemon/project_command.go`
 - Modify: `internal/app/daemon/project_command_test.go`
@@ -529,6 +532,7 @@ Canonical delegated output uses the existing daemon `Store.AppendOutput` port th
 - `StartRequest.SessionMode` selects delegated service.
 - `WriteRequest.AuthorityEpoch` and `KillRequest.AuthorityEpoch` are required only for delegated sessions.
 - H1 delegated policy is persistent-like for execution policy only: unset stdin resolves to `stream`, unset/unlimited timeout resolves unbounded. Explicit `stdin=closed` and finite/default timeout are rejected before provider work until delegated PTY EOF/timeout semantics are separately qualified. The legacy `persistent` request field remains forbidden.
+- Typed delegated request identity must bind the same raw stdin/timeout policy fields as raw delegated starts. Adding those fields must preserve the exact legacy typed fingerprint when both are unset.
 - Start/poll/control views return current `AuthorityEpoch` for delegated sessions.
 - `DelegatedRuntime.Wait` is event-driven and Darwin-scoped: the provider first proves the exact current pane identity, then registers a kernel `kqueue` `EVFILT_PROC/NOTE_EXIT` watcher on that exact pane PID. After the kernel exit event it queries the already-qualified tmux provider once for `pane_dead|pane_dead_status` and re-verifies provider generation/session/window/pane identity before publishing terminal truth. A second exact tmux inspection immediately after watcher registration closes the inspect→watch race. If kqueue registration observes an already-gone process, the provider immediately re-inspects tmux rather than polling. Daemon code must not add a periodic terminal polling loop.
 
