@@ -29,7 +29,7 @@ func (r *Repository) initDecisionProtocolStore() error {
 	for _, path := range []string{
 		r.decisionProtocolRoot(), r.decisionProtocolLedgerDir(), r.decisionProtocolRecordDir(),
 		r.decisionProtocolPolicyRoot(), r.decisionProtocolActivationRoot(), r.decisionProtocolEffectiveRoot(),
-		r.decisionProtocolEpisodeIndexRoot(),
+		r.decisionProtocolEpisodeIndexRoot(), r.decisionProtocolExperimentAdmissionClaimRoot(),
 	} {
 		if err := os.MkdirAll(path, 0o700); err != nil {
 			return err

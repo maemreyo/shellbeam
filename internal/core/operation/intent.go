@@ -14,6 +14,7 @@ import (
 )
 
 type Intent struct {
+	ExperimentID   string   `json:"experiment_id,omitempty"`
 	Command        string   `json:"command,omitempty"`
 	Argv           []string `json:"argv,omitempty"`
 	WorkspaceID    string   `json:"workspace_id,omitempty"`
@@ -285,6 +286,7 @@ func validTraceExecutionDigest(value string) bool {
 
 type ObservationBinding struct {
 	ActivityID              string                              `json:"activity_id,omitempty"`
+	ExperimentID            string                              `json:"experiment_id,omitempty"`
 	Intent                  *DeclaredIntent                     `json:"intent,omitempty"`
 	StructuredAdapter       string                              `json:"structured_adapter,omitempty"`
 	StructuredCaptureDigest string                              `json:"structured_capture_digest,omitempty"`
@@ -310,6 +312,12 @@ func (b ObservationBinding) Fingerprint() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if b.ExperimentID != "" {
+		base, err = bindExperimentFingerprint(base, b.ExperimentID)
+		if err != nil {
+			return "", err
+		}
+	}
 	if b.VerificationAttempt != nil {
 		if b.Evidence == nil {
 			return "", fmt.Errorf("verification attempt requires evidence contract")
@@ -326,6 +334,23 @@ func (b ObservationBinding) Fingerprint() (string, error) {
 		return "", fmt.Errorf("invalid structured capture digest")
 	}
 	return bindStructuredCaptureFingerprint(base, b.StructuredCaptureDigest)
+}
+
+func bindExperimentFingerprint(base, experimentID string) (string, error) {
+	if experimentID == "" {
+		return base, nil
+	}
+	encoded, err := json.Marshal(struct {
+		Version      int    `json:"version"`
+		Kind         string `json:"kind"`
+		Base         string `json:"base_fingerprint,omitempty"`
+		ExperimentID string `json:"experiment_id"`
+	}{Version: 1, Kind: "decision_experiment", Base: base, ExperimentID: experimentID})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 func (b ObservationBinding) legacyFingerprint() (string, error) {

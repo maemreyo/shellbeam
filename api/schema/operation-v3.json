@@ -130,6 +130,11 @@
       "type": "string",
       "minLength": 1
     },
+    "experiment_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 192
+    },
     "session_id": {
       "type": "string",
       "minLength": 1

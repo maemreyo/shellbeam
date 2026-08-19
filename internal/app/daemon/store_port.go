@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"context"
+	decisionprotocol "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -37,6 +38,10 @@ type Store interface {
 	AppendOutput(context.Context, operation.SessionID, []byte) (int, StoreResult)
 	ReadOutput(context.Context, operation.SessionID, int64, int) ([]byte, int64, error)
 	Compact(context.Context, operation.SessionID) StoreResult
+}
+
+type DecisionExperimentAdmissionStore interface {
+	ReserveExperimentOperation(context.Context, operation.Reservation, decisionprotocol.ExperimentExecutionLink) (operation.Reservation, decisionprotocol.ExperimentExecutionLink, bool, StoreResult)
 }
 
 type PersistentSessionStore interface {

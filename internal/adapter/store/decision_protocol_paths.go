@@ -30,6 +30,13 @@ func (r *Repository) decisionProtocolEpisodeIndexRoot() string {
 	return filepath.Join(r.decisionProtocolRoot(), "indexes", "episodes")
 }
 
+func (r *Repository) decisionProtocolExperimentAdmissionClaimRoot() string {
+	return filepath.Join(r.decisionProtocolRoot(), "indexes", "experiment_admission_claims")
+}
+func (r *Repository) decisionProtocolExperimentAdmissionClaimPath(id decisionprotocol.ExperimentID) string {
+	return filepath.Join(r.decisionProtocolExperimentAdmissionClaimRoot(), string(id)+".json")
+}
+
 func (r *Repository) decisionProtocolRecordPath(seq decisionprotocol.RecordSeq) string {
 	return filepath.Join(r.decisionProtocolRecordDir(), fmt.Sprintf("%020d.json", seq))
 }
