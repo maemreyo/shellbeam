@@ -4,6 +4,7 @@ import (
 	"context"
 	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -29,6 +30,7 @@ type Options struct {
 	EvidenceWorker       EvidenceWorker
 	ProjectCommandBinder ProjectCommandBinder
 	PersistentRuntime    PersistentRuntime
+	DelegatedRuntime     DelegatedRuntime
 	MediaReader          MediaReader
 	MediaReadBudget      time.Duration
 	InputTracePreparer   traceapp.Preparer
@@ -51,6 +53,7 @@ type StartRequest struct {
 	TraceMode         trace.Mode                `json:"trace_mode,omitempty"`
 	ResourceLimits    *operation.ResourceLimits `json:"limits,omitempty"`
 	Persistent        bool                      `json:"persistent,omitempty"`
+	SessionMode       string                    `json:"session_mode,omitempty"`
 	SessionName       string                    `json:"session_name,omitempty"`
 	YieldMS           int64                     `json:"yield_time_ms"`
 	MaxOutputBytes    int                       `json:"max_output_bytes"`
@@ -83,15 +86,17 @@ type PollRequest struct {
 	MaxOutputBytes int    `json:"max_output_bytes"`
 }
 type WriteRequest struct {
-	SessionID   string `json:"session_id"`
-	InputOffset int64  `json:"input_offset"`
-	Chars       string `json:"chars,omitempty"`
-	EOF         bool   `json:"eof,omitempty"`
+	SessionID      string                   `json:"session_id"`
+	AuthorityEpoch delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
+	InputOffset    int64                    `json:"input_offset"`
+	Chars          string                   `json:"chars,omitempty"`
+	EOF            bool                     `json:"eof,omitempty"`
 }
 type KillRequest struct {
-	SessionID string `json:"session_id"`
-	KillID    string `json:"kill_id"`
-	Signal    string `json:"signal"`
+	SessionID      string                   `json:"session_id"`
+	AuthorityEpoch delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
+	KillID         string                   `json:"kill_id"`
+	Signal         string                   `json:"signal"`
 }
 type View struct {
 	OperationID        string                   `json:"operation_id,omitempty"`
@@ -100,6 +105,7 @@ type View struct {
 	ContextEvents      []workspace.ContextEvent `json:"context_events,omitempty"`
 	Advisories         []workspace.Advisory     `json:"advisories,omitempty"`
 	SessionID          string                   `json:"session_id"`
+	AuthorityEpoch     delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
 	State              session.State            `json:"state"`
 	Outcome            session.Outcome          `json:"outcome"`
 	Output             string                   `json:"output,omitempty"`

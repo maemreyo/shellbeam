@@ -38,6 +38,9 @@ func (s *Service) Signal(ctx context.Context, ref core.ProviderRef, signal strin
 func (s *Service) Inspect(ctx context.Context, ref core.ProviderRef) (Observation, error) {
 	return s.provider.Inspect(ctx, ref)
 }
+func (s *Service) Wait(ctx context.Context, ref core.ProviderRef) (Observation, error) {
+	return s.provider.Wait(ctx, ref)
+}
 func (s *Service) Close(ctx context.Context, ref core.ProviderRef) error {
 	return s.provider.Close(ctx, ref)
 }

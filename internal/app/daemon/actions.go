@@ -63,7 +63,10 @@ func (s *Service) hydrateWaitViewState(ctx context.Context, sid string, v *View)
 		v.WorkspaceID = l.reservation.WorkspaceID
 		v.State = l.state
 		v.Outcome = l.outcome
-		if l.persistent {
+		if l.delegated {
+			v.AuthorityEpoch = l.delegatedBinding.AuthorityEpoch
+			v.NextInputOffset = l.accepted
+		} else if l.persistent {
 			v.NextInputOffset = l.accepted
 			v.EOFQueued = l.eof
 		} else {
@@ -80,6 +83,13 @@ func (s *Service) hydrateWaitViewState(ctx context.Context, sid string, v *View)
 	if reservation, loadErr := s.store.LoadOperation(ctx, operation.ID(snap.OperationID)); loadErr == nil {
 		v.ActivityID = reservation.ActivityID
 		v.WorkspaceID = reservation.WorkspaceID
+		if reservation.SessionMode != "" {
+			if store, ok := s.store.(DelegatedSessionStore); ok {
+				if binding, bindErr := store.LoadDelegatedBinding(ctx, operation.SessionID(sid)); bindErr == nil {
+					v.AuthorityEpoch = binding.AuthorityEpoch
+				}
+			}
+		}
 	}
 	v.State = snap.State
 	v.Outcome = snap.Outcome
@@ -114,6 +124,10 @@ func (s *Service) Write(ctx context.Context, req WriteRequest) (View, error) {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
+	if l.delegated {
+		l.mu.Unlock()
+		return s.writeDelegated(ctx, l, req)
+	}
 	if l.persistent {
 		state, handle := l.state, l.handle
 		l.mu.Unlock()
@@ -165,6 +179,10 @@ func (s *Service) Kill(ctx context.Context, req KillRequest) (View, error) {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
 	}
 	l.mu.Lock()
+	if l.delegated {
+		l.mu.Unlock()
+		return s.killDelegated(ctx, l, req)
+	}
 	if l.persistent {
 		state, handle := l.state, l.handle
 		l.mu.Unlock()

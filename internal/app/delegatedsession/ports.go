@@ -46,5 +46,6 @@ type Provider interface {
 	Write(context.Context, core.ProviderRef, []byte) error
 	Signal(context.Context, core.ProviderRef, string) error
 	Inspect(context.Context, core.ProviderRef) (Observation, error)
+	Wait(context.Context, core.ProviderRef) (Observation, error)
 	Close(context.Context, core.ProviderRef) error
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	delegatedsession "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
@@ -88,10 +89,10 @@ func validateTypedBindingCommit(claim operation.TypedIntentClaim, id operation.I
 	if want.EffectiveRequestFingerprint() != claim.RequestFingerprint {
 		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
-	if want.ProjectCommand == nil || (want.SchemaVersion != 3 && want.SchemaVersion != 4) {
-		return fmt.Errorf("typed binding requires schema v3 or persistent v4 reservation")
+	if want.ProjectCommand == nil || (want.SchemaVersion != 3 && want.SchemaVersion != 4 && want.SchemaVersion != 5) {
+		return fmt.Errorf("typed binding requires schema v3, persistent v4, or delegated v5 reservation")
 	}
-	if claim.Intent.Persistent != want.Persistent || claim.Intent.SessionName != want.SessionName {
+	if claim.Intent.Persistent != want.Persistent || claim.Intent.SessionMode != want.SessionMode || claim.Intent.SessionName != want.SessionName {
 		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	if want.SchemaVersion == 3 && want.Persistent {
@@ -99,6 +100,9 @@ func validateTypedBindingCommit(claim operation.TypedIntentClaim, id operation.I
 	}
 	if want.SchemaVersion == 4 && !want.Persistent {
 		return fmt.Errorf("schema v4 typed binding must be persistent")
+	}
+	if want.SchemaVersion == 5 && (want.SessionMode != delegatedsession.ModeDelegatedInteractive || want.AuthorityEpoch != 1 || want.Persistent || want.TTY) {
+		return fmt.Errorf("schema v5 typed binding must be delegated interactive epoch 1")
 	}
 	if err := want.ProjectCommand.Validate(); err != nil {
 		return err

@@ -172,3 +172,48 @@ func TestDelegatedFingerprintStillBindsResourceAndTracePolicy(t *testing.T) {
 		t.Fatal("delegated trace policy not bound")
 	}
 }
+
+func TestTypedDelegatedPolicyFieldsBindFingerprintWithoutChangingUnsetLegacyTypedFingerprint(t *testing.T) {
+	legacy := TypedRequestIntent{WorkspaceID: "ws_01K00000000000000000000000", ProjectCommandID: "test"}
+	legacyFP, err := legacy.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if legacyFP != "8ab3a04868e469d1965932338e39ea2b5a0f16e8ffc4f5e006a880c463bab102" {
+		t.Fatalf("legacy fingerprint changed: %s", legacyFP)
+	}
+	base := legacy
+	base.SessionMode = delegatedsession.ModeDelegatedInteractive
+	plain, err := base.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := base
+	stream.StdinMode = StdinModeStream
+	streamFP, err := stream.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamFP == plain {
+		t.Fatal("typed delegated stdin policy not bound")
+	}
+	unlimited := base
+	unlimited.TimeoutMode = TimeoutModeUnlimited
+	unlimitedFP, err := unlimited.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unlimitedFP == plain {
+		t.Fatal("typed delegated timeout policy not bound")
+	}
+	bad := base
+	bad.StdinMode = StdinMode("future")
+	if _, err := bad.Fingerprint(); err == nil {
+		t.Fatal("invalid typed stdin policy accepted")
+	}
+	bad = base
+	bad.TimeoutMode = TimeoutMode("future")
+	if _, err := bad.Fingerprint(); err == nil {
+		t.Fatal("invalid typed timeout policy accepted")
+	}
+}

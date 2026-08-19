@@ -38,6 +38,9 @@ func (p *countingProvider) Inspect(context.Context, core.ProviderRef) (Observati
 	p.inspects++
 	return Observation{}, nil
 }
+func (p *countingProvider) Wait(context.Context, core.ProviderRef) (Observation, error) {
+	return Observation{}, nil
+}
 func (p *countingProvider) Close(context.Context, core.ProviderRef) error { p.closes++; return nil }
 
 func TestNonDelegatedStartNeverTouchesProvider(t *testing.T) {
@@ -98,6 +101,9 @@ func (*failingProbeProvider) Reattach(context.Context, core.ProviderRef, OutputS
 func (*failingProbeProvider) Write(context.Context, core.ProviderRef, []byte) error  { return nil }
 func (*failingProbeProvider) Signal(context.Context, core.ProviderRef, string) error { return nil }
 func (*failingProbeProvider) Inspect(context.Context, core.ProviderRef) (Observation, error) {
+	return Observation{}, nil
+}
+func (*failingProbeProvider) Wait(context.Context, core.ProviderRef) (Observation, error) {
 	return Observation{}, nil
 }
 func (*failingProbeProvider) Close(context.Context, core.ProviderRef) error { return nil }

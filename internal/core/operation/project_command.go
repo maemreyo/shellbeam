@@ -32,6 +32,8 @@ type TypedRequestIntent struct {
 	Persistent       bool              `json:"persistent,omitempty"`
 	SessionMode      string            `json:"session_mode,omitempty"`
 	SessionName      string            `json:"session_name,omitempty"`
+	StdinMode        StdinMode         `json:"stdin_mode,omitempty"`
+	TimeoutMode      TimeoutMode       `json:"timeout_mode,omitempty"`
 	TraceMode        trace.Mode        `json:"trace_mode,omitempty"`
 	ResourceLimits   *ResourceLimits   `json:"resource_limits,omitempty"`
 }
@@ -58,6 +60,12 @@ func (i TypedRequestIntent) Validate() error {
 	}
 	if i.TimeoutMS < 0 {
 		return fmt.Errorf("timeout must be non-negative")
+	}
+	if err := i.StdinMode.Validate(); err != nil {
+		return err
+	}
+	if err := i.TimeoutMode.Validate(); err != nil {
+		return err
 	}
 	if _, err := trace.NormalizeMode(i.TraceMode); err != nil {
 		return err
@@ -129,6 +137,18 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 	}
 	sum := sha256.Sum256(encoded)
 	base := hex.EncodeToString(sum[:])
+	if policy := RequestPolicyDigest(i.StdinMode, i.TimeoutMode); policy != nil {
+		encodedPolicy, policyErr := json.Marshal(struct {
+			Version int           `json:"version"`
+			Base    string        `json:"base"`
+			Policy  *policyDigest `json:"policy"`
+		}{1, base, policy})
+		if policyErr != nil {
+			return "", policyErr
+		}
+		sum = sha256.Sum256(encodedPolicy)
+		base = hex.EncodeToString(sum[:])
+	}
 	base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
 	if err != nil {
 		return "", err

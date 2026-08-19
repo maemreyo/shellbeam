@@ -2,6 +2,7 @@ package delegatedtmux
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -276,6 +277,72 @@ func (p *Provider) Inspect(ctx context.Context, ref core.ProviderRef) (app.Obser
 	}
 	if err := p.verifyFacts(ctx, control, state, facts); err != nil {
 		return app.Observation{}, err
+	}
+	return p.observationFromFacts(control, state, facts), nil
+}
+
+func (p *Provider) Wait(ctx context.Context, ref core.ProviderRef) (app.Observation, error) {
+	if err := p.validateProviderRef(ref, ref.SessionID); err != nil {
+		return app.Observation{}, err
+	}
+	state, err := p.state.load(ref.Ref)
+	if err != nil {
+		return app.Observation{}, providerLost(ref, "private_state", err)
+	}
+	p.mu.Lock()
+	control := p.controls[ref.Ref]
+	p.mu.Unlock()
+	if control == nil {
+		return app.Observation{}, providerLost(ref, "observer_missing", nil)
+	}
+	facts, err := p.queryFacts(ctx, control, state.TmuxSession)
+	if err != nil {
+		return app.Observation{}, providerLost(ref, "wait_inspect", err)
+	}
+	if err := p.verifyFacts(ctx, control, state, facts); err != nil {
+		return app.Observation{}, err
+	}
+	if facts.Terminal {
+		return p.observationFromFacts(control, state, facts), nil
+	}
+
+	watcher, err := newProcessExitWatcher(state.PanePID)
+	if err != nil {
+		if errors.Is(err, errProcessAlreadyGone) {
+			return p.inspectTerminalAfterExitRace(ctx, ref, control, state)
+		}
+		return app.Observation{}, providerLost(ref, "wait_register", err)
+	}
+	defer watcher.Close()
+	// Registration must be followed by a fresh provider proof. If the pane exited
+	// between the first inspection and kqueue registration, this returns terminal
+	// immediately instead of waiting on an unrelated/reused process identity.
+	facts, err = p.queryFacts(ctx, control, state.TmuxSession)
+	if err != nil {
+		return app.Observation{}, providerLost(ref, "wait_post_register_inspect", err)
+	}
+	if err := p.verifyFacts(ctx, control, state, facts); err != nil {
+		return app.Observation{}, err
+	}
+	if facts.Terminal {
+		return p.observationFromFacts(control, state, facts), nil
+	}
+	if err := watcher.Wait(ctx); err != nil {
+		return app.Observation{}, providerLost(ref, "wait_process_exit", err)
+	}
+	return p.inspectTerminalAfterExitRace(ctx, ref, control, state)
+}
+
+func (p *Provider) inspectTerminalAfterExitRace(ctx context.Context, ref core.ProviderRef, control *controlClient, state privateState) (app.Observation, error) {
+	facts, err := p.queryFacts(ctx, control, state.TmuxSession)
+	if err != nil {
+		return app.Observation{}, providerLost(ref, "wait_terminal_inspect", err)
+	}
+	if err := p.verifyFacts(ctx, control, state, facts); err != nil {
+		return app.Observation{}, err
+	}
+	if !facts.Terminal {
+		return app.Observation{}, failure.New(failure.DelegatedReconcileBlocked, map[string]string{"session_id": ref.SessionID, "provider_id": ProviderID, "reason": "process_exit_without_terminal_provider_state"}, nil)
 	}
 	return p.observationFromFacts(control, state, facts), nil
 }

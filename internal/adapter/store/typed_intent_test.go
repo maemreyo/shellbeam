@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	delegatedsession "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
@@ -247,5 +248,32 @@ func TestAbandonUnresolvedTypedV3PreservesProjectCommandProvenance(t *testing.T)
 	}
 	if got, wantDigest := rec.ProjectCommand.ParameterFingerprint, want.ProjectCommand.ParameterFingerprint; got != wantDigest {
 		t.Fatalf("project command fingerprint=%q want=%q", got, wantDigest)
+	}
+}
+
+func TestCommitTypedBindingAcceptsDelegatedSchemaV5OnlyWhenClaimCarriesSameMode(t *testing.T) {
+	r := openRecoveryRepository(t, filepath.Join(t.TempDir(), "state"))
+	claim := validTypedIntentClaim(t, "typed-delegated-bind")
+	claim.Intent.SessionMode = delegatedsession.ModeDelegatedInteractive
+	claim.Intent.SessionName = "typed-shell"
+	fingerprint, err := claim.Intent.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim.RequestFingerprint = fingerprint
+	if _, created, got := r.ReserveTypedIntent(context.Background(), claim); got.Err != nil || !created {
+		t.Fatalf("claim created=%v result=%#v", created, got)
+	}
+	want := validTypedReservation(t, claim, "typed-delegated-session")
+	want.SchemaVersion = 5
+	want.SessionMode = delegatedsession.ModeDelegatedInteractive
+	want.AuthorityEpoch = 1
+	want.SessionName = claim.Intent.SessionName
+	stored, created, result := r.CommitTypedBinding(context.Background(), claim.OperationID, want)
+	if result.Err != nil || !created {
+		t.Fatalf("commit stored=%#v created=%v result=%#v", stored, created, result)
+	}
+	if stored.SchemaVersion != 5 || stored.SessionMode != delegatedsession.ModeDelegatedInteractive || stored.AuthorityEpoch != 1 {
+		t.Fatalf("stored=%#v", stored)
 	}
 }

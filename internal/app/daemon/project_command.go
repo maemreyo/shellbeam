@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+
 	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
@@ -73,7 +75,7 @@ func typedRequestIntent(req StartRequest) (operation.TypedRequestIntent, string,
 	}
 	intent := operation.TypedRequestIntent{
 		WorkspaceID: req.WorkspaceID, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMap(req.Params),
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(),
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
@@ -93,7 +95,13 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 	if stored.EffectiveRequestFingerprint() != requestFingerprint {
 		return View{}, true, failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
-	if ((req.Persistent && stored.SchemaVersion != 4) || (!req.Persistent && stored.SchemaVersion != 3)) || stored.ProjectCommand == nil || stored.WorkspaceID != req.WorkspaceID || stored.ProjectCommand.CommandID != req.ProjectCommandID || stored.Persistent != req.Persistent || stored.SessionName != req.SessionName {
+	expectedSchema := 3
+	if req.SessionMode == delegated.ModeDelegatedInteractive {
+		expectedSchema = 5
+	} else if req.Persistent {
+		expectedSchema = 4
+	}
+	if stored.SchemaVersion != expectedSchema || stored.SessionMode != req.SessionMode || stored.ProjectCommand == nil || stored.WorkspaceID != req.WorkspaceID || stored.ProjectCommand.CommandID != req.ProjectCommandID || stored.Persistent != req.Persistent || stored.SessionName != req.SessionName {
 		return View{}, true, failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	if err := stored.ProjectCommand.Validate(); err != nil {
@@ -109,6 +117,20 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 	}
 	if stored.ObservationBindingFingerprint != observationFingerprint {
 		return View{}, true, failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(id)}, nil)
+	}
+	if stored.SessionMode == delegated.ModeDelegatedInteractive {
+		if binding, bindErr := s.delegatedStore().LoadDelegatedBinding(ctx, stored.SessionID); bindErr == nil {
+			resume := binding.Lifecycle == delegated.LifecycleProvisioning
+			if live := s.get(string(stored.SessionID)); live != nil {
+				live.mu.Lock()
+				resume = resume || (binding.Lifecycle == delegated.LifecycleLive && live.state == session.Starting)
+				live.mu.Unlock()
+			}
+			if resume {
+				view, resumeErr := s.resumeDelegatedReservedStart(ctx, req, stored)
+				return view, true, resumeErr
+			}
+		}
 	}
 	view, err := s.waitView(ctx, stored, string(stored.SessionID), 0, req.YieldMS, req.MaxOutputBytes)
 	if err == nil {
@@ -129,14 +151,19 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, err
 	}
+	resolvedPolicy, err := s.resolveExecutionPolicy(req)
+	if err != nil {
+		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
+	}
 	spec := bindExecution(s.owner, operation.ExecutionSpec{
 		Mode: operation.ExecutionModeArgv, Argv: append([]string(nil), binding.ResolvedArgv...), CWD: binding.ResolvedCWD,
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, ResourceLimits: req.ResourceLimits.Clone(),
+		TTY: req.TTY, TimeoutMS: resolvedPolicy.TimeoutMS, StdinMode: resolvedPolicy.StdinMode, ResourceLimits: req.ResourceLimits.Clone(),
 	})
 	resolvedIntent := operation.Intent{
 		Argv: append([]string(nil), binding.ResolvedArgv...), WorkspaceID: req.WorkspaceID,
-		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, ResourceLimits: req.ResourceLimits.Clone(),
+		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, ResourceLimits: req.ResourceLimits.Clone(),
 	}
+	resolvedIntent.Resolved, resolvedIntent.TimeoutSource = &resolvedPolicy, timeoutSourceOf(resolvedPolicy)
 	executionFingerprint, err := resolvedIntent.ExecutionFingerprint(spec.Executable)
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
@@ -147,6 +174,9 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 	}
 	reservation := operation.Reservation{
 		SchemaVersion: func() int {
+			if req.SessionMode == delegated.ModeDelegatedInteractive {
+				return 5
+			}
 			if req.Persistent {
 				return 4
 			}
@@ -157,13 +187,21 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 		ObservationBindingFingerprint: observationFingerprint,
 		ExecutionMode:                 operation.ExecutionModeArgv, Executable: spec.Executable,
 		Argv: append([]string(nil), binding.ResolvedArgv...), CWD: binding.ResolvedCWD,
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, DaemonIncarnation: s.options.Incarnation,
+		TTY: req.TTY, TimeoutMS: resolvedPolicy.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, AuthorityEpoch: func() delegated.AuthorityEpoch {
+			if req.SessionMode == delegated.ModeDelegatedInteractive {
+				return 1
+			}
+			return 0
+		}(), SessionName: req.SessionName, DaemonIncarnation: s.options.Incarnation,
 		ProjectCommand: &binding, ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	return reservation, spec, nil
 }
 
 func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, reservation operation.Reservation, spec operation.ExecutionSpec, commit reservationCommitter, typedReplay bool) (View, error) {
+	if reservation.SessionMode == delegated.ModeDelegatedInteractive {
+		return s.admitPreparedDelegatedStart(ctx, req, reservation, spec, commit, typedReplay)
+	}
 	reservation, spec, preparedTrace, err := s.prepareInputTrace(ctx, req, reservation, spec)
 	if err != nil {
 		return View{}, err

@@ -252,3 +252,24 @@ func nativeFailure(err error) string {
 	}
 	return fmt.Sprintf("%T %v", err, err)
 }
+
+func TestNativeDelegatedWaitReportsTerminalWithoutPolling(t *testing.T) {
+	p, _ := nativeProvider(t)
+	ref := nativeRef(t, p, "session_native_wait")
+	sink := &nativeSink{}
+	spec := operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Shell: "/bin/sh", Executable: "/bin/sh", Command: "printf WAIT_READY; sleep .15; exit 9", CWD: t.TempDir()}
+	if _, err := p.Create(t.Context(), app.CreateRequest{ProviderRef: ref, SessionID: ref.SessionID, OperationID: "op_native_wait", Spec: spec, Output: sink}); err != nil {
+		t.Fatalf("create: %s", nativeFailure(err))
+	}
+	t.Cleanup(func() { _ = p.Close(context.Background(), ref) })
+	waitContains(t, sink, "WAIT_READY")
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	obs, err := p.Wait(ctx, ref)
+	if err != nil {
+		t.Fatalf("wait: %s", nativeFailure(err))
+	}
+	if !obs.Terminal || obs.ExitCode == nil || *obs.ExitCode != 9 || obs.Owner != core.OwnerNone {
+		t.Fatalf("wait=%#v", obs)
+	}
+}

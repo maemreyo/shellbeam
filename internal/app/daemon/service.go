@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -90,6 +91,11 @@ type liveSession struct {
 	persistentReattached    bool
 	persistentCancel        context.CancelFunc
 	persistentReconcileDone chan struct{}
+	delegated               bool
+	delegatedRef            delegated.ProviderRef
+	delegatedBinding        delegated.Binding
+	delegatedStartMu        sync.Mutex
+	delegatedMutationMu     sync.Mutex
 }
 type inputJob struct {
 	data []byte
@@ -158,16 +164,22 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err != nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
 	}
+	delegatedMode, err := s.validateDelegatedStart(ctx, req)
+	if err != nil {
+		return View{}, err
+	}
 	if err := validateStartMetadata(req); err != nil {
 		return View{}, err
 	}
-	if err := validateResourceLimits(s.options.Capabilities, req); err != nil {
-		return View{}, err
+	if !delegatedMode {
+		if err := validateResourceLimits(s.options.Capabilities, req); err != nil {
+			return View{}, err
+		}
 	}
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}
-	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone()}
+	logicalIntent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), SessionMode: req.SessionMode}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}

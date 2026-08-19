@@ -6,10 +6,12 @@ import (
 
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -42,6 +44,20 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if stored.ObservationBindingFingerprint != observationFingerprint {
 		return View{}, true, failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
+	if stored.SessionMode == delegated.ModeDelegatedInteractive {
+		if binding, bindErr := s.delegatedStore().LoadDelegatedBinding(ctx, stored.SessionID); bindErr == nil {
+			resume := binding.Lifecycle == delegated.LifecycleProvisioning
+			if live := s.get(string(stored.SessionID)); live != nil {
+				live.mu.Lock()
+				resume = resume || (binding.Lifecycle == delegated.LifecycleLive && live.state == session.Starting)
+				live.mu.Unlock()
+			}
+			if resume {
+				view, resumeErr := s.resumeDelegatedReservedStart(ctx, req, stored)
+				return view, true, resumeErr
+			}
+		}
+	}
 	view, err := s.waitView(ctx, stored, string(stored.SessionID), 0, req.YieldMS, req.MaxOutputBytes)
 	if err == nil {
 		s.enrichReplayWorkspaceContext(ctx, &view, stored.CWD, req.WorkspaceHint)
@@ -51,7 +67,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone()}
+	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), SessionMode: req.SessionMode}
 	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -120,14 +136,16 @@ func validateStartMetadata(req StartRequest) error {
 			return failure.New(failure.InputTraceUnsupported, map[string]string{"reason": "persistent"}, nil)
 		}
 	}
-	if (req.Persistent || req.SessionName != "") && req.ProtocolVersion != 2 {
-		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions", "required_version": "2"}, nil)
-	}
-	if req.SessionName != "" && !req.Persistent {
-		return failure.New(failure.InvalidInput, map[string]string{"field": "session_name"}, fmt.Errorf("session name requires persistent execution"))
-	}
-	if req.Persistent && req.TTY {
-		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_tty"}, nil)
+	if req.SessionMode == "" {
+		if (req.Persistent || req.SessionName != "") && req.ProtocolVersion != 2 {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "named_sessions", "required_version": "2"}, nil)
+		}
+		if req.SessionName != "" && !req.Persistent {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "session_name"}, fmt.Errorf("session name requires persistent execution"))
+		}
+		if req.Persistent && req.TTY {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "persistent_tty"}, nil)
+		}
 	}
 	if req.SessionName != "" {
 		if err := persistentsession.ValidateSessionName(req.SessionName); err != nil {

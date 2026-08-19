@@ -3,6 +3,8 @@ package daemon
 import (
 	"fmt"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -37,7 +39,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 	base := operation.Reservation{
 		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, Intent: cloneDeclaredIntent(req.Intent),
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
-		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, Shell: shell, DaemonIncarnation: s.options.Incarnation,
+		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, Shell: shell, DaemonIncarnation: s.options.Incarnation,
 		ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	switch req.ProtocolVersion {
@@ -65,7 +67,10 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		if err != nil {
 			return operation.Reservation{}, err
 		}
-		if req.Persistent {
+		if req.SessionMode == delegated.ModeDelegatedInteractive {
+			base.SchemaVersion = 5
+			base.AuthorityEpoch = 1
+		} else if req.Persistent {
 			base.SchemaVersion = 4
 		} else {
 			base.SchemaVersion = 2
@@ -101,6 +106,12 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		}
 	} else {
 		rec.Fingerprint = l.reservation.Fingerprint
+	}
+	if rec.SchemaVersion == 5 {
+		rec.SessionMode = l.reservation.SessionMode
+		rec.AuthorityEpoch = l.delegatedBinding.AuthorityEpoch
+		rec.EvidenceAuthority = receipt.EvidenceAuthoritySessionLifecycleOnly
+		rec.InputAuthorityProvenance = receipt.InputAuthorityAgentOnly
 	}
 	return rec
 }

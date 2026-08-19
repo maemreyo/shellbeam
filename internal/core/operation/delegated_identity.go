@@ -103,20 +103,22 @@ func (i Intent) delegatedExecutionFingerprint(mode ExecutionMode, cwd, executabl
 
 func (i TypedRequestIntent) delegatedTypedRequestFingerprint(params []typedParam) (string, error) {
 	encoded, err := json.Marshal(struct {
-		Version          int          `json:"version"`
-		Kind             string       `json:"kind"`
-		SessionMode      string       `json:"session_mode"`
-		WorkspaceID      string       `json:"workspace_id"`
-		ProjectCommandID string       `json:"project_command_id"`
-		Params           []typedParam `json:"params"`
-		TTY              bool         `json:"tty"`
-		TimeoutMS        int64        `json:"timeout_ms"`
-		Persistent       bool         `json:"persistent"`
-		SessionName      string       `json:"session_name,omitempty"`
+		Version          int           `json:"version"`
+		Kind             string        `json:"kind"`
+		SessionMode      string        `json:"session_mode"`
+		WorkspaceID      string        `json:"workspace_id"`
+		ProjectCommandID string        `json:"project_command_id"`
+		Params           []typedParam  `json:"params"`
+		TTY              bool          `json:"tty"`
+		TimeoutMS        int64         `json:"timeout_ms"`
+		Persistent       bool          `json:"persistent"`
+		SessionName      string        `json:"session_name,omitempty"`
+		Policy           *policyDigest `json:"policy,omitempty"`
 	}{
 		Version: 1, Kind: "delegated_typed_request", SessionMode: i.SessionMode,
 		WorkspaceID: i.WorkspaceID, ProjectCommandID: i.ProjectCommandID, Params: params,
 		TTY: i.TTY, TimeoutMS: i.TimeoutMS, Persistent: i.Persistent, SessionName: i.SessionName,
+		Policy: RequestPolicyDigest(i.StdinMode, i.TimeoutMode),
 	})
 	if err != nil {
 		return "", err
