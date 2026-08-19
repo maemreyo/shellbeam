@@ -104,19 +104,19 @@
 - Produces: `failure.RuntimeVersionMismatch` with allowed details `mcp_revision`, `daemon_revision`, `reason`, `recovery`.
 - Produces: startup identity capture function in `internal/buildinfo` whose dependencies are injectable/testable.
 
-- [ ] Add failing buildinfo tests for startup identity normalization: embedded VCS revision/modified state, linker fallback, and deterministic executable SHA-256 from injected bytes/reader.
-- [ ] Implement minimal safe build identity capture; no executable path in returned/public type; run buildinfo tests GREEN.
-- [ ] Add failing catalog/schema tests for optional runtime identity and clone/validation behavior.
-- [ ] Add `RuntimeIdentity` to capability catalog and strict IPC/MCP output schemas; run schema/catalog tests GREEN.
-- [ ] Add failing daemon test proving `InspectServer` returns runtime identity including daemon incarnation/start time supplied at service construction.
-- [ ] Wire daemon startup-captured runtime identity into service options/catalog; run daemon test GREEN.
-- [ ] Add failing failure-spec test for `runtime_version_mismatch` safe details.
-- [ ] Register the new public failure code/spec; run failure tests GREEN.
-- [ ] Add failing MCP tests: equal identities forward normally; unequal SHA/revision returns `runtime_version_mismatch` before forwarding the requested daemon operation; unknown identity remains compatible.
-- [ ] Implement local MCP identity capture and comparison. Prefer SHA when both sides have one, then revision; do not auto-restart; run MCP tests GREEN.
-- [ ] Add a real daemon/MCP acceptance proving `inspect.server` publishes no executable path and a synthetic/proven skew cannot silently forward an operation.
-- [ ] Run `go test ./internal/buildinfo ./internal/core/capability ./internal/core/failure ./internal/app/daemon ./internal/app/bridge ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema ./cmd/shellbeam -count=1`.
-- [ ] Commit `feat: detect shellbeam runtime skew`.
+- [x] Add failing buildinfo tests for startup identity normalization: embedded VCS revision/modified state, linker fallback, and deterministic executable SHA-256 from injected bytes/reader.
+- [x] Implement minimal safe build identity capture; no executable path in returned/public type; run buildinfo tests GREEN.
+- [x] Add failing catalog/schema tests for optional runtime identity and clone/validation behavior.
+- [x] Add `RuntimeIdentity` to capability catalog and strict IPC/MCP output schemas; run schema/catalog tests GREEN.
+- [x] Add failing daemon test proving `InspectServer` returns runtime identity including daemon incarnation/start time supplied at service construction.
+- [x] Wire daemon startup-captured runtime identity into service options/catalog; run daemon test GREEN.
+- [x] Add failing failure-spec test for `runtime_version_mismatch` safe details.
+- [x] Register the new public failure code/spec; run failure tests GREEN.
+- [x] Add failing MCP tests: equal identities forward normally; unequal SHA/revision returns `runtime_version_mismatch` before forwarding the requested daemon operation; unknown identity remains compatible.
+- [x] Implement local MCP identity capture and comparison. Prefer SHA when both sides have one, then revision; do not auto-restart; run MCP tests GREEN.
+- [x] Add a real daemon/MCP acceptance proving `inspect.server` publishes no executable path and a synthetic/proven skew cannot silently forward an operation.
+- [x] Run `go test ./internal/buildinfo ./internal/core/capability ./internal/core/failure ./internal/app/daemon ./internal/app/bridge ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema ./cmd/shellbeam -count=1`.
+- [x] Commit `feat: detect shellbeam runtime skew`.
 
 ### Task 4: P0 integration and release-grade verification
 

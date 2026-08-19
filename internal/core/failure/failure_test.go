@@ -325,3 +325,19 @@ func TestEveryRegisteredPublicCodeRoundTripsWithoutUnexpectedInternalCollapse(t 
 		t.Fatalf("unknown projection=%#v", unknown)
 	}
 }
+
+func TestRuntimeVersionMismatchFailureIsStableAndSafe(t *testing.T) {
+	public := Public(New(RuntimeVersionMismatch, map[string]string{
+		"mcp_revision":    "aaaaaaaa",
+		"daemon_revision": "bbbbbbbb",
+		"reason":          "binary_identity_mismatch",
+		"recovery":        "restart_daemon",
+		"path":            "/Users/alice/private/shellbeam",
+	}, errors.New("private /Users/alice/private/shellbeam")))
+	if public.Code != RuntimeVersionMismatch || public.Message != "ShellBeam MCP and daemon builds do not match" || public.Retryable {
+		t.Fatalf("public=%#v", public)
+	}
+	if public.Details["mcp_revision"] != "aaaaaaaa" || public.Details["daemon_revision"] != "bbbbbbbb" || public.Details["reason"] != "binary_identity_mismatch" || public.Details["recovery"] != "restart_daemon" || public.Details["path"] != "" {
+		t.Fatalf("details=%#v", public.Details)
+	}
+}

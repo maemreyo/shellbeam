@@ -169,6 +169,7 @@ type Catalog struct {
 	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
 	Media                             *MediaSupport               `json:"media,omitempty"`
 	InputTracing                      *InputTracingSupport        `json:"input_tracing,omitempty"`
+	Runtime                           *RuntimeIdentity            `json:"runtime,omitempty"`
 	Features                          map[Feature]Availability    `json:"features"`
 	Limits                            Limits                      `json:"limits"`
 }
@@ -277,10 +278,24 @@ func (c Catalog) Clone() Catalog {
 		support.SchemaVersions = append([]int(nil), c.InputTracing.SchemaVersions...)
 		out.InputTracing = &support
 	}
+	if c.Runtime != nil {
+		runtime := c.Runtime.Clone()
+		out.Runtime = &runtime
+	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {
 		out.Features[feature] = availability
 	}
+	return out
+}
+
+func (c Catalog) WithRuntime(identity RuntimeIdentity) Catalog {
+	out := c.Clone()
+	if err := identity.Validate(); err != nil {
+		return out
+	}
+	cloned := identity.Clone()
+	out.Runtime = &cloned
 	return out
 }
 

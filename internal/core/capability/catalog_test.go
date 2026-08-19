@@ -337,3 +337,45 @@ func TestResourceEnforcementRejectsIncompleteOrOverclaimedSupport(t *testing.T) 
 		}
 	}
 }
+
+func TestCatalogRuntimeIdentityClonesAndValidates(t *testing.T) {
+	modified := false
+	runtime := RuntimeIdentity{
+		SchemaVersion:     1,
+		Version:           "v1.2.3",
+		Revision:          "86b0cb56cf7a57dd6ab1d0208bf08ffcb3acbbbf",
+		VCSModified:       &modified,
+		BinarySHA256:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		DaemonIncarnation: "01M0BTQCZYM47Y3YCPAGDDGKME",
+		DaemonStartedAt:   "2026-08-19T08:38:42+07:00",
+	}
+	if err := runtime.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	catalog := Baseline(Limits{}).WithRuntime(runtime)
+	if catalog.Runtime == nil || catalog.Runtime.Revision != runtime.Revision {
+		t.Fatalf("runtime=%#v", catalog.Runtime)
+	}
+	clone := catalog.Clone()
+	if clone.Runtime == nil || clone.Runtime == catalog.Runtime {
+		t.Fatalf("runtime clone alias=%#v %#v", catalog.Runtime, clone.Runtime)
+	}
+	*clone.Runtime.VCSModified = true
+	if *catalog.Runtime.VCSModified {
+		t.Fatal("runtime modified pointer leaked across clone")
+	}
+}
+
+func TestRuntimeIdentityRejectsInvalidDigestAndTimestamp(t *testing.T) {
+	for name, runtime := range map[string]RuntimeIdentity{
+		"schema":  {SchemaVersion: 2},
+		"digest":  {SchemaVersion: 1, BinarySHA256: "bad"},
+		"started": {SchemaVersion: 1, DaemonStartedAt: "yesterday"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := runtime.Validate(); err == nil {
+				t.Fatalf("accepted %#v", runtime)
+			}
+		})
+	}
+}

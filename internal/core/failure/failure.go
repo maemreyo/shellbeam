@@ -90,6 +90,7 @@ const (
 	PersistentKillHistoryExhausted    Code = "persistent_kill_history_exhausted"
 	PersistenceAmbiguous              Code = "persistence_ambiguous"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
+	RuntimeVersionMismatch            Code = "runtime_version_mismatch"
 	MediaPathNotFound                 Code = "media_path_not_found"
 	MediaPathUnsafe                   Code = "media_path_unsafe"
 	MediaNotRegular                   Code = "media_not_regular"
@@ -226,6 +227,7 @@ var publicSpecs = map[Code]publicSpec{
 	PersistentKillHistoryExhausted:    {message: "persistent kill history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
+	RuntimeVersionMismatch:            {message: "ShellBeam MCP and daemon builds do not match", details: keys("mcp_revision", "daemon_revision", "reason", "recovery")},
 	MediaPathNotFound:                 {message: "media path not found"},
 	MediaPathUnsafe:                   {message: "media path is unsafe"},
 	MediaNotRegular:                   {message: "media path is not a regular file"},
