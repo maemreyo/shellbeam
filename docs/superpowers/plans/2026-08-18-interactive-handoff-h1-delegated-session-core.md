@@ -620,6 +620,8 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 - Create: `internal/core/capability/delegated_test.go`
 - Create: `cmd/shellbeam/delegated_sessions.go`
 - Create: `cmd/shellbeam/delegated_sessions_test.go`
+- Modify: `cmd/shellbeam/command_daemon.go`
+- Modify: `internal/adapter/store/repository.go`
 
 **Interfaces:**
 - Consumes the internal receipt schema v5 frozen and persisted by Task 6; Task 7 projects it through result/schema/IPC/MCP/capability surfaces without changing its semantics. Receipt v5 binds `session_mode`, terminal `authority_epoch`, `evidence_authority=session_lifecycle_only`, monotonic `input_authority_provenance`, and composable capture truth while leaving receipt schemas 1–4 unchanged.
@@ -677,6 +679,7 @@ Runtime later enforces epoch required for an actual delegated target.
 
 Capability discovery must be side-effect free: it may use startup qualification state/configured provider identity, but `inspect.server` must not start tmux.
 Production composition is optional and fail-closed per platform: on unqualified/non-Darwin/missing-or-mismatched tmux, ordinary daemon startup continues with no delegated runtime and no delegated capability. On exact qualified Darwin tmux, startup performs one provider Probe, injects that runtime, and derives capability from the successful probe; later inspect.server only clones that frozen catalog and performs no tmux work.
+The advertised `max_mutation_records` value must come from the same internal store default used by `Repository` normalization; do not duplicate a second numeric constant in command composition.
 
 - [ ] **Step 4: Add IPC/MCP lossless mapping and failure projection.**
 
