@@ -265,6 +265,7 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	rec := s.receiptFor(l, session.Failed, session.Failure)
 	rec.FailureReason = reason
 	rec.Spawn = l.spawn
+	capture := s.acquireStructuredCaptureTerminal(l.reservation)
 	s.endManagedShell(l)
 	// Release the child's descriptors before durability, not after. The process
 	// is already reaped and its output already captured, so nothing here needs
@@ -275,7 +276,7 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
-	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
+	s.scheduleStructuredAfterReceipt(rec, l.reservation, capture)
 	s.scheduleTelemetryTerminal(rec, nil)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
 	s.scheduleInputTraceTerminal(rec, l.reservation)
@@ -363,6 +364,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.Spawn = l.spawn
 	rec.Exit = exit
 	rec.Signal = signalEvidence
+	capture := s.acquireStructuredCaptureTerminal(l.reservation)
 	s.endManagedShell(l)
 	// Release the child's descriptors before durability, not after. The process
 	// is already reaped and its output already captured, so nothing here needs
@@ -373,7 +375,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
-	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
+	s.scheduleStructuredAfterReceipt(rec, l.reservation, capture)
 	s.scheduleTelemetryTerminal(rec, resourceEvidence)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
 	s.scheduleInputTraceTerminal(rec, l.reservation)

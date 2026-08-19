@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
@@ -18,23 +19,24 @@ type Options struct {
 	// DefaultTimeoutMS bounds an ordinary command whose caller named no
 	// timeout. Zero leaves such commands unbounded, which is the behaviour that
 	// let stuck sessions hold capacity indefinitely.
-	DefaultTimeoutMS     int64
-	MaxTimeoutMS         int64
-	Incarnation          string
-	Shell                string
-	MaxQueuedInputBytes  int
-	TerminationGrace     time.Duration
-	Capabilities         capability.Catalog
-	StructuredWorker     StructuredWorker
-	TelemetryWorker      TelemetryWorker
-	EvidenceWorker       EvidenceWorker
-	ProjectCommandBinder ProjectCommandBinder
-	PersistentRuntime    PersistentRuntime
-	MediaReader          MediaReader
-	MediaReadBudget      time.Duration
-	InputTracePreparer   traceapp.Preparer
-	InputTraceWorker     InputTraceWorker
-	HermeticRuntime      HermeticRuntime
+	DefaultTimeoutMS          int64
+	MaxTimeoutMS              int64
+	Incarnation               string
+	Shell                     string
+	MaxQueuedInputBytes       int
+	TerminationGrace          time.Duration
+	Capabilities              capability.Catalog
+	StructuredWorker          StructuredWorker
+	StructuredCaptureTerminal StructuredCaptureTerminal
+	TelemetryWorker           TelemetryWorker
+	EvidenceWorker            EvidenceWorker
+	ProjectCommandBinder      ProjectCommandBinder
+	PersistentRuntime         PersistentRuntime
+	MediaReader               MediaReader
+	MediaReadBudget           time.Duration
+	InputTracePreparer        traceapp.Preparer
+	InputTraceWorker          InputTraceWorker
+	HermeticRuntime           HermeticRuntime
 }
 type StartRequest struct {
 	ProtocolVersion     int                                 `json:"-"`
@@ -67,6 +69,11 @@ type StartRequest struct {
 type StructuredWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to parser execution.
 	ScheduleTerminal(context.Context, receipt.Receipt, string) error
+}
+
+type StructuredCaptureTerminal interface {
+	AcquireTerminal(context.Context, operation.Reservation) structuredapp.TerminalCaptureResult
+	ScheduleTerminal(context.Context, receipt.Receipt, structuredapp.TerminalCaptureResult) error
 }
 type TelemetryWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to telemetry derivation.

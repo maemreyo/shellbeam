@@ -24,7 +24,10 @@ func QualifyArtifactAbsentBaseline(context.Context, string, string) (*ArtifactPa
 func (*ArtifactPathAuthority) NormalizedWorkspacePath() string { return "" }
 func (*ArtifactPathAuthority) FinalName() string               { return "" }
 func (*ArtifactPathAuthority) BaselineDigest() string          { return "" }
-func (*ArtifactPathAuthority) Close() error                    { return nil }
+func (*ArtifactPathAuthority) OpenArtifactSource(context.Context, string, int64) (structuredapp.ArtifactSourceHandle, structuredapp.ArtifactSourceIdentity, error) {
+	return nil, structuredapp.ArtifactSourceIdentity{}, structuredapp.ErrArtifactCaptureUnavailable
+}
+func (*ArtifactPathAuthority) Close() error { return nil }
 
 type ArtifactBaselineProvider struct{}
 

@@ -52,6 +52,7 @@ type ArtifactPathAuthority struct {
 	baselineDigest          string
 	rootIdentity            artifactDirIdentity
 	parentIdentity          artifactDirIdentity
+	hooks                   *artifactCaptureHooks
 	closed                  bool
 }
 
@@ -117,7 +118,7 @@ func (r artifactBaselineResolver) qualifyAbsent(ctx context.Context, workspaceRo
 	}
 	authority := &ArtifactPathAuthority{
 		parentFD: parentFD, finalName: finalName, normalizedWorkspacePath: normalizedWorkspacePath,
-		baselineDigest: digest, rootIdentity: rootIdentity, parentIdentity: parentIdentity,
+		baselineDigest: digest, rootIdentity: rootIdentity, parentIdentity: parentIdentity, hooks: r.hooks,
 	}
 	if parentFD == rootFD {
 		rootOwned = false
@@ -306,24 +307,6 @@ func (a *ArtifactPathAuthority) BaselineDigest() string {
 		return ""
 	}
 	return a.baselineDigest
-}
-
-func (a *ArtifactPathAuthority) Close() error {
-	if a == nil {
-		return nil
-	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.closed {
-		return nil
-	}
-	a.closed = true
-	fd := a.parentFD
-	a.parentFD = -1
-	if fd < 0 {
-		return nil
-	}
-	return unix.Close(fd)
 }
 
 type ArtifactBaselineProvider struct{}
