@@ -600,6 +600,7 @@ git -c core.hooksPath=.githooks commit -m "feat: route delegated interactive ses
 
 **Files:**
 - Modify: `internal/core/receipt/result.go`
+- Modify: `internal/core/receipt/result_test.go`
 - Create: `internal/app/daemon/delegated_evidence_test.go`
 - Modify: `api/schema/mcp-input-v2.json`
 - Modify: `api/schema/mcp-output-v2.json`
@@ -635,6 +636,7 @@ evidence_authority = session_lifecycle_only
 - New capability: `delegated_interactive` with provider/version, daemon-restart continuity, host-reboot false, current H1 limits.
 - Modern start supports `session_mode`; modern delegated write/kill requires `authority_epoch`.
 - Modern result includes delegated authority/capture/provenance fields only for delegated sessions.
+- Result delegated metadata is optional top-level `session_mode`, `authority_epoch`, `evidence_authority`, and `input_authority_provenance`; `output.capture_quality` and `output.capture_reasons` are optional and appear only for delegated receipt v5. Provider-proven delegated exit status maps child state to `exited` without claiming daemon reap.
 
 - [ ] **Step 1: RED receipt-v5 validation/result tests, including simultaneous causes.**
 
