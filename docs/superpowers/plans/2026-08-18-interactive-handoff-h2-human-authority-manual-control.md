@@ -414,7 +414,13 @@ git -c core.hooksPath=.githooks commit -m "feat: arbitrate human agent handoff"
 **Files:**
 - Create: `internal/adapter/ipc/handoff_local.go`
 - Create: `internal/adapter/ipc/handoff_local_test.go`
-- Modify: `internal/adapter/ipc/protocol_v2.go`
+- Modify: `internal/adapter/ipc/server_unix.go`
+- Modify: `internal/adapter/ipc/client_unix.go`
+- Modify: `internal/app/interactivehandoff/transfer.go`
+- Modify: `internal/app/interactivehandoff/transfer_test.go`
+- Modify: `internal/app/daemon/handoff_actions.go`
+- Modify: `internal/app/daemon/handoff_port.go`
+- Modify: `cmd/shellbeam/command_daemon.go`
 - Create: `cmd/shellbeam/command_session.go`
 - Create: `cmd/shellbeam/command_session_test.go`
 - Create: `cmd/shellbeam/session_attach.go`
@@ -423,7 +429,9 @@ git -c core.hooksPath=.githooks commit -m "feat: arbitrate human agent handoff"
 
 **Interfaces:**
 - Local CLI: `shellbeam session attach --handoff-id <id>`.
-- Private IPC supports exact attach request and generation-bound HumanControl signal; it is not an MCP action branch exposed to the model.
+- Private IPC supports exact local bootstrap/bind requests and generation-bound HumanControl signals on a separate same-user Unix HTTP endpoint; it is not an MCP/v2 action branch exposed to the model.
+- JSON IPC never proxies human terminal bytes and never transports terminal file descriptors. The installed CLI process instantiates the same Darwin-qualified provider from normal config paths and performs the tmux attach directly on its own stdin/stdout/stderr. The daemon receives only provider-safe opaque refs and re-proves them before authority publication.
+- Private bootstrap may return the durable opaque `ProviderRef` needed by the local provider instance, but never tmux socket path, client name/TTY/PID, pane/window/session internal IDs, or arbitrary provider argv.
 
 - [ ] **Step 1: RED-test CLI parsing and source-tree independence.**
 
@@ -434,14 +442,20 @@ Only exact handoff ID accepted; no arbitrary session/pane/socket argv. Installed
 Flow:
 
 ```text
-CLI connects same-user IPC
-resolve durable handoff
-request provider human attachment
-bind exact client ref to handoff
-enter local terminal attach loop/provider client
+CLI connects same-user private IPC endpoint
+resolve durable handoff and obtain provider-safe opaque bootstrap ref
+CLI instantiates the same qualified provider via normal config/path discovery
+CLI attaches the human client read-only directly on its own terminal streams
+CLI sends only the opaque exact client ref back to daemon
+bind/re-prove exact client, durably promote provenance, make writable, publish HUMAN_OWNED
+enter local terminal attach/control loop
 ```
 
 The attach helper receives no secret values and never gets arbitrary model command text.
+
+The private endpoint is separate from `/v2/local-shell`; `isSupportedV2Action`, public v2 field whitelists, MCP input/output schemas, and bridge routing remain unchanged in Task 6. Same-user peer authentication is inherited from the existing Unix listener.
+
+`BindLocalHuman(handoff_id, client_ref)` is retry-safe: if the same exact client was already durably bound/writable, replay returns current state; a different opaque client ref conflicts. A pre-created client must first re-prove as the same provider generation and read-only/owner-none unless durable human-write provenance already permits continuation of a lost response after writability.
 
 - [ ] **Step 3: Implement local HumanControl surface.**
 
