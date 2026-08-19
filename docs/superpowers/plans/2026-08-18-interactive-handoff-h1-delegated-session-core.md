@@ -795,6 +795,8 @@ git -c core.hooksPath=.githooks commit -m "feat: recover delegated interactive s
 - Create: `tests/integration/delegated_session_helpers_test.go` when needed to keep repo file/function caps while preserving the single H1 acceptance surface.
 - Modify: `internal/app/daemon/service.go` only for acceptance-found replay bugs that violate already-frozen H1 request identity semantics.
 - Modify: `internal/app/daemon/delegated_start_test.go` to lock any such replay regression before the production fix.
+- Modify: `internal/adapter/delegatedtmux/process_wait_darwin.go` only for native-acceptance watcher defects that violate the qualified event-driven wait contract.
+- Modify: `internal/adapter/delegatedtmux/process_wait_darwin_test.go` to lock such watcher regressions before the production fix.
 - Create: `docs/superpowers/evidence/2026-08-18-interactive-handoff-h1-delegated-core.md`
 
 **Interfaces:**
@@ -806,7 +808,7 @@ Prove on required platforms:
 
 ```text
 delegated start -> agent write -> output -> clean terminal
-lost start response -> retry -> exactly one tmux session/shell; explicit `stdin_mode=stream` + `timeout_mode=unlimited` remain part of the same request identity on replay
+lost start response -> retry -> exactly one tmux session/shell; explicit `stdin_mode=stream` + `timeout_mode=unlimited` remain part of the same request identity on replay; Darwin kqueue wait treats `EINTR` as an interrupt-to-retry, never as provider loss
 known old-epoch retry replays; unseen stale epoch rejected
 provider loss -> no PID/name takeover
 hard daemon restart -> exact reattach
