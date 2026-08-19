@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/maemreyo/shellbeam/api/schema"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
@@ -51,11 +52,17 @@ func mediaCatalogForHandler(c capability.Catalog, h interface{ EffectiveCatalog(
 }
 
 func composeMediaInputSchema() json.RawMessage {
-	base := loadSchemaDocument(schema.MCPInputV2)
-	fragment := loadSchemaDocument(schema.MCPReadMediaInputV1)
-	stripNestedSchemaIdentity(fragment)
-	branches, _ := base["oneOf"].([]any)
-	base["oneOf"] = append(append([]any(nil), branches...), fragment)
+	base := loadSchemaDocument(schema.MCPToolInputV2)
+	properties, _ := base["properties"].(map[string]any)
+	if action, ok := properties["action"].(map[string]any); ok {
+		action = cloneAnyMap(action)
+		description, _ := action["description"].(string)
+		if !strings.Contains(description, "read_media") {
+			description += " Negotiated action: read_media."
+		}
+		action["description"] = description
+		properties["action"] = action
+	}
 	return marshalSchemaDocument(base)
 }
 

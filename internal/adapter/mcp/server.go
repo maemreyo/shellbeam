@@ -12,6 +12,7 @@ import (
 
 	"github.com/maemreyo/shellbeam/api/schema"
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
+	"github.com/maemreyo/shellbeam/internal/buildinfo"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -31,7 +32,7 @@ const catalogRefreshInterval = 5 * time.Second
 
 func ToolDefinition() *mcpgo.Tool { return toolDefinition(schema.MCPInputV1, schema.MCPOutputV1) }
 
-func ToolDefinitionV2() *mcpgo.Tool { return toolDefinition(schema.MCPInputV2, schema.MCPOutputV2) }
+func ToolDefinitionV2() *mcpgo.Tool { return toolDefinition(schema.MCPToolInputV2, schema.MCPOutputV2) }
 
 func toolDefinitionV2(catalog capability.Catalog) *mcpgo.Tool {
 	if !mediaCatalogAvailable(catalog) {
@@ -82,6 +83,10 @@ func (s *dynamicToolState) update(next *mcpgo.Tool) bool {
 }
 
 func New(handler *bridge.Handler, catalog capability.Catalog) *mcpgo.Server {
+	return newServerWithRuntimeIdentity(handler, catalog, capability.RuntimeIdentity{})
+}
+
+func newServerWithRuntimeIdentity(handler *bridge.Handler, catalog capability.Catalog, localRuntime capability.RuntimeIdentity) *mcpgo.Server {
 	catalog = mediaCatalogForHandler(catalog, handler)
 	caps := &mcpgo.ServerCapabilities{}
 	caps.AddExtension(ExtensionName, map[string]any{"schema_version": 1, "catalog": catalog})
@@ -102,6 +107,16 @@ func New(handler *bridge.Handler, catalog capability.Catalog) *mcpgo.Server {
 				return versionedToolError(version, "", "invalid_daemon_response", "ShellBeam MCP/daemon tool schema mismatch; reconnect or restart MCP using the same ShellBeam build as the daemon", false), nil
 			}
 			return versionedToolError(version, "", "daemon_unavailable", "daemon capability refresh failed", true), nil
+		}
+		version := protocolGeneration(req.ProtocolVersion())
+		if version == 2 {
+			daemonCatalog := catalog
+			if handler != nil && handler.CatalogRefreshEnabled() {
+				daemonCatalog = handler.EffectiveCatalog()
+			}
+			if reason, mismatch := runtimeBuildMismatch(localRuntime, daemonCatalog.Runtime); mismatch {
+				return runtimeVersionMismatchToolError(toolActionHint(req), localRuntime, daemonCatalog.Runtime, reason), nil
+			}
 		}
 		return call(ctx, handler, req)
 	}
@@ -156,7 +171,12 @@ func Run(ctx context.Context, handler *bridge.Handler) error {
 	if err != nil {
 		return err
 	}
-	return New(handler, catalog).Run(ctx, &mcpgo.StdioTransport{})
+	process := buildinfo.CaptureProcessIdentity()
+	localRuntime := capability.RuntimeIdentity{
+		SchemaVersion: capability.RuntimeIdentitySchemaVersion,
+		Version:       process.Version, Revision: process.Revision, VCSModified: process.VCSModified, BinarySHA256: process.BinarySHA256,
+	}
+	return newServerWithRuntimeIdentity(handler, catalog, localRuntime).Run(ctx, &mcpgo.StdioTransport{})
 }
 
 func inspectCatalog(ctx context.Context, handler *bridge.Handler) (capability.Catalog, error) {

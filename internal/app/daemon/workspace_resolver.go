@@ -10,6 +10,10 @@ type WorkspaceResolver interface {
 	ResolveAddress(context.Context, workspace.Address) (workspace.ResolvedAddress, error)
 }
 
+type AdmissionWorkspaceResolver interface {
+	ResolveAdmissionAddress(context.Context, workspace.Address) (workspace.ResolvedAddress, error)
+}
+
 func NewServiceWithWorkspaceResolver(store Store, owner ProcessOwner, resolver WorkspaceResolver, options Options) *Service {
 	service := NewService(store, owner, options)
 	service.resolver = resolver

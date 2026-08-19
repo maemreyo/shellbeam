@@ -2,7 +2,6 @@ package bridge
 
 import (
 	"context"
-	"errors"
 	"sync"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
@@ -44,9 +43,10 @@ func (h *Handler) Handle(ctx context.Context, req Request) (Response, error) {
 	if err != nil || response.Code == "" {
 		return response, err
 	}
-	public := failure.Public(errors.New(response.Code))
+	public := failure.Public(failure.New(failure.Code(response.Code), response.Details, nil))
 	response.Code = string(public.Code)
 	response.Message = public.Message
 	response.Retryable = public.Retryable
+	response.Details = public.Details
 	return response, nil
 }

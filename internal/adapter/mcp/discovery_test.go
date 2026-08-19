@@ -75,7 +75,7 @@ func TestDiscoveryCurrentClientGetsV2ToolAndCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertOneToolSchemaID(t, tools.Tools, "https://shellbeam.dev/schema/mcp-input-v2.json")
+	assertOneToolSchemaID(t, tools.Tools, "https://shellbeam.dev/schema/mcp-tool-input-v2.json")
 }
 
 func TestAgentExecutionA1LegacyClientKeepsV1ToolAndCapabilityFallback(t *testing.T) {
@@ -138,7 +138,8 @@ func TestMCPV2ReadOutputRequiresSelector(t *testing.T) {
 		t.Fatalf("structured=%T %#v", res.StructuredContent, res.StructuredContent)
 	}
 	errBody, _ := body["error"].(map[string]any)
-	if fmt.Sprint(body["schema_version"]) != "2" || errBody["code"] != "invalid_request" {
+	details, _ := errBody["details"].(map[string]any)
+	if fmt.Sprint(body["schema_version"]) != "2" || errBody["code"] != "invalid_input" || details["field"] != "selector" || details["reason"] != "missing_field" {
 		t.Fatalf("body=%#v", body)
 	}
 }
@@ -421,5 +422,71 @@ func TestDecodeInputV2RejectsAmbiguousJSON(t *testing.T) {
 				t.Fatalf("accepted %q", raw)
 			}
 		})
+	}
+}
+
+func TestMCPV2UnknownFieldReturnsCompactTypedFailureWithoutSchemaDump(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	fake := &discoveryClient{catalog: catalog}
+	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
+	defer closeSession()
+
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{
+		Name:      "local_shell",
+		Arguments: json.RawMessage(`{"action":"start","operation_id":"compact-invalid","command":"true","cwd":"/tmp","wat":true}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || fake.startCalls != 0 {
+		t.Fatalf("result=%#v starts=%d", res, fake.startCalls)
+	}
+	body, ok := res.StructuredContent.(map[string]any)
+	if !ok {
+		t.Fatalf("structured=%T %#v", res.StructuredContent, res.StructuredContent)
+	}
+	errBody, _ := body["error"].(map[string]any)
+	details, _ := errBody["details"].(map[string]any)
+	if errBody["code"] != "invalid_input" || details["field"] != "wat" || details["reason"] != "unknown_field" {
+		t.Fatalf("body=%#v", body)
+	}
+	encoded, err := json.Marshal(res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > 2048 {
+		t.Fatalf("validation failure amplified to %d bytes: %s", len(encoded), encoded)
+	}
+	for _, forbidden := range []string{`"$defs"`, `"oneOf"`, "Schema:", "mcp-input-v2.json"} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("validation failure leaked schema marker %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func TestMCPV2WrongTypeReturnsCompactInvalidValueWithoutPayloadEcho(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	fake := &discoveryClient{catalog: catalog}
+	session, closeSession := currentSession(t, New(bridge.New(fake), catalog))
+	defer closeSession()
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{
+		Name:      "local_shell",
+		Arguments: json.RawMessage(`{"action":"start","operation_id":"wrong-type","command":7,"cwd":"/tmp"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError || fake.startCalls != 0 {
+		t.Fatalf("result=%#v starts=%d", res, fake.startCalls)
+	}
+	body, _ := res.StructuredContent.(map[string]any)
+	errBody, _ := body["error"].(map[string]any)
+	details, _ := errBody["details"].(map[string]any)
+	if errBody["code"] != "invalid_input" || details["reason"] != "invalid_value" || details["field"] != "command" {
+		t.Fatalf("body=%#v", body)
+	}
+	encoded, _ := json.Marshal(res)
+	if bytes.Contains(encoded, []byte(`"command":7`)) || bytes.Contains(encoded, []byte("cannot unmarshal")) || len(encoded) > 2048 {
+		t.Fatalf("wrong-type failure leaked/amplified: %s", encoded)
 	}
 }

@@ -2,15 +2,25 @@ package main
 
 import (
 	"context"
+	"time"
 
 	localfsadapter "github.com/maemreyo/shellbeam/internal/adapter/localfs"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
+	"github.com/maemreyo/shellbeam/internal/buildinfo"
 	"github.com/maemreyo/shellbeam/internal/config"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 )
+
+func withDaemonRuntimeIdentity(catalog capability.Catalog, incarnation string, startedAt time.Time, process buildinfo.ProcessIdentity) capability.Catalog {
+	return catalog.WithRuntime(capability.RuntimeIdentity{
+		SchemaVersion: capability.RuntimeIdentitySchemaVersion,
+		Version:       process.Version, Revision: process.Revision, VCSModified: process.VCSModified, BinarySHA256: process.BinarySHA256,
+		DaemonIncarnation: incarnation, DaemonStartedAt: startedAt.UTC().Format(time.RFC3339Nano),
+	})
+}
 
 func daemonRuntimeCatalog(cfg config.Config, mutationScopesEnabled bool) capability.Catalog {
 	catalog := daemonCatalog(capability.Limits{

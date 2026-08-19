@@ -25,6 +25,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
+	"github.com/maemreyo/shellbeam/internal/buildinfo"
 	"github.com/maemreyo/shellbeam/internal/config"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
@@ -62,7 +63,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	if err != nil {
 		return err
 	}
-	incarnation := ulid.Make().String()
+	incarnation, startedAt, processIdentity := ulid.Make().String(), time.Now().UTC(), buildinfo.CaptureProcessIdentity()
 	stateLease, store, err := openOwnedDaemonState(paths.StateDir, incarnation, cfg)
 	if err != nil {
 		return err
@@ -73,7 +74,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		return err
 	}
 	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
-	catalog := daemonRuntimeCatalog(cfg, mutationScopeSvc != nil)
+	catalog := withDaemonRuntimeIdentity(daemonRuntimeCatalog(cfg, mutationScopeSvc != nil), incarnation, startedAt, processIdentity)
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)

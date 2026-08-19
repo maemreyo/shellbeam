@@ -17,6 +17,8 @@ const (
 	OperationConflict                 Code = "operation_conflict"
 	OperationMetadataConflict         Code = "operation_metadata_conflict"
 	WorkspaceNotFound                 Code = "workspace_not_found"
+	WorkspaceStale                    Code = "workspace_stale"
+	WorkspaceRootMissing              Code = "workspace_root_missing"
 	ActivityNotFound                  Code = "activity_not_found"
 	WorkspaceAddressEscape            Code = "workspace_address_escape"
 	ManifestInvalid                   Code = "manifest_invalid"
@@ -88,6 +90,7 @@ const (
 	PersistentKillHistoryExhausted    Code = "persistent_kill_history_exhausted"
 	PersistenceAmbiguous              Code = "persistence_ambiguous"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
+	RuntimeVersionMismatch            Code = "runtime_version_mismatch"
 	MediaPathNotFound                 Code = "media_path_not_found"
 	MediaPathUnsafe                   Code = "media_path_unsafe"
 	MediaNotRegular                   Code = "media_not_regular"
@@ -151,6 +154,8 @@ var publicSpecs = map[Code]publicSpec{
 	OperationConflict:                 {message: "operation conflicts with an existing intent", details: keys("operation_id")},
 	OperationMetadataConflict:         {message: "operation metadata conflicts with existing metadata", details: keys("operation_id", "field")},
 	WorkspaceNotFound:                 {message: "workspace not found", details: keys("workspace_id")},
+	WorkspaceStale:                    {message: "workspace registration is stale", details: keys("workspace_id", "reason")},
+	WorkspaceRootMissing:              {message: "workspace root is missing", details: keys("workspace_id", "reason")},
 	ActivityNotFound:                  {message: "activity not found", details: keys("activity_id")},
 	WorkspaceAddressEscape:            {message: "workspace address escapes registered root", details: keys("workspace_id", "cwd")},
 	ManifestInvalid:                   {message: "project manifest is invalid", details: keys("field", "reason")},
@@ -222,6 +227,7 @@ var publicSpecs = map[Code]publicSpec{
 	PersistentKillHistoryExhausted:    {message: "persistent kill history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
+	RuntimeVersionMismatch:            {message: "ShellBeam MCP and daemon builds do not match", details: keys("mcp_revision", "daemon_revision", "reason", "recovery")},
 	MediaPathNotFound:                 {message: "media path not found"},
 	MediaPathUnsafe:                   {message: "media path is unsafe"},
 	MediaNotRegular:                   {message: "media path is not a regular file"},

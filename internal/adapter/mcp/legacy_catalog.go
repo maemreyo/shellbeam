@@ -4,6 +4,7 @@ import "github.com/maemreyo/shellbeam/internal/core/capability"
 
 func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out := c.Clone()
+	out.Runtime = nil
 	out.EventCursorSchemaVersions = nil
 	out.ResultCursorSchemaVersions = nil
 	out.StructuredAdapterIDs = nil

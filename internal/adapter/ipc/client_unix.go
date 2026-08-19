@@ -86,6 +86,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 		response.Code = out.Error.Code
 		response.Message = out.Error.Message
 		response.Retryable = out.Error.Retryable
+		response.Details = cloneStringMapV2(out.Error.Details)
 	}
 	return response, nil
 }

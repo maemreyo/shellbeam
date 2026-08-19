@@ -30,6 +30,41 @@ func TestHandlerSanitizesLegacyDaemonFailure(t *testing.T) {
 	}
 }
 
+func TestHandlerPreservesSafeDetailsForKnownFailure(t *testing.T) {
+	h := New(failureClient{response: Response{
+		Code: "workspace_root_missing",
+		Details: map[string]string{
+			"workspace_id": "ws_01K00000000000000000000000",
+			"reason":       "root_missing",
+			"private":      "/Users/test/private.pem",
+		},
+	}})
+	got, err := h.Handle(context.Background(), Request{ProtocolVersion: 2, Action: "inspect.workspace"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Code != "workspace_root_missing" || got.Message != "workspace root is missing" || got.Retryable {
+		t.Fatalf("known failure projection=%#v", got)
+	}
+	if got.Details["workspace_id"] != "ws_01K00000000000000000000000" || got.Details["reason"] != "root_missing" || got.Details["private"] != "" {
+		t.Fatalf("known failure details=%#v", got.Details)
+	}
+}
+
+func TestHandlerDropsDetailsForUnknownFailure(t *testing.T) {
+	h := New(failureClient{response: Response{
+		Code:    "/Users/test/private.pem token=secret",
+		Details: map[string]string{"reason": "secret", "private": "/Users/test/private.pem"},
+	}})
+	got, err := h.Handle(context.Background(), Request{ProtocolVersion: 2, Action: "poll"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Code != "internal" || got.Message != "internal error" || got.Retryable || len(got.Details) != 0 {
+		t.Fatalf("unknown failure projection=%#v", got)
+	}
+}
+
 func TestHandlerNormalizesKnownLegacyCode(t *testing.T) {
 	h := New(failureClient{response: Response{
 		Code:      "operation_conflict",

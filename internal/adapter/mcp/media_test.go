@@ -91,7 +91,7 @@ func TestMediaDiscoveryIsConditionalAndDisclosesOriginalByteEgress(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReadMediaBranches(t, withoutTools.Tools, 0)
+	assertReadMediaTransportAdvertisement(t, withoutTools.Tools, false)
 	if strings.Contains(withoutTools.Tools[0].Description, "original selected local image file bytes") {
 		t.Fatalf("media disclosure leaked into unavailable catalog: %q", withoutTools.Tools[0].Description)
 	}
@@ -107,7 +107,7 @@ func TestMediaDiscoveryIsConditionalAndDisclosesOriginalByteEgress(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReadMediaBranches(t, withTools.Tools, 1)
+	assertReadMediaTransportAdvertisement(t, withTools.Tools, true)
 	description := withTools.Tools[0].Description
 	for _, want := range []string{"original selected local image file bytes", "embedded metadata", "MCP client/model"} {
 		if !strings.Contains(description, want) {
@@ -295,7 +295,7 @@ func TestReadMediaCallGateRequiresEffectiveNegotiation(t *testing.T) {
 	}
 }
 
-func assertReadMediaBranches(t *testing.T, tools []*mcpgo.Tool, want int) {
+func assertReadMediaTransportAdvertisement(t *testing.T, tools []*mcpgo.Tool, want bool) {
 	t.Helper()
 	if len(tools) != 1 || tools[0].Name != "local_shell" {
 		t.Fatalf("tools=%#v", tools)
@@ -308,17 +308,15 @@ func assertReadMediaBranches(t *testing.T, tools []*mcpgo.Tool, want int) {
 	if err := json.Unmarshal(encoded, &doc); err != nil {
 		t.Fatal(err)
 	}
-	got := 0
-	for _, raw := range doc["oneOf"].([]any) {
-		branch, _ := raw.(map[string]any)
-		props, _ := branch["properties"].(map[string]any)
-		action, _ := props["action"].(map[string]any)
-		if action["const"] == "read_media" {
-			got++
-		}
+	if _, exists := doc["oneOf"]; exists {
+		t.Fatalf("transport schema regained semantic oneOf validation: %s", encoded)
 	}
+	props, _ := doc["properties"].(map[string]any)
+	action, _ := props["action"].(map[string]any)
+	description, _ := action["description"].(string)
+	got := strings.Contains(description, "read_media")
 	if got != want {
-		t.Fatalf("read_media branches=%d want=%d schema=%s", got, want, encoded)
+		t.Fatalf("read_media advertised=%v want=%v action_description=%q schema=%s", got, want, description, encoded)
 	}
 }
 
@@ -366,7 +364,7 @@ func TestMCPRefreshesConditionalToolSchemaOnNextRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReadMediaBranches(t, before.Tools, 0)
+	assertReadMediaTransportAdvertisement(t, before.Tools, false)
 
 	client.mediaEnabled = true
 	client.media = mediaResult(t, media.DisplayAddress{AddressKind: media.AddressCWD, CWD: "/tmp", Path: "refresh.png"})
@@ -379,7 +377,7 @@ func TestMCPRefreshesConditionalToolSchemaOnNextRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReadMediaBranches(t, after.Tools, 1)
+	assertReadMediaTransportAdvertisement(t, after.Tools, true)
 	if !strings.Contains(after.Tools[0].Description, "original selected local image file bytes") {
 		t.Fatalf("refreshed tool disclosure missing: %q", after.Tools[0].Description)
 	}

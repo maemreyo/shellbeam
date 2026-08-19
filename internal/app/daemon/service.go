@@ -170,6 +170,9 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err := validateHermeticAdmission(s.options.Capabilities, s.options.HermeticRuntime, req); err != nil {
 		return View{}, err
 	}
+	if err := s.validatePreResolutionWorkspaceRequirements(req); err != nil {
+		return View{}, err
+	}
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}

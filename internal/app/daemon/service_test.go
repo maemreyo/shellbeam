@@ -13,6 +13,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -411,6 +412,33 @@ func TestV2EvidenceContractPersistsAndConflictingRetryNeverRespawns(t *testing.T
 	}
 	if owner.starts.Load() != 1 {
 		t.Fatalf("starts=%d", owner.starts.Load())
+	}
+}
+
+func TestV2EvidenceExpectedOutputsAcceptAdmissionResolvedWorkspace(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &fakeOwner{}
+	workspaceID := workspace.WorkspaceID("ws_01K00000000000000000000008")
+	resolver := &fakeAddressResolver{workspaceID: workspaceID, logicalCWD: "src", cwd: "/bound/repo/src"}
+	svc := app.NewServiceWithWorkspaceResolver(st, owner, resolver, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	contract := &evidence.Contract{VerificationKind: evidence.VerificationBuild, ExpectedOutputs: []project.Output{{Path: "dist/app", Kind: "file", Required: true, Digest: "sha256"}}}
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "evidence-auto-workspace", Command: "true", CWD: "/caller/repo/src", Evidence: contract, YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := waitForTerminal(t, svc, view.SessionID)
+	if terminal.WorkspaceID != string(workspaceID) || owner.starts.Load() != 1 {
+		t.Fatalf("terminal=%#v starts=%d", terminal, owner.starts.Load())
+	}
+	stored, err := st.LoadOperation(context.Background(), operation.ID("evidence-auto-workspace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.WorkspaceID != string(workspaceID) || stored.Evidence == nil || len(stored.Evidence.ExpectedOutputs) != 1 {
+		t.Fatalf("stored=%#v", stored)
 	}
 }
 

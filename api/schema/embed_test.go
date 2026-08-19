@@ -2,6 +2,7 @@ package schema
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/google/jsonschema-go/jsonschema"
@@ -118,5 +119,31 @@ func TestReadMediaSchemaFragmentsValidateSafeShapes(t *testing.T) {
 	bad["data"] = "base64-secret"
 	if err := out.Validate(bad); err == nil {
 		t.Fatal("output schema accepted raw data")
+	}
+}
+
+func TestMCPToolInputV2IsTransportPermissiveWhileCanonicalContractStaysStrict(t *testing.T) {
+	payload := map[string]any{"action": "start", "command": 7.0, "wat": true}
+	if err := resolvedSchema(t, MCPToolInputV2).Validate(payload); err != nil {
+		t.Fatalf("transport schema rejected semantic error before ShellBeam: %v", err)
+	}
+	if err := resolvedSchema(t, MCPInputV2).Validate(payload); err == nil {
+		t.Fatal("canonical MCP v2 schema was weakened")
+	}
+}
+
+func TestMCPToolInputV2StaysSmallEnoughToBoundWorstCaseValidatorDiagnostics(t *testing.T) {
+	data, err := Load(MCPToolInputV2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 4096 {
+		t.Fatalf("transport schema=%d bytes want <=4096", len(data))
+	}
+	text := string(data)
+	for _, forbidden := range []string{`"oneOf"`, `"allOf"`, `"required"`, `"enum"`, `"unevaluatedProperties"`} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("transport schema contains semantic validator %s", forbidden)
+		}
 	}
 }
