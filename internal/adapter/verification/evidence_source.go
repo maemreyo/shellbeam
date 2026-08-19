@@ -7,10 +7,12 @@ import (
 	"sort"
 
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
+	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 	core "github.com/maemreyo/shellbeam/internal/core/verification"
 )
 
@@ -20,6 +22,12 @@ var evidenceProjectCommandIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}
 
 type evidenceInspector interface {
 	Inspect(context.Context, evidenceapp.InspectRequest) (evidenceapp.InspectResult, error)
+}
+
+type structuredEvidenceReader interface {
+	FindOperationDerivation(context.Context, string) (structuredcore.Derivation, bool, error)
+	GetRecordSummary(context.Context, string) (structuredapp.RecordSummary, bool, error)
+	ListRecords(context.Context, string, structuredapp.RecordQuery) ([]structuredcore.Record, error)
 }
 
 type EvidenceSource struct {
@@ -102,6 +110,7 @@ func (s *EvidenceSource) appendCandidateViews(ctx context.Context, out *verifica
 			return false, err
 		}
 		out.Diagnostics = append(out.Diagnostics, s.bindReservationAuthority(ctx, &candidate)...)
+		out.Diagnostics = append(out.Diagnostics, s.bindStructuredDetail(ctx, &candidate)...)
 		if err := candidate.Validate(); err != nil {
 			return false, fmt.Errorf("invalid reservation-bound candidate %q: %w", candidate.EvidenceID, err)
 		}
@@ -167,6 +176,64 @@ func (s *EvidenceSource) bindReservationAuthority(ctx context.Context, candidate
 	}
 	candidate.SemanticContractDigest = contractDigest
 	candidate.Attempt = cloneEvidenceAttempt(reservation.VerificationAttempt)
+	return nil
+}
+
+func (s *EvidenceSource) bindStructuredDetail(ctx context.Context, candidate *core.EvidenceCandidate) []string {
+	if s == nil || candidate == nil || s.reservations == nil {
+		return nil
+	}
+	reader, ok := s.reservations.(structuredEvidenceReader)
+	if !ok {
+		return nil
+	}
+	derivation, found, err := reader.FindOperationDerivation(ctx, candidate.OperationID)
+	if err != nil || !found || derivation.Lifecycle != structuredcore.LifecycleTerminal {
+		return nil
+	}
+	detail := &core.StructuredEvidenceDetail{DerivationKey: derivation.DerivationKey, Completeness: derivation.Completeness}
+	if derivation.SemanticsCoverage != nil {
+		coverage := *derivation.SemanticsCoverage
+		coverage.MechanicallyObservable = append([]string(nil), derivation.SemanticsCoverage.MechanicallyObservable...)
+		coverage.Unavailable = append([]string(nil), derivation.SemanticsCoverage.Unavailable...)
+		detail.SemanticsCoverage = &coverage
+	}
+	if derivation.Completeness == structuredcore.CompletenessCompacted {
+		candidate.StructuredDetail = detail
+		return nil
+	}
+	summary, summaryFound, err := reader.GetRecordSummary(ctx, derivation.DerivationKey)
+	if err != nil || !summaryFound || summary.Compacted {
+		candidate.StructuredDetail = detail
+		return nil
+	}
+	if summary.RecordsTotal > structuredapp.MaxListRecords {
+		return []string{"structured_evidence_detail_bounded:" + candidate.OperationID}
+	}
+	records, err := reader.ListRecords(ctx, derivation.DerivationKey, structuredapp.RecordQuery{Offset: 0, Limit: max(1, summary.RecordsTotal)})
+	if err != nil {
+		return nil
+	}
+	set := map[structuredcore.TestStatus]struct{}{}
+	for _, record := range records {
+		if record.Authority != structuredcore.AuthorityMechanical {
+			continue
+		}
+		if record.TestCase != nil {
+			set[record.TestCase.Status] = struct{}{}
+		}
+		if record.TestSuite != nil {
+			set[record.TestSuite.Status] = struct{}{}
+		}
+	}
+	for status := range set {
+		detail.MechanicalTestStatuses = append(detail.MechanicalTestStatuses, status)
+	}
+	sort.Slice(detail.MechanicalTestStatuses, func(i, j int) bool { return detail.MechanicalTestStatuses[i] < detail.MechanicalTestStatuses[j] })
+	if detail.Validate() != nil {
+		return nil
+	}
+	candidate.StructuredDetail = detail
 	return nil
 }
 

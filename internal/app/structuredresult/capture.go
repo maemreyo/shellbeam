@@ -15,6 +15,7 @@ var ErrArtifactPathAuthorityCapacity = fmt.Errorf("artifact_path_authority_capac
 const MaxActiveArtifactPathAuthoritiesGlobal = 4
 
 type ArtifactPathAuthority interface {
+	ArtifactSourceOpener
 	NormalizedWorkspacePath() string
 	FinalName() string
 	BaselineDigest() string
@@ -207,6 +208,36 @@ func (c *ManagedArtifactPathClaim) AllowsMechanicalCapture() bool {
 	return !c.collided && !c.released && c.authority != nil
 }
 
+func (c *ManagedArtifactPathClaim) TakeArtifactSourceOpener() (ArtifactSourceOpener, error) {
+	if c == nil || c.registry == nil {
+		return nil, ErrArtifactCaptureUnavailable
+	}
+	registry := c.registry
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.released || c.collided || c.authority == nil {
+		return nil, ErrArtifactCaptureUnavailable
+	}
+	claims := registry.claims[c.key]
+	if claims == nil || claims[c.operationID] != c {
+		return nil, ErrArtifactCaptureUnavailable
+	}
+	delete(claims, c.operationID)
+	if len(claims) == 0 {
+		delete(registry.claims, c.key)
+	}
+	authority := c.authority
+	c.authority = nil
+	c.released = true
+	if c.slot != nil {
+		registry.releaseSlotLocked(c.slot)
+		c.slot = nil
+	}
+	return authority, nil
+}
+
 func (c *ManagedArtifactPathClaim) Release() error {
 	if c == nil || c.registry == nil {
 		return nil
@@ -275,6 +306,7 @@ type PreSpawnCaptureResult struct {
 	Record                  *CaptureAuthorityRecord
 	Claim                   *ManagedArtifactPathClaim
 	StructuredCaptureDigest string
+	InvocationQualified     bool
 	Qualified               bool
 	Replayed                bool
 	Collision               bool
@@ -301,8 +333,8 @@ func newCapturePreparerWithRegistry(store CaptureAuthorityRepository, baseline A
 	}
 }
 
-func (p *CapturePreparer) PrepareAndSpawn(ctx context.Context, req PreSpawnCaptureRequest) (PreSpawnCaptureResult, error) {
-	if err := p.validatePreSpawnRequest(req); err != nil {
+func (p *CapturePreparer) Prepare(ctx context.Context, req PreSpawnCaptureRequest) (PreSpawnCaptureResult, error) {
+	if err := p.validatePreparationRequest(req); err != nil {
 		return PreSpawnCaptureResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
@@ -311,7 +343,7 @@ func (p *CapturePreparer) PrepareAndSpawn(ctx context.Context, req PreSpawnCaptu
 
 	stored, err := p.store.FindCaptureAuthority(ctx, req.OperationID)
 	if err == nil {
-		return p.prepareReplayAndSpawn(ctx, req, stored)
+		return p.prepareReplay(ctx, req, stored)
 	}
 	if !errors.Is(err, ErrCaptureAuthorityNotFound) {
 		return PreSpawnCaptureResult{}, err
@@ -322,27 +354,25 @@ func (p *CapturePreparer) PrepareAndSpawn(ctx context.Context, req PreSpawnCaptu
 		return PreSpawnCaptureResult{}, err
 	}
 	if !qualified {
-		return p.spawnWithoutCapture(ctx, req, fmt.Errorf("pytest invocation unqualified"))
+		return PreSpawnCaptureResult{CaptureUnavailable: fmt.Errorf("pytest invocation unqualified")}, nil
 	}
-
+	result := PreSpawnCaptureResult{InvocationQualified: true}
 	record, slot, authority, err := p.prepareNewCaptureAuthority(ctx, req, binding)
 	if err != nil {
-		return p.spawnWithoutCapture(ctx, req, err)
+		result.CaptureUnavailable = err
+		return result, nil
 	}
-	result := PreSpawnCaptureResult{Record: &record, StructuredCaptureDigest: record.StructuredCaptureDigest}
-	if err := p.reserver.ReserveCaptureOperation(ctx, req.OperationID, record.StructuredCaptureDigest); err != nil {
-		_ = authority.Close()
-		_ = slot.Release()
-		abandonErr := p.abandonPrepared(ctx, req.OperationID)
-		return result, errors.Join(err, abandonErr)
-	}
-
+	result.Record = &record
+	result.StructuredCaptureDigest = record.StructuredCaptureDigest
 	claim, collided, claimErr := p.coordinator.RegisterManagedPathClaim(ctx, slot, req.OperationID, req.WorkspaceID, authority)
 	if claim == nil {
 		_ = authority.Close()
 		_ = slot.Release()
-		abandonErr := p.abandonPrepared(ctx, req.OperationID)
-		return result, errors.Join(claimErr, abandonErr)
+		result.CaptureUnavailable = claimErr
+		if claimErr != nil {
+			_ = p.abandonPrepared(ctx, req.OperationID)
+		}
+		return result, nil
 	}
 	result.Claim = claim
 	result.Collision = collided
@@ -353,11 +383,37 @@ func (p *CapturePreparer) PrepareAndSpawn(ctx context.Context, req PreSpawnCaptu
 	if latest, findErr := p.store.FindCaptureAuthority(ctx, req.OperationID); findErr == nil {
 		result.Record = &latest
 	}
+	return result, nil
+}
+
+func (p *CapturePreparer) PrepareAndSpawn(ctx context.Context, req PreSpawnCaptureRequest) (PreSpawnCaptureResult, error) {
+	if p == nil || p.reserver == nil || p.spawner == nil {
+		return PreSpawnCaptureResult{}, fmt.Errorf("capture spawn coordinator unavailable")
+	}
+	result, err := p.Prepare(ctx, req)
+	if err != nil {
+		return result, err
+	}
+	digest := result.StructuredCaptureDigest
+	if err := p.reserver.ReserveCaptureOperation(ctx, req.OperationID, digest); err != nil {
+		if result.Claim != nil {
+			_ = result.Claim.Release()
+			result.Claim = nil
+		}
+		if result.Record != nil {
+			_ = p.abandonPrepared(ctx, req.OperationID)
+		}
+		return result, err
+	}
 	if err := p.spawner.SpawnCaptureOperation(ctx, req.OperationID); err != nil {
-		_ = claim.Release()
-		result.Claim = nil
-		abandonErr := p.abandonPrepared(ctx, req.OperationID)
-		return result, errors.Join(err, abandonErr)
+		if result.Claim != nil {
+			_ = result.Claim.Release()
+			result.Claim = nil
+		}
+		if result.Record != nil {
+			_ = p.abandonPrepared(ctx, req.OperationID)
+		}
+		return result, err
 	}
 	return result, nil
 }
@@ -391,102 +447,4 @@ func (p *CapturePreparer) prepareNewCaptureAuthority(ctx context.Context, req Pr
 		return cleanup(err)
 	}
 	return record, slot, authority, nil
-}
-
-func (p *CapturePreparer) prepareReplayAndSpawn(ctx context.Context, req PreSpawnCaptureRequest, record CaptureAuthorityRecord) (PreSpawnCaptureResult, error) {
-	if err := record.Validate(); err != nil {
-		return PreSpawnCaptureResult{}, err
-	}
-	intent := record.Authority.Intent
-	if intent.OperationID != string(req.OperationID) || intent.SessionID != string(req.SessionID) || intent.RepositoryID != req.RepositoryID || intent.WorkspaceID != req.WorkspaceID || intent.MaxBlobBytes != req.MaxBlobBytes {
-		return PreSpawnCaptureResult{}, fmt.Errorf("capture replay metadata conflict")
-	}
-	result := PreSpawnCaptureResult{Record: &record, StructuredCaptureDigest: record.StructuredCaptureDigest, Replayed: true}
-	if err := p.reserver.ReserveCaptureOperation(ctx, req.OperationID, record.StructuredCaptureDigest); err != nil {
-		abandonErr := p.abandonPrepared(ctx, req.OperationID)
-		return result, errors.Join(err, abandonErr)
-	}
-	claim, collided, claimErr := p.coordinator.RegisterReplayManagedPathClaim(ctx, req.OperationID, record.Authority.Intent.WorkspaceID, record.Authority.Intent.NormalizedWorkspacePath, record.State)
-	if claim == nil {
-		abandonErr := p.abandonPrepared(ctx, req.OperationID)
-		return result, errors.Join(claimErr, abandonErr)
-	}
-	result.Claim = claim
-	result.Collision = collided
-	if claimErr != nil {
-		result.CaptureUnavailable = claimErr
-	}
-	if err := p.spawner.SpawnCaptureOperation(ctx, req.OperationID); err != nil {
-		_ = claim.Release()
-		result.Claim = nil
-		abandonErr := p.abandonPrepared(ctx, req.OperationID)
-		return result, errors.Join(err, abandonErr)
-	}
-	return result, nil
-}
-
-func (p *CapturePreparer) spawnWithoutCapture(ctx context.Context, req PreSpawnCaptureRequest, reason error) (PreSpawnCaptureResult, error) {
-	result := PreSpawnCaptureResult{CaptureUnavailable: reason}
-	if err := p.reserver.ReserveCaptureOperation(ctx, req.OperationID, ""); err != nil {
-		return result, err
-	}
-	if err := p.spawner.SpawnCaptureOperation(ctx, req.OperationID); err != nil {
-		return result, err
-	}
-	return result, nil
-}
-
-func (p *CapturePreparer) abandonPrepared(ctx context.Context, id operation.ID) error {
-	record, err := p.store.FindCaptureAuthority(ctx, id)
-	if err != nil {
-		return err
-	}
-	if record.State != CaptureAuthorityPrepared {
-		return nil
-	}
-	_, err = p.store.MarkCaptureAuthorityState(ctx, id, CaptureAuthorityAbandoned)
-	return err
-}
-
-func (p *CapturePreparer) validatePreSpawnRequest(req PreSpawnCaptureRequest) error {
-	if p == nil || p.store == nil || p.baseline == nil || p.presence == nil || p.reserver == nil || p.spawner == nil || p.coordinator == nil {
-		return fmt.Errorf("capture preparer unavailable")
-	}
-	if _, err := operation.ParseID(string(req.OperationID)); err != nil {
-		return err
-	}
-	if _, err := operation.ParseSessionID(string(req.SessionID)); err != nil {
-		return err
-	}
-	if req.RepositoryID == "" || req.WorkspaceID == "" || req.WorkspaceRoot == "" || req.MaxBlobBytes < 1 || req.MaxBlobBytes > MaxArtifactBlobBytes {
-		return fmt.Errorf("invalid pre-spawn capture request")
-	}
-	return nil
-}
-
-func buildCaptureAuthority(req PreSpawnCaptureRequest, binding PytestInvocationBindingV1, baseline CaptureBaselineIdentity) (CaptureAuthority, error) {
-	producerDigest, err := binding.ProducerBindingDigest()
-	if err != nil {
-		return CaptureAuthority{}, err
-	}
-	intent := ArtifactCaptureIntent{
-		SchemaVersion: ArtifactCaptureIntentSchemaV1,
-		OperationID:   string(req.OperationID), SessionID: string(req.SessionID), RepositoryID: req.RepositoryID, WorkspaceID: req.WorkspaceID,
-		AdapterID:         PytestJUnitAdapterID,
-		DeclaredPathToken: binding.JUnitOutput.DeclaredPathToken, NormalizedWorkspacePath: binding.JUnitOutput.NormalizedWorkspacePath,
-		ExpectedKind: CaptureExpectedRegularFile, MaxBlobBytes: req.MaxBlobBytes, ProducerBindingDigest: producerDigest, Baseline: baseline,
-	}
-	authority := CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, PytestInvocation: &binding, Intent: intent}
-	return authority, authority.Validate()
-}
-
-func (c *CaptureCoordinator) RegisterReplayManagedPathClaim(ctx context.Context, id operation.ID, workspaceID, normalizedPath string, state CaptureAuthorityState) (*ManagedArtifactPathClaim, bool, error) {
-	if state != CaptureAuthorityPrepared && state != CaptureAuthorityManagedPathCollision && state != CaptureAuthorityAbandoned {
-		return nil, false, fmt.Errorf("invalid replay capture authority state")
-	}
-	claim := &ManagedArtifactPathClaim{
-		registry: c.registry, key: managedArtifactPathKey{workspaceID: workspaceID, path: normalizedPath}, operationID: id,
-		collided: state == CaptureAuthorityManagedPathCollision, persistCollision: state == CaptureAuthorityPrepared,
-	}
-	return c.registerClaim(ctx, claim, nil)
 }

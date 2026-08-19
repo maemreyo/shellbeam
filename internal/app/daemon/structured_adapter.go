@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sync/atomic"
 
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -120,5 +122,70 @@ func (s *Service) scheduleStructuredAfterReceipt(rec receipt.Receipt, reservatio
 		s.scheduleStructuredCaptureTerminal(rec, capture)
 		return
 	}
+	if reservation.StructuredAdapter == structuredapp.PytestJUnitAdapterID {
+		return
+	}
 	s.scheduleStructuredTerminal(rec, reservation.StructuredAdapter)
+}
+
+func (s *Service) prepareStructuredCaptureAdmission(ctx context.Context, req StartRequest, reservation *operation.Reservation, spec operation.ExecutionSpec) (StructuredCapturePreparation, error) {
+	if reservation == nil {
+		return StructuredCapturePreparation{}, failure.New(failure.Internal, nil, fmt.Errorf("structured capture reservation unavailable"))
+	}
+	explicitPytest := req.StructuredAdapter == structuredapp.PytestJUnitAdapterID
+	autoCandidate := req.StructuredAdapter == "" && structuredapp.PytestCandidateArgv(spec.Argv)
+	if !explicitPytest && !autoCandidate {
+		return StructuredCapturePreparation{}, nil
+	}
+	if s.options.StructuredCapturePreparer == nil {
+		if explicitPytest {
+			return StructuredCapturePreparation{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "pytest_structured_capture"}, nil)
+		}
+		return StructuredCapturePreparation{}, nil
+	}
+	preparation, err := s.options.StructuredCapturePreparer.PrepareStructuredCapture(ctx, StructuredCapturePrepareRequest{
+		OperationID: reservation.OperationID, SessionID: reservation.SessionID, WorkspaceID: reservation.WorkspaceID,
+		StructuredAdapter: req.StructuredAdapter, Argv: append([]string(nil), spec.Argv...), CWD: spec.CWD, ExecutionMode: spec.Mode, Executable: spec.Executable,
+	})
+	if err != nil {
+		if explicitPytest {
+			return preparation, failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter", "adapter": structuredapp.PytestJUnitAdapterID, "reason": "producer_precondition_failed"}, err)
+		}
+		return StructuredCapturePreparation{}, nil
+	}
+	if preparation.AdapterID == "" {
+		if explicitPytest {
+			return preparation, failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter", "adapter": structuredapp.PytestJUnitAdapterID, "reason": "producer_precondition_failed"}, fmt.Errorf("pytest invocation did not establish qualified authority"))
+		}
+		reservation.StructuredAdapter = ""
+		reservation.StructuredCaptureDigest = ""
+	} else {
+		if preparation.AdapterID != structuredapp.PytestJUnitAdapterID || !operation.ValidStructuredAdapterID(preparation.AdapterID) {
+			return preparation, failure.New(failure.Internal, nil, fmt.Errorf("invalid structured capture preparation"))
+		}
+		reservation.StructuredAdapter = preparation.AdapterID
+		reservation.StructuredCaptureDigest = preparation.CaptureDigest
+	}
+	fingerprint, fpErr := structuredObservationFingerprint(req, *reservation)
+	if fpErr != nil {
+		return preparation, invalidIntentFailure(fpErr)
+	}
+	reservation.ObservationBindingFingerprint = fingerprint
+	return preparation, nil
+}
+
+func structuredObservationFingerprint(req StartRequest, reservation operation.Reservation) (string, error) {
+	binding := operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: reservation.StructuredAdapter}
+	if reservation.ProjectCommand == nil {
+		binding.Evidence = reservation.Evidence
+		binding.VerificationAttempt = reservation.VerificationAttempt
+	}
+	return binding.Fingerprint()
+}
+
+func (s *Service) abortStructuredCapture(ctx context.Context, reservation operation.Reservation) error {
+	if s.options.StructuredCapturePreparer == nil {
+		return nil
+	}
+	return s.options.StructuredCapturePreparer.AbortStructuredCapture(ctx, reservation.OperationID, reservation.SessionID)
 }

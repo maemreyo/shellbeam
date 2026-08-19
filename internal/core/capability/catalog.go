@@ -50,6 +50,10 @@ type Limits struct {
 	EventCursorBytes                     int   `json:"event_cursor_bytes,omitempty"`
 	EventSnapshotFacts                   int   `json:"event_snapshot_facts,omitempty"`
 	StructuredInspectRecords             int   `json:"structured_inspect_records,omitempty"`
+	StructuredArtifactBlobBytes          int64 `json:"structured_artifact_blob_bytes,omitempty"`
+	StructuredPinnedArtifactHandles      int   `json:"structured_pinned_artifact_handles,omitempty"`
+	StructuredMaterializationQueueDepth  int   `json:"structured_materialization_queue_depth,omitempty"`
+	StructuredTerminalAcquireMS          int64 `json:"structured_terminal_acquire_ms,omitempty"`
 	TelemetryMaxSamples                  int   `json:"telemetry_max_samples,omitempty"`
 	TelemetryMetadataBytes               int64 `json:"telemetry_metadata_bytes,omitempty"`
 	TelemetryMaxKeys                     int   `json:"telemetry_max_keys,omitempty"`
@@ -137,8 +141,10 @@ type Catalog struct {
 	ManifestVersions                  []int                         `json:"project_manifest_schema_versions"`
 	EventCursorSchemaVersions         []int                         `json:"event_cursor_schema_versions,omitempty"`
 	ResultCursorSchemaVersions        []int                         `json:"result_cursor_schema_versions,omitempty"`
+	StructuredSchemaVersions          []int                         `json:"structured_schema_versions,omitempty"`
 	StructuredAdapterIDs              []string                      `json:"structured_adapter_ids,omitempty"`
 	StructuredResultKinds             []string                      `json:"structured_result_kinds,omitempty"`
+	StructuredInputKinds              []string                      `json:"structured_input_kinds,omitempty"`
 	StructuredLifecycle               bool                          `json:"structured_lifecycle,omitempty"`
 	TelemetrySchemaVersions           []int                         `json:"telemetry_schema_versions,omitempty"`
 	ReproSchemaVersions               []int                         `json:"repro_schema_versions,omitempty"`
@@ -235,8 +241,10 @@ func (c Catalog) Clone() Catalog {
 	out.ManifestVersions = append([]int(nil), c.ManifestVersions...)
 	out.EventCursorSchemaVersions = append([]int(nil), c.EventCursorSchemaVersions...)
 	out.ResultCursorSchemaVersions = append([]int(nil), c.ResultCursorSchemaVersions...)
+	out.StructuredSchemaVersions = append([]int(nil), c.StructuredSchemaVersions...)
 	out.StructuredAdapterIDs = append([]string(nil), c.StructuredAdapterIDs...)
 	out.StructuredResultKinds = append([]string(nil), c.StructuredResultKinds...)
+	out.StructuredInputKinds = append([]string(nil), c.StructuredInputKinds...)
 	out.TelemetrySchemaVersions = append([]int(nil), c.TelemetrySchemaVersions...)
 	out.ReproSchemaVersions = append([]int(nil), c.ReproSchemaVersions...)
 	out.ReadinessSchemaVersions = append([]int(nil), c.ReadinessSchemaVersions...)
@@ -366,10 +374,25 @@ func (c Catalog) WithStructuredResults(adapterIDs, resultKinds []string, maxReco
 		out.Features[FeatureStructuredLifecycle] = Available
 	}
 	out.ResultCursorSchemaVersions = []int{1}
+	out.StructuredSchemaVersions = []int{1}
 	out.StructuredAdapterIDs = append([]string(nil), adapterIDs...)
 	out.StructuredResultKinds = append([]string(nil), resultKinds...)
 	out.StructuredLifecycle = lifecycle
 	out.Limits.StructuredInspectRecords = maxRecords
+	return out
+}
+
+func (c Catalog) WithStructuredArtifactInputs(maxBlobBytes int64, pinnedHandles, queueDepth int, terminalAcquireMS int64) Catalog {
+	out := c.Clone()
+	if out.Features[FeatureStructuredResults] != Available || maxBlobBytes < 1 || pinnedHandles < 1 || queueDepth < 1 || queueDepth > pinnedHandles || terminalAcquireMS < 1 {
+		return out
+	}
+	out.StructuredSchemaVersions = []int{1, 2}
+	out.StructuredInputKinds = []string{"raw_output", "artifact_blob"}
+	out.Limits.StructuredArtifactBlobBytes = maxBlobBytes
+	out.Limits.StructuredPinnedArtifactHandles = pinnedHandles
+	out.Limits.StructuredMaterializationQueueDepth = queueDepth
+	out.Limits.StructuredTerminalAcquireMS = terminalAcquireMS
 	return out
 }
 

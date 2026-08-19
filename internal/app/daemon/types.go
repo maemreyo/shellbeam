@@ -27,6 +27,7 @@ type Options struct {
 	TerminationGrace          time.Duration
 	Capabilities              capability.Catalog
 	StructuredWorker          StructuredWorker
+	StructuredCapturePreparer StructuredCapturePreparer
 	StructuredCaptureTerminal StructuredCaptureTerminal
 	TelemetryWorker           TelemetryWorker
 	EvidenceWorker            EvidenceWorker
@@ -69,6 +70,28 @@ type StartRequest struct {
 type StructuredWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to parser execution.
 	ScheduleTerminal(context.Context, receipt.Receipt, string) error
+}
+
+type StructuredCapturePrepareRequest struct {
+	OperationID       operation.ID
+	SessionID         operation.SessionID
+	WorkspaceID       string
+	StructuredAdapter string
+	Argv              []string
+	CWD               string
+	ExecutionMode     operation.ExecutionMode
+	Executable        string
+}
+
+type StructuredCapturePreparation struct {
+	AdapterID     string
+	CaptureDigest string
+	Owned         bool
+}
+
+type StructuredCapturePreparer interface {
+	PrepareStructuredCapture(context.Context, StructuredCapturePrepareRequest) (StructuredCapturePreparation, error)
+	AbortStructuredCapture(context.Context, operation.ID, operation.SessionID) error
 }
 
 type StructuredCaptureTerminal interface {

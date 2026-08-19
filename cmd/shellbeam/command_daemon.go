@@ -99,9 +99,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		return err
 	}
 	defer codeRuntime.Close()
-	structuredScheduler := &structuredWorkerProxy{}
-	telemetryScheduler := &telemetryWorkerProxy{}
-	evidenceScheduler := &evidenceWorkerProxy{}
+	structuredScheduler, structuredCapture, telemetryScheduler, evidenceScheduler := &structuredWorkerProxy{}, &structuredCaptureProxy{}, &telemetryWorkerProxy{}, &evidenceWorkerProxy{}
 	projectLoader := projectadapter.NewLoader()
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
 	hostReadiness := projectadapter.NewHostReadiness()
@@ -116,20 +114,22 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	verificationRuntime := composeVerificationRuntime(store, workspaceSvc, workspaceObserver, deltaSampler, activitySvc, projectSvc, projectBinder, verificationadapter.NewEnvironmentSource(environmentSvc))
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
-		DefaultTimeoutMS:     cfg.DefaultTimeoutMS,
-		MaxTimeoutMS:         cfg.MaxTimeoutMS,
-		MaxQueuedInputBytes:  cfg.MaxQueuedInputSessionBytes,
-		TerminationGrace:     time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
-		Capabilities:         catalog,
-		StructuredWorker:     structuredScheduler,
-		TelemetryWorker:      telemetryScheduler,
-		EvidenceWorker:       evidenceScheduler,
-		ProjectCommandBinder: projectBinder,
-		PersistentRuntime:    persistentRuntime,
-		MediaReader:          daemonMediaReader(),
-		InputTracePreparer:   inputTraceRuntime.Preparer,
-		InputTraceWorker:     inputTraceRuntime.Worker,
-		HermeticRuntime:      hermeticRuntime,
+		DefaultTimeoutMS:          cfg.DefaultTimeoutMS,
+		MaxTimeoutMS:              cfg.MaxTimeoutMS,
+		MaxQueuedInputBytes:       cfg.MaxQueuedInputSessionBytes,
+		TerminationGrace:          time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
+		Capabilities:              catalog,
+		StructuredWorker:          structuredScheduler,
+		StructuredCapturePreparer: structuredCapture,
+		StructuredCaptureTerminal: structuredCapture,
+		TelemetryWorker:           telemetryScheduler,
+		EvidenceWorker:            evidenceScheduler,
+		ProjectCommandBinder:      projectBinder,
+		PersistentRuntime:         persistentRuntime,
+		MediaReader:               daemonMediaReader(),
+		InputTracePreparer:        inputTraceRuntime.Preparer,
+		InputTraceWorker:          inputTraceRuntime.Worker,
+		HermeticRuntime:           hermeticRuntime,
 	})
 	processSvc := processapp.NewService(
 		processadapter.NewHostInspector(), svc, processapp.Options{Ports: processadapter.NewHostPortInspector()},
@@ -137,7 +137,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
 	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector, verification: verificationRuntime}
-	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, structuredCapture, telemetryScheduler, evidenceScheduler)
 }
 
 // openOwnedDaemonState claims durable authority before opening the store. The
@@ -170,6 +170,7 @@ func serveDaemonRuntime(
 	actions *daemonActions,
 	workspaceObserver *workspaceapp.Observer,
 	structuredScheduler *structuredWorkerProxy,
+	structuredCapture *structuredCaptureProxy,
 	telemetryScheduler *telemetryWorkerProxy,
 	evidenceScheduler *evidenceWorkerProxy,
 ) error {
@@ -211,6 +212,7 @@ func serveDaemonRuntime(
 	defer shutdownTelemetry(telemetryRuntime, terminationGrace)
 	defer shutdownEvidence(evidenceRuntime, terminationGrace)
 	structuredScheduler.bind(observationRuntime.worker)
+	structuredCapture.bind(observationRuntime.capture)
 	telemetryScheduler.bind(telemetryRuntime.worker)
 	evidenceScheduler.bind(evidenceRuntime.worker)
 	actions.events = observationRuntime.events
@@ -398,10 +400,11 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 		).
 		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
 		WithStructuredResults(
-			[]string{"go-test-json", "go-vet-json"},
+			[]string{"go-test-json", "go-vet-json", structuredapp.PytestJUnitAdapterID},
 			[]string{"diagnostic", "test_case", "test_suite", "artifact_result"},
 			structuredapp.MaxListRecords, true,
 		).
+		WithStructuredArtifactInputs(structuredapp.DefaultMaxArtifactBlobBytes, structuredapp.DefaultPinnedArtifactHandlesGlobal, structuredapp.DefaultMaterializationQueueDepth, structuredapp.MaxTerminalAcquireDuration.Milliseconds()).
 		WithExecutionTelemetry(
 			telemetryMaxSamples, telemetryMetadataBytes, telemetryMaxKeys, telemetryMaxKeysPerRepository,
 			telemetryMaxSamplesPerKey, telemetryRetentionAge.Milliseconds(), telemetryapp.MaxInspectSamples,

@@ -37,7 +37,10 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if err != nil {
 		return View{}, true, err
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: req.Evidence}).Fingerprint()
+	if structuredAdapter == "" && stored.StructuredAdapter == structuredapp.PytestJUnitAdapterID && structuredapp.PytestCandidateArgv(req.Argv) {
+		structuredAdapter = structuredapp.PytestJUnitAdapterID
+	}
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: req.Evidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -320,6 +323,8 @@ func structuredAdapterRequirement(adapter string) string {
 		return "argv: go test -json ..."
 	case "go-vet-json":
 		return "argv: go vet -json ..."
+	case structuredapp.PytestJUnitAdapterID:
+		return "direct pytest argv with explicit JUnit XML, junit_family=xunit2, addopts=, no argfile/PYTEST_ADDOPTS"
 	default:
 		return "matching direct argv with native machine-readable output"
 	}

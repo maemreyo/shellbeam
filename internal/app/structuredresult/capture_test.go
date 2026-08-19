@@ -69,6 +69,9 @@ func (f *fakeArtifactPathAuthority) BaselineDigest() string {
 	}
 	return "baseline"
 }
+func (f *fakeArtifactPathAuthority) OpenArtifactSource(context.Context, string, int64) (ArtifactSourceHandle, ArtifactSourceIdentity, error) {
+	return nil, ArtifactSourceIdentity{}, ErrArtifactCaptureUnavailable
+}
 func (f *fakeArtifactPathAuthority) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

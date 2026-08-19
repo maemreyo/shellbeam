@@ -7,6 +7,7 @@ import (
 
 	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
@@ -104,6 +105,9 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 	if err != nil {
 		return View{}, true, err
 	}
+	if structuredAdapter == "" && stored.StructuredAdapter == structuredapp.PytestJUnitAdapterID && structuredapp.PytestCandidateArgv(stored.ProjectCommand.ResolvedArgv) {
+		structuredAdapter = structuredapp.PytestJUnitAdapterID
+	}
 	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
@@ -181,17 +185,29 @@ func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, rese
 	sid := newSessionID()
 	reservation.SessionID = operation.SessionID(sid)
 	reservation.CreatedAt = time.Now().UTC()
+	structuredPreparation, err := s.prepareStructuredCaptureAdmission(ctx, req, &reservation, spec)
+	if err != nil {
+		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
+		return View{}, err
+	}
 	if reservation.SchemaVersion >= 2 {
 		s.freezeEnvironmentBinding(&reservation)
 	}
 	stored, created, result := commit(ctx, reservation)
 	if result.Err != nil {
+		if structuredPreparation.Owned {
+			_ = s.abortStructuredCapture(context.Background(), reservation)
+		}
 		abortPreparedTrace(preparedTrace)
 		s.discardHermetic(preparedHermetic)
 		return View{}, failure.Normalize(result.Err)
 	}
 	sid = string(stored.SessionID)
 	if !created {
+		if structuredPreparation.Owned {
+			_ = s.abortStructuredCapture(context.Background(), reservation)
+		}
 		abortPreparedTrace(preparedTrace)
 		s.discardHermetic(preparedHermetic)
 		if typedReplay {

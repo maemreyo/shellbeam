@@ -42,8 +42,9 @@ type Worker struct {
 	limits     Limits
 	configHash string
 	jobs       chan workerJob
-	mu         sync.Mutex
+	queueMu    sync.RWMutex
 	closed     bool
+	mu         sync.Mutex
 	inflight   map[string]struct{}
 	closeOnce  sync.Once
 	wg         sync.WaitGroup
@@ -127,22 +128,30 @@ func (w *Worker) ScheduleArtifact(ctx context.Context, ref core.ArtifactBlobRef,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	job, err := w.artifactJob(ref, authority)
+	if err != nil {
+		return err
+	}
+	return w.enqueue(job)
+}
+
+func (w *Worker) artifactJob(ref core.ArtifactBlobRef, authority CaptureAuthorityRecord) (workerJob, error) {
 	if w == nil || ref.Validate() != nil || authority.Validate() != nil || authority.State != CaptureAuthorityPrepared {
-		return fmt.Errorf("invalid structured artifact job")
+		return workerJob{}, fmt.Errorf("invalid structured artifact job")
 	}
 	intent := authority.Authority.Intent
 	blobID, err := ArtifactBlobID(intent)
 	if err != nil || blobID != ref.BlobID || ref.OperationID != intent.OperationID || ref.SessionID != intent.SessionID ||
 		ref.RepositoryID != intent.RepositoryID || ref.WorkspaceID != intent.WorkspaceID || ref.DeclaredPath != intent.DeclaredPathToken ||
 		ref.NormalizedWorkspacePath != intent.NormalizedWorkspacePath || intent.AdapterID == "" {
-		return fmt.Errorf("structured artifact authority mismatch")
+		return workerJob{}, fmt.Errorf("structured artifact authority mismatch")
 	}
 	if _, ok := w.adapters[intent.AdapterID]; !ok {
-		return fmt.Errorf("unsupported structured adapter")
+		return workerJob{}, fmt.Errorf("unsupported structured adapter")
 	}
 	input := core.ArtifactInputRef(ref)
 	copyAuthority := authority
-	return w.enqueue(workerJob{input: &input, captureAuthority: &copyAuthority, adapter: intent.AdapterID, operationID: intent.OperationID, outputComplete: true})
+	return workerJob{input: &input, captureAuthority: &copyAuthority, adapter: intent.AdapterID, operationID: intent.OperationID, outputComplete: true}, nil
 }
 
 func (w *Worker) RecoverArtifacts(ctx context.Context, source ArtifactRecoverySource) error {
@@ -160,16 +169,34 @@ func (w *Worker) RecoverArtifacts(ctx context.Context, source ArtifactRecoverySo
 		return fmt.Errorf("structured artifact recovery candidate limit exceeded")
 	}
 	for _, candidate := range candidates {
-		if err := w.ScheduleArtifact(ctx, candidate.Ref, candidate.CaptureAuthority); err != nil {
+		job, err := w.artifactJob(candidate.Ref, candidate.CaptureAuthority)
+		if err != nil {
+			return err
+		}
+		if err := w.enqueueRecovery(ctx, job); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+func (w *Worker) enqueueRecovery(ctx context.Context, job workerJob) error {
+	w.queueMu.RLock()
+	defer w.queueMu.RUnlock()
+	if w.closed {
+		return ErrWorkerClosed
+	}
+	select {
+	case w.jobs <- job:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (w *Worker) enqueue(job workerJob) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.queueMu.RLock()
+	defer w.queueMu.RUnlock()
 	if w.closed {
 		return ErrWorkerClosed
 	}
@@ -186,10 +213,10 @@ func (w *Worker) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	w.closeOnce.Do(func() {
-		w.mu.Lock()
+		w.queueMu.Lock()
 		w.closed = true
 		close(w.jobs)
-		w.mu.Unlock()
+		w.queueMu.Unlock()
 	})
 	select {
 	case <-w.done:

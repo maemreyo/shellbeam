@@ -2,16 +2,19 @@ package verification
 
 import (
 	"context"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
+	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 	core "github.com/maemreyo/shellbeam/internal/core/verification"
 )
 
@@ -199,8 +202,13 @@ func TestEvidenceSourceFallsBackToPreGenerationWhenPostUnavailable(t *testing.T)
 }
 
 type fakeEvidenceReservationReader struct {
-	values map[operation.ID]operation.Reservation
-	errs   map[operation.ID]error
+	values                 map[operation.ID]operation.Reservation
+	errs                   map[operation.ID]error
+	derivation             structuredcore.Derivation
+	derivationFound        bool
+	structuredSummary      structuredapp.RecordSummary
+	structuredSummaryFound bool
+	structuredRecords      []structuredcore.Record
 }
 
 func (f *fakeEvidenceReservationReader) FindOperation(_ context.Context, id operation.ID) (operation.Reservation, bool, error) {
@@ -209,6 +217,58 @@ func (f *fakeEvidenceReservationReader) FindOperation(_ context.Context, id oper
 	}
 	v, ok := f.values[id]
 	return v, ok, nil
+}
+
+func (f *fakeEvidenceReservationReader) FindOperationDerivation(context.Context, string) (structuredcore.Derivation, bool, error) {
+	return f.derivation, f.derivationFound, nil
+}
+func (f *fakeEvidenceReservationReader) GetRecordSummary(context.Context, string) (structuredapp.RecordSummary, bool, error) {
+	return f.structuredSummary, f.structuredSummaryFound, nil
+}
+func (f *fakeEvidenceReservationReader) ListRecords(context.Context, string, structuredapp.RecordQuery) ([]structuredcore.Record, error) {
+	return append([]structuredcore.Record(nil), f.structuredRecords...), nil
+}
+
+func TestEvidenceSourceAddsTerminalStructuredDetailWithoutChangingLiteralEvidenceResult(t *testing.T) {
+	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
+	coverage := &structuredcore.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:fail", "coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}
+	reader := &fakeEvidenceReservationReader{
+		derivationFound: true, derivation: structuredcore.Derivation{SchemaVersion: structuredcore.SchemaVersion, DerivationKey: strings.Repeat("a", 64), Lifecycle: structuredcore.LifecycleTerminal, Completeness: structuredcore.CompletenessComplete, SemanticsCoverage: coverage},
+		structuredSummaryFound: true, structuredSummary: structuredapp.RecordSummary{RecordsTotal: 3},
+		structuredRecords: []structuredcore.Record{
+			{Authority: structuredcore.AuthorityMechanical, TestCase: &structuredcore.TestCase{Status: structuredcore.TestPassed}},
+			{Authority: structuredcore.AuthorityMechanical, TestCase: &structuredcore.TestCase{Status: structuredcore.TestFailed}},
+			{Authority: structuredcore.AuthorityAdvisory, TestCase: &structuredcore.TestCase{Status: structuredcore.TestError}},
+		},
+	}
+	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(record, evidence.FreshnessCurrent)}}}}
+	got, err := NewEvidenceSource(inspector, reader).Candidates(context.Background(), sourceQuery())
+	if err != nil || len(got.Candidates) != 1 {
+		t.Fatalf("got=%#v err=%v", got, err)
+	}
+	candidate := got.Candidates[0]
+	if candidate.Result != core.CandidatePass || candidate.StructuredDetail == nil || candidate.StructuredDetail.Completeness != structuredcore.CompletenessComplete || candidate.StructuredDetail.SemanticsCoverage == nil {
+		t.Fatalf("candidate=%#v", candidate)
+	}
+	if want := []structuredcore.TestStatus{structuredcore.TestFailed, structuredcore.TestPassed}; !reflect.DeepEqual(candidate.StructuredDetail.MechanicalTestStatuses, want) {
+		t.Fatalf("statuses=%v", candidate.StructuredDetail.MechanicalTestStatuses)
+	}
+	if record.Result != evidence.ResultPass {
+		t.Fatal("structured enrichment rewrote durable evidence truth")
+	}
+}
+
+func TestEvidenceSourcePendingStructuredDerivationDoesNotBecomeNegativeEvidence(t *testing.T) {
+	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
+	reader := &fakeEvidenceReservationReader{derivationFound: true, derivation: structuredcore.Derivation{SchemaVersion: structuredcore.SchemaVersion, DerivationKey: strings.Repeat("a", 64), Lifecycle: structuredcore.LifecycleProcessing, Completeness: structuredcore.CompletenessUnavailable}}
+	inspector := &fakeEvidenceInspector{pages: []evidenceapp.InspectResult{{SchemaVersion: 1, Status: evidenceapp.InspectAvailable, Records: []evidenceapp.InspectRecord{inspectView(record, evidence.FreshnessCurrent)}}}}
+	got, err := NewEvidenceSource(inspector, reader).Candidates(context.Background(), sourceQuery())
+	if err != nil || len(got.Candidates) != 1 {
+		t.Fatal(err)
+	}
+	if got.Candidates[0].Result != core.CandidatePass || got.Candidates[0].StructuredDetail != nil {
+		t.Fatalf("candidate=%#v", got.Candidates[0])
+	}
 }
 
 func TestEvidenceSourceJoinsRawVerificationAttemptFromExactReservationContract(t *testing.T) {

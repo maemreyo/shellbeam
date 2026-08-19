@@ -470,3 +470,32 @@ func TestStructuredWorkerArtifactIdentityBindsTerminalAndObservationCuts(t *test
 		t.Fatalf("observation cut not bound first=%s third=%s err=%v", first, third, err)
 	}
 }
+
+type artifactRecoverySourceMany struct{ candidates []ArtifactRecoveryCandidate }
+
+func (s artifactRecoverySourceMany) ListArtifactRecoveryCandidates(context.Context, int) ([]ArtifactRecoveryCandidate, error) {
+	return append([]ArtifactRecoveryCandidate(nil), s.candidates...), nil
+}
+
+func TestStructuredWorkerRecoveryBackpressureDoesNotFailStartup(t *testing.T) {
+	repo := newWorkerRepo()
+	adapter := workerAdapter{id: "pytest-junit-xml", version: 1, parse: func() (ParseResult, error) {
+		return ParseResult{Outcome: core.ParseComplete, Completeness: core.CompletenessComplete}, nil
+	}}
+	worker, err := NewWorker(&workerBinderFake{}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 1, QueueDepth: 1, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Shutdown(context.Background())
+	authority := workerArtifactAuthority(t)
+	ref := workerArtifactBlobRef(t, authority)
+	var candidates []ArtifactRecoveryCandidate
+	for i := 0; i < 6; i++ {
+		candidates = append(candidates, ArtifactRecoveryCandidate{Ref: ref, CaptureAuthority: authority})
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := worker.RecoverArtifacts(ctx, artifactRecoverySourceMany{candidates: candidates}); err != nil {
+		t.Fatalf("startup recovery failed under queue backpressure: %v", err)
+	}
+}

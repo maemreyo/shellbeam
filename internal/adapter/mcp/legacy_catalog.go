@@ -7,9 +7,7 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.Runtime = nil
 	out.EventCursorSchemaVersions = nil
 	out.ResultCursorSchemaVersions = nil
-	out.StructuredAdapterIDs = nil
-	out.StructuredResultKinds = nil
-	out.StructuredLifecycle = false
+	stripLegacyStructuredCapabilities(&out)
 	out.TelemetrySchemaVersions = nil
 	out.ReproSchemaVersions = nil
 	out.ReadinessSchemaVersions = nil
@@ -50,11 +48,8 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.Limits.EventJournalMaxEvents = 0
 	out.Limits.EventCursorBytes = 0
 	out.Limits.EventSnapshotFacts = 0
-	out.Limits.StructuredInspectRecords = 0
 	delete(out.Features, capability.FeatureEventJournal)
 	delete(out.Features, capability.FeatureEventSnapshotRecovery)
-	delete(out.Features, capability.FeatureStructuredResults)
-	delete(out.Features, capability.FeatureStructuredLifecycle)
 	delete(out.Features, capability.FeatureCodeIntelligence)
 	delete(out.Features, capability.FeatureExecutionTelemetry)
 	delete(out.Features, capability.FeatureReproductionCapsules)
@@ -77,6 +72,21 @@ func legacyCatalogView(c capability.Catalog) capability.Catalog {
 	out.Limits.MutationScopeDefaultTTLMS = 0
 	out.Limits.MutationScopeMaxTTLMS = 0
 	return out
+}
+
+func stripLegacyStructuredCapabilities(out *capability.Catalog) {
+	out.StructuredSchemaVersions = nil
+	out.StructuredAdapterIDs = nil
+	out.StructuredInputKinds = nil
+	out.StructuredResultKinds = nil
+	out.StructuredLifecycle = false
+	out.Limits.StructuredInspectRecords = 0
+	out.Limits.StructuredArtifactBlobBytes = 0
+	out.Limits.StructuredPinnedArtifactHandles = 0
+	out.Limits.StructuredMaterializationQueueDepth = 0
+	out.Limits.StructuredTerminalAcquireMS = 0
+	delete(out.Features, capability.FeatureStructuredResults)
+	delete(out.Features, capability.FeatureStructuredLifecycle)
 }
 
 func stripLegacyPersistentCapabilities(out *capability.Catalog) {

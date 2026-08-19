@@ -6,6 +6,7 @@ import (
 	"time"
 
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	structuredresult "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
 
 func validEvidenceCandidate() EvidenceCandidate {
@@ -52,5 +53,25 @@ func TestEvidenceCandidateKnownProjectProviderRequiresMechanicalTypedAuthority(t
 	candidate.AuthorityKnown = false
 	if err := candidate.Validate(); err == nil {
 		t.Fatal("known typed provider accepted without known authority")
+	}
+}
+
+func TestEvidenceCandidateStructuredDetailIsValidatedButExcludedFromCompatibilityIdentity(t *testing.T) {
+	base := compatibilityCandidate()
+	key, ok := CompatibilityKey(base)
+	if !ok {
+		t.Fatal("base compatibility unavailable")
+	}
+	base.StructuredDetail = &StructuredEvidenceDetail{DerivationKey: strings.Repeat("a", 64), Completeness: structuredresult.CompletenessComplete, MechanicalTestStatuses: []structuredresult.TestStatus{structuredresult.TestFailed, structuredresult.TestPassed}, SemanticsCoverage: &structuredresult.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}}
+	if err := base.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := CompatibilityKey(base)
+	if !ok || got != key {
+		t.Fatalf("read-time structured detail changed compatibility key got=%q want=%q", got, key)
+	}
+	base.StructuredDetail.MechanicalTestStatuses = []structuredresult.TestStatus{structuredresult.TestPassed, structuredresult.TestPassed}
+	if err := base.Validate(); err == nil {
+		t.Fatal("duplicate structured statuses accepted")
 	}
 }

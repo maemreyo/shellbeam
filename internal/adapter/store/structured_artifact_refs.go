@@ -78,6 +78,21 @@ func (r *Repository) artifactRetirementPath(blobID string) string {
 	return filepath.Join(r.artifactBlobRoot(), artifactRetirePrefix+blobID)
 }
 
+func (r *Repository) ResolveArtifactInputState(ctx context.Context, expected core.ArtifactBlobRef) (structuredapp.InputSourceState, error) {
+	resolution, err := r.ResolveArtifactBlobState(ctx, expected)
+	if err != nil {
+		return structuredapp.InputSourceUnavailable, err
+	}
+	switch resolution.State {
+	case ArtifactBlobRetained:
+		return structuredapp.InputSourceRetained, nil
+	case ArtifactBlobCompacted:
+		return structuredapp.InputSourceCompacted, nil
+	default:
+		return structuredapp.InputSourceUnavailable, nil
+	}
+}
+
 func (r *Repository) ResolveArtifactBlobState(ctx context.Context, expected core.ArtifactBlobRef) (ArtifactBlobResolution, error) {
 	if err := ctx.Err(); err != nil {
 		return ArtifactBlobResolution{}, err

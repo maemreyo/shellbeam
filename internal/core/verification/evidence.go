@@ -7,6 +7,7 @@ import (
 	"time"
 
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	structuredresult "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
 
 type CandidateFreshness string
@@ -27,6 +28,40 @@ const (
 )
 
 var candidateProjectCommandIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
+
+type StructuredEvidenceDetail struct {
+	DerivationKey          string                                      `json:"derivation_key"`
+	Completeness           structuredresult.Completeness               `json:"completeness"`
+	MechanicalTestStatuses []structuredresult.TestStatus               `json:"mechanical_test_statuses,omitempty"`
+	SemanticsCoverage      *structuredresult.ProducerSemanticsCoverage `json:"semantics_coverage,omitempty"`
+}
+
+func (d StructuredEvidenceDetail) Validate() error {
+	if !candidateDigest(d.DerivationKey) {
+		return fmt.Errorf("invalid structured evidence detail")
+	}
+	switch d.Completeness {
+	case structuredresult.CompletenessComplete, structuredresult.CompletenessPartial, structuredresult.CompletenessUnavailable, structuredresult.CompletenessCompacted:
+	default:
+		return fmt.Errorf("invalid structured evidence completeness")
+	}
+	previous := ""
+	for _, status := range d.MechanicalTestStatuses {
+		switch status {
+		case structuredresult.TestPassed, structuredresult.TestFailed, structuredresult.TestSkipped, structuredresult.TestError:
+		default:
+			return fmt.Errorf("invalid structured evidence test status")
+		}
+		if previous != "" && string(status) <= previous {
+			return fmt.Errorf("structured evidence test statuses must be unique sorted")
+		}
+		previous = string(status)
+	}
+	if d.SemanticsCoverage != nil && d.SemanticsCoverage.Validate() != nil {
+		return fmt.Errorf("invalid structured evidence semantics coverage")
+	}
+	return nil
+}
 
 type EvidenceCandidate struct {
 	EvidenceID                    string                              `json:"evidence_id"`
@@ -51,6 +86,7 @@ type EvidenceCandidate struct {
 	AuthorityKnown                bool                                `json:"authority_known"`
 	Freshness                     CandidateFreshness                  `json:"freshness"`
 	Result                        CandidateResult                     `json:"result"`
+	StructuredDetail              *StructuredEvidenceDetail           `json:"structured_detail,omitempty"`
 	Attempt                       *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
 	SemanticContractDigest        string                              `json:"semantic_contract_digest"`
 	CompletedAt                   time.Time                           `json:"completed_at"`
@@ -94,6 +130,9 @@ func (c EvidenceCandidate) Validate() error {
 	}
 	if c.Attempt != nil && c.Attempt.Validate() != nil {
 		return fmt.Errorf("invalid candidate attempt")
+	}
+	if c.StructuredDetail != nil && c.StructuredDetail.Validate() != nil {
+		return fmt.Errorf("invalid candidate structured detail")
 	}
 	if err := c.validateProviderAuthority(); err != nil {
 		return err

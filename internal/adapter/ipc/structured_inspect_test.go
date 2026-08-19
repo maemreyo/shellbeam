@@ -4,6 +4,7 @@ package ipc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -26,7 +27,7 @@ func (a *structuredInspectActions) Start(ctx context.Context, req daemonapp.Star
 }
 func (a *structuredInspectActions) InspectStructured(_ context.Context, req structuredapp.InspectRequest) (structuredapp.InspectResult, error) {
 	a.last = req
-	return structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}, nil
+	return structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}, nil
 }
 
 func TestStructuredInspectIPCV2ForwardsClosedFiltersWithoutSpawn(t *testing.T) {
@@ -49,11 +50,17 @@ func TestStructuredInspectIPCV2ForwardsClosedFiltersWithoutSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.OK || got.Structured == nil || got.Structured.Status != structuredapp.InspectTerminal || actions.startCalls != 0 {
+	if !got.OK || got.Structured == nil || got.Structured.Status != structuredapp.InspectTerminal || got.Structured.SourceKind != core.StructuredInputArtifactBlob || got.Structured.SourceState != structuredapp.InputSourceRetained || got.Structured.SemanticsCoverage == nil || got.Structured.SemanticsCoverage.Family != "xunit2" || actions.startCalls != 0 {
 		t.Fatalf("response=%#v starts=%d", got, actions.startCalls)
 	}
 	if actions.last.OperationID != "op-1" || actions.last.Filter.RecordKind != core.RecordDiagnostic || actions.last.Filter.Path != "internal/a.go" || actions.last.MaxRecords != 10 {
 		t.Fatalf("request=%#v", actions.last)
+	}
+	encoded, _ := json.Marshal(got.Structured)
+	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("invented completion claim %s in %s", forbidden, encoded)
+		}
 	}
 }
 

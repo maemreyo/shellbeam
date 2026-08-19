@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -44,8 +45,11 @@ func TestExecutionObservationDaemonComposesEventAndStructuredServices(t *testing
 			t.Fatalf("feature %s=%s", feature, server.Server.Features[feature])
 		}
 	}
-	if len(server.Server.StructuredAdapterIDs) != 2 || server.Server.StructuredAdapterIDs[0] != "go-test-json" || server.Server.StructuredAdapterIDs[1] != "go-vet-json" {
-		t.Fatalf("structured adapters=%v", server.Server.StructuredAdapterIDs)
+	if got := server.Server.StructuredAdapterIDs; len(got) != 3 || got[0] != "go-test-json" || got[1] != "go-vet-json" || got[2] != structuredapp.PytestJUnitAdapterID {
+		t.Fatalf("structured adapters=%v", got)
+	}
+	if !slices.Equal(server.Server.StructuredSchemaVersions, []int{1, 2}) || !slices.Equal(server.Server.StructuredInputKinds, []string{"raw_output", "artifact_blob"}) || server.Server.Limits.StructuredArtifactBlobBytes != structuredapp.DefaultMaxArtifactBlobBytes {
+		t.Fatalf("structured artifact capability=%#v", server.Server)
 	}
 
 	result := callA1Terminal(t, client, ipcadapter.RequestV2{
