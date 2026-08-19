@@ -59,6 +59,49 @@ func (f *fakeEpisodeLedger) ListEpisodeRecords(_ context.Context, ep core.Episod
 			var v core.Candidate
 			_ = json.Unmarshal(r.Body, &v)
 			id = v.EpisodeID
+		case core.RecordExperiment:
+			var v core.Experiment
+			_ = json.Unmarshal(r.Body, &v)
+			id = v.EpisodeID
+		case core.RecordPredictionBinding:
+			var v core.PredictionBinding
+			_ = json.Unmarshal(r.Body, &v)
+			id = v.EpisodeID
+		case core.RecordExperimentSeal, core.RecordExperimentExecutionLink, core.RecordExperimentObservationBinding, core.RecordExperimentClosure, core.RecordExperimentAbort:
+			var experimentID core.ExperimentID
+			switch r.Kind {
+			case core.RecordExperimentSeal:
+				var v core.ExperimentSeal
+				_ = json.Unmarshal(r.Body, &v)
+				experimentID = v.ExperimentID
+			case core.RecordExperimentExecutionLink:
+				var v core.ExperimentExecutionLink
+				_ = json.Unmarshal(r.Body, &v)
+				experimentID = v.ExperimentID
+			case core.RecordExperimentObservationBinding:
+				var v core.ExperimentObservationBinding
+				_ = json.Unmarshal(r.Body, &v)
+				experimentID = v.ExperimentID
+			case core.RecordExperimentClosure:
+				var v core.ExperimentClosure
+				_ = json.Unmarshal(r.Body, &v)
+				experimentID = v.ExperimentID
+			case core.RecordExperimentAbort:
+				var v core.ExperimentAbort
+				_ = json.Unmarshal(r.Body, &v)
+				experimentID = v.ExperimentID
+			}
+			for _, parent := range f.records {
+				if parent.Kind != core.RecordExperiment {
+					continue
+				}
+				var v core.Experiment
+				_ = json.Unmarshal(parent.Body, &v)
+				if v.ExperimentID == experimentID {
+					id = v.EpisodeID
+					break
+				}
+			}
 		case core.RecordSelectionCommit:
 			var v core.SelectionCommit
 			_ = json.Unmarshal(r.Body, &v)

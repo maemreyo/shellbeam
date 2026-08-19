@@ -42,8 +42,18 @@ type SourceSnapshotter interface {
 }
 
 type EpisodeDependencies struct {
-	Mutations  EpisodeMutationStore
-	Ledger     CanonicalLedgerStore
-	Workspaces WorkspaceInspector
-	Snapshots  SourceSnapshotter
+	Mutations   EpisodeMutationStore
+	Experiments ExperimentMutationStore
+	Ledger      CanonicalLedgerStore
+	Workspaces  WorkspaceInspector
+	Snapshots   SourceSnapshotter
+}
+
+type ExperimentMutationStore interface {
+	DefineExperiment(context.Context, core.Experiment) (core.CanonicalRecordEnvelope, bool, error)
+	FindExperiment(context.Context, core.ExperimentID) (core.Experiment, bool, error)
+	BindPrediction(context.Context, core.PredictionBinding) (core.CanonicalRecordEnvelope, bool, error)
+	SealExperimentCAS(context.Context, core.ExperimentSeal) (core.CanonicalRecordEnvelope, bool, error)
+	CloseExperimentCAS(context.Context, core.ExperimentClosure) (core.CanonicalRecordEnvelope, bool, error)
+	AbortExperimentCAS(context.Context, core.ExperimentAbort) (core.CanonicalRecordEnvelope, bool, error)
 }

@@ -203,7 +203,10 @@ func (a ExperimentAbort) Validate() error {
 	return nil
 }
 
-func sealedPredictionDigest(bindings []PredictionBinding) (string, error) {
+// Experiment is the short domain name for the frozen canonical experiment body.
+type Experiment = DecisionExperiment
+
+func PredictionSetDigest(bindings []PredictionBinding) (string, error) {
 	out := append([]PredictionBinding(nil), bindings...)
 	for _, b := range out {
 		if err := b.Validate(); err != nil {

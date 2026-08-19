@@ -9,20 +9,26 @@ import (
 )
 
 type Service struct {
-	policies   PolicyStore
-	generation ActivationGenerationSource
-	mutations  EpisodeMutationStore
-	ledger     CanonicalLedgerStore
-	workspaces WorkspaceInspector
-	snapshots  SourceSnapshotter
-	now        func() time.Time
+	policies    PolicyStore
+	generation  ActivationGenerationSource
+	mutations   EpisodeMutationStore
+	experiments ExperimentMutationStore
+	ledger      CanonicalLedgerStore
+	workspaces  WorkspaceInspector
+	snapshots   SourceSnapshotter
+	now         func() time.Time
 }
 
 func NewService(policies PolicyStore, generation ActivationGenerationSource, episodeDeps ...EpisodeDependencies) *Service {
 	s := &Service{policies: policies, generation: generation, now: func() time.Time { return time.Now().UTC() }}
 	if len(episodeDeps) > 0 {
 		deps := episodeDeps[0]
-		s.mutations, s.ledger, s.workspaces, s.snapshots = deps.Mutations, deps.Ledger, deps.Workspaces, deps.Snapshots
+		s.mutations, s.experiments, s.ledger, s.workspaces, s.snapshots = deps.Mutations, deps.Experiments, deps.Ledger, deps.Workspaces, deps.Snapshots
+		if s.experiments == nil {
+			if experiments, ok := any(deps.Mutations).(ExperimentMutationStore); ok {
+				s.experiments = experiments
+			}
+		}
 	}
 	return s
 }

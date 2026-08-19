@@ -194,6 +194,7 @@ type DecisionProjection struct {
 	SourceGenerationCompatibility SourceGenerationCompatibility `json:"source_generation_compatibility"`
 	CandidateID                   CandidateID                   `json:"candidate_id,omitempty"`
 	Candidates                    []CandidateProjection         `json:"candidates,omitempty"`
+	Experiments                   []ExperimentProjection        `json:"experiments,omitempty"`
 	ProjectionDigest              string                        `json:"projection_digest"`
 	AuditDigest                   string                        `json:"audit_digest"`
 	Protocol                      DecisionProtocolEvaluation    `json:"protocol,omitempty"`
@@ -243,4 +244,28 @@ type CandidateProjection struct {
 	CandidateID CandidateID             `json:"candidate_id"`
 	LineageRoot CandidateID             `json:"lineage_root"`
 	State       CandidateLifecycleState `json:"state"`
+}
+
+type ExperimentLifecycleState string
+
+const (
+	ExperimentDefined   ExperimentLifecycleState = "DEFINED"
+	ExperimentSealed    ExperimentLifecycleState = "SEALED"
+	ExperimentObserving ExperimentLifecycleState = "OBSERVING"
+	ExperimentClosed    ExperimentLifecycleState = "CLOSED"
+	ExperimentAborted   ExperimentLifecycleState = "ABORTED"
+)
+
+func (s ExperimentLifecycleState) Validate() error {
+	switch s {
+	case ExperimentDefined, ExperimentSealed, ExperimentObserving, ExperimentClosed, ExperimentAborted:
+		return nil
+	default:
+		return fmt.Errorf("invalid experiment lifecycle state %q", s)
+	}
+}
+
+type ExperimentProjection struct {
+	ExperimentID ExperimentID             `json:"experiment_id"`
+	State        ExperimentLifecycleState `json:"state"`
 }

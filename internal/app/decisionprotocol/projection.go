@@ -119,7 +119,123 @@ func projectEpisodeRecords(episode core.Episode, requested core.CandidateID, rec
 		}
 		projections = append(projections, core.CandidateProjection{CandidateID: id, LineageRoot: root, State: candidateState})
 	}
-	return core.DecisionProjection{EpisodeID: episode.EpisodeID, EpisodeState: state, EpisodeKind: episode.EpisodeKind, PolicyBinding: episode.PolicyBinding, CandidateID: requested, Candidates: projections}, nil
+	experiments, err := experimentLifecycleProjections(records)
+	if err != nil {
+		return core.DecisionProjection{}, err
+	}
+	return core.DecisionProjection{EpisodeID: episode.EpisodeID, EpisodeState: state, EpisodeKind: episode.EpisodeKind, PolicyBinding: episode.PolicyBinding, CandidateID: requested, Candidates: projections, Experiments: experiments}, nil
+}
+
+type experimentLifecycleFacts struct {
+	defined                        bool
+	seals, links, closures, aborts int
+}
+
+func experimentLifecycleProjections(records []core.CanonicalRecordEnvelope) ([]core.ExperimentProjection, error) {
+	facts, err := collectExperimentLifecycleFacts(records)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]core.ExperimentID, 0, len(facts))
+	for id := range facts {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	out := make([]core.ExperimentProjection, 0, len(ids))
+	for _, id := range ids {
+		state, err := projectExperimentLifecycle(id, facts[id])
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, core.ExperimentProjection{ExperimentID: id, State: state})
+	}
+	return out, nil
+}
+
+func collectExperimentLifecycleFacts(records []core.CanonicalRecordEnvelope) (map[core.ExperimentID]*experimentLifecycleFacts, error) {
+	facts := map[core.ExperimentID]*experimentLifecycleFacts{}
+	for _, record := range records {
+		id, kind, handled, err := experimentLifecycleRecordIdentity(record)
+		if err != nil {
+			return nil, err
+		}
+		if !handled {
+			continue
+		}
+		if facts[id] == nil {
+			facts[id] = &experimentLifecycleFacts{}
+		}
+		switch kind {
+		case core.RecordExperiment:
+			facts[id].defined = true
+		case core.RecordExperimentSeal:
+			facts[id].seals++
+		case core.RecordExperimentExecutionLink:
+			facts[id].links++
+		case core.RecordExperimentClosure:
+			facts[id].closures++
+		case core.RecordExperimentAbort:
+			facts[id].aborts++
+		}
+	}
+	return facts, nil
+}
+
+func experimentLifecycleRecordIdentity(record core.CanonicalRecordEnvelope) (core.ExperimentID, core.RecordKind, bool, error) {
+	switch record.Kind {
+	case core.RecordExperiment:
+		var v core.Experiment
+		if err := json.Unmarshal(record.Body, &v); err != nil {
+			return "", record.Kind, true, err
+		}
+		return v.ExperimentID, record.Kind, true, nil
+	case core.RecordExperimentSeal:
+		var v core.ExperimentSeal
+		if err := json.Unmarshal(record.Body, &v); err != nil {
+			return "", record.Kind, true, err
+		}
+		return v.ExperimentID, record.Kind, true, nil
+	case core.RecordExperimentExecutionLink:
+		var v core.ExperimentExecutionLink
+		if err := json.Unmarshal(record.Body, &v); err != nil {
+			return "", record.Kind, true, err
+		}
+		return v.ExperimentID, record.Kind, true, nil
+	case core.RecordExperimentClosure:
+		var v core.ExperimentClosure
+		if err := json.Unmarshal(record.Body, &v); err != nil {
+			return "", record.Kind, true, err
+		}
+		return v.ExperimentID, record.Kind, true, nil
+	case core.RecordExperimentAbort:
+		var v core.ExperimentAbort
+		if err := json.Unmarshal(record.Body, &v); err != nil {
+			return "", record.Kind, true, err
+		}
+		return v.ExperimentID, record.Kind, true, nil
+	default:
+		return "", record.Kind, false, nil
+	}
+}
+
+func projectExperimentLifecycle(id core.ExperimentID, facts *experimentLifecycleFacts) (core.ExperimentLifecycleState, error) {
+	if facts == nil || !facts.defined || facts.seals > 1 || facts.links > 1 || facts.closures > 1 || facts.aborts > 1 || (facts.closures > 0 && facts.aborts > 0) {
+		return "", fmt.Errorf("corrupt experiment lifecycle for %s", id)
+	}
+	switch {
+	case facts.aborts == 1:
+		return core.ExperimentAborted, nil
+	case facts.closures == 1:
+		return core.ExperimentClosed, nil
+	case facts.seals == 0 && facts.links == 0:
+		return core.ExperimentDefined, nil
+	case facts.seals == 1 && facts.links == 0:
+		return core.ExperimentSealed, nil
+	case facts.seals == 1 && facts.links == 1:
+		return core.ExperimentObserving, nil
+	default:
+		return "", fmt.Errorf("invalid experiment lifecycle for %s", id)
+	}
 }
 
 func candidateLineageRoot(id core.CandidateID, candidates map[core.CandidateID]core.Candidate) (core.CandidateID, error) {
