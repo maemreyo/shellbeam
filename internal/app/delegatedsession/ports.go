@@ -9,6 +9,7 @@ import (
 	core "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	shell "github.com/maemreyo/shellbeam/internal/core/shellintegration"
 )
 
 type OutputSink interface {
@@ -116,6 +117,70 @@ type HumanProvider interface {
 	ArmWritableHumanControl(context.Context, core.ProviderRef, ProviderClientRef, HumanControlSpec) error
 	WaitWritableHumanControl(context.Context, core.ProviderRef, ProviderClientRef, HumanControlSpec) (handoff.HumanControlKind, error)
 	PrepareReadOnlyLocalControl(context.Context, core.ProviderRef, ProviderClientRef) error
+}
+
+type PrivacySpec struct {
+	HandoffID      string              `json:"handoff_id"`
+	AuthorityEpoch core.AuthorityEpoch `json:"authority_epoch"`
+}
+
+func (s PrivacySpec) Validate() error {
+	if !validProviderOpaque(s.HandoffID, 128) {
+		return fmt.Errorf("invalid privacy handoff id")
+	}
+	return s.AuthorityEpoch.Validate()
+}
+
+type PrivacyHandle struct {
+	OpaqueRef  string `json:"opaque_ref"`
+	Generation string `json:"generation"`
+}
+
+func (h PrivacyHandle) Validate() error {
+	if !validProviderOpaque(h.OpaqueRef, 128) || !validProviderOpaque(h.Generation, 128) {
+		return fmt.Errorf("invalid privacy handle")
+	}
+	return nil
+}
+
+type PrivateObservationProof struct {
+	Handle               PrivacyHandle `json:"handle"`
+	ProviderGeneration   string        `json:"provider_generation"`
+	PrivateFromFirstByte bool          `json:"private_from_first_byte"`
+	ObservedAt           time.Time     `json:"observed_at"`
+}
+
+func (p PrivateObservationProof) Validate() error {
+	if err := p.Handle.Validate(); err != nil {
+		return err
+	}
+	if !validProviderOpaque(p.ProviderGeneration, 128) || !p.PrivateFromFirstByte || p.ObservedAt.IsZero() {
+		return fmt.Errorf("invalid private observation proof")
+	}
+	return nil
+}
+
+type ForwardBoundary struct {
+	Proof shell.PrivacyReleaseProof `json:"proof"`
+}
+
+func (b ForwardBoundary) ValidateFor(spec PrivacySpec) error {
+	if err := spec.Validate(); err != nil {
+		return err
+	}
+	if err := b.Proof.Validate(); err != nil {
+		return err
+	}
+	if b.Proof.HandoffID != spec.HandoffID || b.Proof.AuthorityEpoch != spec.AuthorityEpoch {
+		return fmt.Errorf("privacy release proof does not match active handoff")
+	}
+	return nil
+}
+
+type PrivacyProvider interface {
+	ArmPrivateObservation(context.Context, core.ProviderRef, PrivacySpec) (PrivacyHandle, error)
+	ProvePrivateObservation(context.Context, core.ProviderRef, PrivacyHandle) (PrivateObservationProof, error)
+	ReleasePrivateObservation(context.Context, core.ProviderRef, PrivacyHandle, ForwardBoundary) error
 }
 
 func validProviderOpaque(v string, max int) bool {

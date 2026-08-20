@@ -172,9 +172,21 @@ func (p *Provider) Reattach(ctx context.Context, ref core.ProviderRef, sink app.
 	if err != nil {
 		return app.Observation{}, failure.New(failure.DelegatedProviderLost, map[string]string{"session_id": ref.SessionID, "provider_id": ProviderID, "reason": "private_state_missing"}, err)
 	}
+	_, privacyActive, err := p.activePrivacy(ref, state)
+	if err != nil {
+		return app.Observation{}, err
+	}
 	p.mu.Lock()
 	existing := p.controls[ref.Ref]
 	p.mu.Unlock()
+	if existing != nil && privacyActive && !existing.isPrivateObservation() {
+		if err := p.replaceWithPrivateObserver(ctx, ref, state, existing, sink); err != nil {
+			return app.Observation{}, err
+		}
+		p.mu.Lock()
+		existing = p.controls[ref.Ref]
+		p.mu.Unlock()
+	}
 	if existing != nil {
 		facts, err := p.queryFacts(ctx, existing, state.TmuxSession)
 		if err != nil {
@@ -188,7 +200,12 @@ func (p *Provider) Reattach(ctx context.Context, ref core.ProviderRef, sink app.
 		}
 		return p.observationFromFacts(existing, state, facts), nil
 	}
-	control, err := p.startControl(ctx, state.SocketPath, state.TmuxSession)
+	var control *controlClient
+	if privacyActive {
+		control, err = p.startPrivateControl(ctx, state.SocketPath, state.TmuxSession)
+	} else {
+		control, err = p.startControl(ctx, state.SocketPath, state.TmuxSession)
+	}
 	if err != nil {
 		return app.Observation{}, providerLost(ref, "control_reattach", err)
 	}
@@ -387,6 +404,9 @@ func (p *Provider) Close(ctx context.Context, ref core.ProviderRef) error {
 			return killErr
 		}
 		_ = os.RemoveAll(filepath.Dir(state.SocketPath))
+	}
+	if privacyErr := p.privacy.remove(ref.Ref); privacyErr != nil {
+		return privacyErr
 	}
 	return p.state.remove(ref.Ref)
 }

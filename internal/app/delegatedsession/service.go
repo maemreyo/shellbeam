@@ -120,3 +120,48 @@ func (s *Service) PrepareReadOnlyLocalControl(ctx context.Context, ref core.Prov
 func humanProviderUnavailable() error {
 	return failure.New(failure.HumanControlUnreachable, map[string]string{"reason": "provider_unconfigured"}, nil)
 }
+
+func (s *Service) privacyProvider() (PrivacyProvider, error) {
+	if s == nil || s.provider == nil {
+		return nil, privacyProviderUnavailable()
+	}
+	provider, ok := s.provider.(PrivacyProvider)
+	if !ok {
+		return nil, privacyProviderUnavailable()
+	}
+	return provider, nil
+}
+
+func (s *Service) ArmPrivateObservation(ctx context.Context, ref core.ProviderRef, spec PrivacySpec) (PrivacyHandle, error) {
+	provider, err := s.privacyProvider()
+	if err != nil {
+		return PrivacyHandle{}, err
+	}
+	if err := spec.Validate(); err != nil {
+		return PrivacyHandle{}, failure.New(failure.InvalidInput, map[string]string{"field": "privacy_spec"}, err)
+	}
+	return provider.ArmPrivateObservation(ctx, ref, spec)
+}
+
+func (s *Service) ProvePrivateObservation(ctx context.Context, ref core.ProviderRef, handle PrivacyHandle) (PrivateObservationProof, error) {
+	provider, err := s.privacyProvider()
+	if err != nil {
+		return PrivateObservationProof{}, err
+	}
+	if err := handle.Validate(); err != nil {
+		return PrivateObservationProof{}, failure.New(failure.InvalidInput, map[string]string{"field": "privacy_handle"}, err)
+	}
+	return provider.ProvePrivateObservation(ctx, ref, handle)
+}
+
+func (s *Service) ReleasePrivateObservation(ctx context.Context, ref core.ProviderRef, handle PrivacyHandle, boundary ForwardBoundary) error {
+	provider, err := s.privacyProvider()
+	if err != nil {
+		return err
+	}
+	return provider.ReleasePrivateObservation(ctx, ref, handle, boundary)
+}
+
+func privacyProviderUnavailable() error {
+	return failure.New(failure.PrivateOutputBarrierFailed, map[string]string{"reason": "provider_unconfigured"}, nil)
+}

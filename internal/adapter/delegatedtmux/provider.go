@@ -39,11 +39,13 @@ type Config struct {
 type Provider struct {
 	config   Config
 	state    privateStateStore
+	privacy  privacyStateStore
 	mu       sync.Mutex
 	controls map[string]*controlClient
 }
 
 var _ app.Provider = (*Provider)(nil)
+var _ app.PrivacyProvider = (*Provider)(nil)
 
 func DarwinQualifiedConfig(root, tmuxPath string) Config {
 	return Config{Root: root, TmuxPath: tmuxPath, QualifiedPath: qualifiedTmuxPath, ExpectedVersion: qualifiedTmuxVersion, ExpectedSHA256: qualifiedTmuxSHA256}
@@ -68,7 +70,7 @@ func New(config Config) (*Provider, error) {
 	if !filepath.IsAbs(config.RuntimeBase) {
 		return nil, fmt.Errorf("delegated tmux runtime base must be absolute")
 	}
-	return &Provider{config: config, state: privateStateStore{root: config.Root}, controls: map[string]*controlClient{}}, nil
+	return &Provider{config: config, state: privateStateStore{root: config.Root}, privacy: privacyStateStore{root: config.Root}, controls: map[string]*controlClient{}}, nil
 }
 
 func (p *Provider) Identity() core.ProviderIdentity {

@@ -45,7 +45,15 @@ func isServerGoneText(text string) bool {
 }
 
 func (p *Provider) startControl(ctx context.Context, socket, target string) (*controlClient, error) {
-	cmd := exec.Command(p.config.TmuxPath, "-S", socket, "-f", "/dev/null", "-C", "attach-session", "-E", "-f", "ignore-size", "-t", target)
+	return p.startControlWithFlags(ctx, socket, target, "ignore-size", false)
+}
+
+func (p *Provider) startPrivateControl(ctx context.Context, socket, target string) (*controlClient, error) {
+	return p.startControlWithFlags(ctx, socket, target, "no-output,ignore-size", true)
+}
+
+func (p *Provider) startControlWithFlags(ctx context.Context, socket, target, flags string, private bool) (*controlClient, error) {
+	cmd := exec.Command(p.config.TmuxPath, "-S", socket, "-f", "/dev/null", "-C", "attach-session", "-E", "-f", flags, "-t", target)
 	cmd.Env = helperEnvironment(p.config.TmuxPath)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -56,6 +64,7 @@ func (p *Provider) startControl(ctx context.Context, socket, target string) (*co
 		return nil, err
 	}
 	c := newControlClient(cmd, stdin, stdout)
+	c.privateObservation = private
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		return nil, err

@@ -242,20 +242,21 @@ func quoteTmuxArg(v string) (string, error) {
 }
 
 type controlClient struct {
-	cmd          *exec.Cmd
-	stdin        io.WriteCloser
-	stderr       bytes.Buffer
-	results      chan controlEvent
-	done         chan struct{}
-	cmdMu        sync.Mutex
-	mu           sync.Mutex
-	readErr      error
-	closed       bool
-	paneID       string
-	sink         app.OutputSink
-	outputBytes  atomic.Int64
-	pending      []controlEvent
-	pendingBytes int
+	cmd                *exec.Cmd
+	stdin              io.WriteCloser
+	stderr             bytes.Buffer
+	results            chan controlEvent
+	done               chan struct{}
+	cmdMu              sync.Mutex
+	mu                 sync.Mutex
+	readErr            error
+	closed             bool
+	paneID             string
+	sink               app.OutputSink
+	outputBytes        atomic.Int64
+	pending            []controlEvent
+	pendingBytes       int
+	privateObservation bool
 }
 
 func newControlClient(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader) *controlClient {
@@ -265,6 +266,24 @@ func newControlClient(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader) *co
 	}
 	go c.readLoop(stdout)
 	return c
+}
+
+func (c *controlClient) targetSnapshot() (string, app.OutputSink) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.paneID, c.sink
+}
+
+func (c *controlClient) isPrivateObservation() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.privateObservation
+}
+
+func (c *controlClient) setPrivateObservation(value bool) {
+	c.mu.Lock()
+	c.privateObservation = value
+	c.mu.Unlock()
 }
 
 func (c *controlClient) setTarget(pane string, sink app.OutputSink) error {
