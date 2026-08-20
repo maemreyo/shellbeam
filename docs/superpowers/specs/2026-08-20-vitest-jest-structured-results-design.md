@@ -298,8 +298,8 @@ VitestInvocationBindingV1
   output_file_binding
   excluded_flag_state
   argument_file_state                  // §20.1, "producer_does_not_expand"
-  argument_file_evidence               // §20.1, producer version
-  zero_match_emits_artifact            // §22.5, per-version boolean
+  argument_file_evidence               // §20.1, bounded release-evidence label
+  zero_match_emits_artifact            // §22.5, release-matrix boolean
 
 JestInvocationBindingV1
   schema_version
@@ -309,8 +309,8 @@ JestInvocationBindingV1
   excluded_flag_state
   jest_jasmine_environment_fact
   argument_file_state                  // §20.1, "producer_does_not_expand"
-  argument_file_evidence               // §20.1, producer version
-  zero_match_emits_artifact            // §22.5, per-version boolean
+  argument_file_evidence               // §20.1, bounded release-evidence label
+  zero_match_emits_artifact            // §22.5, release-matrix boolean
 ```
 
 Each binding's canonical digest SHALL be the `producer_binding_digest` stored by `ArtifactCaptureIntent`, exactly as `PytestInvocationBindingV1` is today. It SHALL commit every identity-bearing field above.
@@ -422,17 +422,17 @@ Historical `VITEST_JUNIT_CLASSNAME` / `VITEST_JUNIT_SUITE_NAME` existed in `1.x`
 
 Therefore `VitestInvocationBindingV1` SHALL NOT carry an environment-presence fact. Unlike pytest, there is no argument-injection channel to prove absent.
 
-### 20.1 Argument-file non-expansion is verified per release, not detected at runtime
+### 20.1 Argument-file tokens fail closed at runtime
 
-Neither Vitest nor Jest natively expands `@filename` argument files (yargs, used by Jest, does not implement GNU-style `@file` expansion [external]; Vitest passes `@args.txt` through as a plain test-file filter [RUN 4.1.11, 3.2.7]). V1 SHALL NOT treat a token beginning with `@` as shape-based disqualifier, because the same token is a legitimate scoped-package path filter in a monorepo — `jest @acme` on `packages/@acme/ui/ui.test.js` and `packages/@acme/api/api.test.js` correctly selects the two tests in `@acme/*` and excludes `packages/plain/plain.test.js` [RUN 30.4.2]. A shape rule would reject a qualified, working invocation.
+Verified qualified releases do not natively expand `@filename` argument files (yargs, used by Jest, does not implement GNU-style `@file` expansion [external]; Vitest passes `@args.txt` through as a plain test-file filter [RUN 4.1.11, 3.2.7]). However, V1 does not attest the current producer version (§28). A release-matrix fact therefore cannot safely authorize a runtime `@token`: a future producer could add expansion and turn an apparently ordinary filter into hidden payload-shape-affecting flags such as `--bail`, `--listTests`, or a different `--outputFile`.
 
-What is required instead:
+V1 SHALL therefore reject **every argv token beginning with `@`** during automatic qualification for both Jest and Vitest, including tokens after `--`. This deliberately rejects legitimate scoped-package filters such as `jest @acme`; the availability loss is preferable to silently inheriting semantics from an unattested future producer.
 
-1. Each `ProducerInvocationBindingV1` SHALL carry an `argument_file_state` field with the closed value `producer_does_not_expand`, plus an `argument_file_evidence` field that records the producer version that established the fact.
-2. The release qualification matrix (§31) SHALL add, per qualified producer version, a `@file non-expansion` test: a file containing a payload-shape-affecting flag (`--bail`, `--listTests`, `--outputFile=<other>`) is passed as `@args.txt` on the argv; the producer SHALL NOT expand the file.
-3. The digest SHALL bind the `argument_file_state` so a future producer version that adds expansion cannot silently inherit the prior binding's authority.
+Each `ProducerInvocationBindingV1` may still carry the closed `argument_file_state = producer_does_not_expand` plus a bounded `argument_file_evidence` release label. Those fields record qualification evidence for the tested release matrix and remain digest-bound, but they are **not runtime authority to accept `@token` argv**. The release matrix (§31) keeps the `@file non-expansion` probe only as evidence for a future design that might add producer-version attestation or otherwise reopen this shape safely.
 
-The forward-compat concern is real but the structural fail-closed argument still holds: an argv that happens to qualify but where a non-expanded `@file` happens to filter out every test produces a document whose `ObservedEntryCounts.Entries == 0`. The producer-specific emission behavior is pinned per-version (§22.5 below). Jest `30.4.2` does not emit the output file when zero tests match [RUN 30.4.2]; Vitest `3.2.7` does emit a zero-result document and the parser SHALL detect that case and set `Completeness=partial` with `CompletenessReason=zero_match` rather than `complete`.
+For Jest V1 the release-evidence label is `jest-v1:29.7.0,30.4.1`: `30.4.1` is the version string reported by `jest --version` from the qualified `jest@30.4.2` installation (§31). The same bounded release matrix establishes `zero_match_emits_artifact=false`. These fields do not claim that the current executable has either version. Task 4.5 re-verifies them mechanically before parser work proceeds; disagreement requires an amendment rather than silently changing the binding.
+
+Zero-match behavior remains a separate per-release fact (§22.5). Jest `30.4.2` does not emit the output file when zero tests match [RUN 30.4.2]; Vitest `3.2.7` does emit a zero-result document and the parser SHALL detect that case and set `Completeness=partial` with `CompletenessReason=zero_match` rather than `complete`.
 
 ## 21. Jest producer qualification
 
@@ -1413,7 +1413,7 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 21. File-entry order is non-deterministic in both producers; ordinals are derivation-scoped only and records are never re-sorted.
 22. Multi-project invocations are unqualified.
 23. Terminal receipt remains child execution truth; structured projection never mutates execution semantics.
-24. `@token` argv tokens are not shape-disqualified. The `argument_file_state` binding fact (`producer_does_not_expand`) and the per-version `@file` non-expansion test (§20.1, §31) are the authority.
+24. Jest and Vitest V1 auto-qualification rejects every `@token` argv token, including after `--`. Release-matrix `@file` non-expansion evidence is recorded but is not runtime authority without producer-version attestation (§20.1, §28, §31).
 25. Zero-match emission is pinned per producer version (§22.5). Vitest emits a zero-result document; Jest does not. The parser SHALL set `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0` and the producer binding records `zero_match_emits_artifact == true`. The reason is distinct from `pass_records_elided`; `budget_exceeded` remains a distinct parse outcome.
 
 ## 63. Deferred beyond V1

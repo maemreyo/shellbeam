@@ -103,11 +103,15 @@ const (
 type ProducerInvocationBinding struct {
 	Kind             ProducerInvocationKind     `json:"kind,omitempty"`
 	PytestInvocation *PytestInvocationBindingV1 `json:"pytest_invocation,omitempty"`
+	JestInvocation   *JestInvocationBindingV1   `json:"jest_invocation,omitempty"`
 }
 
 func (b ProducerInvocationBinding) Validate() error {
 	branches := 0
 	if b.PytestInvocation != nil {
+		branches++
+	}
+	if b.JestInvocation != nil {
 		branches++
 	}
 	if branches != 1 {
@@ -117,6 +121,10 @@ func (b ProducerInvocationBinding) Validate() error {
 	case ProducerInvocationPytest:
 		if b.PytestInvocation == nil || !b.PytestInvocation.QualifiedV1() {
 			return fmt.Errorf("invalid pytest producer invocation binding")
+		}
+	case ProducerInvocationJest:
+		if b.JestInvocation == nil || !b.JestInvocation.QualifiedV1() {
+			return fmt.Errorf("invalid jest producer invocation binding")
 		}
 	default:
 		return fmt.Errorf("invalid producer invocation kind")
@@ -131,6 +139,8 @@ func (b ProducerInvocationBinding) AdapterID() string {
 	switch b.Kind {
 	case ProducerInvocationPytest:
 		return PytestJUnitAdapterID
+	case ProducerInvocationJest:
+		return JestJSONAdapterID
 	default:
 		return ""
 	}
@@ -143,6 +153,8 @@ func (b ProducerInvocationBinding) OutputBinding() CaptureOutputBinding {
 	switch b.Kind {
 	case ProducerInvocationPytest:
 		return b.PytestInvocation.JUnitOutput
+	case ProducerInvocationJest:
+		return b.JestInvocation.OutputFile
 	default:
 		return CaptureOutputBinding{}
 	}
@@ -155,6 +167,8 @@ func (b ProducerInvocationBinding) ProducerBindingDigest() (string, error) {
 	switch b.Kind {
 	case ProducerInvocationPytest:
 		return b.PytestInvocation.ProducerBindingDigest()
+	case ProducerInvocationJest:
+		return b.JestInvocation.ProducerBindingDigest()
 	default:
 		return "", fmt.Errorf("invalid producer invocation kind")
 	}

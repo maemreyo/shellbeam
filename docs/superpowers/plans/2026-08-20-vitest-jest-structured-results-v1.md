@@ -345,6 +345,8 @@ git -c core.hooksPath=.githooks commit -m "feat: bound structured failure excerp
 
 **Files:**
 - Modify: `internal/app/structuredresult/capture_authority.go`
+- Modify: `docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md`
+- Modify: `docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md`
 - Modify: `internal/app/structuredresult/capture_authority_test.go`
 - Modify: `internal/app/structuredresult/capture.go`
 - Modify: `internal/app/structuredresult/capture_prepare_helpers.go`
@@ -461,7 +463,7 @@ git -c core.hooksPath=.githooks commit -m "refactor: generalize capture authorit
 - Produces `JestInvocationBindingV1`, `JestInvocationRequest`, `QualifyJestInvocation`, `JestCandidateArgv`, and a canonical `ProducerBindingDigest`.
 - Reuses `EnvironmentPresenceFact` unchanged for `JEST_JASMINE`.
 
-- [ ] **Step 1: Write RED table tests for producer and flag resolution**
+- [x] **Step 1: Write RED table tests for producer and flag resolution**
 
 ```go
 const (
@@ -509,30 +511,32 @@ unqualified: missing --json
              output path outside workspace containment
 ```
 
-**No `@token` shape rule.** Verified empirically that `jest @acme` correctly selects scoped-package tests and is a qualified, working invocation. Treating the leading `@` as disqualifying would reject real monorepo scoped-package filters. The non-expansion guarantee is recorded in the binding as `argument_file_state = producer_does_not_expand` (with `argument_file_evidence` carrying the producer version that established the fact) and is enforced per-version by the release qualification matrix, not by runtime shape detection. See spec §20.1.
+**`@token` fails closed.** Although `jest @acme` is a legitimate scoped-package filter on the verified releases, V1 does not attest the current Jest version. Every argv token beginning with `@` is therefore disqualifying, including after `--`; otherwise a future producer could add argument-file expansion and smuggle excluded flags past the resolver. `argument_file_state` / `argument_file_evidence` remain release-matrix evidence only, not runtime authority. See spec §20.1 and §28.
 
 `--listTests` deserves its own named test with a comment: with that flag the payload becomes a JSON array of path strings, and `--outputFile` is honored even without `--json`. Silently accepting it would parse a different schema entirely.
 
-- [ ] **Step 2: Write RED environment-authority tests**
+- [x] **Step 2: Write RED environment-authority tests**
 
 `JEST_JASMINE` absent → qualified; present → unqualified. The fact stores only presence, never a value, and its digest is deterministic and replayable from durable authority.
 
 Add an explicit negative test asserting that the agent-detection variables (`CLAUDECODE`, `AI_AGENT`, `CURSOR_AGENT`, and the rest of the set) are **not** consulted and do **not** affect qualification. Spec §25 establishes they change only stderr, and ShellBeam runs under them routinely — a future change that treats them as disqualifying would break every real run.
 
-- [ ] **Step 3: Implement one option-aware resolver**
+- [x] **Step 3: Implement one option-aware resolver**
 
 Honor `--` termination and option arity. Do not scan tokens after `--`, do not consume an option value as a new option, and do not expand an argument file. `excluded_flag_state` records that the closed exclusion set was evaluated and found absent, so the fact is committed into the digest rather than re-derived at recovery.
 
-- [ ] **Step 4: Prove digest sensitivity**
+- [x] **Step 4: Prove digest sensitivity**
 
 Same argv with a different `JEST_JASMINE` fact, a different normalized output path, or a different excluded-flag state must produce a different `ProducerBindingDigest`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
+
+Task 4 verification note (2026-08-20): focused Jest/app/store regressions and `devctl check` pass on the final fail-closed `@token` design. The required dirty gate ordinary affected batch passes. Full `cmd/shellbeam` acceptance remains subject to an unrelated verification timing flake: separate full runs failed `TestVerificationSufficiencyRawTestEvidenceDoesNotElevateProviderClass` and `TestSourceMutationSeparatesEvidenceCohortsWithoutRewritingHistory`, both with transient `inspect.verification` `OK=false`; the pair passes isolated and under `-count=5`. Task 4 does not modify verification code and Jest is not wired into cmd runtime until Task 6. Commit-gate therefore remains authoritative for the staged Task-4 scope rather than changing unrelated verification behavior.
 
 ```bash
 go test ./internal/app/structuredresult -run 'Jest' -count=1
 go run ./tools/devctl check
-git add internal/app/structuredresult
+git add internal/app/structuredresult docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "feat: qualify jest structured invocation"
 ```
@@ -796,9 +800,10 @@ globalSetup throw (producer writes nothing)
 zero-match emission (§22.5) — invocation that filters out every test;
                           record whether the producer emits a document
                           and what the parser's completeness state is
-@file non-expansion (§20.1) — argv token @args.txt whose file contains
-                             payload-shape-affecting flags; verify the
-                             producer does not expand the file
+@file non-expansion (§20.1) — release-evidence probe only: argv token
+                             @args.txt contains payload-shape-affecting flags;
+                             verify the producer does not expand it, while
+                             runtime qualification still rejects every @token
 ```
 
 No negative may mutate child truth or produce a mechanical blob-derived result.
@@ -935,7 +940,7 @@ unqualified: no run subcommand and no --run          (watch mode)
              expansion-required or non-contained output path
 ```
 
-**No `@token` shape rule.** Verified empirically on Vitest 3.2.7 that `vitest run @acme --reporter=json --outputFile.json=...` correctly selects scoped-package tests (`numTotalTests: 1` for `packages/@acme/ui/ui.test.js`). Treating the leading `@` as disqualifying would reject real monorepo scoped-package filters. The non-expansion guarantee is recorded in the binding as `argument_file_state = producer_does_not_expand` (with `argument_file_evidence` carrying the producer version) and is enforced per-version by the release qualification matrix.
+**`@token` fails closed.** Vitest 3.2.7 treats `@acme` as a legitimate scoped-package filter, but V1 does not attest the current producer version. Task 9 SHALL reject every argv token beginning with `@`, including after `--`. `argument_file_state` / `argument_file_evidence` remain release-matrix evidence only and cannot authorize this shape at runtime.
 
 **Per-version emission pin (spec §22.5).** Vitest `3.2.7` emits a zero-result document when zero tests match; the binding SHALL record `zero_match_emits_artifact = true` and the parser SHALL set `Completeness=partial` with `CompletenessReason=zero_match` in that case. The fact is re-verified per qualified Vitest version by the release qualification matrix.
 
