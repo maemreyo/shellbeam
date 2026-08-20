@@ -9,6 +9,8 @@ import (
 
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	gojson "github.com/maemreyo/shellbeam/internal/adapter/structured/gojson"
+	pytestjunit "github.com/maemreyo/shellbeam/internal/adapter/structured/pytestjunit"
+	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
@@ -33,6 +35,7 @@ type executionObservationRuntime struct {
 	events     *observationapp.Service
 	structured *structuredapp.Inspector
 	worker     *structuredapp.Worker
+	capture    *executionStructuredCaptureRuntime
 	material   observationapp.MaterializerPort
 	wakeups    <-chan struct{}
 }
@@ -54,9 +57,13 @@ func newExecutionObservationRuntime(ctx context.Context, store *storeadapter.Rep
 	events := observationapp.NewService(store, materializer, daemonSnapshotProvider{store: store}, eventCodec)
 	structured := structuredapp.NewInspector(store, resultCodec)
 	binder := structuredapp.NewInputBinder(store)
-	reader := daemonStructuredReader{store: store, binder: binder}
+	rawReader := daemonStructuredReader{store: store, binder: binder}
+	reader, err := structuredapp.NewArtifactReader(rawReader, store)
+	if err != nil {
+		return nil, err
+	}
 	worker, err := structuredapp.NewWorker(binder, store, reader, []structuredapp.Adapter{
-		gojson.TestAdapter{}, gojson.VetAdapter{},
+		gojson.TestAdapter{}, gojson.VetAdapter{}, pytestjunit.Adapter{},
 	}, structuredapp.WorkerOptions{
 		MaxWorkers: structuredWorkerCount,
 		QueueDepth: structuredWorkerQueueDepth,
@@ -69,7 +76,16 @@ func newExecutionObservationRuntime(ctx context.Context, store *storeadapter.Rep
 	if err != nil {
 		return nil, err
 	}
-	return &executionObservationRuntime{events: events, structured: structured, worker: worker, material: materializer, wakeups: store.ObservationWakeups()}, nil
+	capture, err := newExecutionStructuredCaptureRuntime(store, worker)
+	if err != nil {
+		_ = worker.Shutdown(context.Background())
+		return nil, err
+	}
+	if err := worker.RecoverArtifacts(ctx, store); err != nil {
+		_ = worker.Shutdown(context.Background())
+		return nil, err
+	}
+	return &executionObservationRuntime{events: events, structured: structured, worker: worker, capture: capture, material: materializer, wakeups: store.ObservationWakeups()}, nil
 }
 
 func (r *executionObservationRuntime) startMaterialization(ctx context.Context) {
@@ -126,20 +142,72 @@ func (p *structuredWorkerProxy) ScheduleTerminal(ctx context.Context, rec receip
 	return worker.ScheduleTerminal(ctx, rec, adapter)
 }
 
+type structuredCaptureProxy struct {
+	mu      sync.RWMutex
+	runtime *executionStructuredCaptureRuntime
+}
+
+func (p *structuredCaptureProxy) bind(runtime *executionStructuredCaptureRuntime) {
+	p.mu.Lock()
+	p.runtime = runtime
+	p.mu.Unlock()
+}
+func (p *structuredCaptureProxy) PrepareStructuredCapture(ctx context.Context, req daemonapp.StructuredCapturePrepareRequest) (daemonapp.StructuredCapturePreparation, error) {
+	p.mu.RLock()
+	runtime := p.runtime
+	p.mu.RUnlock()
+	if runtime == nil {
+		return daemonapp.StructuredCapturePreparation{}, fmt.Errorf("structured capture runtime unavailable")
+	}
+	return runtime.PrepareStructuredCapture(ctx, req)
+}
+func (p *structuredCaptureProxy) AbortStructuredCapture(ctx context.Context, id operation.ID, sessionID operation.SessionID) error {
+	p.mu.RLock()
+	runtime := p.runtime
+	p.mu.RUnlock()
+	if runtime == nil {
+		return nil
+	}
+	return runtime.AbortStructuredCapture(ctx, id, sessionID)
+}
+func (p *structuredCaptureProxy) AcquireTerminal(ctx context.Context, reservation operation.Reservation) structuredapp.TerminalCaptureResult {
+	p.mu.RLock()
+	runtime := p.runtime
+	p.mu.RUnlock()
+	if runtime == nil {
+		return structuredapp.TerminalCaptureResult{State: structuredapp.TerminalCaptureUnavailable, CaptureAuthorityID: reservation.StructuredCaptureDigest, DiagnosticCode: "artifact_capture_unavailable"}
+	}
+	return runtime.AcquireTerminal(ctx, reservation)
+}
+func (p *structuredCaptureProxy) ScheduleTerminal(ctx context.Context, rec receipt.Receipt, result structuredapp.TerminalCaptureResult) error {
+	p.mu.RLock()
+	runtime := p.runtime
+	p.mu.RUnlock()
+	if runtime == nil {
+		_ = result.Close()
+		return fmt.Errorf("structured capture runtime unavailable")
+	}
+	return runtime.ScheduleTerminal(ctx, rec, result)
+}
+
 type daemonStructuredReader struct {
 	store  *storeadapter.Repository
 	binder *structuredapp.Binder
 }
 
-func (r daemonStructuredReader) ReadOutputRange(ctx context.Context, ref structuredcore.RawOutputRef, offset int64, max int) ([]byte, error) {
-	return r.binder.ReadOutputRange(ctx, ref, offset, max)
+func (r daemonStructuredReader) ReadInputRange(ctx context.Context, ref structuredcore.StructuredInputRef, offset int64, max int) ([]byte, error) {
+	return r.binder.ReadInputRange(ctx, ref, offset, max)
 }
 
-func (r daemonStructuredReader) DescribeInput(ctx context.Context, ref structuredcore.RawOutputRef) (structuredapp.InputContext, error) {
+func (r daemonStructuredReader) DescribeInput(ctx context.Context, ref structuredcore.StructuredInputRef) (structuredapp.InputContext, error) {
 	if r.store == nil || r.binder == nil {
 		return structuredapp.InputContext{}, fmt.Errorf("structured reader unavailable")
 	}
-	snap, err := r.store.LoadSession(ctx, operation.SessionID(ref.SessionID))
+	raw, ok := ref.Raw()
+	if !ok {
+		return structuredapp.InputContext{}, fmt.Errorf("daemon raw structured reader requires raw output")
+	}
+	snap, err := r.store.LoadSession(ctx, operation.SessionID(raw.SessionID))
 	if err != nil {
 		return structuredapp.InputContext{}, err
 	}

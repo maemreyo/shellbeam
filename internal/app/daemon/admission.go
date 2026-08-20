@@ -37,7 +37,10 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if err != nil {
 		return View{}, true, err
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: req.Evidence}).Fingerprint()
+	if structuredAdapter == "" && stored.StructuredAdapter == structuredapp.PytestJUnitAdapterID && structuredapp.PytestCandidateArgv(req.Argv) {
+		structuredAdapter = structuredapp.PytestJUnitAdapterID
+	}
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest, Evidence: req.Evidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -206,6 +209,17 @@ func validateStartMetadata(req StartRequest) error {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
 		}
 	}
+	if req.VerificationAttempt != nil {
+		if req.ProtocolVersion != 2 {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "verification_attempt", "required_version": "2"}, nil)
+		}
+		if err := req.VerificationAttempt.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, err)
+		}
+		if !wantsProjectCommand(req) && req.Evidence == nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, fmt.Errorf("raw verification attempt requires evidence contract"))
+		}
+	}
 	if req.Evidence != nil {
 		if req.ProtocolVersion != 2 {
 			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "evidence", "required_version": "2"}, nil)
@@ -309,6 +323,8 @@ func structuredAdapterRequirement(adapter string) string {
 		return "argv: go test -json ..."
 	case "go-vet-json":
 		return "argv: go vet -json ..."
+	case structuredapp.PytestJUnitAdapterID:
+		return "direct pytest argv with explicit JUnit XML, junit_family=xunit2, addopts=, no argfile/PYTEST_ADDOPTS"
 	default:
 		return "matching direct argv with native machine-readable output"
 	}

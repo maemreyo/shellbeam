@@ -22,7 +22,7 @@ type VetAdapter struct{}
 func (VetAdapter) ID() string   { return goVetAdapterID }
 func (VetAdapter) Version() int { return 1 }
 
-func (VetAdapter) Parse(ctx context.Context, ref core.RawOutputRef, reader app.Reader, limits app.Limits) (app.ParseResult, error) {
+func (VetAdapter) Parse(ctx context.Context, ref core.StructuredInputRef, reader app.Reader, limits app.Limits) (app.ParseResult, error) {
 	input, err := parserContext(ctx, reader, ref, limits)
 	if err != nil {
 		return app.ParseResult{}, err
@@ -58,7 +58,7 @@ type vetDiagnostic struct {
 	Message string `json:"message"`
 }
 
-func buildVetResult(payload map[string]map[string][]vetDiagnostic, input app.InputContext, ref core.RawOutputRef, limits app.Limits) (app.ParseResult, error) {
+func buildVetResult(payload map[string]map[string][]vetDiagnostic, input app.InputContext, ref core.StructuredInputRef, limits app.Limits) (app.ParseResult, error) {
 	producer := core.Producer{AdapterID: goVetAdapterID, AdapterVersion: 1, CapabilityVersion: adapterCapabilityVersion}
 	packages := sortedKeys(payload)
 	records := make([]core.Record, 0, min(limits.MaxRecords, 32))
@@ -87,7 +87,7 @@ func buildVetResult(payload map[string]map[string][]vetDiagnostic, input app.Inp
 	return completeResult(records, summary), nil
 }
 
-func vetRecord(diagnostic vetDiagnostic, analyzer string, input app.InputContext, ref core.RawOutputRef, producer core.Producer, limits app.Limits) (core.Record, error) {
+func vetRecord(diagnostic vetDiagnostic, analyzer string, input app.InputContext, ref core.StructuredInputRef, producer core.Producer, limits app.Limits) (core.Record, error) {
 	for _, value := range []string{diagnostic.Posn, diagnostic.End, diagnostic.Message} {
 		if err := checkSemanticString(value, limits.MaxStringBytes, value == diagnostic.End); err != nil {
 			return core.Record{}, err

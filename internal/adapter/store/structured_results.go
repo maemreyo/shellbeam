@@ -15,7 +15,7 @@ import (
 const maxStructuredMetadataBytes = 64 << 10
 
 func (r *Repository) initStructuredResultStore() error {
-	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir()} {
+	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir(), r.structuredCaptureAuthorityDir(), r.artifactBlobRoot(), r.artifactRecoveryRoot(), r.artifactBlobRefRoot(), r.artifactBlobTombstoneRoot()} {
 		if err := ensurePrivateDir(dir); err != nil {
 			return fmt.Errorf("structured result store: %w", err)
 		}
@@ -65,19 +65,22 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if next.SchemaVersion != core.SchemaVersion {
+		return fmt.Errorf("structured_derivation_write_requires_v2")
+	}
 	if err := validateStructuredDerivation(next); err != nil {
 		return err
 	}
 	r.structuredMu.Lock()
 	defer r.structuredMu.Unlock()
+	return r.putDerivationUnlocked(ctx, next)
+}
+
+func (r *Repository) putDerivationUnlocked(ctx context.Context, next core.Derivation) error {
 	path := r.derivationPath(next.DerivationKey)
-	var current core.Derivation
-	err := readPrivateJSON(path, maxStructuredMetadataBytes, &current)
+	current, err := readStructuredDerivation(path)
 	if errors.Is(err, ErrNotFound) {
-		if next.Lifecycle != core.LifecyclePending {
-			return fmt.Errorf("structured_derivation_must_start_pending")
-		}
-		return r.writer.Create(path, next).Err
+		return r.createDerivationUnlocked(ctx, path, next)
 	}
 	if err != nil {
 		return err
@@ -85,13 +88,55 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 	if err := validateStructuredDerivation(current); err != nil {
 		return err
 	}
-	if reflect.DeepEqual(current, next) {
-		return nil
+	if reflect.DeepEqual(current, next) || sameDerivationReplay(current, next) {
+		return r.ensureVisibleDerivationArtifactAuthorityUnlocked(next)
 	}
 	if !sameDerivationIdentity(current, next) || !allowedDerivationTransition(current, next) {
 		return fmt.Errorf("structured_derivation_conflict")
 	}
+	if next.Completeness == core.CompletenessCompacted && current.Completeness != core.CompletenessCompacted && len(artifactRefsForDerivation(next)) > 0 {
+		return fmt.Errorf("artifact_compaction_requires_detail_protocol")
+	}
+	if current.Completeness != core.CompletenessCompacted {
+		if _, err := r.acquireDerivationBlobRefsUnlocked(next); err != nil {
+			return err
+		}
+	}
 	return r.replaceDerivation(ctx, path, next, structuredTransitionObservable(current, next))
+}
+
+func (r *Repository) createDerivationUnlocked(ctx context.Context, path string, next core.Derivation) error {
+	if next.Lifecycle != core.LifecyclePending {
+		return fmt.Errorf("structured_derivation_must_start_pending")
+	}
+	createdRefs, err := r.acquireDerivationBlobRefsUnlocked(next)
+	if err != nil {
+		return err
+	}
+	if err := r.writer.checkpoint("structured_derivation.create"); err != nil {
+		r.rollbackDerivationBlobRefsUnlocked(createdRefs)
+		return err
+	}
+	result := r.writer.Create(path, next)
+	if result.Err != nil {
+		observed, readErr := readStructuredDerivation(path)
+		if readErr == nil && reflect.DeepEqual(observed, next) {
+			return result.Err
+		}
+		r.rollbackDerivationBlobRefsUnlocked(createdRefs)
+		return result.Err
+	}
+	return r.releaseRecoveryClaimsForArtifactsUnlocked(artifactRefsForDerivation(next))
+}
+
+func (r *Repository) ensureVisibleDerivationArtifactAuthorityUnlocked(derivation core.Derivation) error {
+	if derivation.Completeness == core.CompletenessCompacted {
+		return nil
+	}
+	if _, err := r.acquireDerivationBlobRefsUnlocked(derivation); err != nil {
+		return err
+	}
+	return r.releaseRecoveryClaimsForArtifactsUnlocked(artifactRefsForDerivation(derivation))
 }
 
 func (r *Repository) GetDerivation(ctx context.Context, key string) (core.Derivation, error) {
@@ -125,7 +170,7 @@ func (r *Repository) replaceDerivation(ctx context.Context, path string, next co
 func (r *Repository) prepareStructuredObservation(ctx context.Context, derivation core.Derivation) (observation.ChangeSeq, app.StoreResult) {
 	correlation := observation.Correlation{}
 	if len(derivation.SourceAuthorityRefs) > 0 {
-		correlation = r.correlationForSession("", derivation.SourceAuthorityRefs[0].SessionID)
+		correlation = r.correlationForSession("", derivation.SourceAuthorityRefs[0].SessionID())
 	}
 	request := observation.PrepareRequest{
 		Kind: observation.EventStructuredChanged, Correlation: correlation,
@@ -141,8 +186,8 @@ func (r *Repository) finishStructuredObservation(seq observation.ChangeSeq, path
 	case app.NoDurableChange:
 		r.abortObservationBestEffort(seq, observationAbortWriteFailed)
 	case app.AmbiguousChange:
-		var got core.Derivation
-		if readPrivateJSON(path, maxStructuredMetadataBytes, &got) == nil && reflect.DeepEqual(got, want) {
+		got, err := readStructuredDerivation(path)
+		if err == nil && (reflect.DeepEqual(got, want) || sameDerivationReplay(got, want)) {
 			r.commitObservationBestEffort(seq)
 		}
 	}

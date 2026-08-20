@@ -10,6 +10,7 @@ import (
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
+	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -35,7 +36,7 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 	case "read_media":
 		request.Media = mediaRequestFromInput(in)
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone(), Hermetic: in.Hermetic.Clone()}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, VerificationAttempt: cloneMCPVerificationAttempt(in.VerificationAttempt), CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone(), Hermetic: in.Hermetic.Clone()}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: in.YieldMS, MaxOutputBytes: in.MaxOutputBytes}
 	case "read_output":
@@ -44,6 +45,8 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 		request.OutputRead.Continuation = in.Continuation
 	case "write":
 		request.Write = app.WriteRequest{SessionID: in.SessionID, InputOffset: in.InputOffset, Chars: in.Chars, EOF: in.EOF}
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		applyVerificationInput(request, in)
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		request.WorkspaceID = in.WorkspaceID
 	case "inspect.activity":
@@ -103,4 +106,11 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 		}
 		request.Kill = app.KillRequest{SessionID: in.SessionID, KillID: in.KillID, Signal: signal}
 	}
+}
+func cloneMCPVerificationAttempt(value *coreevidence.VerificationAttemptIntent) *coreevidence.VerificationAttemptIntent {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }

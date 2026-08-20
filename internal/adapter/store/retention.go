@@ -58,7 +58,10 @@ type RetentionReport struct {
 }
 
 // CollectExpiredTerminals removes terminal ordinary sessions whose durable
-// terminal record is older than the retention window.
+// terminal record is older than the retention window. Structured artifact
+// claims, derivation refs, blobs, and tombstones live under their own authority
+// and are deliberately outside this sweep; only structured-detail compaction
+// may release refs or retire blob bytes.
 //
 // It is idempotent and safe to interrupt: each session is withdrawn from view
 // by an atomic rename before anything under it is removed, so a caller either

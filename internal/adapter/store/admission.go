@@ -105,6 +105,7 @@ func (r *Repository) admissionCounters() (active int, bytes int64, err error) {
 	r.admissionMu.Lock()
 	active, bytes = r.admission.ActiveSessions, r.admission.StateBytes
 	r.admissionMu.Unlock()
+	bytes = addStateAuthorityBytes(bytes, r.outstandingBlobReservationBytes())
 	if !r.nearStateBudget(bytes) {
 		return active, bytes, nil
 	}
@@ -118,11 +119,12 @@ func (r *Repository) admissionCounters() (active int, bytes int64, err error) {
 		return 0, 0, scanErr
 	}
 	r.admissionMu.Lock()
-	defer r.admissionMu.Unlock()
 	r.admission.StateBytes = exact
 	r.stateBytesDelta = 0
 	r.stateBytesScannedAt = r.now()
-	return r.admission.ActiveSessions, exact, nil
+	active = r.admission.ActiveSessions
+	r.admissionMu.Unlock()
+	return active, addStateAuthorityBytes(exact, r.outstandingBlobReservationBytes()), nil
 }
 
 // nearStateBudget reports whether the store is close enough to its byte budget

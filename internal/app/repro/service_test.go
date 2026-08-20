@@ -199,7 +199,7 @@ func structuredFixture(t *testing.T, lifecycle structured.Lifecycle, completenes
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := structured.Derivation{SchemaVersion: 1, DerivationKey: key, SourceAuthorityRefs: []structured.RawOutputRef{ref}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("2", 64), Lifecycle: lifecycle, Completeness: completeness}
+	d := structured.Derivation{SchemaVersion: 1, DerivationKey: key, SourceAuthorityRefs: []structured.StructuredInputRef{structured.RawInputRef(ref)}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("2", 64), Lifecycle: lifecycle, Completeness: completeness}
 	if lifecycle == structured.LifecycleTerminal {
 		d.ParseOutcome = structured.ParseComplete
 	}

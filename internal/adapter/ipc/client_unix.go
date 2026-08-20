@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
+	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/jsonstrict"
 	"github.com/maemreyo/shellbeam/internal/core/media"
@@ -71,7 +72,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, InputTrace: out.InputTrace, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media}
+	response := bridgeResponseFromV2(out)
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -89,6 +90,10 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 		response.Details = cloneStringMapV2(out.Error.Details)
 	}
 	return response, nil
+}
+
+func bridgeResponseFromV2(out ResponseV2) bridge.Response {
+	return bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, InputTrace: out.InputTrace, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media, Verification: out.Verification, VerificationPolicyPreview: out.VerificationPolicyPreview, VerificationActivation: out.VerificationActivation, VerificationWaiver: out.VerificationWaiver, VerificationRevocation: out.VerificationRevocation}
 }
 
 func applyMutationScopeV2(req *RequestV2, in bridge.Request) {
@@ -116,6 +121,7 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.Argv = append([]string(nil), in.Start.Argv...)
 	req.Intent = in.Start.Intent
 	req.Evidence = in.Start.Evidence
+	req.VerificationAttempt = cloneVerificationAttemptV2(in.Start.VerificationAttempt)
 	req.CWD = in.Start.CWD
 	req.TTY = in.Start.TTY
 	req.Persistent = in.Start.Persistent
@@ -236,4 +242,11 @@ func decodeMediaResponseV2(body io.Reader, req RequestV2) (ResponseV2, error) {
 		return ResponseV2{}, err
 	}
 	return out, nil
+}
+func cloneVerificationAttemptV2(value *coreevidence.VerificationAttemptIntent) *coreevidence.VerificationAttemptIntent {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }

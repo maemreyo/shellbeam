@@ -49,6 +49,7 @@ type Repository struct {
 	observationVisibilityMu  sync.RWMutex
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
+	blobBudgetMu             sync.Mutex
 	telemetryMu              sync.Mutex
 	inputTraceMu             sync.Mutex
 	reproMu                  sync.Mutex
@@ -57,6 +58,7 @@ type Repository struct {
 	persistentSessionMu      sync.Mutex
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
+	verificationMu           sync.Mutex
 	observationHighWatermark uint64
 	observationWake          chan struct{}
 	writer                   atomicWriter
@@ -78,7 +80,8 @@ type Repository struct {
 	stateBytesRefreshWG  sync.WaitGroup
 	// fullScans counts full-tree scans of the state store. Admission must not
 	// increment it; the regression test asserts that.
-	fullScans atomic.Uint64
+	fullScans        atomic.Uint64
+	blobReservations map[string]int64
 }
 
 const (
@@ -167,7 +170,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }}
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, blobReservations: map[string]int64{}}
 	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
 	if err := repository.initObservationStore(); err != nil {
 		return nil, err
@@ -176,6 +179,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initStructuredResultStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.RecoverStructuredArtifacts(context.Background()); err != nil {
 		return nil, err
 	}
 	if err := repository.initTelemetryStore(); err != nil {
@@ -194,6 +200,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initPersistentSessionStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initVerificationStore(); err != nil {
 		return nil, err
 	}
 	if err := repository.initAdmissionLedger(); err != nil {
@@ -366,7 +375,7 @@ func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 		if info.Mode().IsRegular() && !isAdmissionIndex(path) {
 			bytes += info.Size()
 		}
-		if filepath.Base(path) == "metadata.json" {
+		if filepath.Base(path) == "metadata.json" && filepath.Dir(filepath.Dir(path)) == filepath.Join(r.root, "sessions") {
 			if strings.HasPrefix(filepath.Base(filepath.Dir(path)), gcStagingPrefix) {
 				// Withdrawn from view by retention; it counts for nothing.
 				return nil

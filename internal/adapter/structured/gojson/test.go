@@ -18,7 +18,7 @@ type TestAdapter struct{}
 func (TestAdapter) ID() string   { return goTestAdapterID }
 func (TestAdapter) Version() int { return 1 }
 
-func (TestAdapter) Parse(ctx context.Context, ref core.RawOutputRef, reader app.Reader, limits app.Limits) (app.ParseResult, error) {
+func (TestAdapter) Parse(ctx context.Context, ref core.StructuredInputRef, reader app.Reader, limits app.Limits) (app.ParseResult, error) {
 	input, err := parserContext(ctx, reader, ref, limits)
 	if err != nil {
 		return app.ParseResult{}, err
@@ -87,7 +87,7 @@ func validateTestEvent(event testJSONEvent, limits app.Limits) error {
 	return err
 }
 
-func testEventRecord(event testJSONEvent, operationID string, ref core.RawOutputRef, producer core.Producer) (core.Record, bool, error) {
+func testEventRecord(event testJSONEvent, operationID string, ref core.StructuredInputRef, producer core.Producer) (core.Record, bool, error) {
 	status, ok := testStatus(event.Action)
 	if !ok {
 		return core.Record{}, false, nil

@@ -11,8 +11,8 @@ func TestRecordAuthorityKindsAndRawOutputProvenance(t *testing.T) {
 	producer := Producer{AdapterID: "go-vet-json", AdapterVersion: 1, CapabilityVersion: 1}
 	ref := RawOutputRef{SessionID: "session-1", StartByte: 10, EndByte: 90, SHA256: strings.Repeat("a", 64)}
 	record := Record{
-		SchemaVersion: 1, RecordKind: RecordDiagnostic, Authority: AuthorityMechanical,
-		DerivationMethod: DerivationNativeFieldMapping, Producer: producer, OperationID: "op-1", SourceRef: ref,
+		SchemaVersion: SchemaVersionV1, RecordKind: RecordDiagnostic, Authority: AuthorityMechanical,
+		DerivationMethod: DerivationNativeFieldMapping, Producer: producer, OperationID: "op-1", SourceRef: RawInputRef(ref),
 		Diagnostic: &Diagnostic{Severity: SeverityError, Code: "printf", Message: "bad printf", Location: source.SourceLocation{Kind: source.LocationProviderReported, ProviderReported: &source.ProviderReportedLocation{Origin: source.OriginRepository, SanitizedLogicalPath: "main.go", Line: 5, Column: 2, NormalizationQuality: source.NormalizationPartial}}},
 	}
 	if err := record.Validate(); err != nil {

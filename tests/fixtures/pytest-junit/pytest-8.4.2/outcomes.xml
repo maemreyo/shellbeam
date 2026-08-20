@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="2" skipped="2" tests="7" time="0.000" timestamp="1970-01-01T00:00:00+00:00" hostname="fixture-host"><testcase classname="outcomes_test" name="test_pass" time="0.000" /><testcase classname="outcomes_test" name="test_fail" time="0.000"><failure message="assert 1 == 2">def test_fail():
+&gt;       assert 1 == 2
+E       assert 1 == 2
+
+/pytest-fixture/outcomes_test.py:9: AssertionError</failure></testcase><testcase classname="outcomes_test" name="test_skip" time="0.000"><skipped type="pytest.skip" message="mechanical skip reason">/pytest-fixture/outcomes_test.py:12: mechanical skip reason</skipped></testcase><testcase classname="outcomes_test" name="test_xfail" time="0.000"><skipped type="pytest.xfail" message="mechanical xfail reason" /></testcase><testcase classname="outcomes_test" name="test_non_strict_xpass" time="0.000" /><testcase classname="outcomes_test" name="test_strict_xpass" time="0.000"><failure message="[XPASS(strict)] strict xpass reason">[XPASS(strict)] strict xpass reason</failure></testcase><testcase classname="outcomes_test" name="test_error" time="0.000"><error message="failed on setup with &quot;RuntimeError: setup boom&quot;">@pytest.fixture
+    def setup_error():
+&gt;       raise RuntimeError("setup boom")
+E       RuntimeError: setup boom
+
+/pytest-fixture/outcomes_test.py:34: RuntimeError</error></testcase></testsuite></testsuites>

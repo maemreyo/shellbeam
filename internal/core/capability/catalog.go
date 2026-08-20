@@ -36,6 +36,7 @@ const (
 	FeatureInputTracing           Feature = "input_tracing"
 	FeatureResourceEnforcement    Feature = "resource_enforcement"
 	FeatureHermeticBoundaryV1     Feature = "hermetic_boundary_v1"
+	FeatureVerificationSemantics  Feature = "verification_semantics"
 )
 
 type Limits struct {
@@ -49,6 +50,10 @@ type Limits struct {
 	EventCursorBytes                     int   `json:"event_cursor_bytes,omitempty"`
 	EventSnapshotFacts                   int   `json:"event_snapshot_facts,omitempty"`
 	StructuredInspectRecords             int   `json:"structured_inspect_records,omitempty"`
+	StructuredArtifactBlobBytes          int64 `json:"structured_artifact_blob_bytes,omitempty"`
+	StructuredPinnedArtifactHandles      int   `json:"structured_pinned_artifact_handles,omitempty"`
+	StructuredMaterializationQueueDepth  int   `json:"structured_materialization_queue_depth,omitempty"`
+	StructuredTerminalAcquireMS          int64 `json:"structured_terminal_acquire_ms,omitempty"`
 	TelemetryMaxSamples                  int   `json:"telemetry_max_samples,omitempty"`
 	TelemetryMetadataBytes               int64 `json:"telemetry_metadata_bytes,omitempty"`
 	TelemetryMaxKeys                     int   `json:"telemetry_max_keys,omitempty"`
@@ -131,47 +136,50 @@ type Limits struct {
 }
 
 type Catalog struct {
-	ProtocolVersion                   int                         `json:"shellbeam_protocol_version"`
-	ReceiptSchemaVersions             []int                       `json:"receipt_schema_versions"`
-	ManifestVersions                  []int                       `json:"project_manifest_schema_versions"`
-	EventCursorSchemaVersions         []int                       `json:"event_cursor_schema_versions,omitempty"`
-	ResultCursorSchemaVersions        []int                       `json:"result_cursor_schema_versions,omitempty"`
-	StructuredAdapterIDs              []string                    `json:"structured_adapter_ids,omitempty"`
-	StructuredResultKinds             []string                    `json:"structured_result_kinds,omitempty"`
-	StructuredLifecycle               bool                        `json:"structured_lifecycle,omitempty"`
-	TelemetrySchemaVersions           []int                       `json:"telemetry_schema_versions,omitempty"`
-	ReproSchemaVersions               []int                       `json:"repro_schema_versions,omitempty"`
-	ReadinessSchemaVersions           []int                       `json:"project_readiness_schema_versions,omitempty"`
-	OutputViewSchemaVersions          []int                       `json:"output_view_schema_versions,omitempty"`
-	EvidenceSchemaVersions            []int                       `json:"evidence_schema_versions,omitempty"`
-	ArtifactObservationSchemaVersions []int                       `json:"artifact_observation_schema_versions,omitempty"`
-	EnvironmentSnapshotSchemaVersions []int                       `json:"environment_snapshot_schema_versions,omitempty"`
-	EnvironmentFingerprintVersions    []int                       `json:"environment_fingerprint_versions,omitempty"`
-	ToolchainFingerprintVersions      []int                       `json:"toolchain_fingerprint_versions,omitempty"`
-	EnvironmentToolchainProbeIDs      []string                    `json:"environment_toolchain_probe_ids,omitempty"`
-	ProcessObservationSchemaVersions  []int                       `json:"process_observation_schema_versions,omitempty"`
-	MutationScopeSchemaVersions       []int                       `json:"mutation_scope_schema_versions,omitempty"`
-	PersistentSessionSchemaVersions   []int                       `json:"persistent_session_schema_versions,omitempty"`
-	SupervisorProtocolVersions        []int                       `json:"supervisor_protocol_versions,omitempty"`
-	PersistentNonTTY                  bool                        `json:"persistent_non_tty,omitempty"`
-	PersistentTTY                     bool                        `json:"persistent_tty,omitempty"`
-	PersistentContinuity              string                      `json:"persistent_continuity,omitempty"`
-	HostRebootContinuity              bool                        `json:"host_reboot_continuity,omitempty"`
-	PortObservationSupported          bool                        `json:"port_observation_supported,omitempty"`
-	ReadinessRequirementKinds         []string                    `json:"project_readiness_requirement_kinds,omitempty"`
-	TypedCommandVersions              []int                       `json:"typed_project_command_versions,omitempty"`
-	TypedCommandManifestVersion       int                         `json:"typed_project_command_manifest_version,omitempty"`
-	TypedCommandParameterKinds        []string                    `json:"typed_project_command_parameter_kinds,omitempty"`
-	TypedCommandPackageProviders      []string                    `json:"typed_project_command_package_providers,omitempty"`
-	ResourceObservation               *ResourceObservationSupport `json:"resource_observation,omitempty"`
-	ResourceEnforcement               *ResourceEnforcementSupport `json:"resource_enforcement,omitempty"`
-	HermeticBoundary                  *HermeticBoundarySupport    `json:"hermetic_boundary,omitempty"`
-	SafetyCheckpoints                 *CheckpointSupport          `json:"safety_checkpoints,omitempty"`
-	Media                             *MediaSupport               `json:"media,omitempty"`
-	InputTracing                      *InputTracingSupport        `json:"input_tracing,omitempty"`
-	Runtime                           *RuntimeIdentity            `json:"runtime,omitempty"`
-	Features                          map[Feature]Availability    `json:"features"`
-	Limits                            Limits                      `json:"limits"`
+	ProtocolVersion                   int                           `json:"shellbeam_protocol_version"`
+	ReceiptSchemaVersions             []int                         `json:"receipt_schema_versions"`
+	ManifestVersions                  []int                         `json:"project_manifest_schema_versions"`
+	EventCursorSchemaVersions         []int                         `json:"event_cursor_schema_versions,omitempty"`
+	ResultCursorSchemaVersions        []int                         `json:"result_cursor_schema_versions,omitempty"`
+	StructuredSchemaVersions          []int                         `json:"structured_schema_versions,omitempty"`
+	StructuredAdapterIDs              []string                      `json:"structured_adapter_ids,omitempty"`
+	StructuredResultKinds             []string                      `json:"structured_result_kinds,omitempty"`
+	StructuredInputKinds              []string                      `json:"structured_input_kinds,omitempty"`
+	StructuredLifecycle               bool                          `json:"structured_lifecycle,omitempty"`
+	TelemetrySchemaVersions           []int                         `json:"telemetry_schema_versions,omitempty"`
+	ReproSchemaVersions               []int                         `json:"repro_schema_versions,omitempty"`
+	ReadinessSchemaVersions           []int                         `json:"project_readiness_schema_versions,omitempty"`
+	OutputViewSchemaVersions          []int                         `json:"output_view_schema_versions,omitempty"`
+	EvidenceSchemaVersions            []int                         `json:"evidence_schema_versions,omitempty"`
+	ArtifactObservationSchemaVersions []int                         `json:"artifact_observation_schema_versions,omitempty"`
+	EnvironmentSnapshotSchemaVersions []int                         `json:"environment_snapshot_schema_versions,omitempty"`
+	EnvironmentFingerprintVersions    []int                         `json:"environment_fingerprint_versions,omitempty"`
+	ToolchainFingerprintVersions      []int                         `json:"toolchain_fingerprint_versions,omitempty"`
+	EnvironmentToolchainProbeIDs      []string                      `json:"environment_toolchain_probe_ids,omitempty"`
+	ProcessObservationSchemaVersions  []int                         `json:"process_observation_schema_versions,omitempty"`
+	MutationScopeSchemaVersions       []int                         `json:"mutation_scope_schema_versions,omitempty"`
+	PersistentSessionSchemaVersions   []int                         `json:"persistent_session_schema_versions,omitempty"`
+	SupervisorProtocolVersions        []int                         `json:"supervisor_protocol_versions,omitempty"`
+	PersistentNonTTY                  bool                          `json:"persistent_non_tty,omitempty"`
+	PersistentTTY                     bool                          `json:"persistent_tty,omitempty"`
+	PersistentContinuity              string                        `json:"persistent_continuity,omitempty"`
+	HostRebootContinuity              bool                          `json:"host_reboot_continuity,omitempty"`
+	PortObservationSupported          bool                          `json:"port_observation_supported,omitempty"`
+	ReadinessRequirementKinds         []string                      `json:"project_readiness_requirement_kinds,omitempty"`
+	TypedCommandVersions              []int                         `json:"typed_project_command_versions,omitempty"`
+	TypedCommandManifestVersion       int                           `json:"typed_project_command_manifest_version,omitempty"`
+	TypedCommandParameterKinds        []string                      `json:"typed_project_command_parameter_kinds,omitempty"`
+	TypedCommandPackageProviders      []string                      `json:"typed_project_command_package_providers,omitempty"`
+	ResourceObservation               *ResourceObservationSupport   `json:"resource_observation,omitempty"`
+	ResourceEnforcement               *ResourceEnforcementSupport   `json:"resource_enforcement,omitempty"`
+	HermeticBoundary                  *HermeticBoundarySupport      `json:"hermetic_boundary,omitempty"`
+	VerificationSemantics             *VerificationSemanticsSupport `json:"verification_semantics,omitempty"`
+	SafetyCheckpoints                 *CheckpointSupport            `json:"safety_checkpoints,omitempty"`
+	Media                             *MediaSupport                 `json:"media,omitempty"`
+	InputTracing                      *InputTracingSupport          `json:"input_tracing,omitempty"`
+	Runtime                           *RuntimeIdentity              `json:"runtime,omitempty"`
+	Features                          map[Feature]Availability      `json:"features"`
+	Limits                            Limits                        `json:"limits"`
 }
 
 var targetFeatures = []Feature{
@@ -201,6 +209,7 @@ var targetFeatures = []Feature{
 	FeatureInputTracing,
 	FeatureResourceEnforcement,
 	FeatureHermeticBoundaryV1,
+	FeatureVerificationSemantics,
 }
 
 func TargetFeatures() []Feature {
@@ -232,8 +241,10 @@ func (c Catalog) Clone() Catalog {
 	out.ManifestVersions = append([]int(nil), c.ManifestVersions...)
 	out.EventCursorSchemaVersions = append([]int(nil), c.EventCursorSchemaVersions...)
 	out.ResultCursorSchemaVersions = append([]int(nil), c.ResultCursorSchemaVersions...)
+	out.StructuredSchemaVersions = append([]int(nil), c.StructuredSchemaVersions...)
 	out.StructuredAdapterIDs = append([]string(nil), c.StructuredAdapterIDs...)
 	out.StructuredResultKinds = append([]string(nil), c.StructuredResultKinds...)
+	out.StructuredInputKinds = append([]string(nil), c.StructuredInputKinds...)
 	out.TelemetrySchemaVersions = append([]int(nil), c.TelemetrySchemaVersions...)
 	out.ReproSchemaVersions = append([]int(nil), c.ReproSchemaVersions...)
 	out.ReadinessSchemaVersions = append([]int(nil), c.ReadinessSchemaVersions...)
@@ -263,6 +274,10 @@ func (c Catalog) Clone() Catalog {
 	if c.HermeticBoundary != nil {
 		hermetic := *c.HermeticBoundary
 		out.HermeticBoundary = &hermetic
+	}
+	if c.VerificationSemantics != nil {
+		verification := c.VerificationSemantics.clone()
+		out.VerificationSemantics = &verification
 	}
 	if c.SafetyCheckpoints != nil {
 		support := *c.SafetyCheckpoints
@@ -359,10 +374,25 @@ func (c Catalog) WithStructuredResults(adapterIDs, resultKinds []string, maxReco
 		out.Features[FeatureStructuredLifecycle] = Available
 	}
 	out.ResultCursorSchemaVersions = []int{1}
+	out.StructuredSchemaVersions = []int{1}
 	out.StructuredAdapterIDs = append([]string(nil), adapterIDs...)
 	out.StructuredResultKinds = append([]string(nil), resultKinds...)
 	out.StructuredLifecycle = lifecycle
 	out.Limits.StructuredInspectRecords = maxRecords
+	return out
+}
+
+func (c Catalog) WithStructuredArtifactInputs(maxBlobBytes int64, pinnedHandles, queueDepth int, terminalAcquireMS int64) Catalog {
+	out := c.Clone()
+	if out.Features[FeatureStructuredResults] != Available || maxBlobBytes < 1 || pinnedHandles < 1 || queueDepth < 1 || queueDepth > pinnedHandles || terminalAcquireMS < 1 {
+		return out
+	}
+	out.StructuredSchemaVersions = []int{1, 2}
+	out.StructuredInputKinds = []string{"raw_output", "artifact_blob"}
+	out.Limits.StructuredArtifactBlobBytes = maxBlobBytes
+	out.Limits.StructuredPinnedArtifactHandles = pinnedHandles
+	out.Limits.StructuredMaterializationQueueDepth = queueDepth
+	out.Limits.StructuredTerminalAcquireMS = terminalAcquireMS
 	return out
 }
 

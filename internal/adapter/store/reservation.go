@@ -11,6 +11,7 @@ import (
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
@@ -33,17 +34,14 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	path := filepath.Join(r.root, "operations", string(want.OperationID)+".json")
 	var existing operation.Reservation
 	if err := readStrict(path, &existing); err == nil {
-		stored, created, result := r.replayReservation(want, existing)
-		if result.Err == nil {
-			if candidateErr := r.EnsureEvidenceCandidate(ctx, stored); candidateErr != nil {
-				result.Err = candidateErr
-			}
-		}
-		return stored, created, result
+		return r.replayExistingReservation(ctx, want, existing)
 	} else if !errors.Is(err, ErrNotFound) {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	if err := validateReservation(want); err != nil {
+		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
+	if err := r.validateVerificationAttemptAuthority(ctx, want); err != nil {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	active, used, err := r.admissionCounters()
@@ -83,6 +81,9 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 			if err = readStrict(path, &existing); err != nil {
 				return existing, false, withObservationSeq(app.StoreResult{Durability: app.AmbiguousChange, Err: err}, seq)
 			}
+			if err = r.validateVerificationAttemptAuthority(ctx, existing); err != nil {
+				return existing, false, withObservationSeq(app.StoreResult{Durability: app.DurableChange, Err: err}, seq)
+			}
 			stored, created, replay := r.replayReservation(want, existing)
 			if replay.Err == nil {
 				if candidateErr := r.EnsureEvidenceCandidate(ctx, stored); candidateErr != nil {
@@ -99,6 +100,22 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	r.commitObservationBestEffort(seq)
 	created, metadata := r.finalizeReservationMetadata(want, seq)
 	return want, created, metadata
+}
+
+func (r *Repository) replayExistingReservation(ctx context.Context, want, existing operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
+	if err := r.validateVerificationAttemptAuthority(ctx, existing); err != nil {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: err}
+	}
+	if err := r.validateVerificationAttemptAuthority(ctx, want); err != nil {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: err}
+	}
+	stored, created, result := r.replayReservation(want, existing)
+	if result.Err == nil {
+		if candidateErr := r.EnsureEvidenceCandidate(ctx, stored); candidateErr != nil {
+			result.Err = candidateErr
+		}
+	}
+	return stored, created, result
 }
 
 func (r *Repository) finalizeReservationMetadata(want operation.Reservation, observationSeq observation.ChangeSeq) (bool, app.StoreResult) {
@@ -156,6 +173,9 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 	if existing.ObservationBindingFingerprint != want.ObservationBindingFingerprint {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
+	if existing.StructuredCaptureDigest != want.StructuredCaptureDigest {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "structured_capture_digest"}, nil)}
+	}
 	if !sameTraceBinding(existing.Trace, want.Trace) {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "input_trace"}, nil)}
 	}
@@ -196,7 +216,7 @@ func validateReservation(v operation.Reservation) error {
 	}
 	switch v.SchemaVersion {
 	case 1:
-		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil {
+		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil || v.VerificationAttempt != nil || v.StructuredCaptureDigest != "" {
 			return fmt.Errorf("invalid reservation")
 		}
 	case 2:
@@ -248,6 +268,9 @@ func validateReservation(v operation.Reservation) error {
 	default:
 		return fmt.Errorf("invalid reservation")
 	}
+	if err := validateReservationObservationMetadata(v); err != nil {
+		return err
+	}
 	if v.EnvironmentBinding != nil {
 		if err := v.EnvironmentBinding.Validate(); err != nil {
 			return fmt.Errorf("invalid reservation environment binding: %w", err)
@@ -257,6 +280,75 @@ func validateReservation(v operation.Reservation) error {
 		if err := v.Trace.Validate(); err != nil {
 			return fmt.Errorf("invalid reservation input trace binding: %w", err)
 		}
+	}
+	return nil
+}
+
+func validateReservationObservationMetadata(v operation.Reservation) error {
+	if v.StructuredCaptureDigest != "" && (!operation.ValidStructuredCaptureDigest(v.StructuredCaptureDigest) || v.ObservationBindingFingerprint == "") {
+		return fmt.Errorf("invalid reservation structured capture digest")
+	}
+	return validateReservationVerificationAttempt(v.VerificationAttempt)
+}
+
+func (r *Repository) validateVerificationAttemptAuthority(ctx context.Context, v operation.Reservation) error {
+	if v.StructuredCaptureDigest != "" && v.ProjectCommand == nil {
+		fingerprint, err := (operation.ObservationBinding{
+			ActivityID: v.ActivityID, Intent: v.Intent, StructuredAdapter: v.StructuredAdapter, StructuredCaptureDigest: v.StructuredCaptureDigest,
+			Evidence: v.Evidence, VerificationAttempt: v.VerificationAttempt,
+		}).Fingerprint()
+		if err != nil {
+			return err
+		}
+		if fingerprint != v.ObservationBindingFingerprint {
+			return failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(v.OperationID), "field": "structured_capture_digest"}, nil)
+		}
+	}
+	if v.VerificationAttempt == nil {
+		return nil
+	}
+	if err := v.VerificationAttempt.Validate(); err != nil {
+		return fmt.Errorf("invalid reservation verification attempt: %w", err)
+	}
+	if v.ProjectCommand != nil {
+		claim, found, err := r.FindTypedIntent(ctx, v.OperationID)
+		if err != nil {
+			return err
+		}
+		if !found || claim.RequestFingerprint != v.EffectiveRequestFingerprint() || !sameVerificationAttempt(claim.Intent.VerificationAttempt, v.VerificationAttempt) {
+			return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(v.OperationID)}, nil)
+		}
+		return nil
+	}
+	if v.Evidence == nil {
+		return fmt.Errorf("raw verification attempt requires evidence contract")
+	}
+	fingerprint, err := (operation.ObservationBinding{
+		ActivityID: v.ActivityID, Intent: v.Intent, StructuredAdapter: v.StructuredAdapter, StructuredCaptureDigest: v.StructuredCaptureDigest,
+		Evidence: v.Evidence, VerificationAttempt: v.VerificationAttempt,
+	}).Fingerprint()
+	if err != nil {
+		return err
+	}
+	if fingerprint != v.ObservationBindingFingerprint {
+		return failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(v.OperationID)}, nil)
+	}
+	return nil
+}
+
+func sameVerificationAttempt(a, b *evidence.VerificationAttemptIntent) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func validateReservationVerificationAttempt(attempt *evidence.VerificationAttemptIntent) error {
+	if attempt == nil {
+		return nil
+	}
+	if err := attempt.Validate(); err != nil {
+		return fmt.Errorf("invalid reservation verification attempt: %w", err)
 	}
 	return nil
 }

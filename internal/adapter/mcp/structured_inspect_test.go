@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"testing"
@@ -23,7 +24,7 @@ func (c *structuredInspectClient) Forward(_ context.Context, req bridge.Request)
 		c.startCalls++
 	}
 	if req.Action == "inspect.structured" {
-		result := structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.StructuredInspect.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}
+		result := structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.StructuredInspect.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}
 		return bridge.Response{Structured: &result}, nil
 	}
 	if req.Action == "inspect.server" {
@@ -47,5 +48,15 @@ func TestStructuredInspectMCPV2ForwardsFiltersWithoutSpawn(t *testing.T) {
 	body, ok := res.StructuredContent.(map[string]any)
 	if !ok || body["structured"] == nil {
 		t.Fatalf("structured=%#v", res.StructuredContent)
+	}
+	structuredBody, _ := body["structured"].(map[string]any)
+	if structuredBody["source_kind"] != "artifact_blob" || structuredBody["source_state"] != "retained" || structuredBody["semantics_coverage"] == nil {
+		t.Fatalf("structured=%#v", structuredBody)
+	}
+	encoded, _ := json.Marshal(structuredBody)
+	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`} {
+		if bytes.Contains(encoded, []byte(forbidden)) {
+			t.Fatalf("invented completion claim %s in %s", forbidden, encoded)
+		}
 	}
 }

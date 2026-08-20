@@ -379,3 +379,27 @@ func TestRuntimeIdentityRejectsInvalidDigestAndTimestamp(t *testing.T) {
 		})
 	}
 }
+
+func TestStructuredArtifactInputCapabilityIsAdditiveVersionedAndBounded(t *testing.T) {
+	base := Baseline(Limits{}).WithStructuredResults([]string{"go-test-json", "go-vet-json", "pytest-junit-xml"}, []string{"diagnostic", "test_case", "test_suite", "artifact_result"}, 128, true)
+	if !reflect.DeepEqual(base.StructuredSchemaVersions, []int{1}) || len(base.StructuredInputKinds) != 0 {
+		t.Fatalf("base=%#v", base)
+	}
+	got := base.WithStructuredArtifactInputs(16<<20, 4, 4, 250)
+	if !reflect.DeepEqual(got.StructuredSchemaVersions, []int{1, 2}) || !reflect.DeepEqual(got.StructuredInputKinds, []string{"raw_output", "artifact_blob"}) {
+		t.Fatalf("catalog=%#v", got)
+	}
+	if got.Limits.StructuredArtifactBlobBytes != 16<<20 || got.Limits.StructuredPinnedArtifactHandles != 4 || got.Limits.StructuredMaterializationQueueDepth != 4 || got.Limits.StructuredTerminalAcquireMS != 250 {
+		t.Fatalf("limits=%#v", got.Limits)
+	}
+	clone := got.Clone()
+	clone.StructuredSchemaVersions[0] = 99
+	clone.StructuredInputKinds[0] = "changed"
+	if got.StructuredSchemaVersions[0] != 1 || got.StructuredInputKinds[0] != "raw_output" {
+		t.Fatal("structured artifact capability clone aliased slices")
+	}
+	invalid := base.WithStructuredArtifactInputs(1, 1, 2, 1)
+	if len(invalid.StructuredInputKinds) != 0 || !reflect.DeepEqual(invalid.StructuredSchemaVersions, []int{1}) {
+		t.Fatalf("invalid=%#v", invalid)
+	}
+}

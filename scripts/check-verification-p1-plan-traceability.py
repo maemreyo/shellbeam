@@ -8,6 +8,11 @@ data=json.loads(TRACE.read_text())
 errors=[]
 def require(cond,msg):
     if not cond: errors.append(msg)
+def normalize_checkbox_state(text):
+    # Traceability anchors describe semantic plan steps, not their progress state.
+    return text.replace('- [x] ', '- [ ] ').replace('- [X] ', '- [ ] ')
+def anchor_in_section(anchor, section):
+    return normalize_checkbox_state(anchor) in normalize_checkbox_state(section)
 def check_entries(name, entries, expected_ids):
     ids=[e.get('id') for e in entries]
     require(len(ids)==len(set(ids)), f'{name}: duplicate ids')
@@ -26,7 +31,7 @@ def check_entries(name, entries, expected_ids):
         section=text[start:] if next_task < 0 else text[start:next_task]
         for field in ('step','test_or_contract'):
             value=e[field]
-            require(value in section, f"{e['id']}: {field} anchor not in mapped task section: {value}")
+            require(anchor_in_section(value, section), f"{e['id']}: {field} anchor not in mapped task section: {value}")
 check_entries('core_acceptance', data['core_acceptance'], [f'core-30-{i:02d}' for i in range(1,25)])
 check_entries('roadmap', data['roadmap'], ['P1','P1A','P1B','P1C'])
 # Roadmap PASS means each section has multiple task-scoped executable anchors,
@@ -43,7 +48,7 @@ for section in data['roadmap']:
         if start < 0: continue
         nxt=text.find('\n### Task ', start+len(task)); sec=text[start:] if nxt < 0 else text[start:nxt]
         for field in ('step','test_or_contract'):
-            require(e[field] in sec, f"roadmap {section['id']}#{idx}: {field} not in mapped task: {e[field]}")
+            require(anchor_in_section(e[field], sec), f"roadmap {section['id']}#{idx}: {field} not in mapped task: {e[field]}")
 check_entries('review_contracts', data['review_contracts'], [f'review-{i:02d}' for i in range(1,12)])
 check_entries('deferred', data['deferred'], [f'P{i}' for i in range(2,9)])
 plans='\n'.join((ROOT/p).read_text() for p in sorted({e['plan'] for group in ('core_acceptance','roadmap','review_contracts','deferred') for e in data[group]}))

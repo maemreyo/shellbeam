@@ -24,25 +24,29 @@ type Binder struct{ store InputStore }
 
 func NewInputBinder(store InputStore) *Binder { return &Binder{store: store} }
 
-func (b *Binder) BindTerminalOutput(ctx context.Context, rec receipt.Receipt) (core.RawOutputRef, error) {
+func (b *Binder) BindTerminalOutput(ctx context.Context, rec receipt.Receipt) (core.StructuredInputRef, error) {
 	if b == nil || b.store == nil || rec.Validate() != nil || !rec.State.Terminal() || rec.OutputBytes < 0 {
-		return core.RawOutputRef{}, fmt.Errorf("invalid terminal output binding")
+		return core.StructuredInputRef{}, fmt.Errorf("invalid terminal output binding")
 	}
 	digest, err := b.hashRange(ctx, operation.SessionID(rec.SessionID), rec.OutputBytes)
 	if err != nil {
-		return core.RawOutputRef{}, err
+		return core.StructuredInputRef{}, err
 	}
 	ref := core.RawOutputRef{SessionID: rec.SessionID, StartByte: 0, EndByte: rec.OutputBytes, SHA256: digest}
 	if err := ref.Validate(); err != nil {
-		return core.RawOutputRef{}, err
+		return core.StructuredInputRef{}, err
 	}
 	if err := b.store.PutRawOutputRef(ctx, ref); err != nil {
-		return core.RawOutputRef{}, err
+		return core.StructuredInputRef{}, err
 	}
-	return ref, nil
+	return core.RawInputRef(ref), nil
 }
 
-func (b *Binder) ReadOutputRange(ctx context.Context, ref core.RawOutputRef, offset int64, max int) ([]byte, error) {
+func (b *Binder) ReadInputRange(ctx context.Context, input core.StructuredInputRef, offset int64, max int) ([]byte, error) {
+	ref, ok := input.Raw()
+	if !ok {
+		return nil, errRawOutputMismatch
+	}
 	if b == nil || b.store == nil || ref.Validate() != nil || offset < 0 || max < 0 {
 		return nil, errRawOutputMismatch
 	}

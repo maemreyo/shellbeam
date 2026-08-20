@@ -11,15 +11,15 @@ type Service struct{ repository Repository }
 
 func New(repository Repository) *Service { return &Service{repository: repository} }
 
-func (s *Service) Begin(ctx context.Context, refs []core.RawOutputRef, producer core.Producer, schemaVersion int, configDigest string) (core.Derivation, error) {
+func (s *Service) Begin(ctx context.Context, refs []core.StructuredInputRef, producer core.Producer, schemaVersion int, configDigest string) (core.Derivation, error) {
 	if s == nil || s.repository == nil {
 		return core.Derivation{}, fmt.Errorf("structured repository unavailable")
 	}
-	key, err := core.DerivationKey(refs, producer, schemaVersion, configDigest)
+	key, err := core.DerivationKeyForInputs(refs, producer, schemaVersion, configDigest)
 	if err != nil {
 		return core.Derivation{}, err
 	}
-	derivation := core.Derivation{SchemaVersion: core.SchemaVersion, DerivationKey: key, SourceAuthorityRefs: append([]core.RawOutputRef(nil), refs...), Producer: producer, DerivationSchemaVersion: schemaVersion, DerivationConfigDigest: configDigest, Lifecycle: core.LifecyclePending, Completeness: core.CompletenessUnavailable}
+	derivation := core.Derivation{SchemaVersion: core.SchemaVersion, DerivationKey: key, SourceAuthorityRefs: append([]core.StructuredInputRef(nil), refs...), Producer: producer, DerivationSchemaVersion: schemaVersion, DerivationConfigDigest: configDigest, Lifecycle: core.LifecyclePending, Completeness: core.CompletenessUnavailable}
 	if err := s.repository.PutDerivation(ctx, derivation); err != nil {
 		return core.Derivation{}, err
 	}
@@ -31,6 +31,7 @@ func (s *Service) MarkProcessing(ctx context.Context, key string) (core.Derivati
 	if err != nil {
 		return core.Derivation{}, err
 	}
+	derivation.SchemaVersion = core.SchemaVersion
 	derivation.Lifecycle = core.LifecycleProcessing
 	derivation.ParseOutcome = ""
 	if err := s.repository.PutDerivation(ctx, derivation); err != nil {
@@ -40,6 +41,10 @@ func (s *Service) MarkProcessing(ctx context.Context, key string) (core.Derivati
 }
 
 func (s *Service) Complete(ctx context.Context, key string, outcome core.ParseOutcome, completeness core.Completeness, records []core.Record) (core.Derivation, error) {
+	return s.CompleteWithCoverage(ctx, key, outcome, completeness, records, nil)
+}
+
+func (s *Service) CompleteWithCoverage(ctx context.Context, key string, outcome core.ParseOutcome, completeness core.Completeness, records []core.Record, coverage *core.ProducerSemanticsCoverage) (core.Derivation, error) {
 	derivation, err := s.repository.GetDerivation(ctx, key)
 	if err != nil {
 		return core.Derivation{}, err
@@ -49,9 +54,18 @@ func (s *Service) Complete(ctx context.Context, key string, outcome core.ParseOu
 			return core.Derivation{}, err
 		}
 	}
+	derivation.SchemaVersion = core.SchemaVersion
 	derivation.Lifecycle = core.LifecycleTerminal
 	derivation.ParseOutcome = outcome
 	derivation.Completeness = completeness
+	if coverage != nil {
+		copy := *coverage
+		copy.MechanicallyObservable = append([]string(nil), coverage.MechanicallyObservable...)
+		copy.Unavailable = append([]string(nil), coverage.Unavailable...)
+		derivation.SemanticsCoverage = &copy
+	} else {
+		derivation.SemanticsCoverage = nil
+	}
 	if err := s.repository.PutDerivation(ctx, derivation); err != nil {
 		return core.Derivation{}, err
 	}

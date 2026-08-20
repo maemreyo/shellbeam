@@ -19,6 +19,7 @@ const (
 	workerCapabilityVersion       = 1
 	maxWorkerCount                = 16
 	maxWorkerQueueDepth           = 1024
+	maxArtifactRecoveryCandidates = 256
 )
 
 var (
@@ -41,16 +42,31 @@ type Worker struct {
 	limits     Limits
 	configHash string
 	jobs       chan workerJob
-	mu         sync.Mutex
+	queueMu    sync.RWMutex
 	closed     bool
+	mu         sync.Mutex
+	inflight   map[string]struct{}
 	closeOnce  sync.Once
 	wg         sync.WaitGroup
 	done       chan struct{}
 }
 
 type workerJob struct {
-	receipt receipt.Receipt
-	adapter string
+	receipt          *receipt.Receipt
+	input            *core.StructuredInputRef
+	captureAuthority *CaptureAuthorityRecord
+	adapter          string
+	operationID      string
+	outputComplete   bool
+}
+
+type ArtifactRecoveryCandidate struct {
+	Ref              core.ArtifactBlobRef
+	CaptureAuthority CaptureAuthorityRecord
+}
+
+type ArtifactRecoverySource interface {
+	ListArtifactRecoveryCandidates(context.Context, int) ([]ArtifactRecoveryCandidate, error)
 }
 
 func NewWorker(binder InputBinder, repository Repository, reader Reader, adapters []Adapter, options WorkerOptions) (*Worker, error) {
@@ -78,7 +94,11 @@ func NewWorker(binder InputBinder, repository Repository, reader Reader, adapter
 	if err != nil {
 		return nil, err
 	}
-	worker := &Worker{binder: binder, repository: repository, index: index, reader: reader, adapters: registry, limits: options.Limits, configHash: configHash, jobs: make(chan workerJob, options.QueueDepth), done: make(chan struct{})}
+	worker := &Worker{
+		binder: binder, repository: repository, index: index, reader: reader, adapters: registry,
+		limits: options.Limits, configHash: configHash, jobs: make(chan workerJob, options.QueueDepth),
+		inflight: map[string]struct{}{}, done: make(chan struct{}),
+	}
 	worker.wg.Add(options.MaxWorkers)
 	for range options.MaxWorkers {
 		go worker.run()
@@ -100,13 +120,88 @@ func (w *Worker) ScheduleTerminal(ctx context.Context, rec receipt.Receipt, adap
 	if _, ok := w.adapters[adapter]; !ok {
 		return fmt.Errorf("unsupported structured adapter")
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	copy := rec
+	return w.enqueue(workerJob{receipt: &copy, adapter: adapter, operationID: rec.OperationID, outputComplete: rec.OutputComplete})
+}
+
+func (w *Worker) ScheduleArtifact(ctx context.Context, ref core.ArtifactBlobRef, authority CaptureAuthorityRecord) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	job, err := w.artifactJob(ref, authority)
+	if err != nil {
+		return err
+	}
+	return w.enqueue(job)
+}
+
+func (w *Worker) artifactJob(ref core.ArtifactBlobRef, authority CaptureAuthorityRecord) (workerJob, error) {
+	if w == nil || ref.Validate() != nil || authority.Validate() != nil || authority.State != CaptureAuthorityPrepared {
+		return workerJob{}, fmt.Errorf("invalid structured artifact job")
+	}
+	intent := authority.Authority.Intent
+	blobID, err := ArtifactBlobID(intent)
+	if err != nil || blobID != ref.BlobID || ref.OperationID != intent.OperationID || ref.SessionID != intent.SessionID ||
+		ref.RepositoryID != intent.RepositoryID || ref.WorkspaceID != intent.WorkspaceID || ref.DeclaredPath != intent.DeclaredPathToken ||
+		ref.NormalizedWorkspacePath != intent.NormalizedWorkspacePath || intent.AdapterID == "" {
+		return workerJob{}, fmt.Errorf("structured artifact authority mismatch")
+	}
+	if _, ok := w.adapters[intent.AdapterID]; !ok {
+		return workerJob{}, fmt.Errorf("unsupported structured adapter")
+	}
+	input := core.ArtifactInputRef(ref)
+	copyAuthority := authority
+	return workerJob{input: &input, captureAuthority: &copyAuthority, adapter: intent.AdapterID, operationID: intent.OperationID, outputComplete: true}, nil
+}
+
+func (w *Worker) RecoverArtifacts(ctx context.Context, source ArtifactRecoverySource) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if w == nil || source == nil {
+		return fmt.Errorf("structured artifact recovery unavailable")
+	}
+	candidates, err := source.ListArtifactRecoveryCandidates(ctx, maxArtifactRecoveryCandidates)
+	if err != nil {
+		return err
+	}
+	if len(candidates) > maxArtifactRecoveryCandidates {
+		return fmt.Errorf("structured artifact recovery candidate limit exceeded")
+	}
+	for _, candidate := range candidates {
+		job, err := w.artifactJob(candidate.Ref, candidate.CaptureAuthority)
+		if err != nil {
+			return err
+		}
+		if err := w.enqueueRecovery(ctx, job); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *Worker) enqueueRecovery(ctx context.Context, job workerJob) error {
+	w.queueMu.RLock()
+	defer w.queueMu.RUnlock()
 	if w.closed {
 		return ErrWorkerClosed
 	}
 	select {
-	case w.jobs <- workerJob{receipt: rec, adapter: adapter}:
+	case w.jobs <- job:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (w *Worker) enqueue(job workerJob) error {
+	w.queueMu.RLock()
+	defer w.queueMu.RUnlock()
+	if w.closed {
+		return ErrWorkerClosed
+	}
+	select {
+	case w.jobs <- job:
 		return nil
 	default:
 		return ErrWorkerQueueFull
@@ -118,10 +213,10 @@ func (w *Worker) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	w.closeOnce.Do(func() {
-		w.mu.Lock()
+		w.queueMu.Lock()
 		w.closed = true
 		close(w.jobs)
-		w.mu.Unlock()
+		w.queueMu.Unlock()
 	})
 	select {
 	case <-w.done:
@@ -141,26 +236,48 @@ func (w *Worker) run() {
 func (w *Worker) process(job workerJob) {
 	ctx, cancel := context.WithTimeout(context.Background(), w.limits.MaxDuration)
 	defer cancel()
-	ref, err := w.binder.BindTerminalOutput(ctx, job.receipt)
-	if err != nil {
+	input := job.input
+	if input == nil {
+		if job.receipt == nil {
+			return
+		}
+		bound, err := w.binder.BindTerminalOutput(ctx, *job.receipt)
+		if err != nil {
+			return
+		}
+		input = &bound
+	}
+	w.processInput(ctx, *input, job.adapter, job.operationID, job.outputComplete)
+}
+
+func (w *Worker) processInput(ctx context.Context, input core.StructuredInputRef, adapterID, operationID string, outputComplete bool) {
+	adapter := w.adapters[adapterID]
+	if adapter == nil || input.Validate() != nil {
 		return
 	}
-	adapter := w.adapters[job.adapter]
 	producer := core.Producer{AdapterID: adapter.ID(), AdapterVersion: adapter.Version(), CapabilityVersion: workerCapabilityVersion}
-	key, err := core.DerivationKey([]core.RawOutputRef{ref}, producer, workerDerivationSchemaVersion, w.configHash)
-	if err != nil {
+	key, err := workerDerivationKey(input, producer, w.configHash)
+	if err != nil || !w.acquireInFlight(key) {
 		return
 	}
+	defer w.releaseInFlight(key)
+
 	service := New(w.repository)
-	derivation, err := service.Begin(ctx, []core.RawOutputRef{ref}, producer, workerDerivationSchemaVersion, w.configHash)
+	derivation, err := service.Begin(ctx, []core.StructuredInputRef{input}, producer, workerDerivationSchemaVersion, w.configHash)
 	if err != nil {
 		derivation, err = w.repository.GetDerivation(ctx, key)
 		if err != nil {
 			return
 		}
+	} else {
+		// PutDerivation is idempotent. Re-read so a replay sees the canonical
+		// lifecycle rather than the freshly constructed pending value.
+		if current, getErr := w.repository.GetDerivation(ctx, key); getErr == nil {
+			derivation = current
+		}
 	}
-	operationID, err := operation.ParseID(job.receipt.OperationID)
-	if err != nil || w.index.BindOperationDerivation(ctx, operationID, key) != nil {
+	opID, err := operation.ParseID(operationID)
+	if err != nil || w.index.BindOperationDerivation(ctx, opID, key) != nil {
 		return
 	}
 	if derivation.Lifecycle == core.LifecycleTerminal {
@@ -175,18 +292,53 @@ func (w *Worker) process(job workerJob) {
 	if derivation.Lifecycle != core.LifecycleProcessing {
 		return
 	}
-	result, err := adapter.Parse(ctx, ref, w.reader, w.limits)
+	parseReader := derivationContextReader{Reader: w.reader, derivationKey: key}
+	result, err := adapter.Parse(ctx, input, parseReader, w.limits)
 	if err != nil {
 		return
 	}
-	if !job.receipt.OutputComplete && result.Outcome == core.ParseComplete {
+	if !outputComplete && result.Outcome == core.ParseComplete {
 		result.Outcome = core.ParsePartial
 		result.Completeness = core.CompletenessPartial
 	}
 	if result.Outcome == "" || result.Completeness == "" {
 		return
 	}
-	_, _ = service.Complete(ctx, key, result.Outcome, result.Completeness, result.Records)
+	_, _ = service.CompleteWithCoverage(ctx, key, result.Outcome, result.Completeness, result.Records, result.SemanticsCoverage)
+}
+
+type derivationContextReader struct {
+	Reader
+	derivationKey string
+}
+
+func (r derivationContextReader) DescribeInput(ctx context.Context, input core.StructuredInputRef) (InputContext, error) {
+	description, err := r.Reader.DescribeInput(ctx, input)
+	if err != nil {
+		return InputContext{}, err
+	}
+	description.DerivationKey = r.derivationKey
+	return description, nil
+}
+
+func (w *Worker) acquireInFlight(key string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if _, exists := w.inflight[key]; exists {
+		return false
+	}
+	w.inflight[key] = struct{}{}
+	return true
+}
+
+func (w *Worker) releaseInFlight(key string) {
+	w.mu.Lock()
+	delete(w.inflight, key)
+	w.mu.Unlock()
+}
+
+func workerDerivationKey(input core.StructuredInputRef, producer core.Producer, configDigest string) (string, error) {
+	return core.DerivationKeyForInputs([]core.StructuredInputRef{input}, producer, workerDerivationSchemaVersion, configDigest)
 }
 
 func workerConfigDigest(limits Limits) (string, error) {

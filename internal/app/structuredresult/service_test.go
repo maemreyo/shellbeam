@@ -37,7 +37,7 @@ func TestStructuredServiceBuildsDeterministicMonotonicDerivation(t *testing.T) {
 	svc := New(repo)
 	ref := core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: 3, SHA256: strings.Repeat("a", 64)}
 	producer := core.Producer{AdapterID: "go-test-json", AdapterVersion: 1, CapabilityVersion: 1}
-	pending, err := svc.Begin(context.Background(), []core.RawOutputRef{ref}, producer, 1, strings.Repeat("b", 64))
+	pending, err := svc.Begin(context.Background(), []core.StructuredInputRef{core.RawInputRef(ref)}, producer, 1, strings.Repeat("b", 64))
 	if err != nil || pending.Lifecycle != core.LifecyclePending {
 		t.Fatalf("pending=%#v err=%v", pending, err)
 	}
@@ -49,7 +49,7 @@ func TestStructuredServiceBuildsDeterministicMonotonicDerivation(t *testing.T) {
 	if err != nil || terminal.Lifecycle != core.LifecycleTerminal || terminal.ParseOutcome != core.ParseComplete {
 		t.Fatalf("terminal=%#v err=%v", terminal, err)
 	}
-	changed, err := svc.Begin(context.Background(), []core.RawOutputRef{ref}, core.Producer{AdapterID: "go-test-json", AdapterVersion: 2, CapabilityVersion: 1}, 1, strings.Repeat("b", 64))
+	changed, err := svc.Begin(context.Background(), []core.StructuredInputRef{core.RawInputRef(ref)}, core.Producer{AdapterID: "go-test-json", AdapterVersion: 2, CapabilityVersion: 1}, 1, strings.Repeat("b", 64))
 	if err != nil || changed.DerivationKey == pending.DerivationKey {
 		t.Fatalf("producer version reused key changed=%#v err=%v", changed, err)
 	}

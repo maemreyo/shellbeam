@@ -14,6 +14,12 @@ import (
 )
 
 func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation string) error {
+	// Structured recovery owns blob retirement barriers and claim/ref handoff.
+	// Run it before ordinary session reconciliation so bulk-session repair/GC
+	// never races ahead of recoverable structured authority.
+	if err := r.RecoverStructuredArtifacts(ctx); err != nil {
+		return err
+	}
 	if result := r.reconcileMutationScopePending(ctx); result.Err != nil {
 		return result.Err
 	}

@@ -26,15 +26,17 @@ const adapterCapabilityVersion = 1
 type boundedRangeReader struct {
 	ctx      context.Context
 	reader   app.Reader
-	ref      core.RawOutputRef
+	ref      core.StructuredInputRef
+	raw      core.RawOutputRef
 	limits   app.Limits
 	offset   int64
 	read     int64
 	deadline time.Time
 }
 
-func newBoundedRangeReader(ctx context.Context, reader app.Reader, ref core.RawOutputRef, limits app.Limits) *boundedRangeReader {
-	return &boundedRangeReader{ctx: ctx, reader: reader, ref: ref, limits: limits, deadline: time.Now().Add(limits.MaxDuration)}
+func newBoundedRangeReader(ctx context.Context, reader app.Reader, ref core.StructuredInputRef, limits app.Limits) *boundedRangeReader {
+	raw, _ := ref.Raw()
+	return &boundedRangeReader{ctx: ctx, reader: reader, ref: ref, raw: raw, limits: limits, deadline: time.Now().Add(limits.MaxDuration)}
 }
 
 func (r *boundedRangeReader) Read(p []byte) (int, error) {
@@ -44,7 +46,7 @@ func (r *boundedRangeReader) Read(p []byte) (int, error) {
 	if time.Now().After(r.deadline) {
 		return 0, errParseBudget
 	}
-	length := r.ref.EndByte - r.ref.StartByte
+	length := r.raw.EndByte - r.raw.StartByte
 	if r.offset >= length {
 		return 0, io.EOF
 	}
@@ -56,7 +58,7 @@ func (r *boundedRangeReader) Read(p []byte) (int, error) {
 	if want <= 0 {
 		return 0, errParseBudget
 	}
-	data, err := r.reader.ReadOutputRange(r.ctx, r.ref, r.offset, int(want))
+	data, err := r.reader.ReadInputRange(r.ctx, r.ref, r.offset, int(want))
 	if err != nil {
 		return 0, err
 	}
@@ -72,8 +74,12 @@ func (r *boundedRangeReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
-func parserContext(ctx context.Context, reader app.Reader, ref core.RawOutputRef, limits app.Limits) (app.InputContext, error) {
-	if err := ref.Validate(); err != nil {
+func parserContext(ctx context.Context, reader app.Reader, ref core.StructuredInputRef, limits app.Limits) (app.InputContext, error) {
+	raw, ok := ref.Raw()
+	if !ok {
+		return app.InputContext{}, fmt.Errorf("go structured adapter requires raw output")
+	}
+	if err := raw.Validate(); err != nil {
 		return app.InputContext{}, err
 	}
 	if reader == nil || limits.Validate() != nil {

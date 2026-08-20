@@ -2,6 +2,7 @@ package structuredresult
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -115,11 +116,48 @@ func inspectDerivation(l core.Lifecycle, o core.ParseOutcome, c core.Completenes
 	ref := core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: 1, SHA256: strings.Repeat("a", 64)}
 	producer := core.Producer{AdapterID: "go-test-json", AdapterVersion: 1, CapabilityVersion: 1}
 	key, _ := core.DerivationKey([]core.RawOutputRef{ref}, producer, 1, strings.Repeat("b", 64))
-	return core.Derivation{SchemaVersion: 1, DerivationKey: key, SourceAuthorityRefs: []core.RawOutputRef{ref}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("b", 64), Lifecycle: l, ParseOutcome: o, Completeness: c}
+	return core.Derivation{SchemaVersion: core.SchemaVersionV1, DerivationKey: key, SourceAuthorityRefs: []core.StructuredInputRef{core.RawInputRef(ref)}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("b", 64), Lifecycle: l, ParseOutcome: o, Completeness: c}
 }
 func diagnosticRecord(d core.Derivation, severity, path, code string) core.Record {
-	return core.Record{SchemaVersion: 1, RecordKind: core.RecordDiagnostic, Authority: core.AuthorityMechanical, DerivationMethod: core.DerivationNativeFieldMapping, Producer: d.Producer, OperationID: "op-1", SourceRef: d.SourceAuthorityRefs[0], Diagnostic: &core.Diagnostic{Severity: core.Severity(severity), Code: code, Message: "message", Location: source.SourceLocation{Kind: source.LocationProviderReported, ProviderReported: &source.ProviderReportedLocation{Origin: source.OriginRepository, SanitizedLogicalPath: path, Line: 1, Column: 1, NormalizationQuality: source.NormalizationPartial}}}}
+	return core.Record{SchemaVersion: core.SchemaVersionV1, RecordKind: core.RecordDiagnostic, Authority: core.AuthorityMechanical, DerivationMethod: core.DerivationNativeFieldMapping, Producer: d.Producer, OperationID: "op-1", SourceRef: d.SourceAuthorityRefs[0], Diagnostic: &core.Diagnostic{Severity: core.Severity(severity), Code: code, Message: "message", Location: source.SourceLocation{Kind: source.LocationProviderReported, ProviderReported: &source.ProviderReportedLocation{Origin: source.OriginRepository, SanitizedLogicalPath: path, Line: 1, Column: 1, NormalizationQuality: source.NormalizationPartial}}}}
 }
 func testRecord(d core.Derivation, name string, status core.TestStatus) core.Record {
-	return core.Record{SchemaVersion: 1, RecordKind: core.RecordTestCase, Authority: core.AuthorityMechanical, DerivationMethod: core.DerivationNativeFieldMapping, Producer: d.Producer, OperationID: "op-1", SourceRef: d.SourceAuthorityRefs[0], TestCase: &core.TestCase{Name: name, Package: "example", Status: status}}
+	return core.Record{SchemaVersion: core.SchemaVersionV1, RecordKind: core.RecordTestCase, Authority: core.AuthorityMechanical, DerivationMethod: core.DerivationNativeFieldMapping, Producer: d.Producer, OperationID: "op-1", SourceRef: d.SourceAuthorityRefs[0], TestCase: &core.TestCase{Name: name, Package: "example", Status: status}}
+}
+
+type artifactInspectRepository struct {
+	*inspectRepoFake
+	state InputSourceState
+}
+
+func (r *artifactInspectRepository) ResolveArtifactInputState(context.Context, core.ArtifactBlobRef) (InputSourceState, error) {
+	return r.state, nil
+}
+
+func TestInspectArtifactReportsSourceStateAndSemanticsCoverageWithoutPrivatePath(t *testing.T) {
+	ref := core.ArtifactBlobRef{SchemaVersion: core.ArtifactBlobSchemaVersion, BlobID: "abl_" + strings.Repeat("a", 64), OperationID: "inspect-artifact-op", SessionID: "inspect-artifact-session", RepositoryID: "repo_01M09A27JCSE71BXSP477EKN34", WorkspaceID: "ws_01M0CJB0KMBXWM7C7YDFYHBT2Q", DeclaredPath: "reports/junit.xml", NormalizedWorkspacePath: "reports/junit.xml", SHA256: strings.Repeat("b", 64), Size: 12, TerminalCut: core.TerminalCutV1{SchemaVersion: core.TerminalCutSchemaVersion, ReceiptSchemaVersion: 2, ReceiptDigest: strings.Repeat("c", 64)}, ObservationCut: core.ObservationCutV1{SchemaVersion: core.ObservationCutSchemaVersion, Digest: strings.Repeat("d", 64)}}
+	producer := core.Producer{AdapterID: "pytest-junit-xml", AdapterVersion: 1, CapabilityVersion: 1}
+	key, err := core.DerivationKeyForInputs([]core.StructuredInputRef{core.ArtifactInputRef(ref)}, producer, 1, strings.Repeat("e", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage := &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}
+	d := core.Derivation{SchemaVersion: core.SchemaVersion, DerivationKey: key, SourceAuthorityRefs: []core.StructuredInputRef{core.ArtifactInputRef(ref)}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("e", 64), Lifecycle: core.LifecycleTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, SemanticsCoverage: coverage}
+	base := &inspectRepoFake{derivation: d, found: true, summary: RecordSummary{}, summaryFound: true}
+	inspector := newInspectService(t, &artifactInspectRepository{inspectRepoFake: base, state: InputSourceRetained})
+	got, err := inspector.Inspect(context.Background(), InspectRequest{OperationID: "inspect-artifact-op", MaxRecords: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceKind != core.StructuredInputArtifactBlob || got.SourceState != InputSourceRetained || got.SemanticsCoverage == nil || got.SemanticsCoverage.Family != "xunit2" {
+		t.Fatalf("inspect=%#v", got)
+	}
+	encoded, _ := json.Marshal(got)
+	if strings.Contains(string(encoded), "/private/") || strings.Contains(string(encoded), "content") {
+		t.Fatalf("private blob data leaked: %s", encoded)
+	}
+	got.SemanticsCoverage.Unavailable[0] = "changed"
+	if coverage.Unavailable[0] != "pytest:xpass_exact" {
+		t.Fatal("inspect coverage aliases derivation")
+	}
 }

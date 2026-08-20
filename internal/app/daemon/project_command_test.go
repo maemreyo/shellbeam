@@ -229,6 +229,54 @@ func TestProjectCommandAdmittedRetryBypassesBinderAndPreservesFrozenBinding(t *t
 	}
 }
 
+func TestProjectCommandPytestReplayPreservesCaptureDigestBinding(t *testing.T) {
+	sequence := &typedSequence{}
+	store := newTypedRecordingStore(t, sequence)
+	binding := daemonProjectBinding(t, []string{"pytest", "test_example.py", "--junitxml=reports/junit.xml", "-o", "junit_family=xunit2", "-o", "addopts="})
+	binder := &typedBinder{sequence: sequence, binding: binding}
+	owner := &typedOrderOwner{sequence: sequence}
+	digest := strings.Repeat("c", 64)
+	preparer := &pytestCapturePreparerStub{prepare: app.StructuredCapturePreparation{AdapterID: "pytest-junit-xml", CaptureDigest: digest, Owned: true}}
+	svc := app.NewService(store, owner, app.Options{
+		Incarnation: "typed-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 100,
+		ProjectCommandBinder: binder, StructuredCapturePreparer: preparer,
+	})
+	req := typedStartRequest("typed-pytest-replay", "./internal/app")
+	req.StructuredAdapter = "pytest-junit-xml"
+	first, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForTerminal(t, svc, first.SessionID)
+	stored, err := store.LoadOperation(context.Background(), operation.ID(req.OperationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.StructuredCaptureDigest != digest {
+		t.Fatalf("stored capture digest=%q want=%q", stored.StructuredCaptureDigest, digest)
+	}
+	wantObservation, err := (operation.ObservationBinding{StructuredAdapter: "pytest-junit-xml", StructuredCaptureDigest: digest}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ObservationBindingFingerprint != wantObservation {
+		t.Fatalf("stored observation fingerprint=%q want digest-bound=%q", stored.ObservationBindingFingerprint, wantObservation)
+	}
+
+	binder.setFailure(errors.New("binder must not run on admitted pytest replay"))
+	sequence.reset()
+	replayed, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.SessionID != first.SessionID || binder.callCount() != 1 || owner.starts.Load() != 1 || preparer.calls.Load() != 1 {
+		t.Fatalf("replay=%#v first=%#v binds=%d starts=%d prepares=%d", replayed, first, binder.callCount(), owner.starts.Load(), preparer.calls.Load())
+	}
+	if got := sequence.snapshot(); !reflect.DeepEqual(got, []string{"find_operation"}) {
+		t.Fatalf("pytest replay touched current binding state: %v", got)
+	}
+}
+
 func TestProjectCommandConflictingCallerFingerprintFailsBeforeClaimOrBinder(t *testing.T) {
 	sequence := &typedSequence{}
 	store := newTypedRecordingStore(t, sequence)

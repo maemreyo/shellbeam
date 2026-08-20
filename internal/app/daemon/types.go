@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
@@ -18,54 +19,84 @@ type Options struct {
 	// DefaultTimeoutMS bounds an ordinary command whose caller named no
 	// timeout. Zero leaves such commands unbounded, which is the behaviour that
 	// let stuck sessions hold capacity indefinitely.
-	DefaultTimeoutMS     int64
-	MaxTimeoutMS         int64
-	Incarnation          string
-	Shell                string
-	MaxQueuedInputBytes  int
-	TerminationGrace     time.Duration
-	Capabilities         capability.Catalog
-	StructuredWorker     StructuredWorker
-	TelemetryWorker      TelemetryWorker
-	EvidenceWorker       EvidenceWorker
-	ProjectCommandBinder ProjectCommandBinder
-	PersistentRuntime    PersistentRuntime
-	MediaReader          MediaReader
-	MediaReadBudget      time.Duration
-	InputTracePreparer   traceapp.Preparer
-	InputTraceWorker     InputTraceWorker
-	HermeticRuntime      HermeticRuntime
+	DefaultTimeoutMS          int64
+	MaxTimeoutMS              int64
+	Incarnation               string
+	Shell                     string
+	MaxQueuedInputBytes       int
+	TerminationGrace          time.Duration
+	Capabilities              capability.Catalog
+	StructuredWorker          StructuredWorker
+	StructuredCapturePreparer StructuredCapturePreparer
+	StructuredCaptureTerminal StructuredCaptureTerminal
+	TelemetryWorker           TelemetryWorker
+	EvidenceWorker            EvidenceWorker
+	ProjectCommandBinder      ProjectCommandBinder
+	PersistentRuntime         PersistentRuntime
+	MediaReader               MediaReader
+	MediaReadBudget           time.Duration
+	InputTracePreparer        traceapp.Preparer
+	InputTraceWorker          InputTraceWorker
+	HermeticRuntime           HermeticRuntime
 }
 type StartRequest struct {
-	ProtocolVersion   int                       `json:"-"`
-	OperationID       string                    `json:"operation_id"`
-	ActivityID        string                    `json:"activity_id,omitempty"`
-	WorkspaceID       string                    `json:"workspace_id,omitempty"`
-	WorkspaceHint     *workspace.Hint           `json:"workspace_hint,omitempty"`
-	Command           string                    `json:"command,omitempty"`
-	Argv              []string                  `json:"argv,omitempty"`
-	Intent            *operation.DeclaredIntent `json:"intent,omitempty"`
-	CWD               string                    `json:"cwd"`
-	TTY               bool                      `json:"tty"`
-	TimeoutMS         int64                     `json:"timeout_ms"`
-	StdinMode         operation.StdinMode       `json:"stdin_mode,omitempty"`
-	TimeoutMode       operation.TimeoutMode     `json:"timeout_mode,omitempty"`
-	TraceMode         trace.Mode                `json:"trace_mode,omitempty"`
-	ResourceLimits    *operation.ResourceLimits `json:"limits,omitempty"`
-	Hermetic          *hermeticcore.Request     `json:"hermetic,omitempty"`
-	Persistent        bool                      `json:"persistent,omitempty"`
-	SessionName       string                    `json:"session_name,omitempty"`
-	YieldMS           int64                     `json:"yield_time_ms"`
-	MaxOutputBytes    int                       `json:"max_output_bytes"`
-	StructuredAdapter string                    `json:"structured_adapter,omitempty"`
-	Evidence          *evidence.Contract        `json:"evidence,omitempty"`
-	ProjectCommandID  string                    `json:"project_command_id,omitempty"`
-	Params            map[string]string         `json:"params,omitempty"`
+	ProtocolVersion     int                                 `json:"-"`
+	OperationID         string                              `json:"operation_id"`
+	ActivityID          string                              `json:"activity_id,omitempty"`
+	WorkspaceID         string                              `json:"workspace_id,omitempty"`
+	WorkspaceHint       *workspace.Hint                     `json:"workspace_hint,omitempty"`
+	Command             string                              `json:"command,omitempty"`
+	Argv                []string                            `json:"argv,omitempty"`
+	Intent              *operation.DeclaredIntent           `json:"intent,omitempty"`
+	CWD                 string                              `json:"cwd"`
+	TTY                 bool                                `json:"tty"`
+	TimeoutMS           int64                               `json:"timeout_ms"`
+	StdinMode           operation.StdinMode                 `json:"stdin_mode,omitempty"`
+	TimeoutMode         operation.TimeoutMode               `json:"timeout_mode,omitempty"`
+	TraceMode           trace.Mode                          `json:"trace_mode,omitempty"`
+	ResourceLimits      *operation.ResourceLimits           `json:"limits,omitempty"`
+	Hermetic            *hermeticcore.Request               `json:"hermetic,omitempty"`
+	Persistent          bool                                `json:"persistent,omitempty"`
+	SessionName         string                              `json:"session_name,omitempty"`
+	YieldMS             int64                               `json:"yield_time_ms"`
+	MaxOutputBytes      int                                 `json:"max_output_bytes"`
+	StructuredAdapter   string                              `json:"structured_adapter,omitempty"`
+	Evidence            *evidence.Contract                  `json:"evidence,omitempty"`
+	VerificationAttempt *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
+	ProjectCommandID    string                              `json:"project_command_id,omitempty"`
+	Params              map[string]string                   `json:"params,omitempty"`
 }
 
 type StructuredWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to parser execution.
 	ScheduleTerminal(context.Context, receipt.Receipt, string) error
+}
+
+type StructuredCapturePrepareRequest struct {
+	OperationID       operation.ID
+	SessionID         operation.SessionID
+	WorkspaceID       string
+	StructuredAdapter string
+	Argv              []string
+	CWD               string
+	ExecutionMode     operation.ExecutionMode
+	Executable        string
+}
+
+type StructuredCapturePreparation struct {
+	AdapterID     string
+	CaptureDigest string
+	Owned         bool
+}
+
+type StructuredCapturePreparer interface {
+	PrepareStructuredCapture(context.Context, StructuredCapturePrepareRequest) (StructuredCapturePreparation, error)
+	AbortStructuredCapture(context.Context, operation.ID, operation.SessionID) error
+}
+
+type StructuredCaptureTerminal interface {
+	AcquireTerminal(context.Context, operation.Reservation) structuredapp.TerminalCaptureResult
+	ScheduleTerminal(context.Context, receipt.Receipt, structuredapp.TerminalCaptureResult) error
 }
 type TelemetryWorker interface {
 	// ScheduleTerminal must be bounded and non-blocking with respect to telemetry derivation.

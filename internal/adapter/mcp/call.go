@@ -105,6 +105,12 @@ func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
 		if failed != nil {
 			return failed
 		}
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		var failed *mcpgo.CallToolResult
+		summary, failed = verificationSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
+		}
 	case "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.code", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.events", "inspect.server", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
 		var failed *mcpgo.CallToolResult
 		summary, failed = inspectionSuccessV2(action, out, body)
