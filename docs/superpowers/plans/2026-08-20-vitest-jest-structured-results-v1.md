@@ -90,6 +90,8 @@ Task 3 generalizes it additively and amends the spec text in the same commit. Th
 - Modify: `internal/adapter/verification/evidence_source.go`, `evidence_source_test.go`
 - Modify: `internal/core/capability/catalog.go`, `catalog_test.go`
 - Modify: `cmd/shellbeam/execution_observation_test.go`
+- Modify: `api/schema/ipc-v2.json`, `api/schema/mcp-output-v2.json`, `api/schema/structured_inspect_test.go`
+- Modify: `internal/adapter/ipc/structured_inspect_test.go`, `internal/adapter/mcp/structured_inspect_test.go`
 
 **Interfaces:**
 
@@ -119,7 +121,7 @@ Derivation persistence gains an explicit schema-v3 branch while records remain o
 
 - [ ] **Step 1: Write RED core validation tests**
 
-Cover: closed reason values; reason only on terminal partial derivations; `pass_records_elided` and `zero_match` require `CompletenessPartial`; observed counts only on terminal derivations; vocabulary version 1; safe bounded namespace; every count non-negative and <= `maxObservedEntries=65536`; `Pass+Fail+Skip+Error == Entries`; and **no** `Files <= Entries` invariant. Include a valid fixture with `Files=2, Entries=1` to pin the Jest module-error case.
+Cover: closed reason values; reason only on terminal partial derivations; `pass_records_elided` and `zero_match` require `ParsePartial` and `CompletenessPartial` before compaction, while `CompletenessCompacted` preserves the terminal reason afterward; observed counts only on terminal derivations; vocabulary version 1; safe bounded namespace; every count non-negative and <= `maxObservedEntries=65536`; `Pass+Fail+Skip+Error == Entries`; and **no** `Files <= Entries` invariant. Include a valid fixture with `Files=2, Entries=1` to pin the Jest module-error case.
 
 Run: `go test ./internal/core/structuredresult -run 'ObservedEntr|CompletenessReason|DerivationV3' -count=1`
 Expected: FAIL because the types/fields do not exist.
@@ -146,19 +148,19 @@ Use one terminal metadata-bearing completion path; preserve compatibility wrappe
 
 - [ ] **Step 7: Write RED P1 bridge and capability tests**
 
-`StructuredEvidenceDetail` receives `ParseOutcome`, `CompletenessReason`, and `ObservedEntries` additively and excludes them from compatibility identity exactly like the existing detail envelope. `EvidenceSource.bindStructuredDetail` copies them without changing the literal evidence result or sufficiency outcome. Capability advertises `[1,2,3]`.
+`StructuredEvidenceDetail` receives `ParseOutcome`, `CompletenessReason`, and `ObservedEntries` additively and excludes them from compatibility identity exactly like the existing detail envelope. `EvidenceSource.bindStructuredDetail` copies them without changing the literal evidence result or sufficiency outcome. Capability advertises `[1,2,3]`. The closed IPC/MCP `structured_inspection` schemas add `completeness_reason` and `observed_entries` additively; both transports prove those fields survive serialization without widening `additionalProperties`.
 
 - [ ] **Step 8: Implement bridge/capability and run focused regression**
 
 ```bash
-go test ./internal/core/structuredresult ./internal/app/structuredresult ./internal/adapter/store ./internal/core/verification ./internal/adapter/verification ./internal/core/capability ./cmd/shellbeam -run 'Structured|ObservedEntr|CompletenessReason|Derivation|Evidence|Capability' -count=1
+go test ./internal/core/structuredresult ./internal/app/structuredresult ./internal/adapter/store ./internal/core/verification ./internal/adapter/verification ./internal/core/capability ./api/schema ./internal/adapter/ipc ./internal/adapter/mcp ./cmd/shellbeam -run 'Structured|ObservedEntr|CompletenessReason|Derivation|Evidence|Capability' -count=1
 go run ./tools/devctl test --dirty --base main --json
 ```
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add internal/core/structuredresult internal/app/structuredresult internal/adapter/store internal/core/verification internal/adapter/verification internal/core/capability cmd/shellbeam
+git add internal/core/structuredresult internal/app/structuredresult internal/adapter/store internal/core/verification internal/adapter/verification internal/core/capability internal/adapter/ipc internal/adapter/mcp api/schema cmd/shellbeam docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "feat: persist structured terminal metadata"
 ```

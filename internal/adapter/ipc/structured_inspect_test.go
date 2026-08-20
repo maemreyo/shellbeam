@@ -27,7 +27,7 @@ func (a *structuredInspectActions) Start(ctx context.Context, req daemonapp.Star
 }
 func (a *structuredInspectActions) InspectStructured(_ context.Context, req structuredapp.InspectRequest) (structuredapp.InspectResult, error) {
 	a.last = req
-	return structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}, nil
+	return structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParsePartial, Completeness: core.CompletenessPartial, CompletenessReason: core.CompletenessReasonPassRecordsElided, ObservedEntries: &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}, nil
 }
 
 func TestStructuredInspectIPCV2ForwardsClosedFiltersWithoutSpawn(t *testing.T) {
@@ -50,7 +50,7 @@ func TestStructuredInspectIPCV2ForwardsClosedFiltersWithoutSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.OK || got.Structured == nil || got.Structured.Status != structuredapp.InspectTerminal || got.Structured.SourceKind != core.StructuredInputArtifactBlob || got.Structured.SourceState != structuredapp.InputSourceRetained || got.Structured.SemanticsCoverage == nil || got.Structured.SemanticsCoverage.Family != "xunit2" || actions.startCalls != 0 {
+	if !got.OK || got.Structured == nil || got.Structured.Status != structuredapp.InspectTerminal || got.Structured.SourceKind != core.StructuredInputArtifactBlob || got.Structured.SourceState != structuredapp.InputSourceRetained || got.Structured.SemanticsCoverage == nil || got.Structured.SemanticsCoverage.Family != "xunit2" || got.Structured.CompletenessReason != core.CompletenessReasonPassRecordsElided || got.Structured.ObservedEntries == nil || got.Structured.ObservedEntries.Fail != 1 || actions.startCalls != 0 {
 		t.Fatalf("response=%#v starts=%d", got, actions.startCalls)
 	}
 	if actions.last.OperationID != "op-1" || actions.last.Filter.RecordKind != core.RecordDiagnostic || actions.last.Filter.Path != "internal/a.go" || actions.last.MaxRecords != 10 {

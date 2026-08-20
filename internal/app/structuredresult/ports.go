@@ -81,11 +81,13 @@ type ParseSummary struct {
 }
 
 type ParseResult struct {
-	Records           []core.Record
-	Outcome           core.ParseOutcome
-	Completeness      core.Completeness
-	Summary           ParseSummary
-	SemanticsCoverage *core.ProducerSemanticsCoverage
+	Records            []core.Record
+	Outcome            core.ParseOutcome
+	Completeness       core.Completeness
+	CompletenessReason core.CompletenessReason
+	ObservedEntries    *core.ObservedEntryCounts
+	Summary            ParseSummary
+	SemanticsCoverage  *core.ProducerSemanticsCoverage
 }
 
 type Adapter interface {

@@ -65,8 +65,8 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if next.SchemaVersion != core.SchemaVersion {
-		return fmt.Errorf("structured_derivation_write_requires_v2")
+	if next.SchemaVersion != core.SchemaVersion && next.SchemaVersion != core.DerivationSchemaVersionV3 {
+		return fmt.Errorf("structured_derivation_write_requires_supported_schema")
 	}
 	if err := validateStructuredDerivation(next); err != nil {
 		return err

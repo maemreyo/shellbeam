@@ -161,3 +161,26 @@ func TestInspectArtifactReportsSourceStateAndSemanticsCoverageWithoutPrivatePath
 		t.Fatal("inspect coverage aliases derivation")
 	}
 }
+
+func TestInspectReportsTerminalReasonAndObservedEntriesDefensively(t *testing.T) {
+	ref := core.RawOutputRef{SessionID: "inspect-v3-session", StartByte: 0, EndByte: 3, SHA256: strings.Repeat("7", 64)}
+	producer := core.Producer{AdapterID: "jest-json", AdapterVersion: 1, CapabilityVersion: 1}
+	key, err := core.DerivationKeyForInputs([]core.StructuredInputRef{core.RawInputRef(ref)}, producer, 1, strings.Repeat("8", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}
+	d := core.Derivation{SchemaVersion: core.DerivationSchemaVersionV3, DerivationKey: key, SourceAuthorityRefs: []core.StructuredInputRef{core.RawInputRef(ref)}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("8", 64), Lifecycle: core.LifecycleTerminal, ParseOutcome: core.ParsePartial, Completeness: core.CompletenessPartial, CompletenessReason: core.CompletenessReasonPassRecordsElided, ObservedEntries: counts}
+	inspector := newInspectService(t, &inspectRepoFake{derivation: d, found: true, summary: RecordSummary{}, summaryFound: true})
+	got, err := inspector.Inspect(context.Background(), InspectRequest{OperationID: "inspect-v3-op", MaxRecords: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CompletenessReason != core.CompletenessReasonPassRecordsElided || got.ObservedEntries == nil || *got.ObservedEntries != *counts {
+		t.Fatalf("inspect metadata=%#v", got)
+	}
+	got.ObservedEntries.Fail = 0
+	if counts.Fail != 1 {
+		t.Fatal("inspect observed counts alias derivation")
+	}
+}

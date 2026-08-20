@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -214,5 +215,100 @@ func TestStructuredLegacyStrictDerivationDecodeFailsClosed(t *testing.T) {
 	unknown := []byte(strings.Replace(string(valid), `"schema_version":1`, `"schema_version":99`, 1))
 	if _, err := decodeStructuredDerivation(unknown); err == nil {
 		t.Fatal("unknown structured derivation schema accepted")
+	}
+}
+
+func TestStructuredV2DerivationReadPreservesPersistedBytes(t *testing.T) {
+	r := openStructuredRepository(t)
+	raw := core.RawOutputRef{SessionID: "v2-persisted", StartByte: 1, EndByte: 5, SHA256: strings.Repeat("3", 64)}
+	producer := core.Producer{AdapterID: "pytest-junit-xml", AdapterVersion: 1, CapabilityVersion: 1}
+	config := strings.Repeat("4", 64)
+	key, err := core.DerivationKeyForInputs([]core.StructuredInputRef{core.RawInputRef(raw)}, producer, 1, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	literal := fmt.Sprintf(`{"schema_version":2,"derivation_key":%q,"source_authority_refs":[{"kind":"raw_output","raw_output":{"session_id":%q,"start_byte":1,"end_byte":5,"sha256":%q}}],"producer":{"adapter_id":"pytest-junit-xml","adapter_version":1,"capability_version":1},"derivation_schema_version":1,"derivation_config_digest":%q,"lifecycle":"processing","completeness":"unavailable"}`+"\n", key, raw.SessionID, raw.SHA256, config)
+	if err := os.WriteFile(r.derivationPath(key), []byte(literal), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(r.derivationPath(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.GetDerivation(context.Background(), key)
+	if err != nil || got.SchemaVersion != core.SchemaVersion || got.Lifecycle != core.LifecycleProcessing {
+		t.Fatalf("v2 derivation=%#v err=%v", got, err)
+	}
+	after, err := os.ReadFile(r.derivationPath(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("reading v2 derivation rewrote persisted bytes")
+	}
+}
+
+func TestStructuredDerivationV3StrictDecode(t *testing.T) {
+	d := structuredDerivation(t, 1, core.LifecycleTerminal, core.ParsePartial, core.CompletenessPartial)
+	d.SchemaVersion = core.DerivationSchemaVersionV3
+	d.Producer.AdapterID = "jest-json"
+	d.DerivationKey, _ = core.DerivationKeyForInputs(d.SourceAuthorityRefs, d.Producer, d.DerivationSchemaVersion, d.DerivationConfigDigest)
+	d.CompletenessReason = core.CompletenessReasonPassRecordsElided
+	d.ObservedEntries = &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Fail: 1, Pass: 1}
+	raw, err := json.Marshal(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeStructuredDerivation(raw)
+	if err != nil {
+		t.Fatalf("v3 derivation decode: %v", err)
+	}
+	if got.SchemaVersion != core.DerivationSchemaVersionV3 || got.CompletenessReason != d.CompletenessReason || got.ObservedEntries == nil || *got.ObservedEntries != *d.ObservedEntries {
+		t.Fatalf("v3 decode=%#v", got)
+	}
+	withUnknown := append([]byte(nil), raw[:len(raw)-1]...)
+	withUnknown = append(withUnknown, []byte(`,"future":true}`)...)
+	if _, err := decodeStructuredDerivation(withUnknown); err == nil {
+		t.Fatal("v3 unknown derivation member accepted")
+	}
+}
+
+func TestStructuredV2ProcessingTransitionsToV3TerminalAndCompactionPreservesMetadata(t *testing.T) {
+	r := openStructuredRepository(t)
+	pending := structuredDerivation(t, 1, core.LifecyclePending, "", core.CompletenessUnavailable)
+	processing := pending
+	processing.Lifecycle = core.LifecycleProcessing
+	if err := r.PutDerivation(context.Background(), pending); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.PutDerivation(context.Background(), processing); err != nil {
+		t.Fatal(err)
+	}
+	terminal := processing
+	terminal.SchemaVersion = core.DerivationSchemaVersionV3
+	terminal.Lifecycle = core.LifecycleTerminal
+	terminal.ParseOutcome = core.ParsePartial
+	terminal.Completeness = core.CompletenessPartial
+	terminal.CompletenessReason = core.CompletenessReasonPassRecordsElided
+	terminal.ObservedEntries = &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}
+	if err := r.PutDerivation(context.Background(), terminal); err != nil {
+		t.Fatalf("v2 processing -> v3 terminal: %v", err)
+	}
+	if err := r.PutDerivation(context.Background(), terminal); err != nil {
+		t.Fatalf("v3 terminal replay: %v", err)
+	}
+	stored, err := r.GetDerivation(context.Background(), terminal.DerivationKey)
+	if err != nil || stored.SchemaVersion != core.DerivationSchemaVersionV3 || stored.CompletenessReason != terminal.CompletenessReason || stored.ObservedEntries == nil || *stored.ObservedEntries != *terminal.ObservedEntries {
+		t.Fatalf("stored v3 terminal=%#v err=%v", stored, err)
+	}
+	if err := r.CompactDerivationDetail(context.Background(), terminal.DerivationKey); err != nil {
+		t.Fatalf("compact v3 derivation: %v", err)
+	}
+	compacted, err := r.GetDerivation(context.Background(), terminal.DerivationKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compacted.SchemaVersion != core.DerivationSchemaVersionV3 || compacted.Completeness != core.CompletenessCompacted || compacted.ParseOutcome != core.ParsePartial || compacted.CompletenessReason != terminal.CompletenessReason || compacted.ObservedEntries == nil || *compacted.ObservedEntries != *terminal.ObservedEntries {
+		t.Fatalf("compacted v3 terminal=%#v", compacted)
 	}
 }

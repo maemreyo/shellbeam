@@ -24,7 +24,7 @@ func (c *structuredInspectClient) Forward(_ context.Context, req bridge.Request)
 		c.startCalls++
 	}
 	if req.Action == "inspect.structured" {
-		result := structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.StructuredInspect.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}
+		result := structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.StructuredInspect.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParsePartial, Completeness: core.CompletenessPartial, CompletenessReason: core.CompletenessReasonPassRecordsElided, ObservedEntries: &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}
 		return bridge.Response{Structured: &result}, nil
 	}
 	if req.Action == "inspect.server" {
@@ -50,7 +50,7 @@ func TestStructuredInspectMCPV2ForwardsFiltersWithoutSpawn(t *testing.T) {
 		t.Fatalf("structured=%#v", res.StructuredContent)
 	}
 	structuredBody, _ := body["structured"].(map[string]any)
-	if structuredBody["source_kind"] != "artifact_blob" || structuredBody["source_state"] != "retained" || structuredBody["semantics_coverage"] == nil {
+	if structuredBody["source_kind"] != "artifact_blob" || structuredBody["source_state"] != "retained" || structuredBody["semantics_coverage"] == nil || structuredBody["completeness_reason"] != "pass_records_elided" || structuredBody["observed_entries"] == nil {
 		t.Fatalf("structured=%#v", structuredBody)
 	}
 	encoded, _ := json.Marshal(structuredBody)

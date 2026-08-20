@@ -66,7 +66,7 @@ func decodeStructuredDerivation(raw []byte) (core.Derivation, error) {
 			return core.Derivation{}, err
 		}
 		return normalizeLegacyDerivation(legacy)
-	case core.SchemaVersion:
+	case core.SchemaVersion, core.DerivationSchemaVersionV3:
 		var current core.Derivation
 		if err := decodeStructuredStrict(raw, &current); err != nil {
 			return core.Derivation{}, err
@@ -159,7 +159,8 @@ func decodeStructuredStrict(raw []byte, out any) error {
 func sameDerivationReplay(a, b core.Derivation) bool {
 	return a.DerivationKey == b.DerivationKey && reflect.DeepEqual(a.SourceAuthorityRefs, b.SourceAuthorityRefs) && a.Producer == b.Producer &&
 		a.DerivationSchemaVersion == b.DerivationSchemaVersion && a.DerivationConfigDigest == b.DerivationConfigDigest &&
-		a.Lifecycle == b.Lifecycle && a.ParseOutcome == b.ParseOutcome && a.Completeness == b.Completeness && reflect.DeepEqual(a.SemanticsCoverage, b.SemanticsCoverage)
+		a.Lifecycle == b.Lifecycle && a.ParseOutcome == b.ParseOutcome && a.Completeness == b.Completeness &&
+		a.CompletenessReason == b.CompletenessReason && reflect.DeepEqual(a.ObservedEntries, b.ObservedEntries) && reflect.DeepEqual(a.SemanticsCoverage, b.SemanticsCoverage)
 }
 
 func sameRecordSetReplay(current, next structuredRecordSet) bool {

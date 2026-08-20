@@ -191,7 +191,14 @@ func (s *EvidenceSource) bindStructuredDetail(ctx context.Context, candidate *co
 	if err != nil || !found || derivation.Lifecycle != structuredcore.LifecycleTerminal {
 		return nil
 	}
-	detail := &core.StructuredEvidenceDetail{DerivationKey: derivation.DerivationKey, Completeness: derivation.Completeness}
+	detail := &core.StructuredEvidenceDetail{
+		DerivationKey: derivation.DerivationKey, ParseOutcome: derivation.ParseOutcome, Completeness: derivation.Completeness,
+		CompletenessReason: derivation.CompletenessReason,
+	}
+	if derivation.ObservedEntries != nil {
+		counts := *derivation.ObservedEntries
+		detail.ObservedEntries = &counts
+	}
 	if derivation.SemanticsCoverage != nil {
 		coverage := *derivation.SemanticsCoverage
 		coverage.MechanicallyObservable = append([]string(nil), derivation.SemanticsCoverage.MechanicallyObservable...)

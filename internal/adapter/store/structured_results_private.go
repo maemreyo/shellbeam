@@ -82,7 +82,8 @@ func allowedDerivationTransition(current, next core.Derivation) bool {
 	case core.LifecycleProcessing:
 		return next.Lifecycle == core.LifecycleTerminal
 	case core.LifecycleTerminal:
-		return next.Lifecycle == core.LifecycleTerminal && current.ParseOutcome == next.ParseOutcome && next.Completeness == core.CompletenessCompacted && current.Completeness != core.CompletenessCompacted && reflect.DeepEqual(current.SemanticsCoverage, next.SemanticsCoverage)
+		return next.Lifecycle == core.LifecycleTerminal && current.ParseOutcome == next.ParseOutcome && next.Completeness == core.CompletenessCompacted && current.Completeness != core.CompletenessCompacted &&
+			current.CompletenessReason == next.CompletenessReason && reflect.DeepEqual(current.ObservedEntries, next.ObservedEntries) && reflect.DeepEqual(current.SemanticsCoverage, next.SemanticsCoverage)
 	default:
 		return false
 	}

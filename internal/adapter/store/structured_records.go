@@ -144,7 +144,9 @@ func (r *Repository) compactDerivationDetailUnlocked(ctx context.Context, key st
 			return err
 		}
 		next := derivation
-		next.SchemaVersion = core.SchemaVersion
+		if derivation.SchemaVersion != core.DerivationSchemaVersionV3 {
+			next.SchemaVersion = core.SchemaVersion
+		}
 		next.Completeness = core.CompletenessCompacted
 		if err := r.replaceDerivation(ctx, r.derivationPath(key), next, structuredTransitionObservable(derivation, next)); err != nil {
 			return err

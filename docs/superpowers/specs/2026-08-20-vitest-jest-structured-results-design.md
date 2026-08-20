@@ -1057,7 +1057,7 @@ It SHALL NOT be used to reconstruct a suite status, and it SHALL NOT override te
 
 ### 47.2 Terminal partiality metadata and persistence compatibility
 
-`CompletenessReason` and `ObservedEntryCounts` are terminal derivation metadata alongside `ProducerSemanticsCoverage`. They SHALL be outside derivation identity and SHALL cross the complete runtime path:
+`CompletenessReason` and `ObservedEntryCounts` are terminal derivation metadata alongside `ProducerSemanticsCoverage`. They SHALL be outside derivation identity and SHALL cross the complete runtime path. If detail is later compacted, `Completeness=compacted` SHALL preserve the original partial `ParseOutcome`, `CompletenessReason`, and `ObservedEntryCounts`; compaction removes detail, not terminal parse facts:
 
 ```text
 adapter ParseResult
@@ -1073,6 +1073,8 @@ The shipped schema-v2 derivation is strict-decoded and cannot safely accept new 
 Likewise, Task 2 SHALL introduce a **record/record-set schema v3** only for records that use the new bounded failure-excerpt member. Existing Go/pytest record sets remain schema v2. The shared constant `SchemaVersion=2` SHALL NOT simply be changed to `3`, because doing so would silently rewrite unrelated persisted bytes.
 
 Downgrade behavior is explicit: an older binary that predates schema v3 may reject a v3 JS derivation/record set as unsupported, but it SHALL continue to read all pre-existing v1/v2 data. New code SHALL NOT mutate old persisted bytes merely to normalize them to v3.
+
+The public `inspect.structured` projection remains schema version 1 but is extended additively with optional `completeness_reason` and `observed_entries`. Because both IPC and MCP output schemas are closed (`additionalProperties=false`), those schema definitions SHALL be amended in the same change that adds the Go fields; runtime projection without matching closed-schema support is not a valid implementation. The observed-entry object is itself closed and carries the same 65536 per-counter bound as core validation.
 
 ## 48. Producer address and path handling
 

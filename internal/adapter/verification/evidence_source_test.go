@@ -231,9 +231,10 @@ func (f *fakeEvidenceReservationReader) ListRecords(context.Context, string, str
 
 func TestEvidenceSourceAddsTerminalStructuredDetailWithoutChangingLiteralEvidenceResult(t *testing.T) {
 	record := candidateRecord('a', evidence.VerificationTest, evidence.ResultPass)
-	coverage := &structuredcore.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:fail", "coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}
+	coverage := &structuredcore.ProducerSemanticsCoverage{Namespace: "jest", VocabularyVersion: 1, Format: "json", Family: "v30", MechanicallyObservable: []string{"coarse:fail", "coarse:pass"}, Unavailable: []string{"jest:error_status"}}
+	counts := &structuredcore.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}
 	reader := &fakeEvidenceReservationReader{
-		derivationFound: true, derivation: structuredcore.Derivation{SchemaVersion: structuredcore.SchemaVersion, DerivationKey: strings.Repeat("a", 64), Lifecycle: structuredcore.LifecycleTerminal, Completeness: structuredcore.CompletenessComplete, SemanticsCoverage: coverage},
+		derivationFound: true, derivation: structuredcore.Derivation{SchemaVersion: structuredcore.DerivationSchemaVersionV3, DerivationKey: strings.Repeat("a", 64), Lifecycle: structuredcore.LifecycleTerminal, ParseOutcome: structuredcore.ParsePartial, Completeness: structuredcore.CompletenessPartial, CompletenessReason: structuredcore.CompletenessReasonPassRecordsElided, ObservedEntries: counts, SemanticsCoverage: coverage},
 		structuredSummaryFound: true, structuredSummary: structuredapp.RecordSummary{RecordsTotal: 3},
 		structuredRecords: []structuredcore.Record{
 			{Authority: structuredcore.AuthorityMechanical, TestCase: &structuredcore.TestCase{Status: structuredcore.TestPassed}},
@@ -247,7 +248,7 @@ func TestEvidenceSourceAddsTerminalStructuredDetailWithoutChangingLiteralEvidenc
 		t.Fatalf("got=%#v err=%v", got, err)
 	}
 	candidate := got.Candidates[0]
-	if candidate.Result != core.CandidatePass || candidate.StructuredDetail == nil || candidate.StructuredDetail.Completeness != structuredcore.CompletenessComplete || candidate.StructuredDetail.SemanticsCoverage == nil {
+	if candidate.Result != core.CandidatePass || candidate.StructuredDetail == nil || candidate.StructuredDetail.ParseOutcome != structuredcore.ParsePartial || candidate.StructuredDetail.Completeness != structuredcore.CompletenessPartial || candidate.StructuredDetail.CompletenessReason != structuredcore.CompletenessReasonPassRecordsElided || candidate.StructuredDetail.ObservedEntries == nil || *candidate.StructuredDetail.ObservedEntries != *counts || candidate.StructuredDetail.SemanticsCoverage == nil {
 		t.Fatalf("candidate=%#v", candidate)
 	}
 	if want := []structuredcore.TestStatus{structuredcore.TestFailed, structuredcore.TestPassed}; !reflect.DeepEqual(candidate.StructuredDetail.MechanicalTestStatuses, want) {
@@ -255,6 +256,11 @@ func TestEvidenceSourceAddsTerminalStructuredDetailWithoutChangingLiteralEvidenc
 	}
 	if record.Result != evidence.ResultPass {
 		t.Fatal("structured enrichment rewrote durable evidence truth")
+	}
+	candidate.StructuredDetail.ObservedEntries.Fail = 0
+	candidate.StructuredDetail.SemanticsCoverage.MechanicallyObservable[0] = "changed"
+	if counts.Fail != 1 || coverage.MechanicallyObservable[0] != "coarse:fail" {
+		t.Fatal("structured evidence detail aliases derivation metadata")
 	}
 }
 
