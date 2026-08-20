@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-19-decision-protocol-design.md` — frozen SHA-256 `6cf49426243f26e8bec862c29651304ccc4abd5e1f91947f9899fe21fd72f7fa`.
 
+**Compatibility Amendment:** `docs/superpowers/specs/2026-08-20-decision-protocol-structured-capture-compatibility.md` authorizes the reviewed upstream owner patch through `39de4426a95cfb58cbb99a75165b9feb5cc7169c`; owner patch SHA-256 `d9d1429a2a6e0ce413b978fc89cdfc1505a1b1a24c0527d7ae1c54a51c91c28d`.
+
 **Plan authoring base:** `27207d94b097040b571081c8c49d9c09487460c5`.
 
 **Traceability Gate:** `docs/superpowers/plans/2026-08-19-decision-protocol-v1-traceability.json` is normative plan-review metadata. Before Task 0 implementation begins, run `python3 scripts/check-decision-protocol-v1-plan-traceability.py`; it MUST report `PASS invariants=48/48 sections=57/57 tasks=14/14`. A failure blocks implementation and requires plan amendment rather than executor improvisation.
@@ -19,7 +21,8 @@
 - The frozen written design is authoritative. Do not reopen architecture during implementation; implementation ambiguity is a plan/spec review issue.
 - ShellBeam owns protocol state, machine-grounded expectation evaluation, policy/budget enforcement, and authorization boundaries; the caller/model owns hypotheses, experiment choice, semantic preference, and engineering judgment.
 - Decision Protocol never schedules commands. `decision.experiment.define`, `prediction.bind`, `experiment.seal`, `experiment.close`, `decision.evaluate`, and selection operations must not call process start.
-- Existing operations without `experiment_id` keep unchanged semantics.
+- Existing operations without `experiment_id` keep unchanged semantics. Upstream structured-capture authority is composed, not replaced: observation identity is `legacy -> experiment(if present) -> verification attempt(if present) -> structured capture(if present)`, so omitted experiment identity is byte-for-byte upstream-compatible.
+- The reviewed owner-overlap ratchet is `39de4426a95cfb58cbb99a75165b9feb5cc7169c`. Future owner drift after that SHA fails closed for another compatibility review.
 - V1 allows at most one observation-producing `ExperimentExecutionLink` per experiment.
 - `experiment_id` is immutable first-admission observation/replay identity. Same `operation_id` with omitted/changed experiment binding conflicts.
 - Successful experiment-linked reservation plus durable `ExperimentExecutionLink` is recovery-indivisible and happens before spawn.
@@ -197,7 +200,15 @@ Run:
 
 ```bash
 PLAN_AUTHORING_BASE=27207d94b097040b571081c8c49d9c09487460c5
+REVIEWED_OWNER_OVERLAP_BASE=39de4426a95cfb58cbb99a75165b9feb5cc7169c
+REVIEWED_OWNER_PATCH_SHA256=d9d1429a2a6e0ce413b978fc89cdfc1505a1b1a24c0527d7ae1c54a51c91c28d
+REVIEWED_OWNER_PATHS_SHA256=2f5ae958bce1c3d33ab3ea391e85c8d24cf48afdc140512cdbe41ae4635cd05f
 BASELINE_EVIDENCE=docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md
+OWNER_PATHS=(
+  internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification
+  internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge
+  internal/core/capability cmd/shellbeam api/schema
+)
 CURRENT_MAIN="$(git rev-parse main)"
 if [ -f "$BASELINE_EVIDENCE" ]; then
   PREVIOUS_IMPLEMENTATION_BASE="$(awk -F'`' '/^- implementation_base: `/ {print $2; exit}' "$BASELINE_EVIDENCE")"
@@ -208,17 +219,17 @@ if [[ ! "$PREVIOUS_IMPLEMENTATION_BASE" =~ ^[0-9a-f]{40}$ ]]; then
   echo 'invalid previous Decision Protocol implementation base authority' >&2
   exit 1
 fi
-printf 'plan_authoring_base=%s\nprevious_implementation_base=%s\ncurrent_main=%s\n' \
-  "$PLAN_AUTHORING_BASE" "$PREVIOUS_IMPLEMENTATION_BASE" "$CURRENT_MAIN"
+printf 'plan_authoring_base=%s\nprevious_implementation_base=%s\nreviewed_owner_overlap_base=%s\ncurrent_main=%s\n' \
+  "$PLAN_AUTHORING_BASE" "$PREVIOUS_IMPLEMENTATION_BASE" "$REVIEWED_OWNER_OVERLAP_BASE" "$CURRENT_MAIN"
 
-git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$CURRENT_MAIN"
-OWNER_DRIFT="$(git diff --name-only "$PLAN_AUTHORING_BASE".."$CURRENT_MAIN" -- \
-  internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification \
-  internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge \
-  internal/core/capability cmd/shellbeam api/schema)"
+git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$REVIEWED_OWNER_OVERLAP_BASE"
+test "$(git diff --binary "$PLAN_AUTHORING_BASE".."$REVIEWED_OWNER_OVERLAP_BASE" -- "${OWNER_PATHS[@]}" | shasum -a 256 | awk '{print $1}')" = "$REVIEWED_OWNER_PATCH_SHA256"
+test "$(git diff --name-only "$PLAN_AUTHORING_BASE".."$REVIEWED_OWNER_OVERLAP_BASE" -- "${OWNER_PATHS[@]}" | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')" = "$REVIEWED_OWNER_PATHS_SHA256"
+git merge-base --is-ancestor "$REVIEWED_OWNER_OVERLAP_BASE" "$CURRENT_MAIN"
+OWNER_DRIFT="$(git diff --name-only "$REVIEWED_OWNER_OVERLAP_BASE".."$CURRENT_MAIN" -- "${OWNER_PATHS[@]}")"
 if [ -n "$OWNER_DRIFT" ]; then
   printf '%s\n' "$OWNER_DRIFT"
-  echo 'Decision Protocol owner overlap since plan authoring; stop for plan amendment/re-review.' >&2
+  echo 'Decision Protocol owner overlap after reviewed compatibility base; stop for another plan amendment/re-review.' >&2
   exit 1
 fi
 
@@ -235,10 +246,11 @@ printf 'accepted_implementation_base=%s\n' "$IMPLEMENTATION_BASE"
 
 The two base identities have different authority and MUST NOT be conflated:
 
-- `PLAN_AUTHORING_BASE` is immutable and is used for the cumulative Decision Protocol owner-overlap audit against every newly observed `current_main`.
-- `PREVIOUS_IMPLEMENTATION_BASE` is the last durably accepted implementation base (or `PLAN_AUTHORING_BASE` before baseline evidence exists) and is the only replay/topology boundary for the next integration.
+- `PLAN_AUTHORING_BASE` remains the immutable origin of the original review.
+- `REVIEWED_OWNER_OVERLAP_BASE` is the exact upstream owner patch explicitly reviewed by the compatibility amendment; its patch and path-list digests must match before integration.
+- `PREVIOUS_IMPLEMENTATION_BASE` is the last durably accepted implementation base and remains the only replay/topology boundary for implementation commits.
 
-The only allowed automatic integration is replaying the already-reviewed planning/implementation commits from `PREVIOUS_IMPLEMENTATION_BASE` onto a `current_main` whose cumulative owner diff from `PLAN_AUTHORING_BASE` is empty. After successful integration, durable `implementation_base` advances to `current_main`. This is repeatable for `A -> M1 -> M2 -> M3`; later drift never requires `merge-base(HEAD, current_main)` to equal the original authoring base. Any owner overlap or unexpected topology stops.
+The only allowed automatic integration is replaying reviewed Decision Protocol commits from `PREVIOUS_IMPLEMENTATION_BASE` onto a `current_main` descended from `REVIEWED_OWNER_OVERLAP_BASE` with no additional owner-path drift after that reviewed SHA. Non-owner drift may advance normally; any new owner overlap or unexpected topology stops.
 
 - [ ] **Step 3: Run the unchanged full baseline and targeted primitive regression on the accepted base lineage**
 
@@ -257,16 +269,23 @@ This step MUST be valid in a fresh shell; it does not consume variables exported
 
 ```bash
 PLAN_AUTHORING_BASE=27207d94b097040b571081c8c49d9c09487460c5
+REVIEWED_OWNER_OVERLAP_BASE=39de4426a95cfb58cbb99a75165b9feb5cc7169c
+REVIEWED_OWNER_PATCH_SHA256=d9d1429a2a6e0ce413b978fc89cdfc1505a1b1a24c0527d7ae1c54a51c91c28d
+REVIEWED_OWNER_PATHS_SHA256=2f5ae958bce1c3d33ab3ea391e85c8d24cf48afdc140512cdbe41ae4635cd05f
 BASELINE_EVIDENCE=docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md
+OWNER_PATHS=(internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge internal/core/capability cmd/shellbeam api/schema)
 if [ -f "$BASELINE_EVIDENCE" ]; then
   PREVIOUS_IMPLEMENTATION_BASE="$(awk -F'`' '/^- implementation_base: `/ {print $2; exit}' "$BASELINE_EVIDENCE")"
 else
   PREVIOUS_IMPLEMENTATION_BASE="$PLAN_AUTHORING_BASE"
 fi
 IMPLEMENTATION_BASE="$(git rev-parse main)"
-git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$IMPLEMENTATION_BASE"
+git merge-base --is-ancestor "$PLAN_AUTHORING_BASE" "$REVIEWED_OWNER_OVERLAP_BASE"
+test "$(git diff --binary "$PLAN_AUTHORING_BASE".."$REVIEWED_OWNER_OVERLAP_BASE" -- "${OWNER_PATHS[@]}" | shasum -a 256 | awk '{print $1}')" = "$REVIEWED_OWNER_PATCH_SHA256"
+test "$(git diff --name-only "$PLAN_AUTHORING_BASE".."$REVIEWED_OWNER_OVERLAP_BASE" -- "${OWNER_PATHS[@]}" | LC_ALL=C sort | shasum -a 256 | awk '{print $1}')" = "$REVIEWED_OWNER_PATHS_SHA256"
+git merge-base --is-ancestor "$REVIEWED_OWNER_OVERLAP_BASE" "$IMPLEMENTATION_BASE"
 git merge-base --is-ancestor "$PREVIOUS_IMPLEMENTATION_BASE" "$IMPLEMENTATION_BASE"
-test -z "$(git diff --name-only "$PLAN_AUTHORING_BASE".."$IMPLEMENTATION_BASE" --   internal/core/operation internal/app/daemon internal/adapter/store internal/core/verification   internal/app/verification internal/adapter/ipc internal/adapter/mcp internal/app/bridge   internal/core/capability cmd/shellbeam api/schema)"
+test -z "$(git diff --name-only "$REVIEWED_OWNER_OVERLAP_BASE".."$IMPLEMENTATION_BASE" -- "${OWNER_PATHS[@]}")"
 git merge-base --is-ancestor "$IMPLEMENTATION_BASE" HEAD
 GO_VERSION="$(go version)"
 cat > docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md <<EOFBASE
@@ -279,7 +298,9 @@ cat > docs/superpowers/evidence/2026-08-19-decision-protocol-v1-baseline.md <<EO
 - go_version: \`${GO_VERSION}\`
 - full_suite: PASS
 - targeted_admission_policy_store: PASS
-- owner_overlap_since_plan_authoring: NONE
+- owner_overlap_since_plan_authoring: REVIEWED_THROUGH_39de4426a95cfb58cbb99a75165b9feb5cc7169c
+- reviewed_owner_patch_sha256: \`d9d1429a2a6e0ce413b978fc89cdfc1505a1b1a24c0527d7ae1c54a51c91c28d\`
+- reviewed_owner_paths_sha256: \`2f5ae958bce1c3d33ab3ea391e85c8d24cf48afdc140512cdbe41ae4635cd05f\`
 EOFBASE
 
 cat > scripts/decision-protocol-v1-implementation-base.sh <<'EOFSCRIPT'
@@ -306,7 +327,7 @@ EOFSCRIPT
 chmod +x scripts/decision-protocol-v1-implementation-base.sh
 ```
 
-If `main` advances after this point, the helper fails closed before the next task. Do not edit evidence by hand. Repeat Task 0: read the existing durable `implementation_base` as `PREVIOUS_IMPLEMENTATION_BASE`, audit owner drift cumulatively from `PLAN_AUTHORING_BASE`, require the previous base to be an ancestor of new `main`, replay from the previous base only, rerun baseline verification, then replace the durable base with the newly accepted `current_main`. Re-review on owner overlap or unexpected topology.
+If `main` advances after this point, the helper fails closed before the next task. Do not edit evidence by hand. Repeat Task 0: read the existing durable `implementation_base` as `PREVIOUS_IMPLEMENTATION_BASE`, verify the frozen reviewed owner patch, audit only new owner drift after `REVIEWED_OWNER_OVERLAP_BASE`, require the previous base to be an ancestor of new `main`, replay from the previous base only, rerun baseline verification, then replace the durable base with the newly accepted `current_main`. Re-review on any post-ratchet owner overlap or unexpected topology.
 
 - [ ] **Step 5: Verify the durable authority and commit baseline evidence/helper**
 
@@ -914,11 +935,13 @@ If this fails, stop before making task-local edits and return to the Task-0 drif
 - Modify: `internal/app/daemon/types.go`
 - Modify: `internal/app/daemon/admission.go`
 - Modify: `internal/app/daemon/project_command.go`
+- Modify: `internal/app/daemon/structured_adapter.go`
 - Modify: `internal/app/daemon/store_port.go`
 - Create: `internal/app/daemon/decision_protocol_admission_test.go`
 - Modify: `internal/adapter/store/admission.go`
 - Create: `internal/adapter/store/decision_protocol_admission_test.go`
 - Create: `internal/adapter/store/decision_protocol_admission_fault_test.go`
+- Modify: `internal/app/daemon/structured_pytest_admission_test.go`
 - Modify operation persistence schemas under `api/schema/operation-v2.json` and `api/schema/operation-v3.json` only where the current persisted reservation schema requires the new optional field; keep legacy v1 unchanged.
 
 **Interfaces:**
@@ -931,6 +954,7 @@ New narrow daemon-store interface:
 
 ```go
 type DecisionExperimentAdmissionStore interface {
+    ResolveExperimentAdmissionSession(context.Context, decisionprotocol.ExperimentID, operation.ID) (operation.SessionID, bool, error)
     ReserveExperimentOperation(context.Context, operation.Reservation, decisionprotocol.ExperimentExecutionLink) (operation.Reservation, decisionprotocol.ExperimentExecutionLink, bool, StoreResult)
 }
 ```
@@ -945,7 +969,7 @@ func TestObservationBindingFingerprintIncludesExperimentIdentity(t *testing.T) {
 }
 ```
 
-Also assert an ordinary request with omitted experiment keeps the pre-feature observation fingerprint corpus unchanged. Update corpus expectations only if the implementation accidentally changes omitted semantics; the correct result is zero omitted-case churn.
+Also assert an ordinary request with omitted experiment keeps the accepted upstream observation fingerprint corpus unchanged. Add the compatibility matrix `experiment + verification`, `experiment + structured capture`, and `experiment + verification + structured capture`; all recomputation paths must produce the same deterministic composed identity. The correct omitted-experiment result is zero upstream corpus churn.
 
 - [ ] **Step 2: Extend start intent/reservation validation without changing ordinary operations**
 
@@ -984,6 +1008,8 @@ Refactor the existing reservation body into an unexported helper that assumes th
 ```
 
 No Decision Protocol path may acquire the per-operation/admit locks while already holding `decisionProtocolMu`. Add a lock-order comment beside the new method and a race test that concurrently performs ordinary reservation, experiment admission, and decision inspection without deadlock.
+
+Before structured-capture preparation for an experiment-bound start, resolve a stable pre-admission `SessionID` through `ResolveExperimentAdmissionSession`. The read-only resolver checks the existing Decision Protocol admission claim first, then an existing structured capture authority for the same `operation_id`; if both exist they must agree. If neither exists, retain the normal fresh session ID. This closes both claim-only and capture-authority-only crash windows without adding a new durable record. After capture preparation, compute the final observation fingerprint using `legacy -> experiment -> verification attempt -> structured capture` and only then call `ReserveExperimentOperation`.
 
 Before creating an operation reservation, create an **internal non-canonical recovery claim** exclusively at:
 
@@ -1032,7 +1058,9 @@ Required outcomes:
 
 ```text
 claim write fails before durability -> no reservation/link/spawn; same request may retry
-claim durable, reservation absent -> same request resumes; different operation for E1 conflicts
+claim durable, reservation absent -> same request reuses the claim session before structured capture preparation; different operation for E1 conflicts
+structured capture authority durable, claim/reservation absent -> same operation reuses the capture-authority session before Decision claim creation
+claim + structured capture authority session disagreement -> fail closed before new reservation/link/spawn
 reservation/session durable, link write interrupted -> no spawn; same retry repairs exact link from claim or terminally compensates reservation; claim remains pinned to that operation
 canonical link durable, response/finalization interrupted -> no second link; same retry returns same semantic admission
 private claim and canonical link disagree -> corrupt/recovery error; never choose one opportunistically
@@ -1910,7 +1938,7 @@ The MCP adapter validates the same action-field matrix before forwarding. Add no
 
 - [ ] **Step 5: Update JSON schemas and schema fixtures**
 
-Add closed definitions for action enums, nested decision request declarations, bounded projection/results, reason codes, and optional start `experiment_id`. `additionalProperties:false` must reject server-owned fields on input.
+Apply Decision Protocol schema additions on top of the reviewed structured-result/pytest schema at `39de4426a95cfb58cbb99a75165b9feb5cc7169c`. Preserve `structured_schema_versions`, `structured_input_kinds`, artifact-blob/capture definitions, pytest adapter advertisement, and structured artifact limits. Add closed definitions for decision action enums, nested decision request declarations, bounded projection/results, reason codes, and optional start `experiment_id`. `additionalProperties:false` must reject server-owned fields on input.
 
 - [ ] **Step 6: Run transport/schema gates and commit**
 
