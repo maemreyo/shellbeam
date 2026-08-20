@@ -416,5 +416,5 @@ type tmuxFacts struct {
 	PanePID, ServerPID                  int
 	Terminal                            bool
 	ExitCode                            *int
-	SocketPath, Version                 string
+	CurrentCommand, SocketPath, Version string
 }

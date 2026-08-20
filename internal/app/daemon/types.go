@@ -33,6 +33,7 @@ type Options struct {
 	PersistentRuntime       PersistentRuntime
 	DelegatedRuntime        DelegatedRuntime
 	HandoffPresenter        handoffapp.Presenter
+	HandoffReadiness        handoffapp.ReadinessPreparer
 	HandoffPresenterFactory func(handoffapp.ExactClientProver) handoffapp.Presenter
 	MediaReader             MediaReader
 	MediaReadBudget         time.Duration

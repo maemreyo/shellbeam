@@ -152,7 +152,7 @@ func (p *Provider) ArmPrivateObservation(ctx context.Context, ref core.ProviderR
 		return app.PrivacyHandle{}, err
 	}
 	if existing, err := p.privacy.load(ref.Ref); err == nil {
-		if existing.ProviderGeneration != state.ProviderGeneration || existing.HandoffID != spec.HandoffID || existing.AuthorityEpoch != spec.AuthorityEpoch {
+		if existing.ProviderGeneration != state.ProviderGeneration || existing.HandoffID != spec.HandoffID {
 			return app.PrivacyHandle{}, privacyBarrierFailure(spec.HandoffID, "active_binding_conflict", nil)
 		}
 		if !existing.Active {
@@ -161,7 +161,20 @@ func (p *Provider) ArmPrivateObservation(ctx context.Context, ref core.ProviderR
 		if err := p.ensureCurrentObserverPrivate(ctx, ref, state); err != nil {
 			return app.PrivacyHandle{}, err
 		}
-		return existing.handle(), nil
+		if spec.AuthorityEpoch < existing.AuthorityEpoch {
+			return app.PrivacyHandle{}, privacyBarrierFailure(spec.HandoffID, "stale_privacy_epoch", nil)
+		}
+		if spec.AuthorityEpoch == existing.AuthorityEpoch {
+			return existing.handle(), nil
+		}
+		handle := newPrivacyHandle(ref, state.ProviderGeneration, spec)
+		existing.AuthorityEpoch = spec.AuthorityEpoch
+		existing.HandleRef = handle.OpaqueRef
+		existing.UpdatedAt = time.Now().UTC()
+		if err := p.privacy.save(existing); err != nil {
+			return app.PrivacyHandle{}, privacyBarrierFailure(spec.HandoffID, "privacy_state_write", err)
+		}
+		return handle, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return app.PrivacyHandle{}, privacyBarrierFailure(spec.HandoffID, "privacy_state_invalid", err)
 	}

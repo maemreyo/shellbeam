@@ -43,7 +43,7 @@ func buildB1NativeBinary(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	binary := filepath.Join(root, "shellbeam")
-	cmd := exec.Command("go", "build", "-o", binary, ".")
+	cmd := exec.Command("go", "build", "-tags", "shellbeam_native_test", "-o", binary, ".")
 	cmd.Dir = "."
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build native binary: %v\n%s", err, out)

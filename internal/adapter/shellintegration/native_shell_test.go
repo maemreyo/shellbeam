@@ -16,7 +16,7 @@ func TestBashNativeNonExportedVariableIsNotSatisfied(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "result")
 	req := task6WatchRequest(core.ShellBash)
 	install, _ := bashScripts(req, "evt_native_bash", nativeMarker(marker, true), nativeMarker(marker, false))
-	script := "unset CONTROL_PLANE_API_KEY\nCONTROL_PLANE_API_KEY=task6_native_secret\n" + install + "\neval \"$PROMPT_COMMAND\"\n"
+	script := "unset CONTROL_PLANE_API_KEY\nCONTROL_PLANE_API_KEY=task6_native_secret\n" + install + "\neval \"$PROMPT_COMMAND\"\neval \"$PROMPT_COMMAND\"\n"
 	runNativeShell(t, "/bin/bash", []string{"--noprofile", "--norc", "-c", script})
 	assertNativeMarker(t, marker, "false")
 }
@@ -25,7 +25,7 @@ func TestZshNativeNonExportedVariableIsNotSatisfied(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "result")
 	req := task6WatchRequest(core.ShellZsh)
 	install, _ := zshScripts(req, "evt_native_zsh", nativeMarker(marker, true), nativeMarker(marker, false))
-	script := "unset CONTROL_PLANE_API_KEY\nCONTROL_PLANE_API_KEY=task6_native_secret\n" + install + "\n__shellbeam_handoff_evt_native_zsh\n"
+	script := "unset CONTROL_PLANE_API_KEY\nCONTROL_PLANE_API_KEY=task6_native_secret\n" + install + "\n__shellbeam_handoff_evt_native_zsh\n__shellbeam_handoff_evt_native_zsh\n"
 	runNativeShell(t, "/bin/zsh", []string{"-f", "-c", script})
 	assertNativeMarker(t, marker, "false")
 }
@@ -68,7 +68,7 @@ func TestZshNativeHookCompositionDoesNotDependOnFpath(t *testing.T) {
 	user := filepath.Join(root, "user")
 	req := task6WatchRequest(core.ShellZsh)
 	install, _ := zshScripts(req, "evt_native_fpath", nativeMarker(marker, true), nativeMarker(marker, false))
-	script := "set -e\nfpath=(/definitely/missing)\ntypeset -ga precmd_functions\nfunction user_pre() { printf '%s\\n' user >> " + shellQuote(user) + "; }\nprecmd_functions=(user_pre)\nexport CONTROL_PLANE_API_KEY=task6_native_secret\n" + install + "\n__shellbeam_handoff_evt_native_fpath\nprintf '%s\\n' \"${precmd_functions[@]}\" > " + shellQuote(hooks) + "\nuser_pre\n"
+	script := "set -e\nfpath=(/definitely/missing)\ntypeset -ga precmd_functions\nfunction user_pre() { printf '%s\\n' user >> " + shellQuote(user) + "; }\nprecmd_functions=(user_pre)\nexport CONTROL_PLANE_API_KEY=task6_native_secret\n" + install + "\n__shellbeam_handoff_evt_native_fpath\n__shellbeam_handoff_evt_native_fpath\nprintf '%s\\n' \"${precmd_functions[@]}\" > " + shellQuote(hooks) + "\nuser_pre\n"
 	runNativeShell(t, "/bin/zsh", []string{"-f", "-c", script})
 	assertNativeMarker(t, marker, "true")
 	data, err := os.ReadFile(hooks)
@@ -115,7 +115,11 @@ func TestNativeShellPredicateMatrixPreservesExistingHooks(t *testing.T) {
 					script := shell.setup(state.name) + "\n" + shell.body(root, install, eventID)
 					runNativeShell(t, shell.path, shell.args(script))
 					assertMarkerLines(t, result, []string{state.want})
-					assertMarkerLines(t, filepath.Join(root, "user"), []string{"user", "user"})
+					wantUser := []string{"user", "user"}
+					if shell.family == core.ShellBash {
+						wantUser = []string{"user", "user", "user"}
+					}
+					assertMarkerLines(t, filepath.Join(root, "user"), wantUser)
 				})
 			}
 		})
@@ -199,7 +203,7 @@ func nativeShellCases() []nativeShellCase {
 				before := shellQuote(filepath.Join(root, "before_hooks"))
 				after := shellQuote(filepath.Join(root, "after_hooks"))
 				name := "__shellbeam_handoff_" + eventID
-				return "fpath=(/definitely/missing)\ntypeset -ga precmd_functions\nfunction user_pre() { printf '%s\\n' user >> " + user + "; }\nprecmd_functions=(user_pre)\n" + install + "\nprintf '%s\\n' \"${precmd_functions[@]}\" > " + before + "\nuser_pre\n" + name + "\nprintf '%s\\n' \"${precmd_functions[@]}\" > " + after + "\nuser_pre\n" +
+				return "fpath=(/definitely/missing)\ntypeset -ga precmd_functions\nfunction user_pre() { printf '%s\\n' user >> " + user + "; }\nprecmd_functions=(user_pre)\n" + install + "\nprintf '%s\\n' \"${precmd_functions[@]}\" > " + before + "\nuser_pre\n" + name + "\n" + name + "\nprintf '%s\\n' \"${precmd_functions[@]}\" > " + after + "\nuser_pre\n" +
 					"grep -qx user_pre " + after + "\ngrep -q " + shellQuote(name) + " " + before + "\n! grep -q " + shellQuote(name) + " " + after + "\n"
 			},
 		},
@@ -210,7 +214,7 @@ func nativeShellCases() []nativeShellCase {
 			body: func(root, install, eventID string) string {
 				user := shellQuote(filepath.Join(root, "user"))
 				name := "__shellbeam_handoff_" + eventID
-				return "user_hook(){ printf '%s\\n' user >> " + user + "; }\nPROMPT_COMMAND=user_hook\n" + install + "\ncase \"$PROMPT_COMMAND\" in *" + name + "*) : ;; *) exit 91 ;; esac\neval \"$PROMPT_COMMAND\"\n[ \"$PROMPT_COMMAND\" = user_hook ]\neval \"$PROMPT_COMMAND\"\n"
+				return "set -e\nuser_hook(){ printf '%s\\n' user >> " + user + "; }\nPROMPT_COMMAND=user_hook\n" + install + "\ncase \"$PROMPT_COMMAND\" in *" + name + "*) : ;; *) exit 91 ;; esac\neval \"$PROMPT_COMMAND\"\ncase \"$PROMPT_COMMAND\" in *" + name + "*) : ;; *) exit 92 ;; esac\neval \"$PROMPT_COMMAND\"\n[ \"$PROMPT_COMMAND\" = user_hook ]\neval \"$PROMPT_COMMAND\"\n"
 			},
 		},
 	}
@@ -315,5 +319,52 @@ func nativeCycleEpilogue(shell nativeShellCase, root string) string {
 		return "\n[ \"$PROMPT_COMMAND\" = user_hook ]\neval \"$PROMPT_COMMAND\"\n"
 	default:
 		panic("bad shell")
+	}
+}
+
+func TestNativeShellWatcherSkipsInstallationPromptThenEvaluatesNextPrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name, path string
+		family     core.ShellFamily
+		args       func(string) []string
+		body       func(marker, install, eventID string) string
+	}{
+		{
+			name: "fish", path: "/opt/homebrew/bin/fish", family: core.ShellFish,
+			args: func(script string) []string { return []string{"-c", script} },
+			body: func(marker, install, eventID string) string {
+				return "set -e CONTROL_PLANE_API_KEY\n" + install +
+					"\nemit fish_prompt\ntest ! -e " + shellQuote(marker) +
+					"\nset -gx CONTROL_PLANE_API_KEY task7_secret\nemit fish_prompt\n"
+			},
+		},
+		{
+			name: "zsh", path: "/bin/zsh", family: core.ShellZsh,
+			args: func(script string) []string { return []string{"-f", "-c", script} },
+			body: func(marker, install, eventID string) string {
+				name := "__shellbeam_handoff_" + eventID
+				return "unset CONTROL_PLANE_API_KEY\n" + install +
+					"\n" + name + "\n[[ ! -e " + shellQuote(marker) + " ]]" +
+					"\nexport CONTROL_PLANE_API_KEY=task7_secret\n" + name + "\n"
+			},
+		},
+		{
+			name: "bash", path: "/bin/bash", family: core.ShellBash,
+			args: func(script string) []string { return []string{"--noprofile", "--norc", "-c", script} },
+			body: func(marker, install, eventID string) string {
+				return "unset CONTROL_PLANE_API_KEY\n" + install +
+					"\neval \"$PROMPT_COMMAND\"\ntest ! -e " + shellQuote(marker) +
+					"\nexport CONTROL_PLANE_API_KEY=task7_secret\neval \"$PROMPT_COMMAND\"\n"
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			marker := filepath.Join(t.TempDir(), "result")
+			eventID := "evt_skip_install_" + tc.name
+			req := task6WatchRequest(tc.family)
+			install, _ := nativeShellScripts(req, eventID, nativeMarker(marker, true), nativeMarker(marker, false))
+			runNativeShell(t, tc.path, tc.args(tc.body(marker, install, eventID)))
+			assertNativeMarker(t, marker, "true")
+		})
 	}
 }

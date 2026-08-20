@@ -189,6 +189,10 @@ func (w *oneShotWatcher) Wait(ctx context.Context) (app.WatchEvent, error) {
 	if notification.HandoffID != w.expected.HandoffID || notification.AuthorityEpoch != w.expected.AuthorityEpoch || notification.EventID != w.expected.EventID || notification.ShellRuntimeID != w.expected.ShellRuntimeID || notification.Event != w.expected.Event {
 		return app.WatchEvent{}, fmt.Errorf("shell notification authority mismatch")
 	}
+	// Every qualified shell hook removes itself immediately after the one-shot
+	// notifier command returns. Once a current notification has been accepted,
+	// sending the cleanup script again would race fresh human input at the prompt.
+	w.cleanupOnce.Do(func() {})
 	w.closeTransport()
 	now := time.Now().UTC()
 	state := core.RequirementNotSatisfied

@@ -23,7 +23,7 @@ func (s *Service) HumanControl(ctx context.Context, signal handoff.ControlSignal
 	if err != nil {
 		return ControlResult{}, failure.Normalize(err)
 	}
-	_, state, err := s.store.LoadHandoff(ctx, signal.HandoffID)
+	req, state, err := s.store.LoadHandoff(ctx, signal.HandoffID)
 	if err != nil {
 		return ControlResult{}, failure.Normalize(err)
 	}
@@ -42,7 +42,7 @@ func (s *Service) HumanControl(ctx context.Context, signal handoff.ControlSignal
 		}
 		return s.completeControl(ctx, signal, state, "aborted")
 	case handoff.HumanControlResume:
-		return s.resume(ctx, signal, state)
+		return s.resume(ctx, signal, req, state)
 	case handoff.HumanControlTerminate:
 		return s.terminate(ctx, signal, state)
 	default:
@@ -160,6 +160,7 @@ func (s *Service) abortLoaded(ctx context.Context, state handoff.State) (handoff
 			return handoff.State{}, failure.Normalize(err)
 		}
 	}
+	s.cancelReadiness(state.HandoffID)
 	state.AuthorityEpoch++
 	state.DesiredOwner = delegated.OwnerNone
 	state.AgentIngress = handoff.IngressFenced
@@ -171,7 +172,7 @@ func (s *Service) abortLoaded(ctx context.Context, state handoff.State) (handoff
 	return state, nil
 }
 
-func (s *Service) resume(ctx context.Context, signal handoff.ControlSignal, state handoff.State) (ControlResult, error) {
+func (s *Service) resume(ctx context.Context, signal handoff.ControlSignal, req handoff.Request, state handoff.State) (ControlResult, error) {
 	if state.FailureCode == failure.HandoffExpired {
 		return ControlResult{}, failure.New(failure.HandoffExpired, map[string]string{"handoff_id": state.HandoffID}, nil)
 	}
@@ -191,9 +192,17 @@ func (s *Service) resume(ctx context.Context, signal handoff.ControlSignal, stat
 	state.HumanIngress = handoff.IngressFenced
 	state.Phase = handoff.PhaseHumanConnecting
 	state.HumanClient = nil
+	s.forgetAttachment(state.HandoffID)
 	state.TransferBoundary = handoff.TransferBoundary{Kind: handoff.BoundaryProviderOrdered, Established: true}
 	if err := s.advance(ctx, state); err != nil {
 		return ControlResult{}, err
+	}
+	if s.h4Enabled {
+		var err error
+		state, err = s.prepareH4(ctx, req, state)
+		if err != nil {
+			return ControlResult{}, err
+		}
 	}
 	return s.completeControl(ctx, signal, state, "resumed")
 }

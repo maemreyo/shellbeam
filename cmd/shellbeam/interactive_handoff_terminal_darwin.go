@@ -14,10 +14,7 @@ import (
 	terminalcore "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
-const (
-	terminalLSAppInfoPath        = "/usr/bin/lsappinfo"
-	terminalProviderProbeTimeout = time.Second
-)
+const terminalProviderProbeTimeout = time.Second
 
 type darwinTerminalPresentationConfig struct {
 	LSAppInfoPath  string

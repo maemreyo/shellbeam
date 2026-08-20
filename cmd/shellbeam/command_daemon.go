@@ -115,6 +115,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		ProjectCommandBinder:    projectBinder,
 		PersistentRuntime:       persistentRuntime,
 		DelegatedRuntime:        delegatedRuntime,
+		HandoffReadiness:        composeDelegatedHandoffReadiness(delegatedRuntime, paths.RuntimeDir),
 		HandoffPresenterFactory: terminalRuntime.PresenterFactory,
 		MediaReader:             daemonMediaReader(),
 		InputTracePreparer:      inputTraceRuntime.Preparer,

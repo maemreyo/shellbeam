@@ -43,7 +43,7 @@ func (s *Service) BindLocalHuman(ctx context.Context, handoffID string, client d
 	if err := client.Validate(); err != nil {
 		return handoff.State{}, failure.New(failure.InvalidInput, map[string]string{"field": "client_ref"}, err)
 	}
-	_, state, found, err := s.store.FindHandoff(ctx, handoffID)
+	req, state, found, err := s.store.FindHandoff(ctx, handoffID)
 	if err != nil {
 		return handoff.State{}, failure.Normalize(err)
 	}
@@ -62,14 +62,18 @@ func (s *Service) BindLocalHuman(ctx context.Context, handoffID string, client d
 	if state.Phase != handoff.PhaseHumanConnecting || state.AgentIngress != handoff.IngressFenced || state.HumanIngress != handoff.IngressFenced {
 		return handoff.State{}, failure.New(failure.HandoffNotPending, map[string]string{"handoff_id": handoffID, "phase": string(state.Phase)}, nil)
 	}
+	state, err = s.ensurePrivateCurrent(ctx, req, state)
+	if err != nil {
+		return handoff.State{}, err
+	}
 	ref, err := s.store.LoadDelegatedProviderRef(ctx, operation.SessionID(state.SessionID))
 	if err != nil {
 		return handoff.State{}, failure.Normalize(err)
 	}
-	return s.bindLocalHumanLocked(ctx, ref, state, client)
+	return s.bindLocalHumanLocked(ctx, ref, req, state, client)
 }
 
-func (s *Service) bindLocalHumanLocked(ctx context.Context, ref delegated.ProviderRef, state handoff.State, client delegatedapp.ProviderClientRef) (handoff.State, error) {
+func (s *Service) bindLocalHumanLocked(ctx context.Context, ref delegated.ProviderRef, req handoff.Request, state handoff.State, client delegatedapp.ProviderClientRef) (handoff.State, error) {
 	obs, err := s.runtime.InspectHumanClient(ctx, ref, client)
 	if err != nil {
 		return handoff.State{}, failure.Normalize(err)
@@ -110,13 +114,14 @@ func (s *Service) bindLocalHumanLocked(ctx context.Context, ref delegated.Provid
 		_, _ = s.runtime.FenceHumanIngress(context.Background(), ref, client, state.AuthorityEpoch)
 		return handoff.State{}, err
 	}
+	s.startAutomaticReadiness(req, state)
 	return state, nil
 }
 
 func (s *Service) AttachLocalHuman(ctx context.Context, handoffID string, spec delegatedapp.HumanAttachSpec) (LocalAttachResult, error) {
 	unlock := s.lockMutation(handoffID)
 	defer unlock()
-	_, state, found, err := s.store.FindHandoff(ctx, handoffID)
+	req, state, found, err := s.store.FindHandoff(ctx, handoffID)
 	if err != nil {
 		return LocalAttachResult{}, failure.Normalize(err)
 	}
@@ -129,6 +134,10 @@ func (s *Service) AttachLocalHuman(ctx context.Context, handoffID string, spec d
 	if state.Phase != handoff.PhaseHumanConnecting || state.AgentIngress != handoff.IngressFenced || state.HumanIngress != handoff.IngressFenced {
 		return LocalAttachResult{}, failure.New(failure.HandoffNotPending, map[string]string{"handoff_id": handoffID, "phase": string(state.Phase)}, nil)
 	}
+	state, err = s.ensurePrivateCurrent(ctx, req, state)
+	if err != nil {
+		return LocalAttachResult{}, err
+	}
 	ref, err := s.store.LoadDelegatedProviderRef(ctx, operation.SessionID(state.SessionID))
 	if err != nil {
 		return LocalAttachResult{}, failure.Normalize(err)
@@ -137,7 +146,7 @@ func (s *Service) AttachLocalHuman(ctx context.Context, handoffID string, spec d
 	if err != nil {
 		return LocalAttachResult{}, err
 	}
-	state, err = s.bindLocalHumanLocked(ctx, ref, state, client)
+	state, err = s.bindLocalHumanLocked(ctx, ref, req, state, client)
 	if err != nil {
 		return LocalAttachResult{}, err
 	}
@@ -224,4 +233,10 @@ func (s *Service) pendingAttachment(handoffID string) delegatedapp.HumanAttachRe
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.attachments[handoffID]
+}
+
+func (s *Service) forgetAttachment(handoffID string) {
+	s.mu.Lock()
+	delete(s.attachments, handoffID)
+	s.mu.Unlock()
 }

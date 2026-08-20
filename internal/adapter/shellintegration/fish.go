@@ -29,8 +29,9 @@ func (a *FishAdapter) Install(_ context.Context, req app.WatchRequest) (app.Requ
 
 func fishScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) (string, string) {
 	name := "__shellbeam_handoff_" + eventID
+	armed := name + "_armed"
 	variable := req.Requirement.Name
-	install := fmt.Sprintf("function %s --on-event fish_prompt\n  if set --query --export %s; and test -n \"$%s\"\n    %s\n  else\n    %s\n  end\n  functions --erase %s\nend", name, variable, variable, trueNotify, falseNotify, name)
-	cleanup := fmt.Sprintf("functions --erase %s 2>/dev/null; or true", name)
+	install := fmt.Sprintf("set -g %s 0\nfunction %s --on-event fish_prompt\n  if test \"$%s\" = 0\n    set -g %s 1\n    return\n  end\n  if set --query --export %s; and test -n \"$%s\"\n    %s\n  else\n    %s\n  end\n  functions --erase %s\n  set -e %s\nend", armed, name, armed, armed, variable, variable, trueNotify, falseNotify, name, armed)
+	cleanup := fmt.Sprintf("functions --erase %s 2>/dev/null; or true; set -e %s 2>/dev/null; or true", name, armed)
 	return install, cleanup
 }

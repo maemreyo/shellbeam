@@ -12,6 +12,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
@@ -57,6 +58,12 @@ func configureHandoffCoordinator(service *Service) {
 		daemonAgentIngressFencer{service: service},
 		service.options.HandoffPresenter,
 	)
+	if _, privacyOK := service.options.DelegatedRuntime.(delegatedapp.PrivacyProvider); privacyOK || service.options.HandoffReadiness != nil {
+		coordinator.EnableH4()
+	}
+	if service.options.HandoffReadiness != nil {
+		coordinator.SetReadiness(service.options.HandoffReadiness)
+	}
 	if service.options.HandoffPresenterFactory != nil {
 		if presenter := service.options.HandoffPresenterFactory(coordinator); presenter != nil {
 			coordinator.SetPresenter(presenter)
@@ -101,6 +108,11 @@ func (a handoffStoreAdapter) MarkHumanWriteAuthorityGranted(ctx context.Context,
 }
 func (a handoffStoreAdapter) LoadInputAuthorityProvenance(ctx context.Context, id operation.SessionID) (string, error) {
 	return a.handoff.LoadInputAuthorityProvenance(ctx, id)
+}
+
+func (a handoffStoreAdapter) MarkPrivateCapture(ctx context.Context, sessionID string) error {
+	_, result := a.delegated.MarkDelegatedCaptureReason(ctx, operation.SessionID(sessionID), receipt.CaptureReasonPrivateIntervalsOmitted)
+	return handoffStoreError(result)
 }
 
 func (a handoffStoreAdapter) LoadHandoffTimestamps(ctx context.Context, id string) (time.Time, time.Time, error) {

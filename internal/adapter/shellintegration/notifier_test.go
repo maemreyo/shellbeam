@@ -157,3 +157,35 @@ func assertNoNotifierSockets(t *testing.T, dir string) {
 		}
 	}
 }
+
+func TestWatcherNotificationSelfRemovalAvoidsRedundantCleanupInjection(t *testing.T) {
+	port := &recordingCommandPort{}
+	deps := task6Deps(t, port)
+	watcher, _, err := newOneShotWatcher(task6WatchRequest(core.ShellFish), deps, fishScripts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notification := watcher.expected
+	notification.Satisfied = true
+	waitCh := make(chan error, 1)
+	go func() {
+		_, err := watcher.Wait(t.Context())
+		waitCh <- err
+	}()
+	if err := SendNotification(t.Context(), watcher.socketPath, notification); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-waitCh; err != nil {
+		t.Fatal(err)
+	}
+	before := len(port.snapshot())
+	if before != 1 {
+		t.Fatalf("scripts before close=%d want install only", before)
+	}
+	if err := watcher.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if after := len(port.snapshot()); after != before {
+		t.Fatalf("successful notification injected redundant cleanup: before=%d after=%d scripts=%q", before, after, port.snapshot())
+	}
+}

@@ -160,3 +160,45 @@ func TestNativePrivateObserverOverlapKeepsOldAndNewPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestNativePrivateActiveEpochRebindKeepsSameObserverPrivate(t *testing.T) {
+	p, _ := nativeProvider(t)
+	ref, _ := createHumanNativeSession(t, p, "session_h4_private_epoch_rebind", nil)
+	firstSpec := app.PrivacySpec{HandoffID: "handoff-h4-epoch-rebind", AuthorityEpoch: 2}
+	first, err := p.ArmPrivateObservation(t.Context(), ref, firstSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.mu.Lock()
+	observer := p.controls[ref.Ref]
+	p.mu.Unlock()
+	if observer == nil || !observer.isPrivateObservation() {
+		t.Fatal("initial observer not private")
+	}
+	secondSpec := app.PrivacySpec{HandoffID: firstSpec.HandoffID, AuthorityEpoch: 4}
+	second, err := p.ArmPrivateObservation(t.Context(), ref, secondSpec)
+	if err != nil {
+		t.Fatalf("monotonic active epoch rebind failed: %v", err)
+	}
+	if second == first {
+		t.Fatalf("epoch rebind reused stale handle: %#v", second)
+	}
+	p.mu.Lock()
+	after := p.controls[ref.Ref]
+	p.mu.Unlock()
+	if after != observer || !after.isPrivateObservation() {
+		t.Fatal("epoch rebind replaced or publicized private observer")
+	}
+	if _, err := p.ProvePrivateObservation(t.Context(), ref, first); err == nil {
+		t.Fatal("stale pre-rebind privacy handle remained current")
+	}
+	if _, err := p.ProvePrivateObservation(t.Context(), ref, second); err != nil {
+		t.Fatalf("rebound privacy handle not provable: %v", err)
+	}
+	if _, err := p.ArmPrivateObservation(t.Context(), ref, app.PrivacySpec{HandoffID: firstSpec.HandoffID, AuthorityEpoch: 3}); err == nil {
+		t.Fatal("stale epoch rebind accepted")
+	}
+	if err := p.ReleasePrivateObservation(t.Context(), ref, second, nativePrivacyBoundary(secondSpec, time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+}

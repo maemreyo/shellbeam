@@ -19,10 +19,13 @@ type Service struct {
 	runtime   Runtime
 	fencer    AgentIngressFencer
 	presenter Presenter
+	readiness ReadinessPreparer
+	h4Enabled bool
 
 	mu             sync.Mutex
 	changed        chan struct{}
 	attachments    map[string]delegatedapp.HumanAttachResult
+	preparations   map[string]*handoffPreparation
 	mutationShards [64]sync.Mutex
 }
 
@@ -31,7 +34,7 @@ func New(store Store, runtime Runtime, fencer AgentIngressFencer) *Service {
 }
 
 func NewWithPresenter(store Store, runtime Runtime, fencer AgentIngressFencer, presenter Presenter) *Service {
-	return &Service{store: store, runtime: runtime, fencer: fencer, presenter: presenter, changed: make(chan struct{}), attachments: map[string]delegatedapp.HumanAttachResult{}}
+	return &Service{store: store, runtime: runtime, fencer: fencer, presenter: presenter, changed: make(chan struct{}), attachments: map[string]delegatedapp.HumanAttachResult{}, preparations: map[string]*handoffPreparation{}}
 }
 
 // SetPresenter binds the optional H3 presentation service during daemon composition,
@@ -56,8 +59,14 @@ func (s *Service) RequestWithPresentation(ctx context.Context, req handoff.Reque
 }
 
 func (s *Service) request(ctx context.Context, req handoff.Request, hint *terminal.BridgeAffinityHint) (handoff.State, error) {
-	if err := req.ValidateH2(); err != nil {
-		return handoff.State{}, err
+	var validationErr error
+	if s.h4Enabled {
+		validationErr = req.ValidateH4()
+	} else {
+		validationErr = req.ValidateH2()
+	}
+	if validationErr != nil {
+		return handoff.State{}, validationErr
 	}
 	unlock := s.lockMutation(req.HandoffID)
 	defer unlock()
@@ -71,6 +80,12 @@ func (s *Service) request(ctx context.Context, req handoff.Request, hint *termin
 		}
 		if state.Phase == handoff.PhaseAgentFencing {
 			state, err = s.finishAgentFence(ctx, state)
+			if err != nil {
+				return handoff.State{}, err
+			}
+		}
+		if state.Phase == handoff.PhaseHumanConnecting || state.Phase == handoff.PhaseHumanOwned {
+			state, err = s.prepareH4(ctx, req, state)
 			if err != nil {
 				return handoff.State{}, err
 			}
@@ -100,6 +115,10 @@ func (s *Service) request(ctx context.Context, req handoff.Request, hint *termin
 		if err != nil {
 			return handoff.State{}, err
 		}
+	}
+	state, err = s.prepareH4(ctx, req, state)
+	if err != nil {
+		return handoff.State{}, err
 	}
 	return s.presentAfterH2(ctx, state, hint)
 }
@@ -212,7 +231,7 @@ func (s *Service) finishAgentFence(ctx context.Context, state handoff.State) (ha
 }
 
 func (s *Service) advance(ctx context.Context, state handoff.State) error {
-	if err := state.ValidateH2(); err != nil {
+	if err := state.ValidateH4(); err != nil {
 		return err
 	}
 	if err := s.store.AdvanceHandoff(ctx, state); err != nil {

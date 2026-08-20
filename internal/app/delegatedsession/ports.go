@@ -38,6 +38,7 @@ type Observation struct {
 	Terminal           bool
 	ExitCode           *int
 	PanePID            int
+	CurrentCommand     string
 	OutputBytes        int64
 }
 

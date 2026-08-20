@@ -36,10 +36,10 @@ func (v handoffRecord) validate() error {
 	if v.SchemaVersion != handoffStoreSchemaVersion || v.CreatedAt.IsZero() || v.UpdatedAt.Before(v.CreatedAt) {
 		return fmt.Errorf("invalid handoff record")
 	}
-	if err := v.Request.ValidateH2(); err != nil {
+	if err := v.Request.ValidateH4(); err != nil {
 		return err
 	}
-	if err := v.State.ValidateH2(); err != nil {
+	if err := v.State.ValidateH4(); err != nil {
 		return err
 	}
 	if v.Request.HandoffID != v.State.HandoffID || v.Request.SessionID != v.State.SessionID {
@@ -104,7 +104,7 @@ func (r *Repository) ReserveHandoff(ctx context.Context, req handoff.Request, in
 	if err := ctx.Err(); err != nil {
 		return handoff.State{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	if err := validateInitialH2Handoff(req, initial); err != nil {
+	if err := validateInitialHandoff(req, initial); err != nil {
 		return handoff.State{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	r.delegatedSessionMu.Lock()
@@ -164,11 +164,11 @@ func (r *Repository) ReserveHandoff(ctx context.Context, req handoff.Request, in
 	return state, created, result
 }
 
-func validateInitialH2Handoff(req handoff.Request, state handoff.State) error {
-	if err := req.ValidateH2(); err != nil {
+func validateInitialHandoff(req handoff.Request, state handoff.State) error {
+	if err := req.ValidateH4(); err != nil {
 		return err
 	}
-	if err := state.ValidateH2(); err != nil {
+	if err := state.ValidateH4(); err != nil {
 		return err
 	}
 	if req.HandoffID != state.HandoffID || req.SessionID != state.SessionID {
@@ -217,7 +217,7 @@ func (r *Repository) AdvanceHandoff(ctx context.Context, want handoff.State) app
 	if err := ctx.Err(); err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	if err := want.ValidateH2(); err != nil {
+	if err := want.ValidateH4(); err != nil {
 		return app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	r.delegatedSessionMu.Lock()

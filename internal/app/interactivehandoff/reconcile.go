@@ -20,16 +20,50 @@ func (s *Service) Reconcile(ctx context.Context, handoffID string) (handoff.Stat
 	if err != nil {
 		return handoff.State{}, failure.Normalize(err)
 	}
-	if err := state.ValidateH2(); err != nil {
-		return handoff.State{}, err
+	var validateErr error
+	if s.h4Enabled {
+		validateErr = state.ValidateH4()
+	} else {
+		validateErr = state.ValidateH2()
+	}
+	if validateErr != nil {
+		return handoff.State{}, validateErr
+	}
+	var recoveredReq handoff.Request
+	if s.h4Enabled && state.PrivacyState == handoff.PrivacyPrivate && (state.Phase == handoff.PhaseHumanConnecting || state.Phase == handoff.PhaseHumanOwned) {
+		var loadErr error
+		recoveredReq, _, loadErr = s.store.LoadHandoff(ctx, handoffID)
+		if loadErr != nil {
+			return handoff.State{}, failure.Normalize(loadErr)
+		}
+		if state.Phase == handoff.PhaseHumanConnecting {
+			state, loadErr = s.prepareH4(ctx, recoveredReq, state)
+		} else {
+			ref, refErr := s.store.LoadDelegatedProviderRef(ctx, operation.SessionID(state.SessionID))
+			if refErr != nil {
+				return handoff.State{}, failure.Normalize(refErr)
+			}
+			state, loadErr = s.preparePrivate(ctx, recoveredReq, state, ref)
+		}
+		if loadErr != nil {
+			return handoff.State{}, loadErr
+		}
 	}
 	switch state.Phase {
 	case handoff.PhaseAgentFencing:
 		return s.finishAgentFence(ctx, state)
 	case handoff.PhaseHumanConnecting:
-		return s.reconcileHumanConnecting(ctx, state)
+		out, reconcileErr := s.reconcileHumanConnecting(ctx, state)
+		if reconcileErr == nil && out.Phase == handoff.PhaseHumanOwned && recoveredReq.HandoffID != "" {
+			s.startAutomaticReadiness(recoveredReq, out)
+		}
+		return out, reconcileErr
 	case handoff.PhaseHumanOwned:
-		return s.reconcileHumanOwned(ctx, state)
+		out, reconcileErr := s.reconcileHumanOwned(ctx, state)
+		if reconcileErr == nil && recoveredReq.HandoffID != "" {
+			s.startAutomaticReadiness(recoveredReq, out)
+		}
+		return out, reconcileErr
 	case handoff.PhaseHumanFencing:
 		return s.reconcileHumanFencing(ctx, state)
 	case handoff.PhaseReclaimPending:
@@ -69,7 +103,11 @@ func (s *Service) reconcileHumanConnecting(ctx context.Context, state handoff.St
 		return s.persistClientProofBlocked(ctx, state)
 	}
 	if obs.ReadOnly && obs.ObservedOwner == delegated.OwnerNone {
-		return s.bindLocalHumanLocked(ctx, ref, state, client)
+		req, _, loadErr := s.store.LoadHandoff(ctx, state.HandoffID)
+		if loadErr != nil {
+			return handoff.State{}, failure.Normalize(loadErr)
+		}
+		return s.bindLocalHumanLocked(ctx, ref, req, state, client)
 	}
 	if !obs.ReadOnly && obs.ObservedOwner == delegated.OwnerHuman {
 		if err := s.store.MarkHumanWriteAuthorityGranted(ctx, operation.SessionID(state.SessionID)); err != nil {
