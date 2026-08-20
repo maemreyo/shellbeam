@@ -2,20 +2,22 @@
 
 Date: 2026-08-20
 Status: design freeze for review; implementation planning is not yet authorized
-Scope: add two artifact-backed JavaScript/TypeScript test-runner adapters, `vitest-json@v1` and `jest-json@v1`, on top of the already-deployed `StructuredInputRef` artifact-capture foundation, without weakening E22 raw-output identity, terminal receipt truth, P1 sufficiency, or filesystem provenance
+Scope: qualify two artifact-backed JavaScript/TypeScript test-runner adapters, `jest-json@v1` and `vitest-json@v1`, on top of the already-deployed `StructuredInputRef` artifact-capture foundation, without weakening E22 raw-output identity, terminal receipt truth, P1 sufficiency, or filesystem provenance. Jest is authorized for implementation; Vitest is qualified but gated on a value review (§5)
 
 Predecessor: `docs/superpowers/specs/2026-08-19-multilanguage-structured-results-design.md` (the "pytest design"). Section references written as `pytest §N` refer to that document.
 
 ## 1. Decision
 
-ShellBeam SHALL add two artifact-backed structured-result adapters:
+ShellBeam SHALL qualify two artifact-backed structured-result adapters, and SHALL implement them in two gated stages:
 
 ```text
-vitest-json@v1
-jest-json@v1
+jest-json@v1      qualified and authorized for implementation
+vitest-json@v1    qualified, implementation gated on a jest-json@v1 value review (§5)
 ```
 
 Each SHALL consume its own producer's built-in JSON result document, captured from an explicitly requested output file through the existing artifact-capture pipeline.
+
+Qualifying both together is deliberate: the comparison is what makes the value difference between them legible (§53), and a qualification record that is never implemented is still a useful outcome.
 
 Both adapters SHALL use the existing `artifact_blob` branch of `StructuredInputRef`. No new input kind is introduced.
 
@@ -114,19 +116,28 @@ Reusing the capture layer unchanged is a hard requirement, not a convenience. An
 
 ## 5. Delivery scope and order
 
-This document specifies both JavaScript/TypeScript test-runner adapters together because they share one qualification architecture and differ only in producer specifics.
-
-Delivery order within this scope:
+This document specifies both JavaScript/TypeScript test-runner adapters, because they share one qualification architecture and differ only in producer specifics. It authorizes only the first for delivery.
 
 ```text
 1. shared JS/TS invocation-qualification + strict-profile parser scaffolding
-2. jest-json@v1
-3. vitest-json@v1
+2. jest-json@v1                                          AUTHORIZED
+3. vitest-json@v1                                        GATED — see below
 ```
 
-Jest is sequenced first because its payload is the more stable of the two across the versions verified here (§30) and because its qualification surface has fewer config-mediated redirection paths (§19 versus §25).
+Jest is sequenced first for two reasons. Its payload is the more stable of the two across the versions verified here (§30), and its qualification surface has fewer config-mediated redirection paths (§19 versus §25).
 
-ESLint remains after this work (pytest §95). The TypeScript compiler remains deferred pending its own qualification (pytest §96).
+`vitest-json@v1` is fully specified here but SHALL NOT be implemented until a value review of the deployed `jest-json@v1` passes. The reason is that its marginal yield is thin, and this is visible from the coverage declarations in §53 rather than from opinion. Against the raw-output baseline that already exists, `jest-json@v1` adds per-test status, retry attempt counts, and the expected-failure dimension; `vitest-json@v1` adds per-test status and nothing else, because retry state, focus state, error status, and aggregates are all unavailable for that producer.
+
+Per-test status alone is worth having, but it is close to what an exit code plus a record count already provides, so it does not obviously justify a second producer surface with its own qualification, fixtures, and release matrix. The review SHALL therefore answer one question against real deployed usage:
+
+```text
+does jest-json@v1 change any P1 outcome that raw output plus exit code
+did not already determine?
+```
+
+If it does, the same argument extends to Vitest and implementation proceeds. If it does not, `vitest-json@v1` SHALL remain unimplemented and this document stands as the qualification record rather than a work order.
+
+ESLint remains after this work (pytest §95). The TypeScript compiler remains deferred pending its own qualification (pytest §96). Neither is blocked by the Vitest gate, because ESLint's value case is diagnostics rather than test status and is independent.
 
 ## 6. Non-goals
 
@@ -144,7 +155,7 @@ V1 SHALL NOT:
 - read the producer's own `success` boolean as any form of authority;
 - recompute child success from normalized records;
 - support watch-mode invocations;
-- support multi-project/workspace invocations (§34);
+- support multi-project/workspace invocations (§36);
 - create a JS/TS-specific evidence ontology parallel to P1.
 
 ## 7. Input kind decision: artifact_blob, not raw_output
@@ -295,7 +306,7 @@ JestInvocationBindingV1
 
 Each binding's canonical digest SHALL be the `producer_binding_digest` stored by `ArtifactCaptureIntent`, exactly as `PytestInvocationBindingV1` is today. It SHALL commit every identity-bearing field above.
 
-Crash recovery SHALL validate and reuse the persisted canonical binding. It MUST NOT re-observe the environment or filesystem to recreate qualification (pytest §46, §100).
+Crash recovery SHALL validate and reuse the persisted canonical binding. It MUST NOT re-observe the environment or filesystem to recreate qualification (pytest §46, pytest §100).
 
 ## 15. Vitest producer qualification
 
@@ -461,7 +472,7 @@ The following were verified to change the payload shape, the payload schema, or 
                          rewrite the payload (§26)
 ```
 
-`--randomize` / `--seed` affect only ordering, which this design already treats as non-authoritative (§39), and are therefore permitted; whether the seed is emitted into the JSON is [UNVERIFIED] and SHALL NOT be relied upon.
+`--randomize` / `--seed` affect only ordering, which this design already treats as non-authoritative (§50), and are therefore permitted; whether the seed is emitted into the JSON is [UNVERIFIED] and SHALL NOT be relied upon.
 
 The `excluded_flag_state` field of the binding SHALL record that this closed exclusion set was evaluated and found absent, so the fact is committed into the digest rather than re-derived at recovery time.
 
@@ -490,7 +501,7 @@ Two environment influences were verified to affect only stderr, never the `--jso
 
 This matters for ShellBeam specifically: ShellBeam is normally driven by an agent, so these variables will frequently be set in real runs. Recording this as a non-fact prevents a future change from treating an ordinary agent-driven run as unqualified.
 
-**Color forcing.** `FORCE_COLOR` / `NO_COLOR` inject ANSI escapes into `message` and `failureMessages` string values [RUN 30.4.2]. The document remains valid JSON. This adapter never reads those fields (§33), so the effect is out of contract.
+**Color forcing.** `FORCE_COLOR` / `NO_COLOR` inject ANSI escapes into `message` and `failureMessages` string values [RUN 30.4.2]. The document remains valid JSON. This adapter never reads those fields (§34), so the effect is out of contract.
 
 `NODE_OPTIONS` is read by Node, never by Jest [SRC: zero `process.env` references in the `jest-cli` and `jest-config` bundles]. It can corrupt stdout via preload writes (§9), which is one more reason the artifact path is the qualified one, and it can shift timings. It is not identity-bearing for artifact capture.
 
@@ -513,7 +524,7 @@ Vitest config sources are `vitest.config.{ts,mts,cts,js,mjs,cjs}` then `vite.con
 
 Implementing this would require a discovery subsystem with per-version precedence rules, for the same reasons pytest §51 rejected it. The strict V1 mechanism is instead: require explicit CLI bindings (§17, §18, §22), and rely on the structural fail-closed argument (§19, §26).
 
-Note that `test.reporters` and `test.outputFile` are root-only in Vitest — project-level values were silently ignored with no warning or error [SRC][RUN 4.1.11]. This is one more reason multi-project invocations are unqualified (§34).
+Note that `test.reporters` and `test.outputFile` are root-only in Vitest — project-level values were silently ignored with no warning or error [SRC][RUN 4.1.11]. This is one more reason multi-project invocations are unqualified (§36).
 
 ## 28. No payload schema version exists
 
@@ -606,33 +617,95 @@ Both parsers SHALL be bounded and SHALL fail closed.
 ```text
 input bytes            inherited from the artifact resolver
                        (DefaultMaxArtifactBlobBytes = 16 MiB)
-persisted records      1024 max
+persisted records      8192 max                       (see §33)
+observed entries       65536 max before rejection
 per string field       64 KiB max
+failure excerpt        2 KiB max per non-pass record   (see §34)
 decode                 jsonstrict strict decode into a closed per-profile struct
 parse duration         bounded by existing structured worker limits
 ```
 
-Strict whole-document decode within the existing blob ceiling is permitted. The parser SHALL bound peak allocation and SHALL reject a document whose entry counts exceed the record cap before normalizing any record, rather than normalizing until the cap trips.
+Strict whole-document decode within the existing blob ceiling is permitted. The parser SHALL bound peak allocation. A document whose observed entry count exceeds the observed-entry ceiling SHALL be rejected before normalization rather than partially normalized.
 
 A document that decodes successfully but exceeds structural caps is `budget_exceeded`, not `malformed`. These have distinct provenance and distinct diagnostics (pytest §99 reasoning).
 
+## 33. Record budget is failure-first, not document-order
+
+The pytest adapter enforces its record cap in document order, first-come-first-served, and returns `budget_exceeded` with whatever was collected. That policy SHALL NOT be reused here.
+
+It is unsafe for these producers for a specific, measured reason. Typical JavaScript suites emit one entry per test and routinely exceed a four-figure record cap, and §50 establishes that entry order is non-deterministic in both producers — Jest lands files in worker-completion order. Under a document-order cap, whether a suite's single failing test survives truncation is therefore decided by worker scheduling. The derivation is correctly marked incomplete, so P1 does not treat it as sufficient, but the practical outcome is that structured results carry no usable signal on any repository large enough to trip the cap.
+
+The guarantee that matters is completeness of the **non-pass** set, not completeness of the pass set. V1 SHALL therefore apply this selection policy:
+
+```text
+1. persist every non-pass record                    (hard guarantee)
+2. fill the remaining record budget with pass records,
+   in document order
+3. budget_exceeded ONLY when the non-pass set alone
+   exceeds the record cap
+```
+
+This is subset selection, not reordering. Every persisted record keeps the `suite_ordinal` / `testcase_ordinal` it had in the document, so `RecordID` identity from §49 is untouched and the §50 prohibition on re-sorting is not engaged.
+
+The derivation SHALL record which case applied:
+
+```text
+all records persisted                → complete
+pass records elided by budget        → partial, reason pass_records_elided
+non-pass set exceeded the cap        → budget_exceeded
+```
+
+`partial` with `pass_records_elided` is a materially different fact from `budget_exceeded`, and SHALL NOT be collapsed into one state. In the first case the failure set is provably complete and a P1 obligation over failures is satisfiable; in the second it is not.
+
+Because pass records may be elided, the count of persisted records SHALL NOT be read as the number of tests that ran. §47 defines the mechanical fact that carries that information instead.
+
+## 34. Bounded failure excerpts for non-pass records
+
+An earlier revision of this design forbade persisting producer failure text entirely. That prohibition was too broad, and the reasoning behind it was incomplete: the same text already exists in the retained raw output for the same operation, so declining to persist a bounded excerpt withholds signal from the structured record without removing the data from ShellBeam.
+
+The prohibition is therefore narrowed. What remains absolute is the semantic ban:
+
+- neither parser SHALL read `message`, `failureMessages`, `retryReasons`, `retryMessages`, or `failureDetails` to determine any status, disposition, coverage, or identity;
+- no mechanical fact SHALL be derived from their content, their presence, or their length.
+
+§39 depends on that last clause and is unchanged: Vitest flake state stays unavailable precisely because inferring it from `failureMessages.length` would be derivation from prose shape.
+
+Persistence is now permitted under strict normalization, and only for records that need it:
+
+```text
+scope        non-pass records only (fail and skip)
+count        at most 1 excerpt per record
+size         2 KiB max after normalization, truncated on a UTF-8 boundary
+source       the producer's first failure entry for that record
+control      ANSI escape sequences stripped; C0/C1 control characters removed
+paths        every path token classified before persistence, reusing the
+             existing inputtrace PathClass vocabulary:
+               repo_relative                → persisted relative
+               workspace_external_redacted  → redacted
+               system_classified            → classified, not persisted verbatim
+```
+
+An excerpt that cannot be fully normalized SHALL be omitted rather than persisted partially normalized. Omission makes that record partial; it never makes the record's status unavailable.
+
+Because §33 guarantees the non-pass set is small relative to a full suite, the storage cost of this allowance is bounded by the failure count rather than the test count.
+
+One dependency SHALL be confirmed before implementation rather than assumed: excerpts flow to callers through `inspect.structured`, which is a different exposure path from raw output views. The implementation SHALL verify that structured-record excerpts are covered by the same private-output exposure controls as raw output, and SHALL NOT ship the allowance if they are not. Until that is confirmed, the excerpt field is specified but not enabled.
+
+## 35. Coverage payloads consume the artifact ceiling
+
+Both producers can embed coverage data in the same document: Vitest adds a top-level `coverageMap` when coverage is enabled (`3.x` onward), and Jest appends `coverageMap` as a trailing key under `--coverage` [SRC + RUN]. Keys are absolute source paths.
+
+Neither adapter consumes coverage data. Under strict decode the key SHALL be declared and discarded, because `RejectUnknownMembers` would otherwise reject the whole document.
+
+The size consequence is real and SHALL be treated as a known limitation: on a large repository a coverage-enabled run can spend a large fraction of `DefaultMaxArtifactBlobBytes` on data the adapter throws away, and a document exceeding the ceiling fails capture entirely. The adapter therefore delivers less on exactly the runs that combine wide test coverage with `--coverage`.
+
+V1 SHALL NOT mitigate this by rewriting the invocation, by excluding `--coverage` from qualification, or by streaming past the key to avoid materializing the blob — the first violates §61, the second would disqualify a legitimate and common invocation, and the third would break the immutable-bytes contract.
+
+The release qualification matrix (§31) SHALL measure real document sizes with and without coverage on a representative repository, and the result SHALL decide whether a per-adapter blob ceiling above the shared default is justified.
+
 Jest ≤ `30.4.2` aborts serialization entirely if any `BigInt` reaches the results, producing no output and exit 1 [RUN 30.4.2; fixed only on `main`]. Jest `globalSetup` / `globalTeardown` throws also produce no output at all [RUN 30.4.2]. Both cases surface as an absent artifact and fail closed at Phase A; no special handling is required or permitted.
 
-## 33. No prose extraction, and failure text is not persisted
-
-Neither parser SHALL read `message`, `failureMessages`, `retryReasons`, `retryMessages`, or `failureDetails` for any semantic purpose.
-
-V1 SHALL additionally **not persist** those fields at all. Three reasons:
-
-- they carry no mechanical authority (pytest §75);
-- they can contain ANSI escape sequences under color forcing (§25);
-- Jest `message` embeds rendered failure blocks including stack frames, and Vitest `failureMessages` entries are `e.stack || e.message` with absolute paths — persisting them would move host filesystem paths into structured records for no mechanical gain.
-
-`failureDetails` is separately unusable: for a thrown `Error` it serializes to `{}` because `Error` own-properties are non-enumerable [SRC + RUN].
-
-Nothing derived from these fields SHALL be persisted either. In particular §37 forbids the one tempting derivation.
-
-## 34. Multi-project and workspace invocations are unqualified
+## 36. Multi-project and workspace invocations are unqualified
 
 Vitest `test.projects` and Jest `projects` are both unqualified in V1.
 
@@ -640,7 +713,7 @@ For Vitest, project-level `reporters` and `outputFile` are silently ignored [SRC
 
 Without provable per-project attribution, records from different projects would be indistinguishable in one flat document. V1 declines rather than guesses.
 
-## 35. Vitest status mapping
+## 37. Vitest status mapping
 
 The emitted union is `passed | failed | skipped | pending | todo | disabled`, identical from `1.6.1` through `5.0.0-rc.2` [SRC]. The producer maps internal state through `StatusMap[t.result?.state || t.mode] || 'skipped'` [SRC], and only a subset is reachable.
 
@@ -666,25 +739,25 @@ vitest:skipped
 vitest:todo
 ```
 
-## 36. Vitest focus state is unavailable
+## 38. Vitest focus state is unavailable
 
 `it.only` runs the focused test normally, and emits its non-focused siblings as `skipped` — mechanically indistinguishable from an explicit `.skip` [RUN 4.1.11 + 3.2.7].
 
 Therefore `vitest:focus_state` SHALL be declared unavailable, and a `skip` record SHALL NOT be interpreted as evidence that the suite was fully selected.
 
-## 37. Vitest retry and flake state are unavailable
+## 39. Vitest retry and flake state are unavailable
 
 Retries collapse to a single entry with the final status. There is no retry-count field and no per-attempt entries [SRC + RUN].
 
 The only surviving signal is that `failureMessages` accumulates every attempt's error, so a flaky test appears as `status: "passed"` with a non-empty `failureMessages` [RUN 4.1.11 + 3.2.7: two failures then a pass produced `passed` with `failureMessages.length == 2`].
 
-That is an inference from an implementation detail, not a producer contract. V1 SHALL NOT use it. `vitest:retry_attempts` and `vitest:flake_state` SHALL be declared unavailable, and §33 already forbids persisting the count that would invite the inference.
+That is an inference from an implementation detail, not a producer contract. V1 SHALL NOT use it. `vitest:retry_attempts` and `vitest:flake_state` SHALL be declared unavailable, and §34 already forbids persisting the count that would invite the inference.
 
 The underlying data exists internally — `TestCase.diagnostic()` exposes `retryCount`, `repeatCount`, and `flaky` — but the built-in `json` reporter never calls it in any version from `1.x` to `5.x` [SRC]. Recovering this dimension would require a custom reporter, which is out of scope because ShellBeam does not install reporters (§6).
 
 `duration` reflects the final attempt only, not cumulative time [SRC].
 
-## 38. Vitest can report success on a failed run
+## 40. Vitest can report success on a failed run
 
 Verified on `4.1.11` and `3.2.7` [RUN]: a test that schedules `setTimeout(() => { throw ... }, 1)` and then passes yields process exit code 1, while the JSON reports `success: true` and `numFailedTests: 0`, and the unhandled error text appears nowhere in the document. `JsonReporter.onTestRunEnd` ignores its `unhandledErrors` argument entirely [SRC]. With a json-only reporter, stderr was 0 bytes — the error is lost from the machine output completely.
 
@@ -698,7 +771,7 @@ Jest exhibits a milder form of the same hazard: `success: true` when `--testName
 
 `vitest:unhandled_error_visibility` SHALL be declared unavailable, so a policy that needs "no unhandled errors occurred" cannot be satisfied from this provider.
 
-## 39. Jest status mapping
+## 41. Jest status mapping
 
 The assertion-level union is `passed | failed | skipped | pending | todo | disabled | focused`, byte-identical in `@jest/types@29.6.3`, `@jest/types@30.4.1`, and `main` [SRC]. The producer is `parseSingleTestResult` in `jest-circus`, and only four values are reachable from it [SRC]:
 
@@ -712,7 +785,7 @@ otherwise       → 'passed'
 Mechanical mapping:
 
 ```text
-passed  → pass   (see §40 for the failing-flag refinement)
+passed  → pass   (see §42 for the failing-flag refinement)
 failed  → fail
 pending → skip + jest:pending
 todo    → skip + jest:todo
@@ -735,11 +808,11 @@ The closed V1 disposition vocabulary for this adapter is:
 ```text
 jest:pending
 jest:todo
-jest:failing_expected      (v30 profile only, §40)
-jest:failing_unexpected    (v30 profile only, §40)
+jest:failing_expected      (v30 profile only, §42)
+jest:failing_unexpected    (v30 profile only, §42)
 ```
 
-## 40. Jest exposes an expected-failure dimension that pytest JUnit could not
+## 42. Jest exposes an expected-failure dimension that pytest JUnit could not
 
 `it.failing` inverts the assertion outcome, and Jest emits a mechanical boolean `failing` alongside the resulting status [SRC; always present in 30.x output, absent in 29.x].
 
@@ -759,7 +832,7 @@ failing = false                      → no disposition
 
 For the `v29` profile the `failing` key does not exist, so both codes SHALL be declared unavailable in that profile's coverage. This is a per-profile coverage difference within one adapter version, and the coverage declaration SHALL reflect the observed profile rather than the adapter version.
 
-## 41. Jest retry attempt count is mechanically observable
+## 43. Jest retry attempt count is mechanically observable
 
 `AssertionResult.invocations` is an integer count of total attempts, incremented in `jest-circus` [SRC]. Retries collapse to a single entry with the final status; there are no duplicate entries.
 
@@ -777,13 +850,13 @@ attempts = invocations
 retries  = invocations - 1
 ```
 
-This is a genuine mechanical fact, unlike the Vitest inference forbidden in §37. The distinction is exactly the one pytest §75 draws: an integer field published by the producer is authority; a message-array length is not.
+This is a genuine mechanical fact, unlike the Vitest inference forbidden in §39. The distinction is exactly the one pytest §75 draws: an integer field published by the producer is authority; a message-array length is not.
 
 A record with `status = pass` and `invocations > 1` SHALL NOT be relabeled `fail`, and SHALL NOT be described as "flaky" by the adapter. It records attempts; a flake policy is a P1 concern with its own contract (pytest §66).
 
-`retryReasons` is populated only when `jest.retryTimes(n, { logErrorsBeforeRetry: true })` is set, and holds formatted error strings [SRC + RUN: 0 without the option, 2 with it]. It is config-mediated and prose, so `jest:retry_reasons` SHALL be declared unavailable and §33 forbids persisting it. `retryMessages` exists only on `main` and is unqualified.
+`retryReasons` is populated only when `jest.retryTimes(n, { logErrorsBeforeRetry: true })` is set, and holds formatted error strings [SRC + RUN: 0 without the option, 2 with it]. It is config-mediated and prose, so `jest:retry_reasons` SHALL be declared unavailable and §34 forbids persisting it. `retryMessages` exists only on `main` and is unqualified.
 
-## 42. Hook phase and suite execution error are unavailable in both adapters
+## 44. Hook phase and suite execution error are unavailable in both adapters
 
 Neither producer publishes a typed hook-phase marker. Verified representations:
 
@@ -811,15 +884,15 @@ Consequently both adapters SHALL declare unavailable:
 <ns>:suite_execution_error_distinction
 ```
 
-## 43. Core error status is never produced in V1
+## 45. Core error status is never produced in V1
 
-Because §42 removes the only candidate sources, neither adapter SHALL ever emit a record with `TestStatus = error`.
+Because §44 removes the only candidate sources, neither adapter SHALL ever emit a record with `TestStatus = error`.
 
 This is a deliberate, declared gap, not an oversight, and it SHALL appear in both coverage declarations as `<ns>:error_status` unavailable.
 
 Core `TestStatus` SHALL NOT be narrowed, and `error` SHALL NOT be repurposed. Any P1 obligation requiring an error-versus-failure distinction is unsatisfiable from these providers, which is precisely the outcome pytest §66 specifies for insufficient semantic coverage — and is not negative evidence about the code under test.
 
-## 44. Suite and file record mapping
+## 46. Suite and file record mapping
 
 Each qualified document normalizes to:
 
@@ -852,7 +925,7 @@ focused → pass + jest:suite_focused
 
 Mapping `focused` to `pass` is the honest coarse reduction, because no failure occurred; the disposition preserves the fact that execution was incomplete. A `focused` suite record SHALL NOT be read as complete suite execution.
 
-## 45. Suite aggregate counters are unavailable in V1
+## 47. Suite aggregate counters are unavailable in V1
 
 Neither adapter SHALL emit `TestSuiteAggregate`.
 
@@ -869,7 +942,28 @@ Recomputing aggregates from normalized records is forbidden by pytest §72, and 
 
 A future amendment MAY add a producer-aggregate envelope in the producer namespace, versioned like `ProducerTestDisposition`. It SHALL NOT reuse the JUnit-shaped aggregate.
 
-## 46. Producer address and path handling
+### 47.1 Observed entry count is a distinct mechanical fact
+
+Because §33 permits eliding pass records, the number of persisted records no longer reveals how many tests the document described. That information SHALL NOT be lost, and it SHALL NOT be recovered by reading a producer aggregate.
+
+The derivation SHALL therefore carry a bounded parser-observed count:
+
+```text
+ObservedEntryCounts
+  namespace          = vitest | jest
+  vocabulary_version = 1
+  files              = count of file entries the parser traversed
+  entries            = count of assertion entries the parser traversed
+  entries_by_status  = closed map over pass | fail | skip
+```
+
+This is not a producer aggregate and it is not subject to the §47 prohibition. §47 forbids reading the producer's own counter fields, whose buckets do not map onto ShellBeam's vocabulary, and forbids recomputing a *suite* aggregate from *records*. `ObservedEntryCounts` is neither: it is what the parser mechanically traversed in the immutable document, counted in ShellBeam's own closed status vocabulary, before any budget selection is applied.
+
+It SHALL be derived during traversal, never from the persisted record set, so that eliding pass records cannot change it. It SHALL NOT be compared against producer counters to validate them, and a mismatch with producer counters SHALL NOT be treated as a defect — the buckets are not comparable, which is exactly why §47 exists.
+
+It SHALL NOT be used to reconstruct a suite status, and it SHALL NOT override terminal receipt truth.
+
+## 48. Producer address and path handling
 
 Presentation and correlation fields SHALL be carried in `ProducerTestAddress`, per pytest §69:
 
@@ -882,13 +976,21 @@ ProducerTestAddress
   name               = title
 ```
 
-Both producers emit the test file path as an **absolute** path (`testResults[].name`) [SRC + RUN both]. V1 SHALL normalize it to a workspace-relative path when containment is provable under the same frozen workspace authority used by capture. When containment is not provable, the record SHALL be partial with the suite address unavailable; the absolute host path SHALL NOT be persisted.
+Both producers emit the test file path as an **absolute** path (`testResults[].name`) [SRC + RUN both]. V1 SHALL classify it before persistence using the existing `inputtrace` `PathClass` vocabulary rather than inventing a second path-safety scheme:
+
+```text
+repo_relative                → persisted relative to the frozen workspace authority
+workspace_external_redacted  → redacted; record partial, suite address unavailable
+system_classified            → classified, not persisted verbatim
+```
+
+Containment SHALL be proven under the same frozen workspace authority used by capture. An absolute host path SHALL NOT be persisted in any class.
 
 `ancestorTitles` SHALL be stored as a bounded array or a bounded joined form. The producer's own `fullName` SHALL NOT be treated as an identity: it is built by joining ancestor titles and title with a single space, which is ambiguous whenever a title contains a space [SRC]. Vitest v5 additionally changes `-t` matching to a `' > '`-joined form while `fullName` stays space-joined [DOC], so the two strings are not interchangeable even within one producer.
 
 Per pytest §69, this address is not a globally unique identity, not a dedup key, not P1 evidence identity by itself, and not a cross-run stability key.
 
-## 47. Entry identity and ordinals
+## 49. Entry identity and ordinals
 
 Artifact entry identity SHALL reuse the existing structural scheme (pytest §67):
 
@@ -903,7 +1005,7 @@ RecordID = H(derivation_key + "testcase" + suite_ordinal + testcase_ordinal)
 
 This guarantees that the same immutable bytes in the same derivation yield the same record identity, and nothing more.
 
-## 48. File order is not deterministic, in either producer
+## 50. File order is not deterministic, in either producer
 
 This warrants explicit statement because it is stronger than the pytest case.
 
@@ -915,11 +1017,11 @@ Within a file, assertion order was stable declaration order in both producers [R
 
 Consequences:
 
-- ordinals from §47 are valid within one derivation over one immutable document, and SHALL NOT be used as cross-run identity — pytest §68 already forbids this, and here even a rerun of an unchanged tree will reorder;
+- ordinals from §49 are valid within one derivation over one immutable document, and SHALL NOT be used as cross-run identity — pytest §68 already forbids this, and here even a rerun of an unchanged tree will reorder;
 - record ordering SHALL be preserved as emitted, and SHALL NOT be re-sorted, because re-sorting would change the ordinal identity of already-persisted records;
 - no policy may depend on file order.
 
-## 49. Duration normalization
+## 51. Duration normalization
 
 Duration handling SHALL follow pytest §74: a qualified non-negative finite value normalizes deterministically to whole milliseconds, truncated toward zero, without locale-dependent parsing; invalid, negative, non-finite, or overflow values make that duration unavailable or the record partial, and are never guessed.
 
@@ -932,19 +1034,25 @@ Producer-specific facts requiring care:
 
 Wall-clock timestamps SHALL NOT be persisted as mechanical facts, and SHALL NOT enter derivation identity. Only normalized durations may be persisted.
 
-## 50. Duplicate entries and record count
+## 52. Duplicate entries and record count
 
 Two assertion entries with identical ancestor titles and title SHALL remain two distinct records, per pytest §70. ShellBeam SHALL NOT deduplicate, merge statuses, select the worst status, or sum durations.
 
-Record count semantics follow pytest §71:
+Record count semantics extend pytest §71 rather than restating it, because the failure-first budget of §33 breaks the identity pytest could rely on:
 
 ```text
-E22 test_case record count = normalized assertion entry count
+pytest V1     test_case record count = normalized entry count
+this design   test_case record count = normalized entry count
+                                       MINUS pass records elided by budget
 ```
 
-It SHALL NOT be described as a logical test count. For Jest specifically, a `describe.skip` emits one `pending` entry per inner test [RUN], and retried tests collapse to one entry regardless of attempt count (§41).
+The persisted record count is therefore **not** the entry count, not the number of tests that ran, and not a logical test count. The traversed entry count lives in `ObservedEntryCounts` (§47.1) and is the only field that may be read for that purpose.
 
-## 51. Semantics coverage declarations
+A consumer that counts persisted records to answer "how many tests ran" SHALL be considered incorrect. A consumer that counts persisted `fail` records to answer "how many tests failed" is correct whenever completeness is `complete` or `partial/pass_records_elided`, and incorrect under `budget_exceeded` — which is exactly why §33 keeps those two states distinct.
+
+For Jest specifically, a `describe.skip` emits one `pending` entry per inner test [RUN], and retried tests collapse to one entry regardless of attempt count (§43).
+
+## 53. Semantics coverage declarations
 
 Coverage SHALL be declared explicitly per adapter and per observed profile, using the existing `ProducerSemanticsCoverage` envelope.
 
@@ -960,6 +1068,8 @@ mechanically_observable:
   core:test_status_pass
   core:test_status_fail
   core:test_status_skip
+  core:observed_entry_counts
+  core:failure_set_completeness
   vitest:skipped
   vitest:todo
 
@@ -986,6 +1096,8 @@ mechanically_observable:
   core:test_status_pass
   core:test_status_fail
   core:test_status_skip
+  core:observed_entry_counts
+  core:failure_set_completeness
   jest:pending
   jest:todo
   jest:invocations
@@ -1003,11 +1115,13 @@ unavailable:
   jest:failing_unexpected    (v29 profile only)
 ```
 
-Note that `core:test_status_error` appears in neither list as observable, per §43.
+Note that `core:test_status_error` appears in neither list as observable, per §45.
+
+`core:failure_set_completeness` is observable in both adapters because §33 guarantees it: the non-pass set is either provably complete, or the derivation is explicitly `budget_exceeded`. It is declared as a coverage dimension so that a P1 obligation over failures can state its dependency on that guarantee instead of assuming it.
 
 Coverage is not an authority downgrade (pytest §65). It is also not a scalar confidence score (pytest §92): `jest-json@v1` observing `jest:invocations` while `vitest-json@v1` cannot does not make Jest evidence "stronger" in general.
 
-## 52. Coverage and P1 sufficiency
+## 54. Coverage and P1 sufficiency
 
 P1 integration SHALL reuse the existing read-time bridge introduced with pytest V1, without modification:
 
@@ -1021,7 +1135,7 @@ StructuredEvidenceDetail
 
 The join SHALL NOT mutate the durable Evidence Record. `EvidenceCandidate.Result`, authority, freshness, source/environment/command compatibility, and stability continue to derive exactly as before. Pending, compacted, or unavailable structured detail yields absent or explicitly incomplete enrichment; absence is never negative evidence.
 
-Worked consequences of §43 and §45:
+Worked consequences of §45 and §47:
 
 ```text
 obligation requires error-vs-failure distinction
@@ -1036,7 +1150,7 @@ obligation requires "no test was retried"
 
 Any policy consuming `jest:invocations`, `jest:failing_expected`, or `jest:suite_focused` SHALL be its own explicit bounded and versioned P1 requirement contract. Free-form coverage strings do not automatically gain policy semantics (pytest §66). This document adds no policy rule.
 
-## 53. Selection precedence and auto-selection
+## 55. Selection precedence and auto-selection
 
 Precedence remains as pytest §45:
 
@@ -1048,7 +1162,7 @@ Auto-selection from direct argv SHALL occur only when the full binding for that 
 
 Because Vitest and Jest have disjoint producer basenames and disjoint required flags, no argv can qualify for both adapters. An argv that somehow satisfies both SHALL be treated as `contradictory` rather than resolved by precedence.
 
-## 54. Explicit adapter mismatch
+## 56. Explicit adapter mismatch
 
 If a caller explicitly requests `structured_adapter = vitest-json` or `jest-json` and the execution contract does not prove the corresponding qualified shape, ShellBeam SHALL return a typed structured-adapter contract error **before spawn**, per pytest §49.
 
@@ -1056,20 +1170,21 @@ It SHALL NOT append the missing flags, and SHALL NOT fall back to console parsin
 
 Capture failures discovered later from filesystem state — pre-existing artifact, managed path collision, absent output, materialization failure — SHALL NOT rewrite child execution semantics.
 
-## 55. Security boundaries
+## 57. Security boundaries
 
 Unchanged from pytest §86, and restated because the producer set is new:
 
 - the parser reads only retained private blob bytes, never a workspace pathname;
-- absolute host paths from producer output are not persisted (§46);
-- failure text, stacks, and ANSI sequences are not persisted (§33);
+- absolute host paths from producer output are never persisted in any path class (§48);
+- failure text is persisted only as a bounded, ANSI-stripped, path-classified excerpt on non-pass records, and only after the exposure dependency named in §34 is confirmed;
+- no mechanical fact is ever derived from failure text, its presence, or its length (§34);
 - no producer flag, config file, or plugin is written or modified;
 - no network access and no package installation occurs on the execution path;
 - V1 does not attest against a hostile same-user writer on an ordinary workspace path (pytest §14).
 
 Note one adapter-specific hazard already handled structurally: Vitest's `html` reporter triggers an automatic install of `@vitest/ui` [SRC]. V1 requires the reporter set to be an explicit CLI `--reporter=json` (§17), so ShellBeam never selects a reporter that installs anything. A caller-supplied `--reporter=html` alongside json is an unqualified multi-reporter form under §18 unless the dotted output binding is used, and ShellBeam neither adds nor removes it.
 
-## 56. Resource limits
+## 58. Resource limits
 
 V1 reuses the shipped artifact limits unchanged. Names below are the constants as implemented:
 
@@ -1084,18 +1199,24 @@ MaxTerminalAcquireDuration              250 ms
 
 Blob byte charging remains delegated to store state authority through `ReserveBlobBytes`, protecting `ControlReserve`; there is no separate adapter-level store ceiling.
 
-Each adapter SHALL define its own record cap analogous to `maxPytestJUnitRecords`, with the same value:
+Each adapter SHALL define its own caps analogous to `maxPytestJUnitRecords`, but SHALL NOT inherit the pytest value. Typical JavaScript suites exceed 1024 tests routinely, so reusing it would make `budget_exceeded` the normal outcome rather than the exceptional one:
 
 ```text
-maxVitestJSONRecords = 1024
-maxJestJSONRecords   = 1024
+maxVitestJSONRecords         8192
+maxJestJSONRecords           8192
+maxObservedEntries           65536   (rejection threshold, §32)
+maxFailureExcerptBytes        2048   (per non-pass record, §34)
 ```
+
+Raising the record cap does not by itself make results usable at scale; the failure-first selection policy of §33 does. The cap governs how many pass records can accompany a complete failure set, not whether the failure set is complete.
+
+`StructuredInspectRecords` in the capability catalog is a separate inspection-page bound and SHALL NOT be conflated with these persistence caps.
 
 Each adapter has exactly one artifact capture intent. The generic capture-intent protocol ceiling remains 8.
 
 State exhaustion SHALL NOT serve as flow control, and live referenced blob bytes SHALL NOT be implicitly evicted.
 
-## 57. Capability advertisement and inspection
+## 59. Capability advertisement and inspection
 
 Capability advertisement SHALL be additive:
 
@@ -1112,7 +1233,7 @@ No second MCP tool is added. Artifact input kind and limits are already advertis
 
 Forbidden completion claims — `task_complete`, `work_complete`, `safe_to_finish` — SHALL remain absent from structured transport.
 
-## 58. Observability and audit
+## 60. Observability and audit
 
 ShellBeam SHALL retain enough bounded machine-readable metadata to explain:
 
@@ -1130,7 +1251,7 @@ ShellBeam SHALL retain enough bounded machine-readable metadata to explain:
 
 Typed diagnostics SHALL identify which of the six gates failed (§13).
 
-## 59. No hidden auto-repair
+## 61. No hidden auto-repair
 
 ShellBeam SHALL NOT silently make an unqualified invocation qualified by:
 
@@ -1145,7 +1266,7 @@ ShellBeam SHALL NOT silently make an unqualified invocation qualified by:
 
 A future opt-in execution-transform feature would require its own mutation/authority design.
 
-## 60. Design invariants
+## 62. Design invariants
 
 Frozen V1 invariants for this document, in addition to every pytest V1 invariant:
 
@@ -1163,13 +1284,19 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 12. Hook phase and suite-execution-error distinction are unavailable in both adapters.
 13. Suite aggregate counters are unavailable; producer buckets are never synthesized into the JUnit-shaped aggregate.
 14. `jest:invocations` is mechanical because it is an integer field; Vitest flake state is unavailable because it would be an inference.
-15. Failure text, stacks, and absolute host paths are never persisted.
-16. File-entry order is non-deterministic in both producers; ordinals are derivation-scoped only and records are never re-sorted.
-17. Multi-project invocations are unqualified.
-18. Terminal receipt remains child execution truth; structured projection never mutates execution semantics.
+15. The record budget is failure-first: the non-pass set is persisted in full, or the derivation is `budget_exceeded`. Document-order truncation is forbidden.
+16. `partial/pass_records_elided` and `budget_exceeded` are distinct states and are never collapsed.
+17. Persisted record count is never read as tests-run; `ObservedEntryCounts` is the only field carrying that fact, and it is derived during traversal rather than from the persisted set.
+18. No mechanical fact is ever derived from failure text, its presence, or its length.
+19. Failure excerpts are bounded, ANSI-stripped, path-classified, attached only to non-pass records, and gated on the §34 exposure confirmation.
+20. Absolute host paths are never persisted in any path class.
+21. File-entry order is non-deterministic in both producers; ordinals are derivation-scoped only and records are never re-sorted.
+22. Multi-project invocations are unqualified.
+23. Terminal receipt remains child execution truth; structured projection never mutates execution semantics.
 
-## 61. Deferred beyond V1
+## 63. Deferred beyond V1
 
+- **`vitest-json@v1` implementation**, until the §5 value review of deployed `jest-json@v1` passes. The adapter is qualified, not authorized;
 - Vitest `1.x`, `2.x`, and `5.x` structural profiles until executed qualification;
 - Jest `28.x` until executed qualification;
 - jest-jasmine2 semantics;
@@ -1184,24 +1311,31 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 - exact producer distribution-version attestation;
 - generic "JavaScript test JSON" adapter — permanently out of scope, per §11.
 
-## 62. Implementation sequencing
+## 64. Implementation sequencing
 
 ```text
 A. shared JS/TS strict-profile decode scaffolding on jsonstrict
-B. jest invocation binding + JEST_JASMINE presence authority + excluded-flag resolver
-C. jest-json@v1 parser, profiles v29/v30, normalized semantics/identity
-D. jest selection/admission/capability/inspect integration
-E. jest frozen fixtures + release qualification matrix + real-daemon E2E
-F. vitest invocation binding + run-mode/reporter/output-file resolver
-G. vitest-json@v1 parser, profiles v3/v4
-H. vitest selection/admission/capability/inspect integration
-I. vitest frozen fixtures + release qualification matrix + real-daemon E2E
-J. deploy
+B. failure-first record budget + ObservedEntryCounts + excerpt normalization
+C. jest invocation binding + JEST_JASMINE presence authority + excluded-flag resolver
+D. jest-json@v1 parser, profiles v29/v30, normalized semantics/identity
+E. jest selection/admission/capability/inspect integration
+F. jest frozen fixtures + release qualification matrix + real-daemon E2E
+G. deploy jest-json@v1
+─────────── value-review gate (§5) ───────────
+H. vitest invocation binding + run-mode/reporter/output-file resolver
+I. vitest-json@v1 parser, profiles v3/v4
+J. vitest selection/admission/capability/inspect integration
+K. vitest frozen fixtures + release qualification matrix + real-daemon E2E
+L. deploy vitest-json@v1
 ```
 
-Steps A–E and F–I are independently shippable. No capture-layer, blob-store, retention, or P1 change is scheduled, and any need for one is a signal to stop and amend this design.
+Step B is sequenced before any parser because the budget policy of §33 is the difference between a usable and an unusable result on realistic suite sizes. Building either parser against a document-order cap first would produce an adapter that passes its fixtures and fails on real repositories.
 
-## 63. Acceptance boundary
+Step F SHALL measure document size with and without `--coverage` on a representative repository and feed the §35 ceiling decision. Step G SHALL run long enough to answer the §5 review question before H begins.
+
+No capture-layer, blob-store, retention, or P1 change is scheduled, and any need for one is a signal to stop and amend this design.
+
+## 65. Acceptance boundary
 
 This design is successful only if implementation proves all of the following without weakening existing E22/P1 authority:
 
@@ -1218,16 +1352,21 @@ an explicitly bound vitest/jest invocation executes unchanged
 → jest failing:true yields a typed disposition, never a prose-derived one
 → a producer success:true on a failing receipt changes nothing
 → duplicate entries remain distinct and record order is preserved
-→ no absolute host path or failure text is persisted
+→ a suite larger than the record cap still persists every failure,
+  or reports budget_exceeded rather than silently dropping one
+→ tests-run is answerable from ObservedEntryCounts, never from record count
+→ no absolute host path is persisted, and no fact is derived from failure text
 → crash recovery never re-executes the runner or reopens the workspace path
 → P1 consumes the evidence with no JavaScript-specific parallel ontology
 ```
 
-## 64. Final architectural position
+## 66. Final architectural position
 
 The pytest design ended by stating that ShellBeam treats producer artifacts as engineering truth only after provenance-safe capture converts a mutable execution-side pathname into immutable ShellBeam-owned source authority, and that `pytest-junit-xml@v1` was the first consumer of that primitive rather than a special case.
 
-This document is the test of that claim. Two adapters in a different language ecosystem, with a different serialization format, different status vocabularies, a different retry model, and no schema version at all, are added with **zero** changes to the capture, storage, retention, recovery, or evidence layers. The entire delta is one invocation resolver, one strict parser, and one coverage declaration per producer.
+This document is the test of that claim, and the claim holds for the layer it was about. Two adapters in a different language ecosystem, with a different serialization format, different status vocabularies, a different retry model, and no schema version at all, need **zero** changes to the capture, storage, retention, recovery, or evidence layers.
+
+The claim did not hold for the *record* layer, and that is the substantive finding of this qualification. Pytest V1's document-order record cap is an artifact of Python suite sizes and of deterministic JUnit ordering; carried into an ecosystem with larger suites and non-deterministic entry ordering, it would have produced adapters that pass their fixtures and carry no usable signal on real repositories (§33). Provenance-safe capture was portable. The budget policy was not, and the difference only became visible by qualifying a second ecosystem against it.
 
 The extension path is unchanged:
 
