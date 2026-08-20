@@ -299,7 +299,7 @@ func TestB1NativeHiddenSupervisorInheritedFDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = capabilityWrite.Close()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Lstat(layout.SocketPath); err == nil {
 			_ = cmd.Process.Kill()

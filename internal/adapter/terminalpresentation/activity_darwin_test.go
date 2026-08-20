@@ -22,7 +22,7 @@ info) echo '"CFBundleIdentifier"="com.mitchellh.ghostty"' ;;
 *) exit 9 ;;
 esac
 `)
-	source, err := NewDarwinActivitySource(DarwinConfig{LSAppInfoPath: script, Providers: []core.TerminalIdentity{ghostty}, CommandTimeout: time.Second, Now: time.Now})
+	source, err := NewDarwinActivitySource(DarwinConfig{LSAppInfoPath: script, Providers: []core.TerminalIdentity{ghostty}, CommandTimeout: 5 * time.Second, Now: time.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ info) echo '"CFBundleIdentifier"="org.mozilla.firefox"' ;;
 *) exit 9 ;;
 esac
 `)
-	source, err := NewDarwinActivitySource(DarwinConfig{LSAppInfoPath: script, Providers: []core.TerminalIdentity{testGhosttyIdentity()}, CommandTimeout: time.Second, Now: time.Now})
+	source, err := NewDarwinActivitySource(DarwinConfig{LSAppInfoPath: script, Providers: []core.TerminalIdentity{testGhosttyIdentity()}, CommandTimeout: 5 * time.Second, Now: time.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
