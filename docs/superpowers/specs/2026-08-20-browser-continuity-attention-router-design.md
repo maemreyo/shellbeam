@@ -1,6 +1,6 @@
 # Browser Continuity Attention Router Design
 
-**Status:** cross-system architecture freeze proposed; awaiting review. No implementation approved. P0 implementation planning may proceed only after this document is approved.
+**Status:** cross-system architecture freeze approved after four review rounds (`e550988` → `6d2da4a`); the §31 design-completion gate is satisfied. P0 implementation planning may proceed. No implementation approved.
 
 **Execution/design base:** `55d6b4fc8ce897e43e05de199f7d1f748a8d21a8` (`main`, 2026-08-20)
 
