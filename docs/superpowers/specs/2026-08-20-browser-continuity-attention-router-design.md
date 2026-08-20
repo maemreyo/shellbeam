@@ -222,25 +222,40 @@ scan active WatchTasks under a GLOBAL transition lock
     ↓
 no existing controller for that key      → W binds and becomes controller
 existing live controller for that key    → W is demoted to observer
-existing controller fails liveness check → controller-release transition on the
-                                           OLD controller (§11); W is NOT
-                                           promoted and stays observer
+existing controller fails liveness check → release-only pass: schedule the
+                                           controller-release transition on
+                                           the OLD controller (§11) and STOP
 ```
 
 The rule is *existing valid controller wins*, never last-writer-wins.
 
-**Every authority transition SHALL write exactly one record, and no transition SHALL require an atomic multi-record write.** This is the property that makes one-record-per-watch sound, and it is why P0 has no automatic controller takeover (§11).
+**A reconciliation pass that detects a stale controller SHALL schedule only the release transition, and SHALL then stop.** Controller acquisition requires a *subsequent* reconciliation, after the release is durably committed. Promotion before release is forbidden by protocol, not merely discouraged by ordering.
 
-A failed liveness check does **not** leave records untouched. It releases the stale claim, writing the *old controller's* record. That release is its own transition, distinct from the newcomer's late-bind transition, which writes the newcomer's record. A single scan may therefore schedule two transitions; each writes one record, each is independently valid, and the sequence is retriable:
+This is what makes one-record-per-watch sound, and it is why P0 has no automatic controller takeover (§11). It also removes any need to reason about the relative ordering of two queued writes: within one pass there is only ever one write.
+
+Consequently only two crash windows exist, and both are non-terminal:
 
 ```text
-crash after release, before newcomer's bind
-    → zero controllers; the newcomer late-binds again on next observation
-crash after newcomer's bind, before release
-    → the stale claim survives; the next scan pings, fails, and releases it
+crash before the release commits
+    → the old claim survives; the next pass pings, fails, and releases it
+crash after the release commits
+    → zero controllers; acquisition proceeds per the rule below
 ```
 
-Neither residual state has two records claiming control, and neither is terminal. Releasing before promoting is what keeps this true: the intermediate state is always *zero* controllers, never two.
+There is no *crash after promotion, before release* window, because promotion cannot be scheduled in the same pass as a release. The intermediate state is always *zero* controllers, never two.
+
+**Acquisition by a current observer requires an explicit human re-arm.** After a release, a watch that is already an observer of that conversation SHALL NOT promote itself merely because a later pass finds zero controllers. Two situations that look alike must be kept apart:
+
+```text
+watch has never held or been denied control of this conversation
+    (fresh chat, first late-bind)
+    → may acquire on late-bind
+
+watch is an observer because collision reconciliation demoted it
+    → SHALL NOT self-promote; requires explicit human re-arm (§11)
+```
+
+Without this distinction, automatic takeover re-enters through the back door: in the duplicate-tab case the observer was armed by the human at some earlier point, so a release followed by an ordinary reconciliation pass would silently promote it. The watch record therefore carries whether its observer status came from demotion, and that flag is what gates acquisition.
 
 **Liveness is a ping, not a tab record.** `tabs.get()` proves only that the browser still has a tab record. Firefox can discard a tab, leaving the record present and the content script dead. Controller liveness SHALL be established by a ping to the content script with a timeout, returning `watch_task_id`, `document_epoch`, `conversation_key?`, and `observation_epoch`.
 
@@ -272,6 +287,8 @@ TRANSITION 1 — controller release
         controller  = false
         ← exactly one authority record
         ↓
+    STOP this reconciliation pass
+        ↓
     any newcomer remains observer; zero controllers now hold the conversation
 
 --- no automation until a human acts ---
@@ -279,7 +296,9 @@ TRANSITION 1 — controller release
 TRANSITION 2 — explicit human re-arm
     human re-arms a chosen tab
         ↓
-    global reconciliation sees no active controller
+    a fresh reconciliation confirms zero controllers
+    (a demoted observer cannot reach this step without the
+     explicit human re-arm; §10)
         ↓
     write the CHOSEN WatchTask record:
         controller_generation++
@@ -403,6 +422,8 @@ Therefore:
 ```text
 storage.session      watch runtime authority
                        controller, controller_generation
+                       observer_origin       (never | demoted; gates
+                                              acquisition, §10)
                        observation_epoch
                        watch_state, generation_state, adapter_state
                        conversation binding
@@ -424,7 +445,7 @@ storage.local        ZERO authority
 ```text
 watch:<watch_task_id> = {
     schema_version, revision,
-    controller, controller_generation,
+    controller, controller_generation, observer_origin,
     observation_epoch,
     watch_state, generation_state, adapter_state,
     conversation_binding, shellbeam_binding,
@@ -918,7 +939,7 @@ Included:
 
 1. WatchTask identity and per-watch single-writer authority with `controller_generation`, where every authority transition writes exactly one record.
 2. Observation-epoch fencing, with forced resync on same-tab reload, navigation, and human re-arm.
-3. Controller-loss **detection** by content-script ping, resolving to an attention record and disarm.
+3. Controller-loss **detection** by content-script ping, resolving to an attention record plus a release-only reconciliation pass that disarms the stale controller; acquisition is a separate later transition gated on explicit human re-arm for demoted observers.
 4. MV3-safe state: one record per watch in `storage.session`; `alarms` for deadlines.
 5. ChatGPT adapter with per-feature bootstrap qualification and drift semantics.
 6. Closed core vocabulary as orthogonal axes, including `attention_reason`.
@@ -1018,7 +1039,7 @@ Normative:
 - **I19** Receipt novelty is not advancement and resets no counter or budget.
 - **I20** ShellBeam core gains no new authority, projection, or durable identity for P0.
 - **I21** Installing ShellBeam never grants a browser extension access to machine facts; the manifest install is separate and revocable.
-- **I22** In P0, every authority transition commits through exactly one WatchTask authority record, and no P0 authority transition requires an atomic multi-record write. Controller loss writes the old controller's record; a later human re-arm writes the selected WatchTask in a separate transition. Where one scan schedules both, each step is independently valid and retriable, and the intermediate state holds zero controllers rather than two. This invariant is scoped to P0 deliberately: the canonical conversation lease that automatic takeover needs (§29, P2) will change the authority storage model, and it must arrive as an explicit successor design rather than as a violation of this one.
+- **I22** In P0, every authority transition commits through exactly one WatchTask authority record, and no P0 authority transition requires an atomic multi-record write. A reconciliation pass that detects a stale controller schedules only the release and stops; controller acquisition requires a subsequent reconciliation after the release is durably committed, so promotion can never be scheduled alongside a release and the intermediate state holds zero controllers rather than two. A watch whose observer status came from demotion cannot acquire control without an explicit human re-arm. This invariant is scoped to P0 deliberately: the canonical conversation lease that automatic takeover needs (§29, P2) will change the authority storage model, and it must arrive as an explicit successor design rather than as a violation of this one.
 - **I23** A bridge verb's read plan is fixed in the host. Every id after the caller's single correlation id is derived by the host; the caller can never name an operation, session, workspace, or path.
 - **I24** A correlation reaches `current` only through confirmed existence and recency. A transcript declaration alone never reaches `current`, and a declaration carrying a superseded nonce is `stale`.
 
