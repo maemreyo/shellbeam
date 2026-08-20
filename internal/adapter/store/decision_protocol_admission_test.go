@@ -226,3 +226,45 @@ func ensureExperimentAdmissionClaimForTest(r *Repository, want operation.Reserva
 func experimentOperationPathForTest(r *Repository, id operation.ID) string {
 	return filepath.Join(r.root, "operations", string(id)+".json")
 }
+
+func TestResolveExperimentAdmissionSessionReusesFrozenClaimSession(t *testing.T) {
+	r, _, _ := setupSealedAdmissionExperiment(t, filepath.Join(t.TempDir(), "state"), "exp-resolve-claim")
+	want := withExperiment(dpAdmissionReservation("op-resolve-claim", experimentObservationFingerprint(t, "exp-resolve-claim")), "exp-resolve-claim")
+	claim, err := ensureExperimentAdmissionClaimForTest(r, want, dp.ExperimentExecutionLink{ExperimentID: "exp-resolve-claim"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, found, err := r.ResolveExperimentAdmissionSession(context.Background(), "exp-resolve-claim", want.OperationID)
+	if err != nil || !found || got != operation.SessionID(claim.SessionID) {
+		t.Fatalf("session=%q found=%v err=%v claim=%q", got, found, err, claim.SessionID)
+	}
+}
+
+func TestResolveExperimentAdmissionSessionReusesOrphanCaptureAuthoritySession(t *testing.T) {
+	r, _, _ := setupSealedAdmissionExperiment(t, filepath.Join(t.TempDir(), "state"), "exp-resolve-capture")
+	authority := testCaptureAuthority(t, "op-resolve-capture", "reports/junit.xml", 'a')
+	authority.Intent.SessionID = "capture-frozen-session"
+	if _, created, err := r.ReserveCaptureAuthority(context.Background(), authority); err != nil || !created {
+		t.Fatalf("capture created=%v err=%v", created, err)
+	}
+	got, found, err := r.ResolveExperimentAdmissionSession(context.Background(), "exp-resolve-capture", operation.ID("op-resolve-capture"))
+	if err != nil || !found || got != "capture-frozen-session" {
+		t.Fatalf("session=%q found=%v err=%v", got, found, err)
+	}
+}
+
+func TestResolveExperimentAdmissionSessionRejectsClaimCaptureSessionMismatch(t *testing.T) {
+	r, _, _ := setupSealedAdmissionExperiment(t, filepath.Join(t.TempDir(), "state"), "exp-resolve-mismatch")
+	want := withExperiment(dpAdmissionReservation("op-resolve-mismatch", experimentObservationFingerprint(t, "exp-resolve-mismatch")), "exp-resolve-mismatch")
+	if _, err := ensureExperimentAdmissionClaimForTest(r, want, dp.ExperimentExecutionLink{ExperimentID: "exp-resolve-mismatch"}); err != nil {
+		t.Fatal(err)
+	}
+	authority := testCaptureAuthority(t, "op-resolve-mismatch", "reports/junit.xml", 'b')
+	authority.Intent.SessionID = "different-capture-session"
+	if _, created, err := r.ReserveCaptureAuthority(context.Background(), authority); err != nil || !created {
+		t.Fatalf("capture created=%v err=%v", created, err)
+	}
+	if _, _, err := r.ResolveExperimentAdmissionSession(context.Background(), "exp-resolve-mismatch", want.OperationID); err == nil {
+		t.Fatal("claim/capture session mismatch unexpectedly resolved")
+	}
+}

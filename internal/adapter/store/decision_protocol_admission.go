@@ -12,6 +12,7 @@ import (
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	dp "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -30,6 +31,58 @@ type experimentAdmissionClaim struct {
 	AcceptedObservationFingerprint string    `json:"accepted_observation_binding_fingerprint"`
 	AdmittedAt                     time.Time `json:"admitted_at"`
 	LinkSemanticFingerprint        string    `json:"link_semantic_fingerprint"`
+}
+
+func (r *Repository) ResolveExperimentAdmissionSession(ctx context.Context, experimentID dp.ExperimentID, operationID operation.ID) (operation.SessionID, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return "", false, err
+	}
+	if experimentID == "" {
+		return "", false, fmt.Errorf("experiment admission identity required")
+	}
+	if _, err := operation.ParseID(string(operationID)); err != nil {
+		return "", false, err
+	}
+
+	var claimSession operation.SessionID
+	r.decisionProtocolMu.Lock()
+	claim, claimErr := r.loadExperimentAdmissionClaimLocked(experimentID)
+	r.decisionProtocolMu.Unlock()
+	if claimErr == nil {
+		if claim.OperationID != string(operationID) {
+			return "", false, dp.NewReasonError(dp.ReasonExperimentExecutionLimitReached, "experiment admission already claimed by another operation")
+		}
+		parsed, err := operation.ParseSessionID(claim.SessionID)
+		if err != nil {
+			return "", false, fmt.Errorf("corrupt experiment admission session: %w", err)
+		}
+		claimSession = parsed
+	} else if !errors.Is(claimErr, ErrNotFound) {
+		return "", false, claimErr
+	}
+
+	var captureSession operation.SessionID
+	capture, captureErr := r.FindCaptureAuthority(ctx, operationID)
+	if captureErr == nil {
+		parsed, err := operation.ParseSessionID(capture.Authority.Intent.SessionID)
+		if err != nil {
+			return "", false, fmt.Errorf("corrupt structured capture session: %w", err)
+		}
+		captureSession = parsed
+	} else if !errors.Is(captureErr, structuredapp.ErrCaptureAuthorityNotFound) {
+		return "", false, captureErr
+	}
+
+	if claimSession != "" && captureSession != "" && claimSession != captureSession {
+		return "", false, fmt.Errorf("experiment admission claim and structured capture session disagree")
+	}
+	if claimSession != "" {
+		return claimSession, true, nil
+	}
+	if captureSession != "" {
+		return captureSession, true, nil
+	}
+	return "", false, nil
 }
 
 // ReserveExperimentOperation preserves the only permitted combined lock order:

@@ -340,6 +340,24 @@ func (s *Service) waitReservedStart(ctx context.Context, req StartRequest, store
 	return view, err
 }
 
+func (s *Service) resolveAdmissionSessionID(ctx context.Context, req StartRequest, operationID operation.ID) (operation.SessionID, error) {
+	if req.ExperimentID == "" {
+		return operation.SessionID(newSessionID()), nil
+	}
+	store, ok := s.store.(DecisionExperimentAdmissionStore)
+	if !ok {
+		return "", failure.New(failure.FeatureUnavailable, map[string]string{"feature": "decision_protocol"}, nil)
+	}
+	sessionID, found, err := store.ResolveExperimentAdmissionSession(ctx, decisionprotocol.ExperimentID(req.ExperimentID), operationID)
+	if err != nil {
+		return "", failure.Normalize(err)
+	}
+	if found {
+		return sessionID, nil
+	}
+	return operation.SessionID(newSessionID()), nil
+}
+
 func (s *Service) rawReservationCommitter(req StartRequest) (reservationCommitter, error) {
 	if req.ExperimentID == "" {
 		return s.store.ReserveOperation, nil

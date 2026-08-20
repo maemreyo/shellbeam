@@ -277,6 +277,50 @@ func TestProjectCommandPytestReplayPreservesCaptureDigestBinding(t *testing.T) {
 	}
 }
 
+func TestProjectCommandDecisionExperimentPytestReplayPreservesCombinedBinding(t *testing.T) {
+	sequence := &typedSequence{}
+	store := newTypedRecordingStore(t, sequence)
+	workspaceID := typedStartRequest("probe-pytest-decision", "./internal/app").WorkspaceID
+	setupDaemonDecisionExperimentForWorkspace(t, store.Repository, "exp-project-pytest", workspaceID)
+	binding := daemonProjectBinding(t, []string{"pytest", "test_example.py", "--junitxml=reports/junit.xml", "-o", "junit_family=xunit2", "-o", "addopts="})
+	binder := &typedBinder{sequence: sequence, binding: binding}
+	owner := &typedOrderOwner{sequence: sequence}
+	digest := strings.Repeat("d", 64)
+	preparer := &pytestCapturePreparerStub{prepare: app.StructuredCapturePreparation{AdapterID: "pytest-junit-xml", CaptureDigest: digest, Owned: true}}
+	svc := app.NewService(store, owner, app.Options{
+		Incarnation: "typed-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 100,
+		ProjectCommandBinder: binder, StructuredCapturePreparer: preparer,
+	})
+	req := typedStartRequest("typed-pytest-decision", "./internal/app")
+	req.ExperimentID = "exp-project-pytest"
+	req.StructuredAdapter = "pytest-junit-xml"
+	first, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForTerminal(t, svc, first.SessionID)
+	stored, err := store.LoadOperation(context.Background(), operation.ID(req.OperationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantObservation, err := (operation.ObservationBinding{ExperimentID: req.ExperimentID, StructuredAdapter: "pytest-junit-xml", StructuredCaptureDigest: digest}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ExperimentID != req.ExperimentID || stored.StructuredCaptureDigest != digest || stored.ObservationBindingFingerprint != wantObservation {
+		t.Fatalf("stored experiment=%q capture=%q observation=%q want=%q", stored.ExperimentID, stored.StructuredCaptureDigest, stored.ObservationBindingFingerprint, wantObservation)
+	}
+	binder.setFailure(errors.New("binder must not run on admitted decision pytest replay"))
+	sequence.reset()
+	replayed, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.SessionID != first.SessionID || binder.callCount() != 1 || owner.starts.Load() != 1 || preparer.calls.Load() != 1 {
+		t.Fatalf("replay=%#v first=%#v binds=%d starts=%d prepares=%d", replayed, first, binder.callCount(), owner.starts.Load(), preparer.calls.Load())
+	}
+}
+
 func TestProjectCommandConflictingCallerFingerprintFailsBeforeClaimOrBinder(t *testing.T) {
 	sequence := &typedSequence{}
 	store := newTypedRecordingStore(t, sequence)

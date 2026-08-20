@@ -41,6 +41,7 @@ type Store interface {
 }
 
 type DecisionExperimentAdmissionStore interface {
+	ResolveExperimentAdmissionSession(context.Context, decisionprotocol.ExperimentID, operation.ID) (operation.SessionID, bool, error)
 	ReserveExperimentOperation(context.Context, operation.Reservation, decisionprotocol.ExperimentExecutionLink) (operation.Reservation, decisionprotocol.ExperimentExecutionLink, bool, StoreResult)
 }
 

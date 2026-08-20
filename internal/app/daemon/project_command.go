@@ -182,8 +182,14 @@ func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, rese
 		reservation.HermeticBoundary = preparedHermetic.binding.Clone()
 		spec.StdinMode = operation.StdinModeClosed
 	}
-	sid := newSessionID()
-	reservation.SessionID = operation.SessionID(sid)
+	sessionID, err := s.resolveAdmissionSessionID(ctx, req, reservation.OperationID)
+	if err != nil {
+		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
+		return View{}, err
+	}
+	sid := string(sessionID)
+	reservation.SessionID = sessionID
 	reservation.CreatedAt = time.Now().UTC()
 	structuredPreparation, err := s.prepareStructuredCaptureAdmission(ctx, req, &reservation, spec)
 	if err != nil {
