@@ -85,6 +85,13 @@ func (s *Service) DefineExperimentInput(ctx context.Context, req DefineExperimen
 		}
 		return s.Inspect(ctx, existing.EpisodeID, "")
 	}
+	projection, err := s.Project(ctx, req.EpisodeID, "")
+	if err != nil {
+		return core.DecisionProjection{}, err
+	}
+	if !projection.Budget.MayStartExperiment {
+		return core.DecisionProjection{}, fmt.Errorf("decision experiment budget exhausted")
+	}
 	experiment := core.Experiment{SchemaVersion: 1, ExperimentID: req.ExperimentID, EpisodeID: req.EpisodeID, DeclaredByActorRef: req.ActorRef, DeclaredAt: s.now().UTC()}
 	return s.DefineExperiment(ctx, experiment)
 }

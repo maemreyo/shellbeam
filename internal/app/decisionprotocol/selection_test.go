@@ -275,3 +275,26 @@ func TestCommitSelectionMapsIndeterminateGateToStableReason(t *testing.T) {
 		t.Fatalf("err=%v reason=%s", err, r)
 	}
 }
+
+func TestCommitSelectionRejectsProjectionStaleAfterNewVerifierAssessment(t *testing.T) {
+	svc, ledger, policy := selectionService(t, task7Policy())
+	before, err := svc.Project(context.Background(), "ep-selection", "cand-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment := core.VerifierAssessment{AssessmentID: "assessment-stale-projection", EpisodeID: "ep-selection", ActorRef: "reviewer", DeclaredContextClass: core.ContextUnknown, PreferredCandidates: []core.CandidateID{"cand-a"}, Rationale: "new reasoning-visible assessment", CreatedAt: time.Unix(50, 0).UTC()}
+	if _, err := ledger.append(core.RecordVerifierAssessment, assessment); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.Project(context.Background(), "ep-selection", "cand-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ProjectionDigest == after.ProjectionDigest {
+		t.Fatal("assessment did not change projection digest")
+	}
+	_, err = svc.CommitSelection(context.Background(), CommitSelectionRequest{EpisodeID: "ep-selection", CandidateID: "cand-a", ActorRef: "actor", ExpectedPolicyDigest: policy.snapshot.PolicyDigest, ExpectedProjectionDigest: before.ProjectionDigest, IdempotencyKey: "stale-after-assessment"})
+	if reason, ok := core.ReasonOf(err); !ok || reason != core.ReasonProjectionConflict {
+		t.Fatalf("err=%v reason=%q", err, reason)
+	}
+}

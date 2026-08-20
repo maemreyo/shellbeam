@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -267,4 +268,53 @@ func TestResolveExperimentAdmissionSessionRejectsClaimCaptureSessionMismatch(t *
 	if _, _, err := r.ResolveExperimentAdmissionSession(context.Background(), "exp-resolve-mismatch", want.OperationID); err == nil {
 		t.Fatal("claim/capture session mismatch unexpectedly resolved")
 	}
+}
+
+func TestExperimentAdmissionConcurrentOperationsCreateOneExecutionLink(t *testing.T) {
+	r, store, ep := setupSealedAdmissionExperiment(t, filepath.Join(t.TempDir(), "state"), "exp-concurrent-admit")
+	requests := []operation.Reservation{
+		withExperiment(dpAdmissionReservation("op-concurrent-a", experimentObservationFingerprint(t, "exp-concurrent-admit")), "exp-concurrent-admit"),
+		withExperiment(dpAdmissionReservation("op-concurrent-b", experimentObservationFingerprint(t, "exp-concurrent-admit")), "exp-concurrent-admit"),
+	}
+	start := make(chan struct{})
+	errs := make(chan error, 2)
+	created := make(chan bool, 2)
+	var wg sync.WaitGroup
+	for _, req := range requests {
+		req := req
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, _, made, result := r.ReserveExperimentOperation(context.Background(), req, dp.ExperimentExecutionLink{ExperimentID: "exp-concurrent-admit"})
+			created <- made
+			errs <- result.Err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	close(created)
+	success, limit := 0, 0
+	for err := range errs {
+		if err == nil {
+			success++
+			continue
+		}
+		if reason, ok := dp.ReasonOf(err); ok && reason == dp.ReasonExperimentExecutionLimitReached {
+			limit++
+			continue
+		}
+		t.Fatalf("unexpected admission error: %v", err)
+	}
+	madeCount := 0
+	for made := range created {
+		if made {
+			madeCount++
+		}
+	}
+	if success != 1 || limit != 1 || madeCount != 1 {
+		t.Fatalf("success=%d limit=%d created=%d", success, limit, madeCount)
+	}
+	assertExperimentLinkCount(t, store, ep.EpisodeID, "exp-concurrent-admit", 1)
 }

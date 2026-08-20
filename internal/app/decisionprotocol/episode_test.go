@@ -201,6 +201,8 @@ func currentDPPolicy(t *testing.T, store *fakePolicyStore) {
 		t.Fatal(err)
 	}
 	store.currentSnapshot = core.PolicySnapshot{SchemaVersion: 1, RepositoryID: dpRepoID, PolicyDigest: digest, Content: content}
+	store.snapshot = store.currentSnapshot
+	store.put = true
 	store.currentActivation = core.PolicyActivation{ActivationID: "act-new", RepositoryID: dpRepoID, PolicyDigest: digest, ProposalGeneration: "gen_" + strings.Repeat("a", 64), ActivationGeneration: "gen_" + strings.Repeat("b", 64), Authority: core.AuthorityExplicitCaller, ActorRef: "actor", ActivatedAt: time.Unix(10, 0).UTC()}
 	store.currentOK = true
 }
@@ -268,6 +270,71 @@ func TestCreateEpisodeCapturesCanonicalSourceGenerationOnly(t *testing.T) {
 	ep, _, _ := ledger.FindEpisode(context.Background(), "ep-1")
 	if ep.Baseline.SourceGeneration != snap.Generation || !strings.HasPrefix(ep.Baseline.SourceGeneration, "gen_") {
 		t.Fatalf("generation=%q", ep.Baseline.SourceGeneration)
+	}
+}
+
+type fakeDPSourceSnapshotSequence struct {
+	snapshots []workspace.FastSnapshot
+	calls     int
+}
+
+func (f *fakeDPSourceSnapshotSequence) ObserveFresh(context.Context, string) workspace.FastSnapshot {
+	f.calls++
+	if len(f.snapshots) == 0 {
+		return workspace.FastSnapshot{}
+	}
+	got := f.snapshots[0]
+	if len(f.snapshots) > 1 {
+		f.snapshots = f.snapshots[1:]
+	}
+	return got
+}
+
+func TestInspectRetriesOneSourceCompatibilityObservationBudgetExceeded(t *testing.T) {
+	policy := &fakePolicyStore{}
+	currentDPPolicy(t, policy)
+	ledger := &fakeEpisodeLedger{}
+	ws, fresh := validDPWorkspaceAndSnapshot(t, "a")
+	creator := NewService(policy, nil, EpisodeDependencies{Mutations: ledger, Ledger: ledger, Workspaces: fakeDPWorkspaceInspector{ws}, Snapshots: fakeDPSourceSnapshotter{fresh}})
+	if _, err := creator.CreateEpisode(context.Background(), CreateEpisodeRequest{EpisodeID: "ep-budget-retry", Kind: core.EpisodeDiagnosis, RepositoryID: dpRepoID, WorkspaceID: dpWorkspaceID, ActorRef: "actor"}); err != nil {
+		t.Fatal(err)
+	}
+	budgetExceeded := fresh
+	budgetExceeded.Quality = workspace.QualityUnavailable
+	budgetExceeded.Generation = ""
+	budgetExceeded.DiagnosticCode = "observation_budget_exceeded"
+	snapshots := &fakeDPSourceSnapshotSequence{snapshots: []workspace.FastSnapshot{budgetExceeded, fresh}}
+	inspector := NewService(policy, nil, EpisodeDependencies{Mutations: ledger, Ledger: ledger, Workspaces: fakeDPWorkspaceInspector{ws}, Snapshots: snapshots})
+	got, err := inspector.Inspect(context.Background(), "ep-budget-retry", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.SourceCompatible || got.SourceGenerationCompatibility != core.SourceGenerationCurrent || snapshots.calls != 2 {
+		t.Fatalf("projection=%#v calls=%d", got, snapshots.calls)
+	}
+}
+
+func TestInspectRetriesSourceCompatibilityBudgetExceededOnlyOnce(t *testing.T) {
+	policy := &fakePolicyStore{}
+	currentDPPolicy(t, policy)
+	ledger := &fakeEpisodeLedger{}
+	ws, fresh := validDPWorkspaceAndSnapshot(t, "a")
+	creator := NewService(policy, nil, EpisodeDependencies{Mutations: ledger, Ledger: ledger, Workspaces: fakeDPWorkspaceInspector{ws}, Snapshots: fakeDPSourceSnapshotter{fresh}})
+	if _, err := creator.CreateEpisode(context.Background(), CreateEpisodeRequest{EpisodeID: "ep-budget-stale", Kind: core.EpisodeDiagnosis, RepositoryID: dpRepoID, WorkspaceID: dpWorkspaceID, ActorRef: "actor"}); err != nil {
+		t.Fatal(err)
+	}
+	budgetExceeded := fresh
+	budgetExceeded.Quality = workspace.QualityUnavailable
+	budgetExceeded.Generation = ""
+	budgetExceeded.DiagnosticCode = "observation_budget_exceeded"
+	snapshots := &fakeDPSourceSnapshotSequence{snapshots: []workspace.FastSnapshot{budgetExceeded, budgetExceeded, fresh}}
+	inspector := NewService(policy, nil, EpisodeDependencies{Mutations: ledger, Ledger: ledger, Workspaces: fakeDPWorkspaceInspector{ws}, Snapshots: snapshots})
+	got, err := inspector.Inspect(context.Background(), "ep-budget-stale", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SourceCompatible || got.SourceGenerationCompatibility != core.SourceGenerationStale || snapshots.calls != 2 {
+		t.Fatalf("projection=%#v calls=%d", got, snapshots.calls)
 	}
 }
 

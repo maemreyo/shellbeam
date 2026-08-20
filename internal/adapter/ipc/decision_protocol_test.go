@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	dp "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 )
 
@@ -177,6 +178,42 @@ func TestCloseUnresolvedExplicitEmptyDimensionsSurviveDecode(t *testing.T) {
 	}
 }
 
+type decisionStartCaptureActions struct {
+	fakeActions
+	lastStart app.StartRequest
+}
+
+func (a *decisionStartCaptureActions) Start(_ context.Context, req app.StartRequest) (app.View, error) {
+	a.lastStart = req
+	return app.View{SessionID: "s"}, nil
+}
+
+func TestStartForwardsExperimentIDToDaemonAdmission(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-decision-start-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	actions := &decisionStartCaptureActions{}
+	srv, err := Listen(runtime, actions)
+	if err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	client := NewClient(srv.SocketPath())
+	_, err = client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "decision-start-experiment", Action: "start", OperationID: "op-decision-start", ExperimentID: "experiment-forwarded", Command: "true", CWD: "/tmp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actions.lastStart.ExperimentID != "experiment-forwarded" {
+		t.Fatalf("start experiment_id=%q want=%q", actions.lastStart.ExperimentID, "experiment-forwarded")
+	}
+}
+
 func TestStartAcceptsOptionalExperimentIDAndPollRejectsIt(t *testing.T) {
 	start := map[string]any{"ipc_version": 2, "kind": "request", "request_id": "r", "action": "start", "operation_id": "op-start-experiment", "command": "true", "cwd": "/tmp", "experiment_id": "experiment-transport"}
 	b, _ := json.Marshal(start)
@@ -224,5 +261,27 @@ func TestDecisionProtocolRequestContextCarriesAuthenticatedPeerUID(t *testing.T)
 	}
 	if !actions.ok || actions.uid != uint32(os.Getuid()) {
 		t.Fatalf("trusted peer uid=%d ok=%v want=%d", actions.uid, actions.ok, os.Getuid())
+	}
+}
+
+func TestDecisionProtocolSecurityRejectsUnrelatedExecutionEvidenceFields(t *testing.T) {
+	for _, field := range []string{"evidence", "verification_attempt"} {
+		t.Run(field, func(t *testing.T) {
+			wire := map[string]any{
+				"ipc_version": 2,
+				"kind":        "request",
+				"request_id":  "decision-security-" + field,
+				"action":      "decision.inspect",
+				"decision":    decisionMinimumPayloads(t)["decision.inspect"],
+				field:         map[string]any{},
+			}
+			encoded, err := json.Marshal(wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := decodeRequestV2(bytes.NewReader(encoded)); err == nil {
+				t.Fatalf("decision action accepted unrelated top-level %s", field)
+			}
+		})
 	}
 }

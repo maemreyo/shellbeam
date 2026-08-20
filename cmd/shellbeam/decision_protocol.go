@@ -139,6 +139,9 @@ func (s decisionActivationGenerationSource) CurrentActivationGeneration(ctx cont
 		return "", fmt.Errorf("decision activation repository workspace unavailable")
 	}
 	snapshot := s.snapshots.ObserveFresh(ctx, match.Root)
+	if snapshot.DiagnosticCode == "observation_budget_exceeded" {
+		snapshot = s.snapshots.ObserveFresh(ctx, match.Root)
+	}
 	if snapshot.Quality != workspacecore.QualityFresh || snapshot.Generation == "" {
 		return "", fmt.Errorf("fresh decision activation generation unavailable")
 	}

@@ -202,6 +202,55 @@ func TestDecisionProtocolActivationGenerationUsesFreshRepositorySnapshot(t *test
 	}
 }
 
+type decisionActivationSnapshotSequence struct {
+	snapshots []workspacecore.FastSnapshot
+	calls     int
+}
+
+func (f *decisionActivationSnapshotSequence) ObserveFresh(context.Context, string) workspacecore.FastSnapshot {
+	f.calls++
+	if len(f.snapshots) == 0 {
+		return workspacecore.FastSnapshot{}
+	}
+	got := f.snapshots[0]
+	if len(f.snapshots) > 1 {
+		f.snapshots = f.snapshots[1:]
+	}
+	return got
+}
+
+func TestDecisionProtocolActivationGenerationRetriesOneObservationBudgetExceeded(t *testing.T) {
+	ws := workspacecore.Workspace{SchemaVersion: workspacecore.SchemaVersion, ID: "ws_01K00000000000000000000001", RepositoryID: "repo_01K00000000000000000000001", Label: "one", Root: "/repo", GitDir: "/repo/.git", CreatedAt: time.Unix(1, 0).UTC(), LastSeenAt: time.Unix(1, 0).UTC()}
+	base := workspacecore.FastSnapshot{SchemaVersion: workspacecore.SnapshotSchemaVersion, RepositoryID: ws.RepositoryID, WorkspaceID: ws.ID, Head: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Ref: "refs/heads/main", Dirty: workspacecore.DirtySummary{Digest: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}, Quality: workspacecore.QualityFresh, ObservedAt: time.Unix(2, 0).UTC()}
+	fresh, err := workspacecore.WithGeneration(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	budgetExceeded := fresh
+	budgetExceeded.Quality = workspacecore.QualityUnavailable
+	budgetExceeded.Generation = ""
+	budgetExceeded.DiagnosticCode = "observation_budget_exceeded"
+	observer := &decisionActivationSnapshotSequence{snapshots: []workspacecore.FastSnapshot{budgetExceeded, fresh}}
+	source := decisionActivationGenerationSource{workspaces: decisionWorkspaceListFake{workspaces: []workspacecore.Workspace{ws}}, snapshots: observer}
+	got, err := source.CurrentActivationGeneration(context.Background(), string(ws.RepositoryID))
+	if err != nil || got != fresh.Generation || observer.calls != 2 {
+		t.Fatalf("generation=%q calls=%d err=%v", got, observer.calls, err)
+	}
+}
+
+func TestDecisionProtocolActivationGenerationRetriesBudgetExceededOnlyOnce(t *testing.T) {
+	ws := workspacecore.Workspace{SchemaVersion: workspacecore.SchemaVersion, ID: "ws_01K00000000000000000000001", RepositoryID: "repo_01K00000000000000000000001", Label: "one", Root: "/repo", GitDir: "/repo/.git", CreatedAt: time.Unix(1, 0).UTC(), LastSeenAt: time.Unix(1, 0).UTC()}
+	budgetExceeded := workspacecore.FastSnapshot{SchemaVersion: workspacecore.SnapshotSchemaVersion, RepositoryID: ws.RepositoryID, WorkspaceID: ws.ID, Quality: workspacecore.QualityUnavailable, ObservedAt: time.Unix(2, 0).UTC(), DiagnosticCode: "observation_budget_exceeded"}
+	observer := &decisionActivationSnapshotSequence{snapshots: []workspacecore.FastSnapshot{budgetExceeded, budgetExceeded, budgetExceeded}}
+	source := decisionActivationGenerationSource{workspaces: decisionWorkspaceListFake{workspaces: []workspacecore.Workspace{ws}}, snapshots: observer}
+	if _, err := source.CurrentActivationGeneration(context.Background(), string(ws.RepositoryID)); err == nil {
+		t.Fatal("repeated observation budget failure was accepted")
+	}
+	if observer.calls != 2 {
+		t.Fatalf("fresh observation calls=%d want=2", observer.calls)
+	}
+}
+
 func TestDecisionProtocolActivationGenerationFailsClosedWithoutUniqueFreshRepositoryWorkspace(t *testing.T) {
 	ws := workspacecore.Workspace{SchemaVersion: workspacecore.SchemaVersion, ID: "ws_01K00000000000000000000001", RepositoryID: "repo_01K00000000000000000000001", Label: "one", Root: "/repo", GitDir: "/repo/.git", CreatedAt: time.Unix(1, 0).UTC(), LastSeenAt: time.Unix(1, 0).UTC()}
 	for name, source := range map[string]decisionActivationGenerationSource{

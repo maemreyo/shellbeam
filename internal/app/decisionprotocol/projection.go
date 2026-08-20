@@ -347,6 +347,9 @@ func (s *Service) sourceCompatibility(ctx context.Context, episode core.Episode)
 		return core.SourceGenerationStale
 	}
 	snap := s.snapshots.ObserveFresh(ctx, ws.Root)
+	if snap.Quality != workspace.QualityFresh && snap.DiagnosticCode == "observation_budget_exceeded" && ctx.Err() == nil {
+		snap = s.snapshots.ObserveFresh(ctx, ws.Root)
+	}
 	if snap.Quality != workspace.QualityFresh || snap.Validate() != nil || snap.RepositoryID != ws.RepositoryID || snap.WorkspaceID != ws.ID || snap.Generation != episode.Baseline.SourceGeneration {
 		return core.SourceGenerationStale
 	}
