@@ -39,6 +39,8 @@ ShellBeam already refuses to answer the second question. `tests/contract/verific
 
 A Firefox extension SHALL own an **Attention Router**: per-conversation watch state, single-writer controller authority, observation freshness fencing, a qualified DOM adapter, a stop-cause classifier, a durable attention ledger with human adjudication, and an actuator that runs **only** on human gesture.
 
+Controller loss SHALL resolve to an attention record and a disarm, not to automatic takeover. Every authority transition therefore writes exactly one watch record, which is what makes the single-record state model crash-safe (§11).
+
 ShellBeam SHALL expose a new **Browser Bridge Protocol v1** through a connectionless native-messaging host with a closed set of read-only verbs. The host is a privilege membrane, not an SDK.
 
 Autonomous continuation SHALL NOT exist in P0. It becomes designable only after the P0 ledger produces adjudicated evidence meeting a graduation gate defined in §28.
@@ -220,10 +222,12 @@ scan active WatchTasks under a GLOBAL transition lock
     ↓
 no existing controller for that key      → W binds and becomes controller
 existing live controller for that key    → W is demoted to observer
-existing controller fails liveness check → takeover protocol (§11), never overwrite
+existing controller fails liveness check → attention record; W is NOT promoted (§11)
 ```
 
 The rule is *existing valid controller wins*, never last-writer-wins.
+
+**Every authority transition SHALL write exactly one record.** This is the property that makes one-record-per-watch sound, and it is why P0 has no automatic controller takeover (§11). Each branch above writes only the newcomer's record: binding writes W, demotion writes W, and a failed liveness check writes an attention record and leaves every watch record untouched. No transition needs to clear a controller flag in another watch's record, so no transition can be torn by a crash between two writes.
 
 **Liveness is a ping, not a tab record.** `tabs.get()` proves only that the browser still has a tab record. Firefox can discard a tab, leaving the record present and the content script dead. Controller liveness SHALL be established by a ping to the content script with a timeout, returning `watch_task_id`, `document_epoch`, `conversation_key?`, and `observation_epoch`.
 
@@ -236,16 +240,22 @@ controller_generation   proves the actor currently holds authority
 observation_epoch       proves the information the actor is acting on is fresh
 ```
 
-`controller_generation` alone is insufficient. Scenario S7 is a valid generation acting on a stale view. Therefore takeover SHALL be:
+`controller_generation` alone is insufficient. Scenario S7 is a valid generation acting on a stale view.
+
+**P0 has no automatic controller takeover.** Automatic takeover cannot be made crash-safe under one-record-per-watch. Duplicate tabs on one conversation hold separate WatchTask records, so "who controls conversation X" is asserted in two places. Promoting an observer requires clearing the old controller's claim and setting the new one — two records, two writes, and a crash between them leaves torn authority in which two records each claim control at different generations. A global transition lock serializes concurrent JavaScript but cannot make two `storage.session.set()` calls atomic. The alternative, a canonical per-conversation lease record, adds a second authority domain and its own reconciliation rules to P0 for no P0 benefit, since P0 never mutates without a human present.
+
+Therefore:
 
 ```text
 controller ping fails
     ↓
-lease candidate
+attention record (reason = controller_lost)
     ↓
-controller_generation++            (authority acquired)
+watch disarmed
     ↓
-RESYNC_REQUIRED                    (mutation authority NOT yet granted)
+human explicitly re-arms in a chosen tab
+    ↓
+RESYNC_REQUIRED
     ↓
 forced reload of the conversation
     ↓
@@ -255,10 +265,12 @@ conversation identity confirmation
     ↓
 observation_epoch established
     ↓
-ARMED
+controller_generation++ and ARMED, written to that one record
 ```
 
-There SHALL be no edge from lease acquisition directly to actuation.
+This is acceptable precisely because the Attention Ledger (§18) makes controller loss visible. An unwatched conversation produces a durable record and a badge, so the failure is loud rather than silent — the S10 failure mode is closed by visibility, not by automation. Automatic takeover is deferred to P2 (§29), where it must arrive with an explicit crash-atomicity design.
+
+`RESYNC_REQUIRED` remains in P0 for same-tab reload, navigation, and human re-arm. There SHALL be no edge from authority acquisition directly to actuation in any path.
 
 **Native-continue eligibility is ephemeral and SHALL NOT be reconstructed from persisted state.** The server persists the assistant message; the "Continue generating" affordance is client state and does not survive a reload. Therefore a controller that took over after a crash can never use it. This forces two distinct actuation paths with different preconditions (§17), not one generic mutation node.
 
@@ -299,16 +311,25 @@ Feature drift SHALL affect only consumers of that feature. A watch enters a stop
 
 ## 13. The core vocabulary is closed
 
+The vocabulary is a set of **orthogonal axes**, not one enum. A watch is routinely `armed` *and* `generating`, or `resync_required` *and* `generation_state = unknown`. Collapsing these into a single `state` field is a specification violation, because it forces an implementer to invent precedence rules between independent facts.
+
 ```text
-states        observing, generating, stopped, resyncing, armed,
-              attention_required, disarmed
-causes        normal_completion, cutoff, stream_error, rate_limit,
-              refusal, content_filter, unknown
-qualities     explicit, inferred, unavailable
-actions       native_continue, send_continuation
-events        manual_override, adapter_drift, controller_lost,
-              binding_ambiguous, budget_exhausted, resync_failed
+watch_state         armed | resync_required | attention_required | disarmed
+generation_state    generating | stopped | unknown
+adapter_state       qualified | partially_qualified | unqualified
+stop_cause          normal_turn_end | cutoff | stream_error | rate_limit |
+                    refusal | content_filter | unknown
+cause_quality       explicit | inferred | unavailable
+correlation_state   unbound | declared | current | stale | ambiguous |
+                    unavailable
+action              native_continue | send_continuation
+attention_reason    stop_detected | rate_limited | controller_lost |
+                    manual_override | binding_ambiguous | attribution_lost |
+                    adapter_feature_drift | adapter_unqualified |
+                    repeated_failure_surface | resync_failed
 ```
+
+`attention_reason` is part of the closed vocabulary, not a free-text field in the ledger. `observing` is deliberately absent: it was a restatement of `generation_state`, not a watch state of its own. `budget_exhausted` is deliberately absent from P0 (§24) and would require a vocabulary addition when enforcement arrives in P1.
 
 Adapters map external observations **into** this vocabulary. An adapter SHALL NOT introduce states, causes, actions, or authority semantics. A new term requires a core vocabulary change, invariant review, and a protocol version bump — never an adapter-local extension.
 
@@ -319,12 +340,14 @@ This closes the extension point through which plugin architectures usually erode
 `indeterminate` is not a cause. Collapsing it into the cause enum hides an absence inside a claim.
 
 ```text
-stop_cause     normal_completion | cutoff | stream_error |
+stop_cause     normal_turn_end | cutoff | stream_error |
                rate_limit | refusal | content_filter | unknown
 cause_quality  explicit | inferred | unavailable
 ```
 
-`stop_cause = unknown` with `cause_quality = unavailable` is an ordinary, expected outcome, and is expected to be the plurality outcome in practice. Distinguishing "the model finished" from "the model was cut off" has no reliable DOM signal in the general case.
+The term is `normal_turn_end`, never `normal_completion`. In a subsystem whose first invariant is that no component knows whether the task is complete, the word *completion* SHALL NOT appear in the stop-cause axis: a UI reading `Cause: normal_completion` invites exactly the semantic misreading I1 exists to prevent. `adjudication.actual_cause` (§18) uses the same term.
+
+`stop_cause = unknown` with `cause_quality = unavailable` is an ordinary, expected outcome, and is expected to be the plurality outcome in practice. Distinguishing "the model ended its turn" from "the model was cut off" has no reliable DOM signal in the general case.
 
 The product therefore SHALL NOT depend on classifier sharpness. Time since stop, attribution quality, browser state, and machine facts are the substrate; the classifier is enrichment. A card reading
 
@@ -349,10 +372,11 @@ Therefore:
 ```text
 storage.session      watch runtime authority
                        controller, controller_generation
-                       observation_epoch, state
+                       observation_epoch
+                       watch_state, generation_state, adapter_state
                        conversation binding
-                       shellbeam correlation
-                       deadlines, cursors, retry state
+                       shellbeam correlation + binding nonce
+                       deadlines, cursors, telemetry counters
                        per-watch last_native_read_at
 
 storage.local        ZERO authority
@@ -370,9 +394,10 @@ storage.local        ZERO authority
 watch:<watch_task_id> = {
     schema_version, revision,
     controller, controller_generation,
-    observation_epoch, state,
+    observation_epoch,
+    watch_state, generation_state, adapter_state,
     conversation_binding, shellbeam_binding,
-    deadlines, retry_state, event_cursor,
+    deadlines, telemetry_counters, event_cursor,
     last_native_read_at
 }
 ```
@@ -385,21 +410,25 @@ No secondary index (`conversation_key → watch_task_id`) SHALL be maintained in
 
 The background is the only writer of authority state. Content scripts, the host, and any popup/options page SHALL NOT write it. This gives a single logical writer, so compare-and-swap **semantics** are required while a CAS storage **primitive** is not.
 
-Two lock scopes are required, and conflating them is a bug in either direction:
+Three distinct primitives are required, and conflating any two is a bug:
 
 ```text
-withWatchLock(watch_task_id)      per-watch transitions
-                                  state changes, deadlines, cursors,
-                                  retry accounting
+watchLock(watch_task_id)      per-watch transitions
+                              state changes, deadlines, cursors,
+                              telemetry counters
 
-withGlobalLock()                  cross-record transitions ONLY
-                                  conversation late-binding
-                                  controller collision reconciliation
-                                  controller takeover
-                                  native read admission
+globalTransitionLock()        cross-record AUTHORITY transitions ONLY
+                              conversation late-binding
+                              controller collision reconciliation
+                              controller arm / re-arm
+
+nativeReadLimiter             bounded N-slot admission queue
+                              NOT a lock, NOT an authority primitive
 ```
 
 A per-watch lock does not protect conversation late-binding: that transition reads every record and claims a shared resource. Two tabs late-binding to the same conversation concurrently would each scan clean and each claim. Conversely, taking the global lock for ordinary per-watch transitions would reintroduce head-of-line blocking.
+
+**Native read admission SHALL NOT use `globalTransitionLock`.** Waiting for a read slot inside the authority lock would let one slow native read block conversation binding and arming for every watch — the same head-of-line blocking that alternative E was rejected for, reappearing one layer down. `globalTransitionLock` SHALL NOT be held across a slot wait or across native I/O.
 
 If the background dies mid-transition, no `set` has occurred and the old record stands; if it dies after the `set`, the new record stands. Every wake re-reads. There is never a second concurrent background incarnation competing to write.
 
@@ -414,7 +443,7 @@ A human gesture bypasses **decision policy**. It SHALL NOT bypass **mechanical s
 ```text
 human clicks Continue
     ↓
-acquire controller under global lock
+confirm controller under globalTransitionLock
     ↓
 reload the watch record
     ↓
@@ -455,7 +484,11 @@ A user message appearing with no corresponding prepared outbound is `manual_over
 
 Because `manual_override` is a frequent and entirely normal human behaviour, re-arming SHALL be a single gesture, and the attention record SHALL state plainly that the watch stopped because the human typed. A correct-but-annoying rule that users disable is worse than the rule itself.
 
-**Model-visible completion nonce is deferred to P1.** In P0 a completion marker is a stop hint only, and a stop hint removes authority rather than granting it. Accepting a marker requires only that it is the last non-whitespace token of the latest assistant message and that it is not inside a code or preformatted element — a DOM check, not a text regex, which is what defeats the model quoting the instruction back. A false positive costs one unnecessary attention record and no external effect. Absence of a marker is not evidence of anything.
+**Completion-marker support is deferred entirely to P1.** P0 does not parse, detect, or act on any completion marker. The Attention Router does not need one: a stop is an attention event regardless of whether the model claimed to be finished, and P0 never continues autonomously, so nothing downstream consumes a completion claim. Adding a marker in P0 would introduce a model-cooperation protocol that instrumentation does not require.
+
+When it does arrive in P1, the following remain normative. A marker is a **stop hint only**: it removes authority rather than granting it. Acceptance requires the marker to be the last non-whitespace token of the latest assistant message *and* to sit outside any code or preformatted element — a DOM check, not a text regex, which is what defeats the model quoting the instruction back at itself. A turn-scoped nonce is required, because a watch-scoped nonce leaves an accepted marker from an earlier turn sitting in the transcript. Absence of a marker is never evidence of anything (I4).
+
+Note that the **binding** declaration in §22 is a different mechanism with a different purpose and IS in P0: it establishes attribution, which P0 core depends on, whereas a completion marker only reports a semantic claim nothing in P0 consumes. An implementer SHALL NOT merge the two markers.
 
 ## 18. Attention Ledger
 
@@ -469,10 +502,7 @@ watch_task_id
 conversation_key?
 created_at
 severity
-reason            stop_detected | rate_limited | binding_ambiguous |
-                  adapter_feature_drift | repeated_failure_surface |
-                  manual_override | retry_budget_exhausted |
-                  resync_failed | attribution_lost
+reason            one value from the closed attention_reason axis (§13)
 
 observation:
     stop_cause, cause_quality
@@ -486,8 +516,8 @@ resolved_at?
 
 adjudication?:
     verdict        correct | wrong | unclear
-    actual_cause?  normal_completion | cutoff | stream_error |
-                   rate_limit | refusal | content_filter | other | unknown
+    actual_cause?  one value from the stop_cause axis (§13, §14),
+                   or `other`
     adjudicated_at
 ```
 
@@ -540,24 +570,60 @@ A field named `mechanical_blockers` — or any array whose name encodes a policy
 
 **Bounds.** Native messaging caps a message from the application to the extension at 1 MB. That is a transport failure threshold, not an API budget. The host SHALL target ≤ 64 KiB and enforce a hard bound of ≤ 256 KiB, truncating with explicit truncation and coverage markers, never silently. `inspect.events` already supports `max_events` and a cursor, so pagination is natural.
 
-**Negotiation and three distinct degradations.** `hello` SHALL distinguish outcomes whose remediations differ:
+Each verb's response is assembled by a fixed read plan (§20), not by a single daemon call. The plan is fixed in the host; the caller never names an operation, session, workspace, or path.
+
+**Bridge bootstrap distinguishes three outcomes whose remediations differ.** These are outcomes of *bootstrap*, not of `hello` itself: if the manifest or host binary is absent, Firefox cannot spawn a process, so no `hello` reply exists to carry the diagnosis.
 
 ```text
-host absent / manifest missing      → install the browser host
-host present, daemon unreachable    → start or repair the daemon
-protocol version incompatible       → update host or extension
+sendNativeMessage rejects           → host or manifest absent;
+                                      install the browser host
+hello → daemon_unreachable          → start or repair the daemon
+hello → protocol set incompatible   → update host or extension
 ```
 
-All three degrade to *ShellBeam enrichment unavailable*. None disables the Attention Router: the browser-only substrate remains useful, and this is the honest fallback identified in alternative A.
+The `hello` envelope SHALL be version-stable across protocol versions: a host implementing only v2 must still parse a v1 `hello` and reply with its supported version set. Without that guarantee a version mismatch is indistinguishable from a broken host, and the extension cannot tell the user which remediation applies. The envelope therefore carries only a protocol-version list and a status; every richer field belongs to a versioned verb.
+
+All three outcomes degrade to *ShellBeam enrichment unavailable*. None disables the Attention Router: the browser-only substrate remains useful, and this is the honest fallback identified in alternative A.
 
 ## 20. ShellBeam host responsibilities
 
 The host is a security membrane, not a convenience library. It:
 
 1. reads exactly one JSON message from stdin, validates it against the closed verb enum, and rejects anything else;
-2. maps the verb to a hardcoded IPC request;
+2. executes that verb's **fixed, bounded, hardcoded read plan**;
 3. bounds and truncates the response;
 4. writes one JSON message and exits.
+
+**A verb is a read plan, not a single IPC call.** No existing ShellBeam read answers a whole verb, and P0 adds no core surface, so each verb composes several existing reads:
+
+```text
+activity_facts
+    inspect.activity(activity_id)
+        → operation refs, workspace_ids, compacted_operations, timestamps
+    inspect.sessions(activity_id)
+        → session states  (Activity carries no session state of its own)
+
+activity_events
+    inspect.events(target = activity:activity_id, cursor, max_events)
+        → single target, single cursor  (TargetActivity exists)
+
+verification_facts
+    inspect.activity(activity_id)              → workspace_ids
+    inspect.verification(workspace_id, activity_id)
+        for each retained workspace, bounded
+        (inspect.verification resolves a workspace before deriving
+         anything, so a correlation id alone cannot execute it)
+
+structured_failure_facts
+    inspect.activity(activity_id)              → operation refs (≤ 64)
+    inspect.structured(operation_id)
+        bounded newest-first walk
+        (inspect.structured is strictly operation-scoped)
+```
+
+The least-privilege property is preserved because **every id after the first is derived by the host from the activity, never supplied by the caller.** The caller names one correlation id and nothing else; it cannot reach an operation, session, workspace, or path of its choosing. A read plan is fixed at compile time and is not expressible in the protocol.
+
+Each plan SHALL declare its own coverage. `structured_failure_facts` can only walk retained operation refs, so `compacted_operations > 0` yields partial historical structured coverage; a bounded walk that stops early yields partial coverage for that reason instead. Coverage is reported, never inferred by the extension.
 
 It holds no cursors, no watch state, no conversation identity, and no session. It never receives or stores conversation content. Statelessness is not merely hygiene here: because a connectionless host cannot hold state, cursors necessarily live in the extension, which is where they belong.
 
@@ -603,6 +669,41 @@ The extension is not same-UID-privileged; the host is. The host is the only plac
 
 `ActivityNotFound` SHALL map to `facts_unavailable`. It SHALL NOT map to idle, settled, or complete.
 
+### 22.1 Where the correlation id comes from
+
+Attribution is P0 core, so the origin of the correlation id SHALL be frozen here rather than left to a plan. The exact marker syntax is a plan decision; the causality, the ownership, and the promotion rule are not.
+
+```text
+1. ARM
+   the extension mints, inside the watch record:
+       activity_hint   a correlation id it owns and never reuses
+       binding_nonce   unguessable, scoped to this watch and this arming
+   Neither is derived from a conversation id or from any ShellBeam value.
+
+2. DELIVERY
+   the binding instruction reaches the model ONLY through a
+   human-controlled path: the human sends it at arm time, or it rides
+   a human-triggered continuation (§17). P0 never delivers it autonomously.
+
+3. DECLARATION
+   the assistant visibly acknowledges the binding in a structured form
+   carrying both activity_hint and binding_nonce.
+       → correlation_state = declared
+
+4. CONFIRMATION
+   the host reports the activity exists and its latest attributed
+   operation falls inside the current turn window.
+       → correlation_state = current
+```
+
+`declared` requires a **structured acknowledgement carrying the current `binding_nonce`**, not a prose mention and not a bare id. A declaration whose nonce belongs to an earlier arming of the same watch is `stale`, never `declared`; this is what stops a marker left in the transcript by a previous task from binding a new one. Two declarations with different `activity_hint` values against the same nonce are `ambiguous`.
+
+`activity_hint` is a value the extension owns. It is not an identity ShellBeam guarantees: the model may echo it and then omit `activity_id` on its actual calls. That is exactly why step 4 exists and why declaration alone never reaches `current`.
+
+**P0 correlation coverage is partial by construction, and that is intended.** Because delivery is human-gated, watches the human never arms with a preamble and never actuates will stay `unbound` for their whole life. Those watches still work: they run on the browser-only substrate. The resulting coverage number is itself a P0 measurement feeding §28, not a defect to engineer around.
+
+### 22.2 Correlation quality
+
 The extension classifies correlation quality from literal host facts:
 
 ```text
@@ -633,12 +734,15 @@ ComparableFailureSurface {
     authority
     derivation_method
     invocation_qualification
+    coverage_scope              # what the execution actually covered,
+                                # and the retained/compacted coverage of
+                                # the records the signature was built from
     test_surface_signature      # from TestCase{Name, Package, Status}
                                 # and Diagnostic{Code, Location}
 }
 ```
 
-Records carry `Authority` and `DerivationMethod` individually ([`internal/core/structuredresult/record.go`](../../../internal/core/structuredresult/record.go)), so comparison SHALL be authority-homogeneous and producer-homogeneous. `pytest tests/a` and `pytest tests/` are not comparable merely because their failing sets coincide; invocation qualification (see `27207d9 docs: bind pytest invocation qualification authority`) is the existing hook that makes this mechanical.
+Records carry `Authority` and `DerivationMethod` individually ([`internal/core/structuredresult/record.go`](../../../internal/core/structuredresult/record.go)), so comparison SHALL be authority-homogeneous and producer-homogeneous. `pytest tests/a` and `pytest tests/` are not comparable merely because their failing sets coincide; invocation qualification (see `27207d9 docs: bind pytest invocation qualification authority`) is the existing hook through which comparability is encoded, but comparability SHALL be stated in terms of coverage and scope directly rather than assumed to follow from qualification alone. Two executions with equal qualification but unequal coverage are `incomparable`.
 
 Outcomes:
 
@@ -663,20 +767,24 @@ never:
 Agent is stuck
 ```
 
-New receipts SHALL NOT reset any budget. A repeatedly failing suite produces new receipts every turn while advancing nothing, so receipt novelty is not advancement.
+New receipts SHALL NOT reset any counter or budget. A repeatedly failing suite produces new receipts every turn while advancing nothing, so receipt novelty is not advancement.
 
-## 24. Budgets
+## 24. Telemetry counters in P0; enforcement in P1
 
-Budgets exist in P0 to bound human-triggered retry loops and to feed graduation metrics; they gain decision authority only in P1.
+P0 keeps **counters, not budgets**. A budget that can refuse a human's eleventh click already holds decision authority, which would contradict I5. The two concepts are therefore separated by phase:
 
 ```text
-absolute_action_budget                     never reset by assistant output
-consecutive_without_attributable_progress  attributable machine progress only
-browser_only_budget                        stricter, used when correlation
-                                           is unavailable
+P0  telemetry only, never refuses an action
+    human_action_count
+    consecutive_without_attributable_machine_change
+    repeat_failure_signature_count
+
+P1  enforcement thresholds over the same counters
 ```
 
-Attributable machine progress means a new attributed operation receipt, an attributed event beyond the cursor, an attributed session state transition, a new attributed evidence record, or an attributed verification state change. When correlation is unavailable, machine progress is `unknown` and SHALL NOT be invented; the stricter browser-only budget applies.
+Mechanical safety is unaffected by this split and remains active in P0. A stale `observation_epoch`, a conversation identity mismatch, an unqualified adapter feature, or a lost controller SHALL still refuse a human-triggered action (§17), because those are statements about whether the action can be performed correctly. An arbitrary retry count is not; it is a policy judgment about whether the action is *wise*, and in P0 that judgment belongs to the human.
+
+Counter definitions carry into P1 unchanged. Attributable machine progress means a new attributed operation receipt, an attributed event beyond the cursor, an attributed session state transition, a new attributed evidence record, or an attributed verification state change. When correlation is unavailable, machine progress is `unknown` and SHALL NOT be invented; the counter records `unknown` rather than assuming either progress or stall, and the `unknown` rate is itself reported to §28.
 
 Digest similarity SHALL NOT be used to detect stalling. Legitimate progress often reads near-identically (`"Tests 1–20 passed; proceeding"`, `"Tests 21–40 passed; proceeding"`), and similarity would classify real advancement as a stall.
 
@@ -685,15 +793,19 @@ Digest similarity SHALL NOT be used to detect stalling. Legitimate progress ofte
 Every degradation has one honest rendering and one remediation. None invents a fact, and none silently disables the system.
 
 ```text
-host absent                  → enrichment unavailable; install browser host
+spawn rejected               → enrichment unavailable; install browser host
 daemon unreachable           → enrichment unavailable; check daemon
 protocol incompatible        → enrichment unavailable; update component
 activity not found           → facts_unavailable
 activity stale               → correlation stale; facts shown with age
 history compacted            → historical_coverage partial
+read plan stopped early      → that plan's coverage partial, with reason
+binding declared, unconfirmed→ correlation declared, not current
+binding nonce mismatched     → correlation stale
 adapter feature drifted      → that feature unknown; dependents refuse
 adapter fully unqualified    → attention record; watch disarmed
-controller lost              → takeover protocol, then RESYNC_REQUIRED
+controller lost              → attention record; watch disarmed;
+                               human re-arm required (no auto takeover)
 observation stale            → refuse action; require resync
 binding ambiguous            → attention record; watch disarmed
 response oversized           → truncated with explicit markers
@@ -728,22 +840,39 @@ Extension repo    Firefox extension, ChatGPT adapter, WatchTask runtime,
 
 Included:
 
-1. WatchTask identity and per-watch single-writer authority with `controller_generation`.
-2. Observation-epoch fencing, with forced resync on takeover.
-3. MV3-safe state: one record per watch in `storage.session`; `alarms` for deadlines.
-4. ChatGPT adapter with per-feature bootstrap qualification and drift semantics.
-5. Closed core vocabulary.
-6. Stop-cause classification with separate cause quality; `unknown` first-class.
-7. Late-bound conversation binding with global-lock collision reconciliation.
-8. Automation turn provenance and `manual_override` detection.
-9. Browser Bridge Protocol v1: connectionless host, fixed read verbs, bounded literal responses, three-way degradation.
-10. Optional correlation with `facts_unavailable`, `stale`, `ambiguous`, and coverage loss all first-class.
-11. Comparable failure surface with strict comparability.
-12. Attention Ledger in `storage.local` with adjudication, badge, and inbox.
-13. Human-gated actuator with full mechanical precondition checks.
-14. Explicit, revocable native manifest install, separate from `shellbeam install`.
+1. WatchTask identity and per-watch single-writer authority with `controller_generation`, where every authority transition writes exactly one record.
+2. Observation-epoch fencing, with forced resync on same-tab reload, navigation, and human re-arm.
+3. Controller-loss **detection** by content-script ping, resolving to an attention record and disarm.
+4. MV3-safe state: one record per watch in `storage.session`; `alarms` for deadlines.
+5. ChatGPT adapter with per-feature bootstrap qualification and drift semantics.
+6. Closed core vocabulary as orthogonal axes, including `attention_reason`.
+7. Stop-cause classification with separate cause quality; `unknown` first-class.
+8. Late-bound conversation binding with collision reconciliation under `globalTransitionLock`.
+9. Automation turn provenance and `manual_override` detection.
+10. Browser Bridge Protocol v1: connectionless host, fixed read verbs backed by fixed read plans, bounded literal responses, version-stable `hello`, three-way bootstrap degradation.
+11. Binding handshake (§22.1) with `activity_hint` and `binding_nonce`, delivered only through a human-controlled path.
+12. Optional correlation with `declared`, `current`, `stale`, `ambiguous`, `unavailable`, and coverage loss all first-class.
+13. Comparable failure surface with strict comparability including coverage scope.
+14. Attention Ledger in `storage.local` with adjudication, badge, and inbox.
+15. Telemetry counters only, with no enforcement authority.
+16. Human-gated actuator with full mechanical precondition checks.
+17. Explicit, revocable native manifest install, separate from `shellbeam install`.
 
-Excluded from P0: autonomous mutation of any kind; model-visible completion nonce; handoff integration; durable resume across browser restart; any task envelope; any ShellBeam core change.
+Excluded from P0, each for a stated reason:
+
+```text
+autonomous mutation of any kind      the thing P0 exists to measure
+automatic controller takeover        not crash-safe under one record per
+                                     watch (§11); needs its own design
+budget enforcement                   would give a counter decision
+                                     authority, contradicting I5 (§24)
+completion-marker support            nothing in P0 consumes a completion
+                                     claim (§17)
+handoff integration                  branch not on main; P2
+durable resume across restart        needs a recovery protocol; P3
+any task envelope                    no evidence it is needed yet; P4
+any ShellBeam core change            P0 adds surface, not authority
+```
 
 ## 28. Graduation gate to P1
 
@@ -771,10 +900,15 @@ P1 SHALL reuse the P0 actuator path unchanged and change only the authorization 
 ```text
 P0  Attention Router + Human-Controlled Actions
 P1  Autonomous Continuation Controller   (authorization change only)
+      + budget enforcement over P0 counters
+      + completion-marker support with turn-scoped nonce
 P2  Human Handoff Integration            (after handoff reaches main)
+      + automatic controller takeover, with a crash-atomicity design
 P3  Durable Resume                       (restart / offline reconciliation)
 P4  Multi-Agent Task Envelope            (only if workload proves need)
 ```
+
+Automatic controller takeover sits in P2 rather than P1 because it needs a second authority domain (a canonical per-conversation lease) whose reconciliation rules are closer in kind to the handoff work than to the authorization change in P1.
 
 P4 is where an `envelope_id` might finally be justified. [Machine Truth Harness §6.2](./2026-08-18-machine-truth-harness-architecture-design.md) permits a durable envelope handle only when resume/handoff use cases prove it necessary — and P0 is the instrument that would produce that proof. Building it now would be guessing.
 
@@ -786,7 +920,7 @@ Normative:
 - **I2** No ShellBeam fact overrules a human completion claim, in either direction.
 - **I3** No global machine fact authorizes a per-watch action. UID-wide liveness is diagnostic or, at most, a short conservative delay.
 - **I4** Absence of completion evidence never constitutes continuation authority. Continuation requires positive authorization.
-- **I5** In P0, the only source of conversation mutation authority is a human gesture.
+- **I5** In P0, the only source of extension-actuator mutation authority is an explicit human gesture directed at that actuator. A human typing into the conversation directly is not an authorization for the extension to act; it is `manual_override`.
 - **I6** Authority freshness and observation freshness are orthogonal; a mutation requires both.
 - **I7** Native-continue eligibility is ephemeral and is never reconstructed from persisted state.
 - **I8** Adapters map observations into the closed core vocabulary; they never extend it.
@@ -794,26 +928,30 @@ Normative:
 - **I10** Facts enrich a conversation only when attributable to it; insufficient attribution yields `facts_unavailable`.
 - **I11** The bridge exposes literal facts with authority, freshness, and coverage. No response field encodes a policy judgment.
 - **I12** The bridge has no generic action passthrough. Verbs are a closed enum mapped to hardcoded requests.
-- **I13** Only the extension background writes authority state; cross-record transitions take a global lock.
+- **I13** Only the extension background writes authority state. Cross-record authority transitions are serialized globally; native read admission uses a separate bounded limiter, and the authority lock is never held across a slot wait or native I/O.
 - **I14** Watch authority state lives only in `storage.session`; `storage.local` holds no authority.
 - **I15** The Attention Ledger carries no execution authority and cannot resume automation.
 - **I16** Adjudication never overwrites observation.
 - **I17** Accuracy is never reported without adjudication coverage.
-- **I18** Failure-surface comparison is homogeneous in producer, adapter, authority, derivation method, and invocation qualification; `incomparable` never collapses into a progress claim.
-- **I19** Receipt novelty is not advancement and resets no budget.
+- **I18** Failure-surface comparison is homogeneous in producer, adapter, authority, derivation method, invocation qualification, **and coverage scope**; `incomparable` never collapses into a progress claim.
+- **I19** Receipt novelty is not advancement and resets no counter or budget.
 - **I20** ShellBeam core gains no new authority, projection, or durable identity for P0.
 - **I21** Installing ShellBeam never grants a browser extension access to machine facts; the manifest install is separate and revocable.
+- **I22** Every authority transition writes exactly one watch record. No transition clears authority held in another record, so no crash between writes can produce two records claiming control.
+- **I23** A bridge verb's read plan is fixed in the host. Every id after the caller's single correlation id is derived by the host; the caller can never name an operation, session, workspace, or path.
+- **I24** A correlation reaches `current` only through confirmed existence and recency. A transcript declaration alone never reaches `current`, and a declaration carrying a superseded nonce is `stale`.
 
 ## 31. Design-completion gate
 
 This design is ready for P0 implementation planning when reviewers confirm:
 
-1. the three-authority model and invariants I1–I21 are accepted as normative;
-2. the closed core vocabulary in §13 is complete enough for the ChatGPT adapter;
-3. Browser Bridge Protocol v1's verb set and literal response shape are accepted, including the absence of any judgment field;
-4. the install boundary in §21 is accepted, including a fixed `gecko.id`;
-5. the repository split and protocol ownership in §26 are accepted;
-6. the P0 scope in §27 is agreed to exclude autonomous mutation;
-7. the graduation metrics in §28 are agreed, with numeric thresholds deferred to P0 review.
+1. the three-authority model and invariants I1–I24 are accepted as normative;
+2. the closed core vocabulary in §13 is accepted as orthogonal axes, and is complete enough for the ChatGPT adapter;
+3. Browser Bridge Protocol v1's verb set, per-verb read plans (§20), version-stable `hello`, and literal response shape are accepted, including the absence of any judgment field;
+4. the binding handshake in §22.1 is accepted, including that P0 correlation coverage is partial by construction;
+5. the install boundary in §21 is accepted, including a fixed `gecko.id`;
+6. the repository split and protocol ownership in §26 are accepted;
+7. the P0 scope in §27 is agreed, including the exclusion of automatic controller takeover, budget enforcement, and completion-marker support;
+8. the graduation metrics in §28 are agreed, with numeric thresholds deferred to P0 review.
 
-Open items deliberately left to implementation planning: the empirical Firefox `alarms` granularity floor; final admission constants `N` and `X`; the exact response budget within the ≤ 256 KiB bound; and the numeric graduation thresholds.
+Open items deliberately left to implementation planning: the empirical Firefox `alarms` granularity floor; final admission constants `N` and `X`; the exact response budget within the ≤ 256 KiB bound; the concrete binding-marker syntax (its causality and promotion rule are frozen in §22.1, its spelling is not); per-verb read-plan walk limits within the response budget; and the numeric graduation thresholds.
