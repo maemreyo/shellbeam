@@ -20,6 +20,7 @@ type CanonicalLedgerStore interface {
 type PolicyStore interface {
 	PutPolicySnapshot(context.Context, core.PolicySnapshot) (bool, error)
 	LoadPolicySnapshot(context.Context, string, string) (core.PolicySnapshot, bool, error)
+	FindPolicyActivationCommit(context.Context, string, string) (core.PolicyActivationCommit, bool, error)
 	ActivatePolicyCAS(context.Context, core.PolicyActivationCommit) (core.PolicyActivationWriteResult, error)
 	CurrentEffectivePolicy(context.Context, string, core.EpisodeKind) (core.PolicySnapshot, core.PolicyActivation, bool, error)
 }

@@ -4,7 +4,9 @@ package ipc
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -185,5 +187,42 @@ func TestStartAcceptsOptionalExperimentIDAndPollRejectsIt(t *testing.T) {
 	b, _ = json.Marshal(poll)
 	if _, err := decodeRequestV2(bytes.NewReader(b)); err == nil {
 		t.Fatal("poll accepted experiment_id")
+	}
+}
+
+type decisionTrustedPeerActions struct {
+	fakeActions
+	uid uint32
+	ok  bool
+}
+
+func (a *decisionTrustedPeerActions) DecisionProtocol(ctx context.Context, _ string, _ DecisionRequestV1) (DecisionResponseV1, error) {
+	a.uid, a.ok = TrustedPeerUID(ctx)
+	return DecisionResponseV1{}, nil
+}
+
+func TestDecisionProtocolRequestContextCarriesAuthenticatedPeerUID(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-decision-peer-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	actions := &decisionTrustedPeerActions{}
+	srv, err := Listen(runtime, actions)
+	if err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+	client := NewClient(srv.SocketPath())
+	_, err = client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "decision-peer", Action: "decision.inspect", Decision: &DecisionRequestV1{EpisodeID: "episode-transport"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !actions.ok || actions.uid != uint32(os.Getuid()) {
+		t.Fatalf("trusted peer uid=%d ok=%v want=%d", actions.uid, actions.ok, os.Getuid())
 	}
 }

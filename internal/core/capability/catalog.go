@@ -174,6 +174,7 @@ type Catalog struct {
 	ResourceEnforcement               *ResourceEnforcementSupport   `json:"resource_enforcement,omitempty"`
 	HermeticBoundary                  *HermeticBoundarySupport      `json:"hermetic_boundary,omitempty"`
 	VerificationSemantics             *VerificationSemanticsSupport `json:"verification_semantics,omitempty"`
+	DecisionProtocol                  *DecisionProtocolSupport      `json:"decision_protocol,omitempty"`
 	SafetyCheckpoints                 *CheckpointSupport            `json:"safety_checkpoints,omitempty"`
 	Media                             *MediaSupport                 `json:"media,omitempty"`
 	InputTracing                      *InputTracingSupport          `json:"input_tracing,omitempty"`
@@ -210,6 +211,7 @@ var targetFeatures = []Feature{
 	FeatureResourceEnforcement,
 	FeatureHermeticBoundaryV1,
 	FeatureVerificationSemantics,
+	FeatureDecisionProtocol,
 }
 
 func TargetFeatures() []Feature {
@@ -279,6 +281,7 @@ func (c Catalog) Clone() Catalog {
 		verification := c.VerificationSemantics.clone()
 		out.VerificationSemantics = &verification
 	}
+	out.DecisionProtocol = cloneDecisionProtocolSupport(c.DecisionProtocol)
 	if c.SafetyCheckpoints != nil {
 		support := *c.SafetyCheckpoints
 		support.SchemaVersions = append([]int(nil), c.SafetyCheckpoints.SchemaVersions...)

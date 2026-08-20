@@ -188,3 +188,27 @@ func TestDecisionPolicyActivationReplayPreservesCanonicalRecordAndRejectsChanged
 		t.Fatal("same activation id with changed intent accepted")
 	}
 }
+
+func TestDecisionPolicyActivationReplayCommitReconstructsFrozenIntentAfterReopen(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	ctx := context.Background()
+	firstRepo := openDecisionProtocolRepo(t, root)
+	first := NewDecisionProtocolStore(firstRepo)
+	snapshot := dpPolicySnapshot(t, "repo-a", "p1", decisionprotocol.EpisodeDiagnosis)
+	if _, err := first.PutPolicySnapshot(ctx, snapshot); err != nil {
+		t.Fatal(err)
+	}
+	want := dpActivationCommit("act-replay", snapshot, "absent")
+	if _, err := first.ActivatePolicyCAS(ctx, want); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := NewDecisionProtocolStore(openDecisionProtocolRepo(t, root))
+	got, found, err := reopened.FindPolicyActivationCommit(ctx, "repo-a", "act-replay")
+	if err != nil || !found {
+		t.Fatalf("found=%v err=%v", found, err)
+	}
+	if got != want {
+		t.Fatalf("reconstructed=%#v want=%#v", got, want)
+	}
+}

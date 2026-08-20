@@ -86,19 +86,41 @@ func (s *Service) ActivatePolicy(ctx context.Context, req ActivatePolicyRequest)
 	if s == nil || s.policies == nil || s.generation == nil {
 		return core.PolicyActivation{}, fmt.Errorf("decision policy activation authority unavailable")
 	}
+	intent := core.PolicyActivationIntent{
+		ActivationID: req.ActivationID, RepositoryID: req.RepositoryID,
+		PreviousEffectivePolicyDigest: req.ExpectedPreviousPolicyDigest,
+		ProposedPolicyDigest:          req.PolicyDigest, ProposalGeneration: req.ProposalGeneration,
+		Authority: core.AuthorityExplicitCaller, ActorRef: req.ActorRef,
+	}
+	if err := intent.Validate(); err != nil {
+		return core.PolicyActivation{}, err
+	}
+
+	// Durable replay identity is resolved before any fresh source observation.
+	// activation_generation is server-owned frozen state, not caller intent.
+	if existing, found, err := s.policies.FindPolicyActivationCommit(ctx, req.RepositoryID, req.ActivationID); err != nil {
+		return core.PolicyActivation{}, err
+	} else if found {
+		if err := existing.Validate(); err != nil {
+			return core.PolicyActivation{}, err
+		}
+		want, _ := core.PolicyActivationIntentFingerprint(intent)
+		got, _ := core.PolicyActivationIntentFingerprint(existing.Intent)
+		if got != want {
+			return core.PolicyActivation{}, fmt.Errorf("decision policy activation id conflicts with different intent")
+		}
+		result, err := s.policies.ActivatePolicyCAS(ctx, core.PolicyActivationCommit{Intent: intent, ActivationGeneration: existing.ActivationGeneration})
+		if err != nil {
+			return core.PolicyActivation{}, err
+		}
+		return result.Record, nil
+	}
+
 	activationGeneration, err := s.generation.CurrentActivationGeneration(ctx, req.RepositoryID)
 	if err != nil {
 		return core.PolicyActivation{}, err
 	}
-	commit := core.PolicyActivationCommit{
-		Intent: core.PolicyActivationIntent{
-			ActivationID: req.ActivationID, RepositoryID: req.RepositoryID,
-			PreviousEffectivePolicyDigest: req.ExpectedPreviousPolicyDigest,
-			ProposedPolicyDigest:          req.PolicyDigest, ProposalGeneration: req.ProposalGeneration,
-			Authority: core.AuthorityExplicitCaller, ActorRef: req.ActorRef,
-		},
-		ActivationGeneration: activationGeneration,
-	}
+	commit := core.PolicyActivationCommit{Intent: intent, ActivationGeneration: activationGeneration}
 	if err := commit.Validate(); err != nil {
 		return core.PolicyActivation{}, err
 	}

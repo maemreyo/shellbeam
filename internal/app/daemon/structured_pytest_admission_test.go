@@ -103,6 +103,7 @@ func TestAutoPytestCandidateUnqualifiedFallsBackToOrdinaryExecution(t *testing.T
 	if view.SessionID == "" {
 		t.Fatalf("view=%#v", view)
 	}
+	waitForTerminal(t, svc, view.SessionID)
 }
 
 func TestQualifiedPytestStructuredReplayPreservesCaptureDigestBinding(t *testing.T) {
@@ -137,6 +138,7 @@ func TestQualifiedPytestStructuredReplayPreservesCaptureDigestBinding(t *testing
 	if replayed.SessionID != first.SessionID || owner.starts.Load() != 1 || preparer.calls.Load() != 1 {
 		t.Fatalf("replay=%#v first=%#v starts=%d prepares=%d", replayed, first, owner.starts.Load(), preparer.calls.Load())
 	}
+	waitForTerminal(t, svc, first.SessionID)
 }
 
 func TestDecisionExperimentPytestReplayPreservesExperimentAndCaptureBinding(t *testing.T) {
@@ -193,4 +195,5 @@ func TestDecisionExperimentStructuredCaptureResolvesSessionBeforePreparation(t *
 	if preparer.lastSession != store.session || operation.SessionID(view.SessionID) != store.session {
 		t.Fatalf("capture session=%q view session=%q want=%q", preparer.lastSession, view.SessionID, store.session)
 	}
+	waitForTerminal(t, svc, view.SessionID)
 }

@@ -2,18 +2,21 @@ package decisionprotocol
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	core "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 )
 
 type fakePolicyStore struct {
-	snapshot          core.PolicySnapshot
-	put               bool
-	activationCommit  core.PolicyActivationCommit
-	currentSnapshot   core.PolicySnapshot
-	currentActivation core.PolicyActivation
-	currentOK         bool
+	snapshot                 core.PolicySnapshot
+	put                      bool
+	activationCommit         core.PolicyActivationCommit
+	currentSnapshot          core.PolicySnapshot
+	currentActivation        core.PolicyActivation
+	currentOK                bool
+	existingActivationCommit core.PolicyActivationCommit
+	existingActivation       bool
 }
 
 func (f *fakePolicyStore) PutPolicySnapshot(_ context.Context, s core.PolicySnapshot) (bool, error) {
@@ -23,6 +26,9 @@ func (f *fakePolicyStore) PutPolicySnapshot(_ context.Context, s core.PolicySnap
 }
 func (f *fakePolicyStore) LoadPolicySnapshot(context.Context, string, string) (core.PolicySnapshot, bool, error) {
 	return f.snapshot, f.put, nil
+}
+func (f *fakePolicyStore) FindPolicyActivationCommit(context.Context, string, string) (core.PolicyActivationCommit, bool, error) {
+	return f.existingActivationCommit, f.existingActivation, nil
 }
 func (f *fakePolicyStore) ActivatePolicyCAS(_ context.Context, commit core.PolicyActivationCommit) (core.PolicyActivationWriteResult, error) {
 	f.activationCommit = commit
@@ -76,5 +82,32 @@ func TestActivateDecisionPolicyRejectsEmptyPreviousDigest(t *testing.T) {
 	_, err := svc.ActivatePolicy(context.Background(), ActivatePolicyRequest{RepositoryID: "repo-a", ActivationID: "act-1", PolicyDigest: "pol_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", ProposalGeneration: "gen_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", ExpectedPreviousPolicyDigest: "", ActorRef: "actor"})
 	if err == nil {
 		t.Fatal("empty previous digest accepted")
+	}
+}
+
+type failingActivationGenerationSource struct{ calls int }
+
+func (f *failingActivationGenerationSource) CurrentActivationGeneration(context.Context, string) (string, error) {
+	f.calls++
+	return "", errors.New("fresh generation must not be consulted on durable replay")
+}
+
+func TestActivateDecisionPolicyDurableReplayReusesFrozenActivationGenerationBeforeFreshObservation(t *testing.T) {
+	policyDigest := "pol_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	proposalGeneration := "gen_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	frozenGeneration := "gen_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	intent := core.PolicyActivationIntent{ActivationID: "act-replay", RepositoryID: "repo-a", PreviousEffectivePolicyDigest: "absent", ProposedPolicyDigest: policyDigest, ProposalGeneration: proposalGeneration, Authority: core.AuthorityExplicitCaller, ActorRef: "actor"}
+	store := &fakePolicyStore{existingActivation: true, existingActivationCommit: core.PolicyActivationCommit{Intent: intent, ActivationGeneration: frozenGeneration}}
+	generation := &failingActivationGenerationSource{}
+	svc := NewService(store, generation)
+	got, err := svc.ActivatePolicy(context.Background(), ActivatePolicyRequest{RepositoryID: "repo-a", ActivationID: "act-replay", PolicyDigest: policyDigest, ProposalGeneration: proposalGeneration, ExpectedPreviousPolicyDigest: "absent", ActorRef: "actor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generation.calls != 0 {
+		t.Fatalf("fresh generation consulted %d times during durable replay", generation.calls)
+	}
+	if got.ActivationGeneration != frozenGeneration || store.activationCommit.ActivationGeneration != frozenGeneration {
+		t.Fatalf("got=%q commit=%q want frozen=%q", got.ActivationGeneration, store.activationCommit.ActivationGeneration, frozenGeneration)
 	}
 }

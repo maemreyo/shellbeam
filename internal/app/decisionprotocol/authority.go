@@ -191,3 +191,133 @@ func overrideBlockingRequirements(e core.DecisionProtocolEvaluation) []string {
 	}
 	return uniqueSortedStrings(out)
 }
+
+const ExplicitCallerAuthorityProviderID = "shellbeam.explicit_caller"
+
+var explicitCallerAuthorityClass = core.AuthorityClass{Domain: "shellbeam", ClassID: "explicit_caller", Version: 1}
+
+type AuthorityProvider interface {
+	AuthorityClass() core.AuthorityClass
+	AuthorityResolver
+}
+
+type AuthorityResolverRegistry struct {
+	providers map[string]AuthorityProvider
+	now       func() time.Time
+}
+
+func NewAuthorityResolverRegistry(now func() time.Time, providers ...AuthorityProvider) *AuthorityResolverRegistry {
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	r := &AuthorityResolverRegistry{providers: map[string]AuthorityProvider{}, now: now}
+	for _, provider := range providers {
+		if provider == nil || provider.AuthorityClass().Validate() != nil {
+			continue
+		}
+		r.providers[authorityClassKey(provider.AuthorityClass())] = provider
+	}
+	return r
+}
+
+func (r *AuthorityResolverRegistry) MaterializeDecisionAuthority(ctx context.Context, req MaterializeAuthorityRequest) (core.MaterializedAuthority, error) {
+	if r != nil {
+		if provider := r.providers[authorityClassKey(req.RequiredAuthorityClass)]; provider != nil {
+			return provider.MaterializeDecisionAuthority(ctx, req)
+		}
+	}
+	return core.MaterializedAuthority{Status: core.QualificationUnknown, Resolver: registryResolverRef(), ValidatedAt: authorityRegistryNow(r)}, nil
+}
+
+func (r *AuthorityResolverRegistry) QualifyDecisionAuthority(ctx context.Context, req QualifyAuthorityRequest) (core.DecisionAuthorityQualification, error) {
+	if r != nil {
+		if provider := r.providers[authorityClassKey(req.RequiredAuthorityClass)]; provider != nil {
+			return provider.QualifyDecisionAuthority(ctx, req)
+		}
+	}
+	return core.DecisionAuthorityQualification{Status: core.QualificationUnknown, AttestationID: req.AttestationID, Resolver: registryResolverRef(), ValidatedAt: authorityRegistryNow(r)}, nil
+}
+
+func authorityClassKey(class core.AuthorityClass) string {
+	return fmt.Sprintf("%s\x00%s\x00%d", class.Domain, class.ClassID, class.Version)
+}
+
+func registryResolverRef() core.ResolverRef {
+	return core.ResolverRef{ProviderID: "shellbeam.authority_registry", ProviderVersion: "1", CapabilityVersion: "v1"}
+}
+
+func authorityRegistryNow(r *AuthorityResolverRegistry) time.Time {
+	if r != nil && r.now != nil {
+		return r.now().UTC()
+	}
+	return time.Now().UTC()
+}
+
+type explicitCallerAuthorityProvider struct {
+	now func() time.Time
+}
+
+func NewExplicitCallerAuthorityProvider(now func() time.Time) AuthorityProvider {
+	if now == nil {
+		now = func() time.Time { return time.Now().UTC() }
+	}
+	return &explicitCallerAuthorityProvider{now: now}
+}
+
+func (p *explicitCallerAuthorityProvider) AuthorityClass() core.AuthorityClass {
+	return explicitCallerAuthorityClass
+}
+
+func (p *explicitCallerAuthorityProvider) MaterializeDecisionAuthority(_ context.Context, req MaterializeAuthorityRequest) (core.MaterializedAuthority, error) {
+	now := p.now().UTC()
+	uid, ok := explicitCallerUID(req.ActorRef)
+	if !ok || !req.RequiredAuthorityClass.Equal(explicitCallerAuthorityClass) || req.RequiredScope.Validate() != nil {
+		return core.MaterializedAuthority{Status: core.QualificationUnknown, Resolver: explicitCallerResolverRef(), ValidatedAt: now}, nil
+	}
+	return core.MaterializedAuthority{
+		Status:         core.QualificationQualified,
+		ActorRef:       req.ActorRef,
+		AuthorityClass: explicitCallerAuthorityClass,
+		Scope:          req.RequiredScope,
+		Resolver:       explicitCallerResolverRef(),
+		ValidatedAt:    now,
+		ProvenanceRef:  fmt.Sprintf("transport:unix-peer-uid:%d", uid),
+	}, nil
+}
+
+func (p *explicitCallerAuthorityProvider) QualifyDecisionAuthority(_ context.Context, req QualifyAuthorityRequest) (core.DecisionAuthorityQualification, error) {
+	now := p.now().UTC()
+	if req.AttestationID == "" || !req.RequiredAuthorityClass.Equal(explicitCallerAuthorityClass) || req.RequiredScope.Validate() != nil {
+		return core.DecisionAuthorityQualification{Status: core.QualificationUnknown, AttestationID: req.AttestationID, Resolver: explicitCallerResolverRef(), ValidatedAt: now}, nil
+	}
+	if _, ok := explicitCallerUID(req.ExpectedActorRef); !ok {
+		return core.DecisionAuthorityQualification{Status: core.QualificationUnknown, AttestationID: req.AttestationID, Resolver: explicitCallerResolverRef(), ValidatedAt: now}, nil
+	}
+	return core.DecisionAuthorityQualification{Status: core.QualificationQualified, AttestationID: req.AttestationID, AuthorityClass: explicitCallerAuthorityClass, ActorRef: req.ExpectedActorRef, Resolver: explicitCallerResolverRef(), ValidatedAt: now}, nil
+}
+
+func explicitCallerResolverRef() core.ResolverRef {
+	return core.ResolverRef{ProviderID: ExplicitCallerAuthorityProviderID, ProviderVersion: "1", CapabilityVersion: "v1"}
+}
+
+func ExplicitCallerActorRef(uid uint32) string {
+	return fmt.Sprintf("shellbeam:explicit_caller:uid:%d", uid)
+}
+
+func explicitCallerUID(actorRef string) (uint64, bool) {
+	const prefix = "shellbeam:explicit_caller:uid:"
+	if len(actorRef) <= len(prefix) || actorRef[:len(prefix)] != prefix {
+		return 0, false
+	}
+	var uid uint64
+	for _, c := range actorRef[len(prefix):] {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		uid = uid*10 + uint64(c-'0')
+		if uid > 1<<32-1 {
+			return 0, false
+		}
+	}
+	return uid, true
+}

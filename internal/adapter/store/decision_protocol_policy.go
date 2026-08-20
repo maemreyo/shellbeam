@@ -82,6 +82,46 @@ func (s *DecisionProtocolStore) LoadPolicySnapshot(_ context.Context, repository
 	return snap, ok, err
 }
 
+func (s *DecisionProtocolStore) FindPolicyActivationCommit(_ context.Context, repositoryID, activationID string) (decisionprotocol.PolicyActivationCommit, bool, error) {
+	if s == nil || s.repository == nil {
+		return decisionprotocol.PolicyActivationCommit{}, false, fmt.Errorf("decision protocol store unavailable")
+	}
+	r := s.repository
+	r.decisionProtocolMu.Lock()
+	defer r.decisionProtocolMu.Unlock()
+	if err := r.recoverDecisionProtocolLocked(); err != nil {
+		return decisionprotocol.PolicyActivationCommit{}, false, err
+	}
+	hw, err := r.readDecisionProtocolHighWaterLocked()
+	if err != nil {
+		return decisionprotocol.PolicyActivationCommit{}, false, err
+	}
+	activation, seq, found, err := r.findCanonicalDecisionPolicyActivationLocked(repositoryID, activationID, hw)
+	if err != nil || !found {
+		return decisionprotocol.PolicyActivationCommit{}, found, err
+	}
+	snapshot, _, found, err := r.findCanonicalDecisionPolicySnapshotLocked(repositoryID, activation.PolicyDigest, hw)
+	if err != nil {
+		return decisionprotocol.PolicyActivationCommit{}, false, err
+	}
+	if !found {
+		return decisionprotocol.PolicyActivationCommit{}, false, fmt.Errorf("decision activation policy snapshot unavailable")
+	}
+	previous, err := r.previousDigestForActivationLocked(repositoryID, snapshot.Content.EpisodeKinds, seq)
+	if err != nil {
+		return decisionprotocol.PolicyActivationCommit{}, false, err
+	}
+	commit := decisionprotocol.PolicyActivationCommit{Intent: decisionprotocol.PolicyActivationIntent{
+		ActivationID: activation.ActivationID, RepositoryID: activation.RepositoryID,
+		PreviousEffectivePolicyDigest: previous, ProposedPolicyDigest: activation.PolicyDigest,
+		ProposalGeneration: activation.ProposalGeneration, Authority: activation.Authority, ActorRef: activation.ActorRef,
+	}, ActivationGeneration: activation.ActivationGeneration}
+	if err := commit.Validate(); err != nil {
+		return decisionprotocol.PolicyActivationCommit{}, false, fmt.Errorf("invalid canonical decision activation replay state: %w", err)
+	}
+	return commit, true, nil
+}
+
 func (s *DecisionProtocolStore) ActivatePolicyCAS(_ context.Context, commit decisionprotocol.PolicyActivationCommit) (decisionprotocol.PolicyActivationWriteResult, error) {
 	if s == nil || s.repository == nil {
 		return decisionprotocol.PolicyActivationWriteResult{}, fmt.Errorf("decision protocol store unavailable")
