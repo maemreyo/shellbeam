@@ -24,7 +24,8 @@
 - Neither parser reads `message`, `failureMessages`, `retryReasons`, `retryMessages`, or `failureDetails` for any semantic purpose, and no mechanical fact is derived from their content, presence, or length.
 - Neither adapter reads the producer's `success` field for any purpose.
 - Only executed producer versions become qualified profiles: Jest `v29`/`v30`, Vitest `v3`/`v4`. Any other observed key set is `unsupported` and fails closed.
-- Record budget is failure-first (spec §33). Document-order truncation is forbidden. `partial/pass_records_elided` and `budget_exceeded` stay distinct states.
+- Record budget is failure-first (spec §33). Document-order truncation is forbidden. `Completeness=partial` + `CompletenessReason=pass_records_elided` and `ParseOutcome=budget_exceeded` stay distinct states; `zero_match` is another closed reason, not a new completeness enum value.
+- Do not bump the shared `core.SchemaVersion` from 2 to 3. Derivation schema v3 and record/record-set schema v3 are introduced independently so existing Go/pytest persisted bytes remain v2 byte-for-byte.
 - Selection is by set membership; emission is in original document order. Ordinals are never renumbered and records are never re-sorted.
 - Production files target 150–300 lines, review above 350, hard cap 500; test files review above 600, hard cap 800; functions review above 60, hard cap 80; interfaces fail above eight methods.
 - Broad gates use `go run ./tools/devctl check` and `go run ./tools/devctl test --dirty --base main`, with one deliberate final `go test ./... -count=1` plus `devctl verify --checkpoint --base main --json`.
@@ -43,10 +44,14 @@ Task 3 generalizes it additively and amends the spec text in the same commit. Th
 
 ### Shared core primitives
 
+- Create `internal/core/structuredresult/observed_entries.go` + tests — `ObservedEntryCounts` traversal fact and closed `CompletenessReason` values.
+- Modify `internal/core/structuredresult/derivation.go` + tests — terminal reason/count metadata, derivation-only schema v3, identity stability.
+- Modify `internal/app/structuredresult/{ports.go,service.go,worker.go,inspect.go}` + tests — carry terminal metadata from parser to persistence and inspection.
+- Modify `internal/adapter/store/structured_legacy.go`, structured transition tests — explicit v1/v2/v3 derivation decoding without rewriting old bytes.
+- Modify `internal/core/verification/evidence.go`, `internal/adapter/verification/evidence_source.go` + tests — carry reason/counts across the existing P1 structured-evidence bridge without changing sufficiency semantics.
+- Modify `internal/core/capability/catalog.go` + tests — advertise structured schema versions `[1,2,3]` once v3 read/write support exists.
 - Create `internal/core/structuredresult/record_budget.go` + tests — failure-first selection, document-order emission, closed outcome/completeness mapping.
-- Create `internal/core/structuredresult/observed_entries.go` + tests — `ObservedEntryCounts` traversal fact.
-- Create `internal/core/structuredresult/failure_excerpt.go` + tests — bounded excerpt type, ANSI/control stripping, path classification.
-- Modify `internal/core/structuredresult/derivation.go`, `record.go` + tests — attach observed counts and excerpt without entering derivation identity.
+- Create `internal/core/structuredresult/failure_excerpt.go` + tests — bounded excerpt type, ANSI/control stripping, path classification; Task 2 owns record/record-set schema v3 for the new persisted member.
 
 ### Generalized capture authority
 
@@ -73,34 +78,115 @@ Task 3 generalizes it additively and amends the spec text in the same commit. Th
 
 ---
 
-### Task 1: Failure-first record budget and observed entry counts
+### Task 0: Close terminal metadata plumbing before record-budget work
+
+**Files:**
+- Create: `internal/core/structuredresult/observed_entries.go`
+- Create: `internal/core/structuredresult/observed_entries_test.go`
+- Modify: `internal/core/structuredresult/derivation.go`, `derivation_test.go`
+- Modify: `internal/app/structuredresult/ports.go`, `service.go`, `service_test.go`, `worker.go`, `worker_test.go`, `inspect.go`, `inspect_test.go`
+- Modify: `internal/adapter/store/structured_legacy.go`, `structured_legacy_test.go`, `structured_results_private.go`, transition/replay tests as needed
+- Modify: `internal/core/verification/evidence.go`, `evidence_test.go`
+- Modify: `internal/adapter/verification/evidence_source.go`, `evidence_source_test.go`
+- Modify: `internal/core/capability/catalog.go`, `catalog_test.go`
+- Modify: `cmd/shellbeam/execution_observation_test.go`
+
+**Interfaces:**
+
+```go
+type CompletenessReason string
+
+const (
+    CompletenessReasonPassRecordsElided CompletenessReason = "pass_records_elided"
+    CompletenessReasonZeroMatch         CompletenessReason = "zero_match"
+)
+
+type ObservedEntryCounts struct {
+    Namespace         string `json:"namespace"`
+    VocabularyVersion int    `json:"vocabulary_version"`
+    Files             int    `json:"files"`
+    Entries           int    `json:"entries"`
+    Pass              int    `json:"pass"`
+    Fail              int    `json:"fail"`
+    Skip              int    `json:"skip"`
+    Error             int    `json:"error"`
+}
+```
+
+`Derivation` gains `CompletenessReason CompletenessReason` and `ObservedEntries *ObservedEntryCounts` as terminal-only, non-identity metadata. `ParseResult`, `inspect.structured`, and `StructuredEvidenceDetail` carry the same fields additively. No P1 sufficiency rule consumes these values in this task; this task only preserves the existing bridge and makes the facts available to future explicit bounded requirements.
+
+Derivation persistence gains an explicit schema-v3 branch while records remain on the current schema. Do **not** change the shared `core.SchemaVersion = 2` constant. Existing v1/v2 derivations decode exactly as before and are never rewritten solely to normalize versions. Existing adapters that return no reason/count metadata still persist schema-v2 derivations.
+
+- [ ] **Step 1: Write RED core validation tests**
+
+Cover: closed reason values; reason only on terminal partial derivations; `pass_records_elided` and `zero_match` require `CompletenessPartial`; observed counts only on terminal derivations; vocabulary version 1; safe bounded namespace; every count non-negative and <= `maxObservedEntries=65536`; `Pass+Fail+Skip+Error == Entries`; and **no** `Files <= Entries` invariant. Include a valid fixture with `Files=2, Entries=1` to pin the Jest module-error case.
+
+Run: `go test ./internal/core/structuredresult -run 'ObservedEntr|CompletenessReason|DerivationV3' -count=1`
+Expected: FAIL because the types/fields do not exist.
+
+- [ ] **Step 2: Implement core types and derivation-only schema v3**
+
+Add a dedicated derivation-v3 constant. `Derivation.Validate` accepts v1/v2/v3, rejects v3-only fields on v1/v2, and keeps derivation identity unchanged. Do not alter `Record.Validate` or the shared record schema constant in this task.
+
+- [ ] **Step 3: Write RED store compatibility/transition tests**
+
+Pin literal v1 and v2 derivation JSON bytes, then add v3 fixtures. Assert v1/v2 read unchanged, v2 processing -> v3 terminal is allowed only when v3 terminal metadata is present/valid, unknown schema fails closed, and replay/compaction preserves reason/count metadata. Assert old v2 bytes are not rewritten by read/replay.
+
+- [ ] **Step 4: Implement store v3 decoding and transition rules**
+
+Decode v1, v2, and v3 explicitly with strict unknown-field rejection. Keep record-set decoding unchanged in this task.
+
+- [ ] **Step 5: Write RED app plumbing tests**
+
+Add `CompletenessReason` and `ObservedEntries` to `ParseResult`. Prove worker -> service -> repository persistence, `inspect.structured` exposure, and defensive copying. When output truncation downgrades a parser `complete` result to partial, reason remains empty unless the parser supplied a valid reason for the resulting partial state.
+
+- [ ] **Step 6: Implement app plumbing**
+
+Use one terminal metadata-bearing completion path; preserve compatibility wrappers for callers that only provide coverage. Existing adapters must continue to persist schema-v2 derivations.
+
+- [ ] **Step 7: Write RED P1 bridge and capability tests**
+
+`StructuredEvidenceDetail` receives `ParseOutcome`, `CompletenessReason`, and `ObservedEntries` additively and excludes them from compatibility identity exactly like the existing detail envelope. `EvidenceSource.bindStructuredDetail` copies them without changing the literal evidence result or sufficiency outcome. Capability advertises `[1,2,3]`.
+
+- [ ] **Step 8: Implement bridge/capability and run focused regression**
+
+```bash
+go test ./internal/core/structuredresult ./internal/app/structuredresult ./internal/adapter/store ./internal/core/verification ./internal/adapter/verification ./internal/core/capability ./cmd/shellbeam -run 'Structured|ObservedEntr|CompletenessReason|Derivation|Evidence|Capability' -count=1
+go run ./tools/devctl test --dirty --base main --json
+```
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add internal/core/structuredresult internal/app/structuredresult internal/adapter/store internal/core/verification internal/adapter/verification internal/core/capability cmd/shellbeam
+git diff --cached --check
+git -c core.hooksPath=.githooks commit -m "feat: persist structured terminal metadata"
+```
+
+---
+
+### Task 1: Failure-first record budget
 
 **Files:**
 - Create: `internal/core/structuredresult/record_budget.go`
 - Create: `internal/core/structuredresult/record_budget_test.go`
-- Create: `internal/core/structuredresult/observed_entries.go`
-- Create: `internal/core/structuredresult/observed_entries_test.go`
-- Modify: `internal/core/structuredresult/derivation.go`
-- Modify: `internal/core/structuredresult/derivation_test.go`
 
 **Interfaces:**
 - Produces `SelectRecordsFailureFirst` as a pure function over `[]Record`, usable by any adapter and by no other layer.
-- Produces `ObservedEntryCounts` and attaches it to `Derivation` as terminal-only metadata alongside `SemanticsCoverage`, explicitly outside derivation identity.
+- Reuses the Task-0 `CompletenessReason` vocabulary; it does not invent a second budget-reason type.
 
 - [ ] **Step 1: Write RED budget-selection tests**
 
 Use these exact public shapes:
 
 ```go
-const BudgetReasonPassElided = "pass_records_elided"
-
 type RecordBudget struct { MaxRecords int }
 
 type BudgetSelection struct {
-    Records      []Record
-    Outcome      ParseOutcome
-    Completeness Completeness
-    Reason       string
+    Records            []Record
+    Outcome            ParseOutcome
+    Completeness       Completeness
+    CompletenessReason CompletenessReason
 }
 
 func SelectRecordsFailureFirst([]Record, RecordBudget) (BudgetSelection, error)
@@ -114,7 +200,7 @@ Cover, at minimum:
 everything fits                          → complete, reason ""
 one pass elided                          → partial, reason pass_records_elided
 all pass elided, every fail retained     → partial, reason pass_records_elided
-mandatory set alone exceeds cap          → budget_exceeded, partial
+mandatory set alone exceeds cap          → budget_exceeded, partial, reason ""
 suite records are never elided
 diagnostic/artifact_result never elided
 emission order equals input order        (NOT mandatory-first)
@@ -122,39 +208,16 @@ selection is stable for identical input
 MaxRecords <= 0                          → error
 ```
 
-The order assertion is the load-bearing one: build an input where a `pass` at index 0 is elided and a `fail` at index 5 is kept, then assert the surviving slice is still ascending by original index.
+The order assertion is load-bearing: build an input where a `pass` at index 0 is elided and a `fail` at index 5 is kept, then assert the surviving slice is still ascending by original index.
 
 Run: `go test ./internal/core/structuredresult -run 'RecordBudget|FailureFirst' -count=1`
 Expected: FAIL because the selector does not exist.
 
 - [ ] **Step 2: Implement the selector**
 
-Mark selected indices in one pass, then emit in ascending index order. Do not sort, do not renumber, do not mutate input records. When the mandatory set exceeds the cap, truncate it in document order and return `ParseBudgetExceeded` with `CompletenessPartial` — a caller must be able to see the failures that did fit.
+Mark selected indices in one pass, then emit in ascending index order. Do not sort, renumber, or mutate input records. When the mandatory set exceeds the cap, truncate mandatory records in document order and return `ParseBudgetExceeded` with `CompletenessPartial` and an empty reason — a caller must be able to see the failures that did fit without confusing this with a complete failure set.
 
-- [ ] **Step 3: Write RED observed-entry-count tests**
-
-```go
-type ObservedEntryCounts struct {
-    Namespace         string `json:"namespace"`
-    VocabularyVersion int    `json:"vocabulary_version"`
-    Files             int    `json:"files"`
-    Entries           int    `json:"entries"`
-    Pass              int    `json:"pass"`
-    Fail              int    `json:"fail"`
-    Skip              int    `json:"skip"`
-    Error             int    `json:"error"`
-}
-```
-
-Validation rejects: unknown namespace shape, wrong vocabulary version, any negative field, `Pass+Fail+Skip+Error != Entries`, `Files > Entries` when `Entries > 0`, and counts above the observed-entry ceiling.
-
-`Error` exists because this is a shared core type, not because either V1 adapter can produce it. Add a test asserting a JS-namespace value with `Error > 0` still validates structurally — the adapter-level prohibition is enforced by the adapter, not by core.
-
-- [ ] **Step 4: Attach both to the derivation without touching identity**
-
-Add `ObservedEntries *ObservedEntryCounts` to `Derivation`, permitted only on a terminal derivation, exactly as `SemanticsCoverage` is. Add an explicit regression proving the derivation key is byte-identical with and without `ObservedEntries` populated, for both a raw-only source set and an artifact source set.
-
-- [ ] **Step 5: Prove no existing-adapter regression and commit**
+- [ ] **Step 3: Prove no existing-adapter regression and commit**
 
 ```bash
 go test ./internal/core/structuredresult ./internal/app/structuredresult ./internal/adapter/structured/gojson ./internal/adapter/structured/pytestjunit -count=1
@@ -218,9 +281,11 @@ Return `ok=false` rather than a partially normalized value. Anything the normali
 
 A second test in Task 1 Step 1 SHALL exercise the budget at scale: build an input of 10000 records (cap 8192) with 50 fails at random positions and assert the selection is stable, every fail is retained, and emit-order equals input order. This is the regression for the load-bearing "set membership selection + document-order emission" property under realistic size.
 
-- [ ] **Step 3: Attach to TestCase with strict validation**
+- [ ] **Step 3: Attach to TestCase with strict validation and record schema v3**
 
 `Record.Validate` rejects an excerpt whose text exceeds the cap, contains an escape sequence, contains a control character other than newline, or contains an absolute path in any class. Prove the record digest/ID is unchanged by the presence of an excerpt.
+
+Persisting the new member uses record/record-set schema v3. Add explicit v1/v2/v3 record decoding tests, prove existing v2 Go/pytest record bytes are not rewritten, and keep the shared `core.SchemaVersion=2` constant unchanged; use a dedicated record-v3 constant for the new shape.
 
 - [ ] **Step 4: Prove no existing-adapter regression**
 
@@ -481,7 +546,7 @@ Jest 29.7.0   (same)
               exit code: 1
 ```
 
-If a version emits the file, the binding's `zero_match_emits_artifact` is set to `true` and the parser-level `partial/zero_match` detection (Task 5) is required. If not, `false`.
+If a version emits the file, the binding's `zero_match_emits_artifact` is set to `true` and the parser-level `Completeness=partial`, `CompletenessReason=zero_match` detection (Task 5) is required. If not, `false`.
 
 - [ ] **Step 3: Generate the `@file` non-expansion document per version**
 
@@ -525,7 +590,7 @@ git -c core.hooksPath=.githooks commit -m "test: freeze jest real-document fixtu
 
 **Interfaces:**
 - Produces `jestjson.Adapter{}` with `ID() == "jest-json"`, version `1`, artifact-only input.
-- Emits `ParseResult` with `SemanticsCoverage` and `ObservedEntryCounts`, and applies `SelectRecordsFailureFirst` before returning.
+- Emits `ParseResult` with `SemanticsCoverage`, `ObservedEntries`, and `CompletenessReason`, and applies `SelectRecordsFailureFirst` before returning.
 
 - [ ] **Step 1: Write RED profile-discrimination tests**
 
@@ -572,7 +637,7 @@ module-level throw   → file fail, assertionResults empty
 
 Assert no record anywhere carries `TestStatus = error`, and that the heuristic "failed file with no failed assertion" is **not** used to synthesize one.
 
-Budget: build a document with more entries than the cap where failures sit past the cap position, and assert every failure is persisted, passes are elided, completeness is `partial/pass_records_elided`, and `ObservedEntryCounts.Entries` still equals the full traversed count.
+Budget: build a document with more entries than the cap where failures sit past the cap position, and assert every failure is persisted, passes are elided, completeness is `partial` with reason `pass_records_elided`, and `ObservedEntryCounts.Entries` still equals the full traversed count.
 
 - [ ] **Step 4: Implement the parser**
 
@@ -631,7 +696,7 @@ Extend the `admission.go` precondition-message switch with a `jest-json` case de
 
 - [ ] **Step 3: Register the adapter and advertise it**
 
-Add `jestjson.Adapter{}` to the worker adapter slice. Advertise adapter ID `jest-json`; keep structured schema versions `[1,2]`; add nothing to the MCP tool surface.
+Add `jestjson.Adapter{}` to the worker adapter slice. Advertise adapter ID `jest-json`; advertise structured schema versions `[1,2,3]`; add nothing to the MCP tool surface.
 
 - [ ] **Step 4: Extend inspection additively**
 
@@ -761,7 +826,7 @@ does jest-json@v1 change any P1 outcome that raw output plus exit
 code did not already determine?
 ```
 
-Collect, for qualified Jest operations: how many produced a derivation; how many were `complete` versus `partial/pass_records_elided` versus `budget_exceeded`; how many had `invocations > 1`; how many had `jest:failing_*`; and in how many cases a P1 candidate or an agent decision actually consumed which-tests-failed rather than only whether-anything-failed.
+Collect, for qualified Jest operations: how many produced a derivation; how many were `complete` versus `partial` reason `pass_records_elided` versus `budget_exceeded`; how many had `invocations > 1`; how many had `jest:failing_*`; and in how many cases a P1 candidate or an agent decision actually consumed which-tests-failed rather than only whether-anything-failed.
 
 That last count is the decisive one. If nothing consumes which-or-how-many, the adapter is telemetry rather than evidence, and the same will be true of Vitest with strictly less to offer.
 
@@ -838,7 +903,7 @@ unqualified: no run subcommand and no --run          (watch mode)
 
 **No `@token` shape rule.** Verified empirically on Vitest 3.2.7 that `vitest run @acme --reporter=json --outputFile.json=...` correctly selects scoped-package tests (`numTotalTests: 1` for `packages/@acme/ui/ui.test.js`). Treating the leading `@` as disqualifying would reject real monorepo scoped-package filters. The non-expansion guarantee is recorded in the binding as `argument_file_state = producer_does_not_expand` (with `argument_file_evidence` carrying the producer version) and is enforced per-version by the release qualification matrix.
 
-**Per-version emission pin (spec §22.5).** Vitest `3.2.7` emits a zero-result document when zero tests match; the binding SHALL record `zero_match_emits_artifact = true` and the parser SHALL set `partial/zero_match` completeness in that case. The fact is re-verified per qualified Vitest version by the release qualification matrix.
+**Per-version emission pin (spec §22.5).** Vitest `3.2.7` emits a zero-result document when zero tests match; the binding SHALL record `zero_match_emits_artifact = true` and the parser SHALL set `Completeness=partial` with `CompletenessReason=zero_match` in that case. The fact is re-verified per qualified Vitest version by the release qualification matrix.
 
 The multi-reporter case needs its own named test: with a plain string `--outputFile`, `getOutputFile` returns the same path for every reporter, and json and junit overwrite each other. `output_file_form` records which of the two accepted forms was used, so the digest distinguishes them.
 
@@ -978,12 +1043,12 @@ unhandled async error absent from JSON  → coverage marks
 
 Verified empirically on Vitest 3.2.7: an invocation that filters out every test emits a zero-result document at the declared path (`numTotalTests: 0`, `success: false`, `testResults: []`). Without a parser-level check the document decodes cleanly into the v3/v4 profile and the adapter would persist `ObservedEntryCounts.Entries=0` with `Completeness = complete`, and a P1 obligation over "did the run pass" would receive a vacuous affirmative.
 
-The parser SHALL set a third completeness state, `partial/zero_match`, distinct from `complete`, `partial/pass_records_elided`, and `budget_exceeded`:
+The parser SHALL set `Completeness=partial` with the closed reason `zero_match`; this is distinct from `pass_records_elided`, while `budget_exceeded` remains a distinct parse outcome:
 
 ```text
 zero_result_document with binding.ZeroMatchEmitsArtifact == true
   → Completeness = partial
-  → Reason     = zero_match
+  → CompletenessReason = zero_match
   → Records    = []  (no records persisted; no test cases were traversed)
   → ObservedEntryCounts.Entries = 0 (truthfully: zero tests selected)
 
@@ -992,7 +1057,7 @@ zero_result_document with binding.ZeroMatchEmitsArtifact == false
     the document doesn't exist and Phase A returns unavailable
 ```
 
-The closed enum of completeness values SHALL be extended. RED test: feed the Task 9.5 zero-match fixture for Vitest 3.2.7 and assert the parser returns `partial/zero_match`, NOT `complete`.
+The closed `CompletenessReason` enum from Task 0 SHALL be used. RED test: feed the Task 9.5 zero-match fixture for Vitest 3.2.7 and assert `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match`, NOT `complete`.
 
 - [ ] **Step 4: Implement the parser**
 
@@ -1179,9 +1244,9 @@ Remove the implementation worktree and branch only when merged main is verified 
 | 37–40 Vitest status/focus/retry/success | Task 10 |
 | 41–43 Jest status/failing/invocations | Task 5 |
 | 44–45 hook phase and error status unavailable | Tasks 5, 10 |
-| 46–47.1 suite mapping, aggregates unavailable, observed counts | Task 1, Tasks 5 and 10 |
+| 46–47.2 suite mapping, aggregates unavailable, observed counts, terminal metadata | Task 0, Task 1, Tasks 5 and 10 |
 | 48–52 address/identity/order/duration/record count | Tasks 5, 10 |
-| 53–54 coverage declarations and P1 sufficiency | Tasks 5, 6, 10, 11 |
+| 53–54 coverage declarations and P1 bridge/sufficiency boundary | Task 0, Tasks 5, 6, 10, 11 |
 | 55–56 selection precedence and explicit mismatch | Tasks 6, 11 |
 | 57–61 security/limits/capability/observability/no auto-repair | Tasks 6, 11, 13 |
 | 62–66 invariants/deferred/sequencing/acceptance | Task 3 (amends §62), Task 13 |
@@ -1189,7 +1254,7 @@ Remove the implementation worktree and branch only when merged main is verified 
 ## Execution Order After This Plan
 
 ```text
-shared core primitives + generalized capture authority
+terminal metadata contract → failure-first core primitives → generalized capture authority
 → jest-json@v1 → verify → deploy
 → value-review gate
 → vitest-json@v1 (only if authorized) → verify → deploy

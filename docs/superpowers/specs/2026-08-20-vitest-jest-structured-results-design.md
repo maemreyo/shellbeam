@@ -1,7 +1,7 @@
 # ShellBeam Vitest/Jest Structured Results Design
 
 Date: 2026-08-20
-Status: design freeze for review; implementation planning is not yet authorized
+Status: design freeze amended after implementation-plan review; Jest implementation authorized, Vitest remains value-gated
 Scope: qualify two artifact-backed JavaScript/TypeScript test-runner adapters, `jest-json@v1` and `vitest-json@v1`, on top of the already-deployed `StructuredInputRef` artifact-capture foundation, without weakening E22 raw-output identity, terminal receipt truth, P1 sufficiency, or filesystem provenance. Jest is authorized for implementation; Vitest is qualified but gated on a value review (§5)
 
 Predecessor: `docs/superpowers/specs/2026-08-19-multilanguage-structured-results-design.md` (the "pytest design"). Section references written as `pytest §N` refer to that document.
@@ -430,35 +430,7 @@ What is required instead:
 2. The release qualification matrix (§31) SHALL add, per qualified producer version, a `@file non-expansion` test: a file containing a payload-shape-affecting flag (`--bail`, `--listTests`, `--outputFile=<other>`) is passed as `@args.txt` on the argv; the producer SHALL NOT expand the file.
 3. The digest SHALL bind the `argument_file_state` so a future producer version that adds expansion cannot silently inherit the prior binding's authority.
 
-The forward-compat concern is real but the structural fail-closed argument still holds: an argv that happens to qualify but where a non-expanded `@file` happens to filter out every test produces a document whose `ObservedEntryCounts.Entries == 0`. The producer-specific emission behavior is pinned per-version (§22.5 below). Jest `30.4.2` does not emit the output file when zero tests match [RUN 30.4.2]; Vitest `3.2.7` does emit a zero-result document and the parser SHALL detect that case and mark completeness `partial/zero_match` rather than `complete`.
-
-### 22.5 Zero-match emission behavior is pinned per producer version
-
-Producer behavior diverges on what happens when an invocation filters out every test:
-
-```text
-Jest 30.4.2    zero tests match → no output file at declared path,
-               exit code 1, no document emitted [RUN 30.4.2]
-Vitest 3.2.7   zero tests match → output file emitted with
-               numTotalTests=0, success=false, testResults=[],
-               exit code 1 [RUN 3.2.7]
-```
-
-A Vitest zero-match document decodes cleanly into the v3/v4 profile. Without per-version awareness the adapter would persist `ObservedEntryCounts.Entries=0` and a complete derivation, and a P1 obligation over "did the run pass" would receive a vacuous affirmative. That is a silent-divergence failure mode, not a missing-result failure mode, and it is the reason the per-version emission pin matters.
-
-V1 SHALL:
-
-```text
-<ns>:zero_match_emits_artifact     Jest 30.4.2: false
-                                   Vitest 3.2.7: true
-
-<ns>:zero_match_completeness       Jest 30.4.2: n/a (no document)
-                                   Vitest 3.2.7: partial/zero_match
-```
-
-The `zero_match_completeness` value is a third distinct state alongside `complete` and `partial/pass_records_elided` (and the existing `budget_exceeded` from §33). It SHALL be set by the parser when `ObservedEntryCounts.Entries == 0` AND the producer is one that emits on zero-match. The state SHALL be observable through `inspect.structured` so a P1 obligation can distinguish "did not run" from "ran and passed".
-
-The release qualification matrix SHALL verify this behavior per version, in the same matrix that verifies `@file non-expansion`.
+The forward-compat concern is real but the structural fail-closed argument still holds: an argv that happens to qualify but where a non-expanded `@file` happens to filter out every test produces a document whose `ObservedEntryCounts.Entries == 0`. The producer-specific emission behavior is pinned per-version (§22.5 below). Jest `30.4.2` does not emit the output file when zero tests match [RUN 30.4.2]; Vitest `3.2.7` does emit a zero-result document and the parser SHALL detect that case and set `Completeness=partial` with `CompletenessReason=zero_match` rather than `complete`.
 
 ## 21. Jest producer qualification
 
@@ -494,6 +466,35 @@ Two config interactions were verified and both favor requiring the CLI form:
 - config `outputFile` works but emits `● Validation Warning: Unknown option "outputFile"` because `outputFile` is missing from `ValidConfig` in both `29.7.0` and `30.4.1` [SRC][RUN]. CLI wins regardless (`setFromArgv` places CLI flags last) [SRC].
 
 A config `reporters` setting cannot suppress or alter `--json`: with `reporters: []` and `--json`, valid JSON was produced on stdout and stderr was 0 bytes [RUN 30.4.2]. `--json` is produced by `processResults`, entirely outside the reporter chain [SRC]. This is a stronger separation than Vitest's and is why Jest is sequenced first (§5).
+
+### 22.5 Zero-match emission behavior is pinned per producer version
+
+Producer behavior diverges on what happens when an invocation filters out every test:
+
+```text
+Jest 30.4.2    zero tests match → no output file at declared path,
+               exit code 1, no document emitted [RUN 30.4.2]
+Vitest 3.2.7   zero tests match → output file emitted with
+               numTotalTests=0, success=false, testResults=[],
+               exit code 1 [RUN 3.2.7]
+```
+
+A Vitest zero-match document decodes cleanly into the v3/v4 profile. Without per-version awareness the adapter would persist `ObservedEntryCounts.Entries=0` and a complete derivation, and a P1 obligation over "did the run pass" would receive a vacuous affirmative. That is a silent-divergence failure mode, not a missing-result failure mode, and it is the reason the per-version emission pin matters.
+
+V1 SHALL:
+
+```text
+<ns>:zero_match_emits_artifact     Jest 30.4.2: false
+                                   Vitest 3.2.7: true
+
+<ns>:zero_match_completeness       Jest 30.4.2: n/a (no document)
+                                   Vitest 3.2.7: partial + reason zero_match
+```
+
+`zero_match` is a closed `CompletenessReason`, not a new `Completeness` enum value. The parser SHALL emit `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0` AND the producer binding says zero-match emits an artifact. The reason SHALL be observable through `inspect.structured` and the existing structured-evidence bridge so consumers can distinguish "did not run" from "ran and passed" without inventing a parallel P1 ontology. Free-form reason strings do not automatically gain policy semantics; an explicit bounded/versioned P1 requirement is still required before sufficiency logic consumes one.
+
+The release qualification matrix SHALL verify this behavior per version, in the same matrix that verifies `@file non-expansion`.
+
 
 ## 23. Jest payload-shape-affecting flags SHALL be absent
 
@@ -712,12 +713,14 @@ This is subset selection, not reordering. Every persisted record keeps the `suit
 The derivation SHALL record which case applied:
 
 ```text
-all records persisted                → complete
-pass records elided by budget        → partial, reason pass_records_elided
-non-pass set exceeded the cap        → budget_exceeded
+all records persisted                → outcome complete, completeness complete, reason ""
+pass records elided by budget        → outcome partial, completeness partial, reason pass_records_elided
+non-pass set exceeded the cap        → outcome budget_exceeded, completeness partial, reason ""
 ```
 
-`partial` with `pass_records_elided` is a materially different fact from `budget_exceeded`, and SHALL NOT be collapsed into one state. In the first case the failure set is provably complete and a P1 obligation over failures is satisfiable; in the second it is not.
+`CompletenessReason` is a closed terminal metadata field. V1 values are `pass_records_elided` and `zero_match`; the empty value means no finer partiality reason is asserted. The shorthand `partial/pass_records_elided` means `Completeness=partial` plus `CompletenessReason=pass_records_elided`; it is not a compound enum value.
+
+`partial` with `pass_records_elided` is materially different from `budget_exceeded`, and SHALL NOT be collapsed into one state. In the first case the persisted non-pass set is mechanically complete; in the second it is not. Existing P1 sufficiency remains requirement-specific: the reason and observed counts cross the structured-evidence bridge, but no free-form reason is treated as policy semantics without an explicit bounded/versioned requirement contract.
 
 Because pass records may be elided, the count of persisted records SHALL NOT be read as the number of tests that ran. §47 defines the mechanical fact that carries that information instead.
 
@@ -1038,7 +1041,10 @@ ObservedEntryCounts
   vocabulary_version = 1
   files              = count of file entries the parser traversed
   entries            = count of assertion entries the parser traversed
-  entries_by_status  = closed map over pass | fail | skip
+  pass               = entries normalized to pass
+  fail               = entries normalized to fail
+  skip               = entries normalized to skip
+  error              = entries normalized to error (shared core vocabulary; JS V1 adapters emit zero)
 ```
 
 This is not a producer aggregate and it is not subject to the §47 prohibition. §47 forbids reading the producer's own counter fields, whose buckets do not map onto ShellBeam's vocabulary, and forbids recomputing a *suite* aggregate from *records*. `ObservedEntryCounts` is neither: it is what the parser mechanically traversed in the immutable document, counted in ShellBeam's own closed status vocabulary, before any budget selection is applied.
@@ -1046,6 +1052,27 @@ This is not a producer aggregate and it is not subject to the §47 prohibition. 
 It SHALL be derived during traversal, never from the persisted record set, so that eliding pass records cannot change it. It SHALL NOT be compared against producer counters to validate them, and a mismatch with producer counters SHALL NOT be treated as a defect — the buckets are not comparable, which is exactly why §47 exists.
 
 It SHALL NOT be used to reconstruct a suite status, and it SHALL NOT override terminal receipt truth.
+
+`Files` and `Entries` are independently bounded. V1 SHALL NOT require `Files <= Entries`: Jest can emit a valid file result with `assertionResults=[]` for a module-level execution error (§44), so a document with more traversed files than assertion entries is mechanically valid. The only arithmetic invariant is `Pass+Fail+Skip+Error == Entries`.
+
+### 47.2 Terminal partiality metadata and persistence compatibility
+
+`CompletenessReason` and `ObservedEntryCounts` are terminal derivation metadata alongside `ProducerSemanticsCoverage`. They SHALL be outside derivation identity and SHALL cross the complete runtime path:
+
+```text
+adapter ParseResult
+  → structured worker
+  → structured service
+  → durable derivation
+  → inspect.structured
+  → StructuredEvidenceDetail
+```
+
+The shipped schema-v2 derivation is strict-decoded and cannot safely accept new JSON members in place. V1 SHALL therefore add a **derivation-only schema v3**. This does not change the current record schema version and SHALL NOT rewrite existing v1/v2 derivations. New Go/pytest derivations that do not carry v3 terminal metadata remain schema v2 byte-for-byte; a JS derivation upgrades from v2 pending/processing state to schema v3 only when terminal metadata is committed. The store SHALL read v1, v2, and v3 derivations explicitly and fail closed on unknown versions.
+
+Likewise, Task 2 SHALL introduce a **record/record-set schema v3** only for records that use the new bounded failure-excerpt member. Existing Go/pytest record sets remain schema v2. The shared constant `SchemaVersion=2` SHALL NOT simply be changed to `3`, because doing so would silently rewrite unrelated persisted bytes.
+
+Downgrade behavior is explicit: an older binary that predates schema v3 may reject a v3 JS derivation/record set as unsupported, but it SHALL continue to read all pre-existing v1/v2 data. New code SHALL NOT mutate old persisted bytes merely to normalize them to v3.
 
 ## 48. Producer address and path handling
 
@@ -1132,7 +1159,7 @@ this design   test_case record count = normalized entry count
 
 The persisted record count is therefore **not** the entry count, not the number of tests that ran, and not a logical test count. The traversed entry count lives in `ObservedEntryCounts` (§47.1) and is the only field that may be read for that purpose.
 
-A consumer that counts persisted records to answer "how many tests ran" SHALL be considered incorrect. A consumer that counts persisted `fail` records to answer "how many tests failed" is correct whenever completeness is `complete` or `partial/pass_records_elided`, and incorrect under `budget_exceeded` — which is exactly why §33 keeps those two states distinct. A consumer that counts persisted records to answer "how many tests ran" under `partial/zero_match` (§22.5) SHALL be considered incorrect: the state means zero tests were selected, not that zero tests passed.
+A consumer that counts persisted records to answer "how many tests ran" SHALL be considered incorrect. A consumer that counts persisted `fail` records to answer "how many tests failed" is correct whenever completeness is `complete` or when `Completeness=partial` with `CompletenessReason=pass_records_elided`, and incorrect under `budget_exceeded` — which is exactly why §33 keeps those states distinct. Under `CompletenessReason=zero_match` (§22.5), persisted record count is likewise not the authority; `ObservedEntryCounts.Entries == 0` is the mechanical fact that zero tests were selected.
 
 For Jest specifically, a `describe.skip` emits one `pending` entry per inner test [RUN], and retried tests collapse to one entry regardless of attempt count (§43).
 
@@ -1311,7 +1338,7 @@ Capability advertisement SHALL be additive:
 structured_adapter_ids = [
   go-test-json, go-vet-json, pytest-junit-xml, vitest-json, jest-json
 ]
-structured_schema_versions = [1, 2]
+structured_schema_versions = [1, 2, 3]
 ```
 
 No second MCP tool is added. Artifact input kind and limits are already advertised.
@@ -1372,7 +1399,7 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 13. Suite aggregate counters are unavailable; producer buckets are never synthesized into the JUnit-shaped aggregate.
 14. `jest:invocations` is mechanical because it is an integer field; Vitest flake state is unavailable because it would be an inference.
 15. The record budget is failure-first: the non-pass set is persisted in full, or the derivation is `budget_exceeded`. Document-order truncation is forbidden.
-16. `partial/pass_records_elided` and `budget_exceeded` are distinct states and are never collapsed.
+16. `Completeness=partial, CompletenessReason=pass_records_elided` and `ParseOutcome=budget_exceeded` are distinct states and are never collapsed.
 17. Persisted record count is never read as tests-run; `ObservedEntryCounts` is the only field carrying that fact, and it is derived during traversal rather than from the persisted set.
 18. No mechanical fact is ever derived from failure text, its presence, or its length.
 19. Failure excerpts are bounded, ANSI-stripped, path-classified, attached only to non-pass records, and gated on the §34 retention-containment confirmation.
@@ -1381,7 +1408,7 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 22. Multi-project invocations are unqualified.
 23. Terminal receipt remains child execution truth; structured projection never mutates execution semantics.
 24. `@token` argv tokens are not shape-disqualified. The `argument_file_state` binding fact (`producer_does_not_expand`) and the per-version `@file` non-expansion test (§20.1, §31) are the authority.
-25. Zero-match emission is pinned per producer version (§22.5). Vitest emits a zero-result document; Jest does not. The parser SHALL set `partial/zero_match` completeness when `ObservedEntryCounts.Entries == 0` and the producer's binding records `zero_match_emits_artifact == true`. The state SHALL be distinct from `complete`, `partial/pass_records_elided`, and `budget_exceeded`.
+25. Zero-match emission is pinned per producer version (§22.5). Vitest emits a zero-result document; Jest does not. The parser SHALL set `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0` and the producer binding records `zero_match_emits_artifact == true`. The reason is distinct from `pass_records_elided`; `budget_exceeded` remains a distinct parse outcome.
 
 ## 63. Deferred beyond V1
 
