@@ -52,6 +52,7 @@ type RequestV2 struct {
 	RestoreID                string                                  `json:"restore_id,omitempty"`
 	CheckpointID             string                                  `json:"checkpoint_id,omitempty"`
 	OperationID              string                                  `json:"operation_id,omitempty"`
+	ExperimentID             string                                  `json:"experiment_id,omitempty"`
 	WorkspaceID              string                                  `json:"workspace_id,omitempty"`
 	ActivityID               string                                  `json:"activity_id,omitempty"`
 	CodeQuery                *codeintel.Query                        `json:"code_query,omitempty"`
@@ -114,6 +115,7 @@ type RequestV2 struct {
 	Paths                    []string                                `json:"paths,omitempty"`
 	TTLMS                    int64                                   `json:"ttl_ms,omitempty"`
 	VerificationRequestV2Fields
+	Decision *DecisionRequestV1 `json:"decision,omitempty"`
 }
 
 type ResponseV2 struct {
@@ -153,7 +155,8 @@ type ResponseV2 struct {
 	OutputView                       *outputview.Result                  `json:"output_view,omitempty"`
 	Sessions                         *persistent.InspectPage             `json:"sessions,omitempty"`
 	VerificationResponseV2Fields
-	Error *Error `json:"error,omitempty"`
+	Error    *Error              `json:"error,omitempty"`
+	Decision *DecisionResponseV1 `json:"decision,omitempty"`
 }
 
 type v2Header struct {
@@ -187,6 +190,17 @@ func decodeRequestV2(r io.Reader) (RequestV2, error) {
 	}
 	if err := validateV2FieldSet(data, header.Action); err != nil {
 		return partial, err
+	}
+	if isDecisionProtocolActionV2(header.Action) {
+		var envelope struct {
+			Decision json.RawMessage `json:"decision"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			return partial, failure.New(failure.InvalidInput, map[string]string{"field": "decision"}, err)
+		}
+		if err := validateDecisionRawFieldsV2(envelope.Decision, header.Action); err != nil {
+			return partial, err
+		}
 	}
 	var out RequestV2
 	if err := strictDecodeV2(data, &out); err != nil {
@@ -230,6 +244,9 @@ func validateRequestV2(v RequestV2) error {
 	}
 	if bridgeVerificationActionV2(v.Action) {
 		return validateVerificationRequestV2(v)
+	}
+	if isDecisionProtocolActionV2(v.Action) {
+		return validateDecisionRequestV2(v.Action, v.Decision)
 	}
 	if v.Action == "capabilities.negotiate" || v.Action == "read_media" {
 		return validateMediaRequestV2(v)

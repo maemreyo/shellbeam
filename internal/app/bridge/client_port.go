@@ -71,6 +71,7 @@ type Request struct {
 	VerificationActivate      verificationapp.ActivateRequest
 	VerificationWaiverSet     verificationapp.SetWaiverRequest
 	VerificationWaiverRevoke  verificationapp.RevokeWaiverRequest
+	Decision                  *DecisionRequest
 }
 type Response struct {
 	View                      daemon.View
@@ -105,6 +106,7 @@ type Response struct {
 	VerificationActivation    *verificationcore.ActivationWriteResult
 	VerificationWaiver        *verificationcore.WaiverWriteResult
 	VerificationRevocation    *verificationcore.RevocationWriteResult
+	Decision                  *DecisionResponse
 	Code                      string
 	Message                   string
 	Retryable                 bool

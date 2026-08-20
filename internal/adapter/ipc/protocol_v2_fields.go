@@ -7,7 +7,7 @@ func actionFieldsV2(action string) []string {
 	case "read_media":
 		return []string{"consumer_media", "media_contract_fingerprint", "media"}
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "hermetic", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "experiment_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "hermetic", "yield_time_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":
@@ -64,6 +64,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"repro_id"}
 	case "inspect.code":
 		return []string{"workspace_id", "activity_id", "code_query"}
+	case "decision.policy.snapshot", "decision.policy.activate", "decision.create", "decision.inspect", "decision.evaluate", "decision.close_unresolved", "decision.candidate.create", "decision.candidate.revise", "decision.experiment.define", "decision.prediction.bind", "decision.experiment.seal", "decision.experiment.close", "decision.experiment.abort", "decision.assessment.record", "decision.selection.propose", "decision.override.create", "decision.selection.commit", "decision.authority.materialize":
+		return []string{"decision"}
 	default:
 		return nil
 	}

@@ -1,9 +1,12 @@
 package mcp
 
 func v2ActionFields(action string) []string {
+	if isDecisionProtocolMCPAction(action) {
+		return []string{"decision"}
+	}
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "trace_mode", "limits", "hermetic", "max_output_bytes"}
+		return []string{"operation_id", "experiment_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "trace_mode", "limits", "hermetic", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "read_output":

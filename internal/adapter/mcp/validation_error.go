@@ -84,7 +84,7 @@ func allV2InputFields() []string {
 		"action", "activity_id", "after_event_cursor", "argv", "capture_policy", "chars", "checkpoint_create_id", "checkpoint_id",
 		"code_query", "command", "continuation", "cursor", "cwd", "eof", "evidence", "evidence_id", "execution", "freshness", "hermetic",
 		"include_ports", "input_offset", "intent", "kill_id", "limits", "max_events", "max_output_bytes", "max_records", "max_resources", "max_samples",
-		"mode", "mutation_id", "operation_id", "params", "path", "paths", "persistent", "persistent_only", "process_target", "project_command_id",
+		"decision", "experiment_id", "mode", "mutation_id", "operation_id", "params", "path", "paths", "persistent", "persistent_only", "process_target", "project_command_id",
 		"record_kind", "repro_create_id", "repro_id", "restore_id", "result", "revalidate_artifacts", "scope_id", "selector", "session_id", "session_name",
 		"severity", "signal", "state", "structured_adapter", "target", "test_status", "timeout_ms", "trace_mode", "ttl_ms", "tty", "verification_kind",
 		"workspace_hint", "workspace_id", "yield_time_ms",

@@ -42,6 +42,9 @@ func (s *Server) handleV2(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) dispatchV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
+	if isDecisionProtocolActionV2(req.Action) {
+		return s.decisionProtocolV2(ctx, req, resp)
+	}
 	var err error
 	switch req.Action {
 	case "start":
