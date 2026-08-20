@@ -29,6 +29,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runVersion(args[1:], stdout, stderr)
 	case "__supervisor":
 		err = runSupervisor(ctx, args[1:])
+	case "__handoff_notify":
+		err = runHandoffNotify(ctx, args[1:])
 	case "daemon":
 		err = runDaemon(ctx, args[1:])
 	case "mcp":
