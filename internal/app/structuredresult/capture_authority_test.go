@@ -21,6 +21,72 @@ func qualifiedPytestBinding(t *testing.T, root string, execution environment.Exe
 	return binding
 }
 
+func TestProducerInvocationBindingIsClosedAndDelegatesPytestFacts(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	binding := qualifiedPytestBinding(t, root, environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/pytest"})
+	union := ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &binding}
+	if err := union.Validate(); err != nil {
+		t.Fatalf("valid pytest union rejected: %v", err)
+	}
+	if union.AdapterID() != PytestJUnitAdapterID {
+		t.Fatalf("adapter=%q", union.AdapterID())
+	}
+	if got := union.OutputBinding(); got.DeclaredPathToken != binding.JUnitOutput.DeclaredPathToken || got.NormalizedWorkspacePath != binding.JUnitOutput.NormalizedWorkspacePath {
+		t.Fatalf("output=%#v want=%#v", got, binding.JUnitOutput)
+	}
+	wantDigest, err := binding.ProducerBindingDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotDigest, err := union.ProducerBindingDigest()
+	if err != nil || gotDigest != wantDigest {
+		t.Fatalf("digest=%q want=%q err=%v", gotDigest, wantDigest, err)
+	}
+
+	invalid := []ProducerInvocationBinding{
+		{},
+		{Kind: ProducerInvocationKind("future"), PytestInvocation: &binding},
+		{Kind: ProducerInvocationJest, PytestInvocation: &binding},
+		{Kind: ProducerInvocationPytest},
+	}
+	for i, candidate := range invalid {
+		if err := candidate.Validate(); err == nil {
+			t.Fatalf("invalid union %d accepted: %#v", i, candidate)
+		}
+	}
+}
+
+func TestPytestCaptureIdentityRemainsBitStableAcrossProducerUnionRefactor(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "repo")
+	execution := environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/pytest"}
+	pytest := qualifiedPytestBinding(t, root, execution)
+	producerDigest, err := pytest.ProducerBindingDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantProducer = "9af119dd5b9dc43b72aee11291a5e93416cc78ce1faacea9508d32d70c818e95"
+	if producerDigest != wantProducer {
+		t.Fatalf("producer digest drifted: got=%q want=%q", producerDigest, wantProducer)
+	}
+	binding := ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &pytest}
+	authority, err := buildCaptureAuthority(PreSpawnCaptureRequest{
+		OperationID: "capture-legacy-pin", SessionID: "capture-legacy-pin-session",
+		RepositoryID: "repo_01M09A27JCSE71BXSP477EKN34", WorkspaceID: "ws_01M0CJB0KMBXWM7C7YDFYHBT2Q", WorkspaceRoot: root,
+		MaxBlobBytes: DefaultMaxArtifactBlobBytes, Producer: PytestCaptureRequest{Invocation: PytestInvocationRequest{Execution: execution}},
+	}, binding, CaptureBaselineIdentity{SchemaVersion: CaptureBaselineSchemaV1, State: CaptureBaselineAbsent, AuthorityDigest: strings.Repeat("a", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	captureDigest, err := authority.StructuredCaptureDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantCapture = "9606da56f1bad7ca876d37adf9b2ab9c0faa8e5d74341bb1ae3181852fd49adc"
+	if captureDigest != wantCapture {
+		t.Fatalf("capture digest drifted: got=%q want=%q", captureDigest, wantCapture)
+	}
+}
+
 func TestCaptureAuthorityBindsCanonicalPytestInvocationAndIntent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "repo")
 	execution := environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/pytest"}
@@ -43,7 +109,7 @@ func TestCaptureAuthorityBindsCanonicalPytestInvocationAndIntent(t *testing.T) {
 	if err != nil || len(intentDigest) != 64 {
 		t.Fatalf("intent digest=%q err=%v", intentDigest, err)
 	}
-	authority := CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, PytestInvocation: &binding, Intent: intent}
+	authority := CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, ProducerInvocationBinding: ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &binding}, Intent: intent}
 	if err := authority.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +165,7 @@ func TestCaptureAuthorityRejectsMismatchedProviderBindingAndPath(t *testing.T) {
 	} {
 		intent := base
 		mutate(&intent)
-		authority := CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, PytestInvocation: &binding, Intent: intent}
+		authority := CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, ProducerInvocationBinding: ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &binding}, Intent: intent}
 		if err := authority.Validate(); err == nil {
 			t.Fatalf("mismatched capture authority accepted: %#v", intent)
 		}

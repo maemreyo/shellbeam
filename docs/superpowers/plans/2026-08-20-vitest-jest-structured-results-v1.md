@@ -349,13 +349,17 @@ git -c core.hooksPath=.githooks commit -m "feat: bound structured failure excerp
 - Modify: `internal/app/structuredresult/capture.go`
 - Modify: `internal/app/structuredresult/capture_prepare_helpers.go`
 - Modify: `internal/app/structuredresult/capture_test.go`
+- Modify: `internal/app/structuredresult/materializer_test.go`
+- Modify: `internal/app/structuredresult/pytest_invocation.go`
 - Modify: `internal/adapter/store/structured_capture_authority.go`
 - Modify: `internal/adapter/store/structured_capture_authority_test.go`
+- Modify: `cmd/shellbeam/execution_structured_capture.go`
 - Modify: `docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md`
+- Modify: `docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md`
 
 **Interfaces:**
-- Produces a closed `ProducerInvocationBinding` union in durable capture authority, with `pytest_invocation` preserved byte-for-byte for existing persisted records.
-- Produces an adapter-driven `buildCaptureAuthority` so no producer identity is hardcoded in the preparer.
+- Produces the first closed `ProducerInvocationBinding` union in durable capture authority. Task 3 contains the pytest branch; Task 4 extends the same union with Jest once `JestInvocationBindingV1` exists, and Task 9 extends it with Vitest. Existing persisted records keep their top-level `pytest_invocation` member and normalize an absent `kind` to pytest in memory without a byte rewrite.
+- Produces a generic `CaptureOutputBinding` with `JUnitOutputBinding` retained as a type alias, plus an adapter-driven `buildCaptureAuthority` so no producer identity is hardcoded in the preparer.
 
 - [ ] **Step 1: Write RED persisted-compatibility tests**
 
@@ -370,20 +374,29 @@ Expected: PASS today. It is a pinning test, written first deliberately.
 
 ```go
 type ProducerInvocationBinding struct {
-    Kind    ProducerInvocationKind     `json:"kind"`
-    Pytest  *PytestInvocationBindingV1 `json:"pytest_invocation,omitempty"`
-    Jest    *JestInvocationBindingV1   `json:"jest_invocation,omitempty"`
-    Vitest  *VitestInvocationBindingV1 `json:"vitest_invocation,omitempty"`
+    Kind   ProducerInvocationKind     `json:"kind,omitempty"`
+    PytestInvocation *PytestInvocationBindingV1 `json:"pytest_invocation,omitempty"`
 }
 ```
 
-Validation mirrors `StructuredInputRef`: closed kind, exactly one branch, branch matches kind, branch validates independently.
+The union is closed **at each delivery stage**, not populated with placeholder future types. Task 4 adds `Jest *JestInvocationBindingV1` and the two-branches-set negative once the concrete Jest binding exists; Task 9 does the same for Vitest. This keeps independent branch validation real instead of defining permissive placeholder bindings merely to satisfy a future shape.
 
-Assert that a persisted record with `kind` absent and `pytest_invocation` present is read as `kind=pytest` — the legacy shape must normalize in memory without a byte rewrite. Assert two branches set, zero branches set, and kind/branch mismatch all fail closed.
+Validation mirrors `StructuredInputRef`: closed kind, exactly one currently-supported branch, branch matches kind, branch validates independently. Assert that a persisted record with `kind` absent and `pytest_invocation` present is read as `kind=pytest` — the legacy shape must normalize in memory without a byte rewrite. Assert zero branches set and kind/branch mismatch fail closed in Task 3; the multiple-branch negative moves to Task 4 when a second real branch exists.
 
 - [ ] **Step 3: Generalize the request and the authority builder**
 
-Replace `PreSpawnCaptureRequest.Invocation PytestInvocationRequest` with a producer-agnostic carrier:
+First generalize the identical output-path shape without breaking pytest callers:
+
+```go
+type CaptureOutputBinding struct {
+    DeclaredPathToken       string `json:"declared_path_token"`
+    NormalizedWorkspacePath string `json:"normalized_workspace_path"`
+}
+
+type JUnitOutputBinding = CaptureOutputBinding
+```
+
+Then replace `PreSpawnCaptureRequest.Invocation PytestInvocationRequest` with a producer-agnostic carrier:
 
 ```go
 type PreSpawnCaptureRequest struct {
@@ -399,11 +412,10 @@ type PreSpawnCaptureRequest struct {
 type ProducerCaptureRequest interface {
     AdapterID() string
     Qualify(context.Context, EnvironmentPresenceObserver) (ProducerInvocationBinding, bool, error)
-    OutputBinding() CaptureOutputBinding   // declared token + normalized workspace path
 }
 ```
 
-`buildCaptureAuthority` then takes the binding's `AdapterID()` and `OutputBinding()` instead of hardcoding `PytestJUnitAdapterID` and `binding.JUnitOutput`. The interface stays at three methods, well under the eight-method cap.
+The **qualified binding**, not the pre-qualification request, owns `AdapterID()`, `OutputBinding()`, and `ProducerBindingDigest()`: the normalized output path does not exist until qualification has resolved and containment-checked the declared token. `buildCaptureAuthority` therefore takes those facts from `ProducerInvocationBinding` instead of hardcoding `PytestJUnitAdapterID` and `binding.JUnitOutput`. The request interface stays at two methods, well under the eight-method cap.
 
 Move pytest to an implementation of `ProducerCaptureRequest` in the same change so no intermediate commit leaves the package uncompilable.
 
@@ -418,7 +430,7 @@ go test ./internal/app/structuredresult ./internal/adapter/store -race -run 'Cap
 
 - [ ] **Step 5: Record the downgrade hazard and amend the spec**
 
-A record written with `jest_invocation` is unreadable by a binary that predates this task, because unknown members are rejected. That is acceptable for a single local daemon but must be written down, not discovered.
+A record written with `jest_invocation` (and later `vitest_invocation`) is unreadable by a binary that predates this task, because unknown members are rejected. Keep pytest persistence on its historical top-level `pytest_invocation` shape with no serialized `kind`; the store normalizes missing kind to `pytest` in memory without rewriting bytes. Thus the downgrade hazard begins only when a new producer branch is persisted, not merely because Task 3 was deployed. That is acceptable for a single local daemon but must be written down, not discovered.
 
 Amend the spec in this commit:
 
@@ -431,7 +443,7 @@ Amend the spec in this commit:
 ```bash
 go run ./tools/devctl check
 go run ./tools/devctl test --dirty --base main
-git add internal/app/structuredresult internal/adapter/store docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md
+git add internal/app/structuredresult internal/adapter/store cmd/shellbeam/execution_structured_capture.go docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "refactor: generalize capture authority producer binding"
 ```

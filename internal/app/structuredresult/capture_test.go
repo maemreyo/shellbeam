@@ -327,10 +327,49 @@ func preSpawnCaptureRequest(root, operationID string) PreSpawnCaptureRequest {
 		OperationID: operation.ID(operationID), SessionID: operation.SessionID(operationID + "-session"),
 		RepositoryID: "repo_01M09A27JCSE71BXSP477EKN34", WorkspaceID: "ws_01M0CJB0KMBXWM7C7YDFYHBT2Q",
 		WorkspaceRoot: root, MaxBlobBytes: DefaultMaxArtifactBlobBytes,
-		Invocation: PytestInvocationRequest{
+		Producer: PytestCaptureRequest{Invocation: PytestInvocationRequest{
 			Argv:        []string{"pytest", "--junitxml=reports/junit.xml", "-o", "junit_family=xunit2", "-o", "addopts="},
 			ResolvedCWD: root, WorkspaceRoot: root, Execution: environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/pytest"},
-		},
+		}},
+	}
+}
+
+type fakeProducerCaptureRequest struct {
+	adapterID string
+	binding   ProducerInvocationBinding
+	qualified bool
+	calls     int
+}
+
+func (f *fakeProducerCaptureRequest) AdapterID() string { return f.adapterID }
+func (f *fakeProducerCaptureRequest) Qualify(context.Context, EnvironmentPresenceObserver) (ProducerInvocationBinding, bool, error) {
+	f.calls++
+	return f.binding, f.qualified, nil
+}
+
+func TestPreSpawnCaptureUsesProducerCaptureRequestAuthorityFacts(t *testing.T) {
+	root := t.TempDir()
+	pytest := qualifiedPytestBinding(t, root, environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/pytest"})
+	producer := &fakeProducerCaptureRequest{adapterID: PytestJUnitAdapterID, binding: ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &pytest}, qualified: true}
+	req := PreSpawnCaptureRequest{
+		OperationID: "capture-generic", SessionID: "capture-generic-session",
+		RepositoryID: "repo_01M09A27JCSE71BXSP477EKN34", WorkspaceID: "ws_01M0CJB0KMBXWM7C7YDFYHBT2Q", WorkspaceRoot: root,
+		MaxBlobBytes: DefaultMaxArtifactBlobBytes, Producer: producer,
+	}
+	repo := newFakeCaptureAuthorityRepository()
+	preparer := newCapturePreparerWithRegistry(repo, &fakeCaptureBaselineQualifier{}, nil, &fakeCaptureOperationReserver{}, &fakeCaptureSpawner{}, newArtifactPathRegistry(MaxActiveArtifactPathAuthoritiesGlobal))
+	result, err := preparer.Prepare(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Claim != nil {
+		defer result.Claim.Release()
+	}
+	if producer.calls != 1 || !result.InvocationQualified || result.Record == nil {
+		t.Fatalf("calls=%d result=%#v", producer.calls, result)
+	}
+	if got := result.Record.Authority.Intent; got.AdapterID != PytestJUnitAdapterID || got.DeclaredPathToken != pytest.JUnitOutput.DeclaredPathToken || got.NormalizedWorkspacePath != pytest.JUnitOutput.NormalizedWorkspacePath {
+		t.Fatalf("intent=%#v", got)
 	}
 }
 
@@ -387,7 +426,7 @@ func TestPreSpawnCaptureReplayUsesFrozenDurableAuthorityWithoutReobservation(t *
 
 	replayBaseline := &fakeCaptureBaselineQualifier{panicUse: true}
 	replay := newCapturePreparerWithRegistry(repo, replayBaseline, orderedPresenceObserver{panicUse: true}, reserver, spawner, registry)
-	request.Invocation.Argv = []string{"pytest", "--junitxml=different.xml"}
+	request.Producer = PytestCaptureRequest{Invocation: PytestInvocationRequest{Argv: []string{"pytest", "--junitxml=different.xml"}, ResolvedCWD: root, WorkspaceRoot: root, Execution: environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/pytest"}}}
 	got, err := replay.PrepareAndSpawn(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)

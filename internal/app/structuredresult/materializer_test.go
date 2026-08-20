@@ -103,7 +103,7 @@ func materializerAuthority(t *testing.T) CaptureAuthority {
 		ProducerBindingDigest: producerDigest,
 		Baseline:              CaptureBaselineIdentity{SchemaVersion: CaptureBaselineSchemaV1, State: CaptureBaselineAbsent, AuthorityDigest: strings.Repeat("c", 64)},
 	}
-	return CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, PytestInvocation: &binding, Intent: intent}
+	return CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, ProducerInvocationBinding: ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &binding}, Intent: intent}
 }
 
 func materializerReceipt(authority CaptureAuthority) receipt.Receipt {

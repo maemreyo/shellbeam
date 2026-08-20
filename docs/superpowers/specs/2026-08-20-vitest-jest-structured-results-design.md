@@ -113,6 +113,8 @@ StructuredEvidenceDetail read bridge into P1
 
 Capture *mechanics* are reused unchanged. Capture *authority typing* is not in this list: `ArtifactCaptureIntent` and the durable pre-spawn authority it commits to are generalized in step B.5 to a closed `ProducerInvocationBinding` union (pytest / jest / vitest), so a third producer needs no further refactor of the capture path. The original draft of this section listed `ArtifactCaptureIntent + durable pre-spawn capture authority` as unchanged; that line is corrected here.
 
+Persistence compatibility is asymmetric by design. Existing pytest capture-authority bytes, and new pytest authorities, retain the historical top-level `pytest_invocation` shape with no persisted `kind`; readers normalize that legacy shape to `kind=pytest` in memory without rewriting the file. A future authority that carries `jest_invocation` or `vitest_invocation` necessarily introduces members unknown to binaries that predate Task 3, and those older binaries will reject such records under strict decode. That local-daemon downgrade hazard is accepted; pre-existing pytest authority records remain readable and byte-stable.
+
 Reusing the capture mechanics unchanged is a hard requirement, not a convenience. Any adapter that needs a different capture mechanic is out of scope for this document and requires its own amendment.
 
 ## 5. Delivery scope and order

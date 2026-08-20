@@ -90,10 +90,87 @@ type ArtifactCaptureIntent struct {
 	Baseline                CaptureBaselineIdentity `json:"baseline"`
 }
 
-type CaptureAuthority struct {
-	SchemaVersion    int                        `json:"schema_version"`
+type ProducerInvocationKind string
+
+const (
+	ProducerInvocationPytest ProducerInvocationKind = "pytest"
+	// Reserved now so a mismatched future kind fails closed before its branch
+	// is delivered. Task 4 adds the concrete Jest branch.
+	ProducerInvocationJest   ProducerInvocationKind = "jest"
+	ProducerInvocationVitest ProducerInvocationKind = "vitest"
+)
+
+type ProducerInvocationBinding struct {
+	Kind             ProducerInvocationKind     `json:"kind,omitempty"`
 	PytestInvocation *PytestInvocationBindingV1 `json:"pytest_invocation,omitempty"`
-	Intent           ArtifactCaptureIntent      `json:"intent"`
+}
+
+func (b ProducerInvocationBinding) Validate() error {
+	branches := 0
+	if b.PytestInvocation != nil {
+		branches++
+	}
+	if branches != 1 {
+		return fmt.Errorf("producer invocation binding requires exactly one branch")
+	}
+	switch b.Kind {
+	case ProducerInvocationPytest:
+		if b.PytestInvocation == nil || !b.PytestInvocation.QualifiedV1() {
+			return fmt.Errorf("invalid pytest producer invocation binding")
+		}
+	default:
+		return fmt.Errorf("invalid producer invocation kind")
+	}
+	return nil
+}
+
+func (b ProducerInvocationBinding) AdapterID() string {
+	if b.Validate() != nil {
+		return ""
+	}
+	switch b.Kind {
+	case ProducerInvocationPytest:
+		return PytestJUnitAdapterID
+	default:
+		return ""
+	}
+}
+
+func (b ProducerInvocationBinding) OutputBinding() CaptureOutputBinding {
+	if b.Validate() != nil {
+		return CaptureOutputBinding{}
+	}
+	switch b.Kind {
+	case ProducerInvocationPytest:
+		return b.PytestInvocation.JUnitOutput
+	default:
+		return CaptureOutputBinding{}
+	}
+}
+
+func (b ProducerInvocationBinding) ProducerBindingDigest() (string, error) {
+	if err := b.Validate(); err != nil {
+		return "", err
+	}
+	switch b.Kind {
+	case ProducerInvocationPytest:
+		return b.PytestInvocation.ProducerBindingDigest()
+	default:
+		return "", fmt.Errorf("invalid producer invocation kind")
+	}
+}
+
+func (b ProducerInvocationBinding) normalizedLegacy() ProducerInvocationBinding {
+	if b.Kind == "" && b.PytestInvocation != nil {
+		b.Kind = ProducerInvocationPytest
+	}
+	return b
+}
+
+type CaptureAuthority struct {
+	SchemaVersion int `json:"schema_version"`
+	ProducerInvocationBinding
+	Intent ArtifactCaptureIntent `json:"intent"`
 }
 
 func (b CaptureBaselineIdentity) Validate() error {
@@ -146,15 +223,25 @@ func (i ArtifactCaptureIntent) Digest() (string, error) {
 }
 
 func (a CaptureAuthority) Validate() error {
-	if a.SchemaVersion != CaptureAuthoritySchemaV1 || a.PytestInvocation == nil || a.Intent.Validate() != nil || !a.PytestInvocation.QualifiedV1() {
+	binding := a.ProducerInvocationBinding.normalizedLegacy()
+	if a.SchemaVersion != CaptureAuthoritySchemaV1 || a.Intent.Validate() != nil || binding.Validate() != nil {
 		return fmt.Errorf("invalid capture authority")
 	}
-	bindingDigest, err := a.PytestInvocation.ProducerBindingDigest()
-	if err != nil || bindingDigest != a.Intent.ProducerBindingDigest || a.Intent.AdapterID != PytestJUnitAdapterID ||
-		a.Intent.DeclaredPathToken != a.PytestInvocation.JUnitOutput.DeclaredPathToken || a.Intent.NormalizedWorkspacePath != a.PytestInvocation.JUnitOutput.NormalizedWorkspacePath {
+	bindingDigest, err := binding.ProducerBindingDigest()
+	output := binding.OutputBinding()
+	if err != nil || bindingDigest != a.Intent.ProducerBindingDigest || a.Intent.AdapterID != binding.AdapterID() ||
+		a.Intent.DeclaredPathToken != output.DeclaredPathToken || a.Intent.NormalizedWorkspacePath != output.NormalizedWorkspacePath {
 		return fmt.Errorf("capture authority binding mismatch")
 	}
 	return nil
+}
+
+func (a CaptureAuthority) NormalizeLegacyProducerBinding() (CaptureAuthority, error) {
+	a.ProducerInvocationBinding = a.ProducerInvocationBinding.normalizedLegacy()
+	if err := a.Validate(); err != nil {
+		return CaptureAuthority{}, err
+	}
+	return a, nil
 }
 
 func (a CaptureAuthority) StructuredCaptureDigest() (string, error) {

@@ -36,7 +36,7 @@ func (r *Repository) ReserveCaptureAuthority(ctx context.Context, authority stru
 	if !errors.Is(err, ErrNotFound) {
 		return structuredapp.CaptureAuthorityRecord{}, false, err
 	}
-	result := r.writer.Create(path, record)
+	result := r.writer.Create(path, captureAuthorityRecordForPersistence(record))
 	if result.Err != nil {
 		// A concurrent or ambiguously acknowledged create resolves only through
 		// the deterministic destination.
@@ -79,7 +79,7 @@ func (r *Repository) MarkCaptureAuthorityState(ctx context.Context, id operation
 	if err := next.Validate(); err != nil {
 		return current, err
 	}
-	result := r.writer.Replace(path, next)
+	result := r.writer.Replace(path, captureAuthorityRecordForPersistence(next))
 	if result.Err == nil {
 		return next, nil
 	}
@@ -105,11 +105,23 @@ func (r *Repository) FindCaptureAuthority(ctx context.Context, id operation.ID) 
 	return record, err
 }
 
+func captureAuthorityRecordForPersistence(record structuredapp.CaptureAuthorityRecord) structuredapp.CaptureAuthorityRecord {
+	if record.Authority.ProducerInvocationBinding.Kind == structuredapp.ProducerInvocationPytest {
+		record.Authority.ProducerInvocationBinding.Kind = ""
+	}
+	return record
+}
+
 func readCaptureAuthorityRecord(path string) (structuredapp.CaptureAuthorityRecord, error) {
 	var record structuredapp.CaptureAuthorityRecord
 	if err := readPrivateJSON(path, maxStructuredMetadataBytes, &record); err != nil {
 		return record, err
 	}
+	normalized, err := record.Authority.NormalizeLegacyProducerBinding()
+	if err != nil {
+		return record, err
+	}
+	record.Authority = normalized
 	if err := record.Validate(); err != nil {
 		return record, err
 	}

@@ -85,10 +85,10 @@ func (r *executionStructuredCaptureRuntime) PrepareStructuredCapture(ctx context
 		OperationID: req.OperationID, SessionID: req.SessionID,
 		RepositoryID: string(workspace.RepositoryID), WorkspaceID: string(workspace.ID), WorkspaceRoot: workspace.Root,
 		MaxBlobBytes: structuredapp.DefaultMaxArtifactBlobBytes,
-		Invocation: structuredapp.PytestInvocationRequest{
+		Producer: structuredapp.PytestCaptureRequest{Invocation: structuredapp.PytestInvocationRequest{
 			Argv: append([]string(nil), req.Argv...), ResolvedCWD: req.CWD, WorkspaceRoot: workspace.Root,
 			Execution: environmentcore.ExecutionContext{Mode: string(req.ExecutionMode), Identity: req.Executable},
-		},
+		}},
 	})
 	if err != nil {
 		return daemonapp.StructuredCapturePreparation{}, err
