@@ -97,3 +97,34 @@ func TestInteractiveHandoffCatalogDoesNotClaimSecretOrAutomaticReadiness(t *test
 		t.Fatalf("features=%#v", catalog.Features)
 	}
 }
+
+func TestInteractiveHandoffMCPV2H4ProjectionCarriesOnlyPrivacyTruth(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{}).WithDelegatedInteractive(capability.DelegatedInteractiveSupport{ProviderID: "tmux_control_mode", ProviderVersion: 1, Platform: "darwin", MaxMutationRecords: 4096}).WithInteractiveHandoff(capability.InteractiveHandoffSupport{ManualStandard: true, Secret: true})
+	client := &publicHandoffMCPClient{state: handoff.PublicState{
+		SchemaVersion: 1, HandoffID: "handoff_public_h4", SessionID: "session_public_h4", AuthorityEpoch: 8,
+		Status: handoff.StatusHumanOwned, AgentIngress: handoff.IngressFenced, HumanIngress: handoff.IngressWritable,
+		TransferBoundary: handoff.TransferBoundary{Kind: handoff.BoundaryProviderOrdered, Established: true},
+		PrivacyState:     handoff.PrivacyPrivate, PrivacyRelease: handoff.PrivacyReleasePending, CaptureState: handoff.CapturePrivate,
+	}}
+	session, closeSession := currentSession(t, New(bridge.New(client), catalog))
+	defer closeSession()
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"inspect.handoff","handoff_id":"handoff_public_h4"}`)})
+	if err != nil || res.IsError {
+		t.Fatalf("result=%#v err=%v", res, err)
+	}
+	wire, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(wire)
+	for _, required := range []string{`"privacy_state":"private"`, `"privacy_release":"pending"`, `"capture_state":"private"`} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("H4 MCP projection lost %s: %s", required, text)
+		}
+	}
+	for _, forbidden := range []string{"provider_generation", "human_client", "client_ref", "private_output", "terminal_history", "secret_value", "secret_hash"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("H4 MCP projection contains unsafe %q: %s", forbidden, text)
+		}
+	}
+}

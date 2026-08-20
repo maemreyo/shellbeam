@@ -254,6 +254,7 @@ type controlClient struct {
 	paneID             string
 	sink               app.OutputSink
 	outputBytes        atomic.Int64
+	sharedOutputBytes  *atomic.Int64
 	pending            []controlEvent
 	pendingBytes       int
 	privateObservation bool
@@ -267,6 +268,22 @@ func newControlClient(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader) *co
 	go c.readLoop(stdout)
 	return c
 }
+
+func (c *controlClient) outputCounter() *atomic.Int64 {
+	if c.sharedOutputBytes != nil {
+		return c.sharedOutputBytes
+	}
+	return &c.outputBytes
+}
+
+func (c *controlClient) shareOutputCounter(old *controlClient) {
+	if old != nil {
+		c.sharedOutputBytes = old.outputCounter()
+	}
+}
+
+func (c *controlClient) outputByteCount() int64 { return c.outputCounter().Load() }
+func (c *controlClient) addOutputBytes(n int64) { c.outputCounter().Add(n) }
 
 func (c *controlClient) targetSnapshot() (string, app.OutputSink) {
 	c.mu.Lock()
@@ -305,7 +322,7 @@ func (c *controlClient) setTarget(pane string, sink app.OutputSink) error {
 				c.setReadErr(fmt.Errorf("output sink: %w", err))
 				return err
 			}
-			c.outputBytes.Add(int64(len(data)))
+			c.addOutputBytes(int64(len(data)))
 		}
 	}
 	return nil
@@ -376,7 +393,7 @@ func (c *controlClient) deliverOutput(event controlEvent) {
 		c.setReadErr(fmt.Errorf("output sink: %w", err))
 		return
 	}
-	c.outputBytes.Add(int64(len(data)))
+	c.addOutputBytes(int64(len(data)))
 }
 func (c *controlClient) setReadErr(err error) {
 	c.mu.Lock()

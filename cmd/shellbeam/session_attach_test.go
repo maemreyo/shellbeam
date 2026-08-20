@@ -187,3 +187,41 @@ func TestSessionAttachLostControlResponseRetriesExactStableIdentity(t *testing.T
 		t.Fatalf("control request=%#v", req)
 	}
 }
+
+func TestSessionAttachAcceptsH4PrivateBootstrapAndPrintsPrivateWarning(t *testing.T) {
+	now := time.Date(2026, 8, 20, 15, 0, 0, 0, time.UTC)
+	identity := delegated.ProviderIdentity{ID: "tmux_control_mode", Version: 1}
+	connecting := handoff.State{SchemaVersion: handoff.StateSchemaVersion, HandoffID: "handoff_cli_h4", SessionID: "session_cli_h4", Phase: handoff.PhaseHumanConnecting, AuthorityEpoch: 7, DesiredOwner: delegated.OwnerHuman, ProviderOwner: delegated.OwnerAgent, AgentIngress: handoff.IngressFenced, HumanIngress: handoff.IngressFenced, TransferBoundary: handoff.TransferBoundary{Kind: handoff.BoundaryProviderOrdered, Established: true}, PrivacyState: handoff.PrivacyPrivate, PrivacyRelease: handoff.PrivacyReleasePending, CaptureState: handoff.CapturePrivate, ProviderGeneration: "generation_cli_h4"}
+	owned := connecting
+	owned.Phase = handoff.PhaseHumanOwned
+	owned.ProviderOwner = delegated.OwnerHuman
+	owned.HumanIngress = handoff.IngressWritable
+	owned.HumanClient = &handoff.HumanClientRef{Ref: "hclient_cli_h4"}
+	agent := owned
+	agent.Phase = handoff.PhaseAgentOwned
+	agent.AuthorityEpoch = 8
+	agent.DesiredOwner = delegated.OwnerAgent
+	agent.ProviderOwner = delegated.OwnerAgent
+	agent.AgentIngress = handoff.IngressWritable
+	agent.HumanIngress = handoff.IngressFenced
+	ref := delegated.ProviderRef{SchemaVersion: delegated.ProviderRefSchemaVersion, SessionID: connecting.SessionID, ProviderID: identity.ID, ProviderVersion: identity.Version, Ref: "dtmux_cli_h4_ref", CreatedAt: now, UpdatedAt: now}
+
+	done := make(chan error, 1)
+	clientRef := delegatedapp.ProviderClientRef{Ref: "hclient_cli_h4"}
+	provider := &sessionAttachFakeProvider{identity: identity, attach: delegatedapp.HumanAttachResult{ClientRef: clientRef, ObservedOwner: delegated.OwnerNone, Done: done}, control: handoff.HumanControlReady}
+	ipc := &sessionAttachFakeIPC{responses: []ipcadapter.HandoffLocalResponse{
+		{OK: true, Bootstrap: &handoffapp.LocalBootstrap{HandoffID: connecting.HandoffID, State: connecting, ProviderRef: ref}},
+		{OK: true, State: &owned},
+		{OK: true, Control: &handoffapp.ControlResult{State: agent, Outcome: "ready"}},
+	}}
+	ipc.onControl = func() { done <- nil }
+	var stderr bytes.Buffer
+	ids := []string{"h4-bootstrap", "h4-bind", "h4-ready"}
+	deps := sessionAttachDeps{caller: ipc, provider: provider, stdin: strings.NewReader(""), stdout: io.Discard, stderr: &stderr, environ: []string{"TERM=xterm-test"}, newID: func() string { v := ids[0]; ids = ids[1:]; return v }}
+	if err := runSessionAttachWith(t.Context(), connecting.HandoffID, deps); err != nil {
+		t.Fatal(err)
+	}
+	if got := stderr.String(); !strings.Contains(got, h4LocalWarning) || strings.Contains(got, "Secret handoff is unavailable") {
+		t.Fatalf("H4 private warning=%q", got)
+	}
+}

@@ -10,6 +10,8 @@ import (
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
+	core "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
 
 func TestNativePrivateObserverRestartReattachesPrivateFromFirstByte(t *testing.T) {
@@ -197,6 +199,114 @@ func TestNativePrivateActiveEpochRebindKeepsSameObserverPrivate(t *testing.T) {
 	}
 	if _, err := p.ArmPrivateObservation(t.Context(), ref, app.PrivacySpec{HandoffID: firstSpec.HandoffID, AuthorityEpoch: 3}); err == nil {
 		t.Fatal("stale epoch rebind accepted")
+	}
+	if err := p.ReleasePrivateObservation(t.Context(), ref, second, nativePrivacyBoundary(secondSpec, time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNativePrivateObserverPreservesTerminalExitProof(t *testing.T) {
+	p, _ := nativeProvider(t)
+	ref := nativeRef(t, p, "session_h4_private_terminal")
+	sink := &nativeSink{}
+	spec := operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Shell: "/bin/sh", Executable: "/bin/sh", Command: "IFS= read -r line; printf 'PRIVATE_DONE\\n'; exit 0", CWD: t.TempDir()}
+	if _, err := p.Create(t.Context(), app.CreateRequest{ProviderRef: ref, SessionID: ref.SessionID, OperationID: "op_h4_private_terminal", Spec: spec, Output: sink}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close(context.Background(), ref) })
+	privacy := app.PrivacySpec{HandoffID: "handoff-h4-private-terminal", AuthorityEpoch: 2}
+	handle, err := p.ArmPrivateObservation(t.Context(), ref, privacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.ProvePrivateObservation(t.Context(), ref, handle); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Write(t.Context(), ref, []byte("finish\n")); err != nil {
+		t.Fatal(err)
+	}
+	obs, err := p.Wait(t.Context(), ref)
+	if err != nil {
+		t.Fatalf("private terminal wait: %s", nativeFailure(err))
+	}
+	if !obs.Terminal || obs.ExitCode == nil || *obs.ExitCode != 0 || obs.Owner != core.OwnerNone {
+		t.Fatalf("terminal=%#v", obs)
+	}
+	if strings.Contains(sink.String(), "PRIVATE_DONE") {
+		t.Fatalf("private terminal output leaked: %q", sink.String())
+	}
+}
+
+func TestNativeWaitStartedBeforePrivateSwapUsesReplacementObserverForTerminalProof(t *testing.T) {
+	p, _ := nativeProvider(t)
+	ref := nativeRef(t, p, "session_h4_wait_before_private_swap")
+	sink := &nativeSink{}
+	spec := operation.ExecutionSpec{Mode: operation.ExecutionModeShell, Shell: "/bin/sh", Executable: "/bin/sh", Command: "printf BEFORE; IFS= read -r line; exit 0", CWD: t.TempDir()}
+	if _, err := p.Create(t.Context(), app.CreateRequest{ProviderRef: ref, SessionID: ref.SessionID, OperationID: "op_h4_wait_before_private_swap", Spec: spec, Output: sink}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = p.Close(context.Background(), ref) })
+
+	type waitResult struct {
+		obs app.Observation
+		err error
+	}
+	waitContains(t, sink, "BEFORE")
+	result := make(chan waitResult, 1)
+	ctx, cancel := context.WithTimeout(t.Context(), 4*time.Second)
+	defer cancel()
+	go func() {
+		obs, err := p.Wait(ctx, ref)
+		result <- waitResult{obs: obs, err: err}
+	}()
+	// Give Wait enough time to register against the original public observer.
+	time.Sleep(50 * time.Millisecond)
+	privacy := app.PrivacySpec{HandoffID: "handoff-h4-wait-before-swap", AuthorityEpoch: 2}
+	if _, err := p.ArmPrivateObservation(t.Context(), ref, privacy); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Write(t.Context(), ref, []byte("finish\n")); err != nil {
+		t.Fatal(err)
+	}
+	got := <-result
+	if got.err != nil {
+		t.Fatalf("wait across private swap: %s", nativeFailure(got.err))
+	}
+	if !got.obs.Terminal || got.obs.ExitCode == nil || *got.obs.ExitCode != 0 {
+		t.Fatalf("terminal=%#v", got.obs)
+	}
+	if got.obs.OutputBytes < int64(len("BEFORE")) {
+		t.Fatalf("observer swap lost cumulative public output bytes: %#v", got.obs)
+	}
+}
+
+func TestNativeReleasedPrivacyAllowsOnlyNewerDistinctHandoffToRearm(t *testing.T) {
+	p, _ := nativeProvider(t)
+	ref, _ := createHumanNativeSession(t, p, "session_h4_private_rearm", nil)
+	firstSpec := app.PrivacySpec{HandoffID: "handoff-h4-rearm-one", AuthorityEpoch: 2}
+	first, err := p.ArmPrivateObservation(t.Context(), ref, firstSpec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.ReleasePrivateObservation(t.Context(), ref, first, nativePrivacyBoundary(firstSpec, time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.ArmPrivateObservation(t.Context(), ref, firstSpec); err == nil {
+		t.Fatal("released handoff was resurrected by replayed arm")
+	}
+	if _, err := p.ArmPrivateObservation(t.Context(), ref, app.PrivacySpec{HandoffID: "handoff-h4-rearm-stale", AuthorityEpoch: 2}); err == nil {
+		t.Fatal("distinct handoff with non-newer epoch rearmed privacy")
+	}
+	secondSpec := app.PrivacySpec{HandoffID: "handoff-h4-rearm-two", AuthorityEpoch: 4}
+	second, err := p.ArmPrivateObservation(t.Context(), ref, secondSpec)
+	if err != nil {
+		t.Fatalf("newer distinct handoff could not rearm privacy: %v", err)
+	}
+	if second == first {
+		t.Fatalf("new handoff reused released handle: %#v", second)
+	}
+	if _, err := p.ProvePrivateObservation(t.Context(), ref, second); err != nil {
+		t.Fatal(err)
 	}
 	if err := p.ReleasePrivateObservation(t.Context(), ref, second, nativePrivacyBoundary(secondSpec, time.Now().UTC())); err != nil {
 		t.Fatal(err)

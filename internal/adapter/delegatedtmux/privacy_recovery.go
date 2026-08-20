@@ -61,6 +61,7 @@ func (p *Provider) replaceWithPrivateObserver(ctx context.Context, ref core.Prov
 	if err := p.verifyFacts(ctx, privateControl, state, facts); err != nil {
 		return err
 	}
+	privateControl.shareOutputCounter(old)
 	if err := privateControl.setTarget(state.PaneID, sink); err != nil {
 		return privacyBarrierFailure("", "private_target", err)
 	}

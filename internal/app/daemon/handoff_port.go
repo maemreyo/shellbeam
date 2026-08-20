@@ -58,10 +58,15 @@ func configureHandoffCoordinator(service *Service) {
 		daemonAgentIngressFencer{service: service},
 		service.options.HandoffPresenter,
 	)
-	if _, privacyOK := service.options.DelegatedRuntime.(delegatedapp.PrivacyProvider); privacyOK || service.options.HandoffReadiness != nil {
+	support := service.options.Capabilities.InteractiveHandoff
+	privacyAdvertised := support != nil && support.Secret
+	readinessAdvertised := support != nil && support.AutomaticReadiness
+	_, privacyAvailable := service.options.DelegatedRuntime.(delegatedapp.PrivacyProvider)
+	readinessAvailable := service.options.HandoffReadiness != nil
+	if privacyAdvertised && privacyAvailable || readinessAdvertised && readinessAvailable {
 		coordinator.EnableH4()
 	}
-	if service.options.HandoffReadiness != nil {
+	if readinessAdvertised && readinessAvailable {
 		coordinator.SetReadiness(service.options.HandoffReadiness)
 	}
 	if service.options.HandoffPresenterFactory != nil {

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	core "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
@@ -306,62 +307,102 @@ func (p *Provider) Wait(ctx context.Context, ref core.ProviderRef) (app.Observat
 	if err != nil {
 		return app.Observation{}, providerLost(ref, "private_state", err)
 	}
-	p.mu.Lock()
-	control := p.controls[ref.Ref]
-	p.mu.Unlock()
-	if control == nil {
-		return app.Observation{}, providerLost(ref, "observer_missing", nil)
-	}
-	facts, err := p.queryFacts(ctx, control, state.TmuxSession)
+	control, facts, err := p.currentWaitFacts(ctx, ref, state, "wait_inspect")
 	if err != nil {
-		return app.Observation{}, providerLost(ref, "wait_inspect", err)
-	}
-	if err := p.verifyFacts(ctx, control, state, facts); err != nil {
 		return app.Observation{}, err
 	}
 	if facts.Terminal {
-		return p.observationFromFacts(control, state, facts), nil
+		if facts.ExitCode != nil {
+			return p.observationFromFacts(control, state, facts), nil
+		}
+		return p.inspectTerminalAfterExitRace(ctx, ref, state)
 	}
 
 	watcher, err := newProcessExitWatcher(state.PanePID)
 	if err != nil {
 		if errors.Is(err, errProcessAlreadyGone) {
-			return p.inspectTerminalAfterExitRace(ctx, ref, control, state)
+			return p.inspectTerminalAfterExitRace(ctx, ref, state)
 		}
 		return app.Observation{}, providerLost(ref, "wait_register", err)
 	}
 	defer watcher.Close()
-	// Registration must be followed by a fresh provider proof. If the pane exited
-	// between the first inspection and kqueue registration, this returns terminal
-	// immediately instead of waiting on an unrelated/reused process identity.
-	facts, err = p.queryFacts(ctx, control, state.TmuxSession)
+	// Registration must be followed by a fresh proof through the currently
+	// installed observer. Privacy may replace the observer while this Wait is
+	// blocked, but it never replaces the provider/pane process identity.
+	control, facts, err = p.currentWaitFacts(ctx, ref, state, "wait_post_register_inspect")
 	if err != nil {
-		return app.Observation{}, providerLost(ref, "wait_post_register_inspect", err)
-	}
-	if err := p.verifyFacts(ctx, control, state, facts); err != nil {
 		return app.Observation{}, err
 	}
 	if facts.Terminal {
-		return p.observationFromFacts(control, state, facts), nil
+		if facts.ExitCode != nil {
+			return p.observationFromFacts(control, state, facts), nil
+		}
+		return p.inspectTerminalAfterExitRace(ctx, ref, state)
 	}
 	if err := watcher.Wait(ctx); err != nil {
 		return app.Observation{}, providerLost(ref, "wait_process_exit", err)
 	}
-	return p.inspectTerminalAfterExitRace(ctx, ref, control, state)
+	return p.inspectTerminalAfterExitRace(ctx, ref, state)
 }
 
-func (p *Provider) inspectTerminalAfterExitRace(ctx context.Context, ref core.ProviderRef, control *controlClient, state privateState) (app.Observation, error) {
-	facts, err := p.queryFacts(ctx, control, state.TmuxSession)
-	if err != nil {
-		return app.Observation{}, providerLost(ref, "wait_terminal_inspect", err)
+func (p *Provider) currentWaitFacts(ctx context.Context, ref core.ProviderRef, state privateState, reason string) (*controlClient, tmuxFacts, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		p.mu.Lock()
+		control := p.controls[ref.Ref]
+		p.mu.Unlock()
+		if control == nil {
+			return nil, tmuxFacts{}, providerLost(ref, "observer_missing", nil)
+		}
+		facts, queryErr := p.queryFacts(ctx, control, state.TmuxSession)
+		var verifyErr error
+		if queryErr == nil {
+			verifyErr = p.verifyFacts(ctx, control, state, facts)
+		}
+		if queryErr == nil && verifyErr == nil {
+			return control, facts, nil
+		}
+		p.mu.Lock()
+		current := p.controls[ref.Ref]
+		p.mu.Unlock()
+		if current != nil && current != control {
+			continue
+		}
+		if queryErr != nil {
+			return nil, tmuxFacts{}, providerLost(ref, reason, queryErr)
+		}
+		return nil, tmuxFacts{}, verifyErr
 	}
-	if err := p.verifyFacts(ctx, control, state, facts); err != nil {
-		return app.Observation{}, err
+	return nil, tmuxFacts{}, providerLost(ref, reason, errors.New("observer changed during proof"))
+}
+
+const (
+	terminalProviderSettleBudget   = 100 * time.Millisecond
+	terminalProviderSettleInterval = 5 * time.Millisecond
+)
+
+func (p *Provider) inspectTerminalAfterExitRace(ctx context.Context, ref core.ProviderRef, state privateState) (app.Observation, error) {
+	deadline := time.Now().Add(terminalProviderSettleBudget)
+	for {
+		control, facts, err := p.currentWaitFacts(ctx, ref, state, "wait_terminal_inspect")
+		if err != nil {
+			return app.Observation{}, err
+		}
+		if facts.Terminal && facts.ExitCode != nil {
+			return p.observationFromFacts(control, state, facts), nil
+		}
+		if !time.Now().Before(deadline) {
+			return app.Observation{}, failure.New(failure.DelegatedReconcileBlocked, map[string]string{"session_id": ref.SessionID, "provider_id": ProviderID, "reason": "process_exit_without_terminal_provider_state"}, nil)
+		}
+		timer := time.NewTimer(terminalProviderSettleInterval)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return app.Observation{}, ctx.Err()
+		}
 	}
-	if !facts.Terminal {
-		return app.Observation{}, failure.New(failure.DelegatedReconcileBlocked, map[string]string{"session_id": ref.SessionID, "provider_id": ProviderID, "reason": "process_exit_without_terminal_provider_state"}, nil)
-	}
-	return p.observationFromFacts(control, state, facts), nil
 }
 
 func (p *Provider) Detach(ctx context.Context, ref core.ProviderRef) error {

@@ -2,12 +2,15 @@ package daemon_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -39,7 +42,7 @@ func TestDaemonSecretManualHandoffUsesPrivateBarrierAndMarksCaptureTruth(t *test
 	store := openDelegatedStartStore(t)
 	base := &h2LocalDaemonRuntime{delegatedStartRuntime: newDelegatedStartRuntime()}
 	runtime := &h4DaemonRuntime{h2LocalDaemonRuntime: base}
-	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "h4-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime})
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "h4-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime, Capabilities: h4DaemonCapabilities()})
 	started, err := svc.Start(t.Context(), delegatedStartRequest())
 	if err != nil {
 		t.Fatal(err)
@@ -59,4 +62,35 @@ func TestDaemonSecretManualHandoffUsesPrivateBarrierAndMarksCaptureTruth(t *test
 	if truth.Quality != receipt.CapturePartial || truth.OutputComplete || len(truth.Reasons) != 1 || truth.Reasons[0] != receipt.CaptureReasonPrivateIntervalsOmitted {
 		t.Fatalf("capture truth=%#v", truth)
 	}
+}
+
+func TestDaemonPrivacyProviderDoesNotBypassH4CapabilityPolicy(t *testing.T) {
+	store := openDelegatedStartStore(t)
+	runtime := &h4DaemonRuntime{h2LocalDaemonRuntime: &h2LocalDaemonRuntime{delegatedStartRuntime: newDelegatedStartRuntime()}}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "h4-policy-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime, Capabilities: capability.Baseline(capability.Limits{}).WithDelegatedInteractive(capability.DelegatedInteractiveSupport{ProviderID: "tmux_control_mode", ProviderVersion: 1, Platform: "darwin", MaxMutationRecords: 4096}).WithInteractiveHandoff(capability.InteractiveHandoffSupport{ManualStandard: true})})
+	started, err := svc.Start(t.Context(), delegatedStartRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := handoff.Request{HandoffID: "handoff-daemon-secret-policy", SessionID: started.SessionID, Reason: handoff.ReasonCredentialRequired, Privacy: handoff.PrivacySecret, Completion: handoff.Completion{Kind: handoff.CompletionManualReady}}
+	if _, err := svc.RequestHandoff(t.Context(), req); !errors.Is(err, failure.FeatureUnavailable) {
+		t.Fatalf("unadvertised H4 secret request err=%v", err)
+	}
+	if runtime.arm != 0 || runtime.prove != 0 || runtime.release != 0 {
+		t.Fatalf("unadvertised H4 mutated privacy provider: arm=%d prove=%d release=%d", runtime.arm, runtime.prove, runtime.release)
+	}
+}
+
+func h4DaemonCapabilities() capability.Catalog {
+	catalog := capability.Baseline(capability.Limits{}).WithDelegatedInteractive(capability.DelegatedInteractiveSupport{
+		ProviderID: "tmux_control_mode", ProviderVersion: 1, Platform: "darwin", MaxMutationRecords: 4096,
+	})
+	return catalog.WithInteractiveHandoff(capability.InteractiveHandoffSupport{
+		ManualStandard: true,
+		Secret:         true,
+		Privacy: &capability.HandoffPrivacySupport{
+			SecretPrivateInterval: true, PrivacyReleaseSeparate: true, ObserverTopologyQualified: true, HumanInputPersisted: false,
+		},
+		CaptureQualities: []receipt.CaptureQuality{receipt.CaptureComplete, receipt.CapturePartial, receipt.CaptureIncomplete},
+	})
 }

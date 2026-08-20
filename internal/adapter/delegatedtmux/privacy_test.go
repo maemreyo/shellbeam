@@ -4,6 +4,7 @@ package delegatedtmux
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -115,3 +116,68 @@ func ensureNativeSinkAbsentFor(t *testing.T, sink *nativeSink, marker string, du
 
 var _ core.ProviderRef
 var _ context.Context
+
+func TestNativePrivacyHundredArmReleaseReconnectCyclesKeepPublicNeighborsVisible(t *testing.T) {
+	p, _ := nativeProvider(t)
+	refA, sinkA := createHumanNativeSession(t, p, "session_h4_cycle_private_a", nil)
+	refB, sinkB := createHumanNativeSession(t, p, "session_h4_cycle_public_b", nil)
+	refC, sinkC := createHumanNativeSession(t, p, "session_h4_cycle_public_c", nil)
+	humanA := attachNativeHuman(t, p, refA, os.Environ())
+
+	for i := 0; i < 100; i++ {
+		spec := app.PrivacySpec{HandoffID: fmt.Sprintf("handoff-h4-cycle-%03d", i), AuthorityEpoch: core.AuthorityEpoch(i + 2)}
+		handle, err := p.ArmPrivateObservation(t.Context(), refA, spec)
+		if err != nil {
+			t.Fatalf("cycle %d arm: %v", i, err)
+		}
+		if _, err := p.ProvePrivateObservation(t.Context(), refA, handle); err != nil {
+			t.Fatalf("cycle %d prove: %v", i, err)
+		}
+		if err := p.Detach(t.Context(), refA); err != nil {
+			t.Fatalf("cycle %d detach: %v", i, err)
+		}
+		if _, err := p.Reattach(t.Context(), refA, sinkA); err != nil {
+			t.Fatalf("cycle %d private reattach: %v", i, err)
+		}
+		if _, err := p.ProvePrivateObservation(t.Context(), refA, handle); err != nil {
+			t.Fatalf("cycle %d reprove after reconnect: %v", i, err)
+		}
+		if err := p.SetHumanWritable(t.Context(), refA, humanA.result.ClientRef, true); err != nil {
+			t.Fatalf("cycle %d human writable: %v", i, err)
+		}
+		if _, err := humanA.master.Write([]byte(fmt.Sprintf("A_SECRET_CYCLE_%03d\n", i))); err != nil {
+			t.Fatalf("cycle %d private write: %v", i, err)
+		}
+		if err := p.Write(t.Context(), refB, []byte(fmt.Sprintf("B_PUBLIC_CYCLE_%03d\n", i))); err != nil {
+			t.Fatalf("cycle %d B write: %v", i, err)
+		}
+		if err := p.Write(t.Context(), refC, []byte(fmt.Sprintf("C_PUBLIC_CYCLE_%03d\n", i))); err != nil {
+			t.Fatalf("cycle %d C write: %v", i, err)
+		}
+		if err := p.SetHumanWritable(t.Context(), refA, humanA.result.ClientRef, false); err != nil {
+			t.Fatalf("cycle %d human fence: %v", i, err)
+		}
+		if err := p.ReleasePrivateObservation(t.Context(), refA, handle, nativePrivacyBoundary(spec, time.Now().UTC())); err != nil {
+			t.Fatalf("cycle %d release: %v", i, err)
+		}
+		if strings.Contains(sinkA.String(), "A_SECRET_CYCLE_") {
+			t.Fatalf("cycle %d replayed/leaked private history: %q", i, sinkA.String())
+		}
+		publicA := fmt.Sprintf("A_PUBLIC_CYCLE_%03d\n", i)
+		if err := p.Write(t.Context(), refA, []byte(publicA)); err != nil {
+			t.Fatalf("cycle %d A public write: %v", i, err)
+		}
+		waitContains(t, sinkA, strings.TrimSpace(publicA))
+	}
+	waitContains(t, sinkB, "B_PUBLIC_CYCLE_099")
+	waitContains(t, sinkC, "C_PUBLIC_CYCLE_099")
+	if got := strings.Count(sinkB.String(), "B_PUBLIC_CYCLE_"); got != 100 {
+		t.Fatalf("public B suppressed/lost markers: got=%d", got)
+	}
+	if got := strings.Count(sinkC.String(), "C_PUBLIC_CYCLE_"); got != 100 {
+		t.Fatalf("public C suppressed/lost markers: got=%d", got)
+	}
+	if strings.Contains(sinkA.String(), "A_SECRET_CYCLE_") {
+		t.Fatalf("private A leaked after 100 cycles: %q", sinkA.String())
+	}
+}

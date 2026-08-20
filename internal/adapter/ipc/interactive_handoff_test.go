@@ -186,3 +186,35 @@ func TestInteractiveHandoffIPCV2DispatchesPresentationHintOnlyWhenSupported(t *t
 		t.Fatalf("presentation dispatch calls=%v", actions.calls)
 	}
 }
+
+func TestInteractiveHandoffIPCV2H4ProjectionDropsSecretLikeCanonicalInternals(t *testing.T) {
+	canonical := publicHandoffState()
+	canonical.HandoffID = "handoff_public_h4"
+	canonical.SessionID = "session_public_h4"
+	canonical.PrivacyState = handoff.PrivacyPrivate
+	canonical.PrivacyRelease = handoff.PrivacyReleasePending
+	canonical.CaptureState = handoff.CapturePrivate
+	canonical.ProviderGeneration = "SHELLBEAM_H4_SECRET_CANONICAL_7f13a9c4"
+	projected, err := handoff.ProjectPublicState(canonical, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := &publicHandoffFakeActions{state: canonical, public: projected}
+	_, client := localHandoffServer(t, actions)
+	resp, err := client.CallV2(t.Context(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "h4-safe", Action: "inspect.handoff", HandoffID: canonical.HandoffID})
+	if err != nil || !resp.OK || resp.Handoff == nil {
+		t.Fatalf("resp=%#v err=%v", resp, err)
+	}
+	if resp.Handoff.PrivacyState != handoff.PrivacyPrivate || resp.Handoff.PrivacyRelease != handoff.PrivacyReleasePending || resp.Handoff.CaptureState != handoff.CapturePrivate {
+		t.Fatalf("H4 truth lost from IPC projection: %#v", resp.Handoff)
+	}
+	wire, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{canonical.ProviderGeneration, "provider_generation", "human_client", "client_ref", "private_output", "terminal_history", "secret_value", "secret_hash"} {
+		if strings.Contains(string(wire), forbidden) {
+			t.Fatalf("H4 IPC projection leaked %q: %s", forbidden, wire)
+		}
+	}
+}

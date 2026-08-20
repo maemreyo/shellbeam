@@ -18,7 +18,10 @@ import (
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 )
 
-const h2LocalWarning = "Model-visible output remains public; do not enter secrets here. Secret handoff is unavailable until the privacy capability is present."
+const (
+	h2LocalWarning = "Model-visible output remains public; do not enter secrets here. Secret handoff is unavailable until the privacy capability is present."
+	h4LocalWarning = "Secret/private handoff active: model-visible capture is paused for this private interval; ShellBeam does not persist human input."
+)
 
 type handoffLocalCaller interface {
 	CallHandoffLocal(context.Context, ipcadapter.HandoffLocalRequest) (ipcadapter.HandoffLocalResponse, error)
@@ -59,7 +62,6 @@ func runSessionAttachWith(ctx context.Context, handoffID string, deps sessionAtt
 	if deps.caller == nil || deps.provider == nil || deps.stdin == nil || deps.stdout == nil || deps.stderr == nil || deps.newID == nil || !validSessionHandoffID(handoffID) {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "session_attach"}, nil)
 	}
-	fmt.Fprintln(deps.stderr, h2LocalWarning)
 	return runSessionAttachCycle(ctx, handoffID, deps)
 }
 
@@ -75,6 +77,7 @@ func runSessionAttachCycle(ctx context.Context, handoffID string, deps sessionAt
 	if err := validateSessionAttachBootstrap(handoffID, boot, deps.provider.Identity()); err != nil {
 		return err
 	}
+	fmt.Fprintln(deps.stderr, sessionAttachPrivacyWarning(boot.State))
 	attach, err := deps.provider.AttachHuman(ctx, boot.ProviderRef, delegatedapp.HumanAttachSpec{Stdin: deps.stdin, Stdout: deps.stdout, Stderr: deps.stderr, Environment: localAttachEnvironment(deps.environ)})
 	if err != nil {
 		return err
@@ -160,12 +163,19 @@ func runDetachedLocalControls(ctx context.Context, handoffID string, state hando
 	}
 }
 
+func sessionAttachPrivacyWarning(state handoff.State) string {
+	if state.PrivacyState == handoff.PrivacyPrivate && state.CaptureState == handoff.CapturePrivate {
+		return h4LocalWarning
+	}
+	return h2LocalWarning
+}
+
 func validateSessionAttachBootstrap(handoffID string, boot handoffapp.LocalBootstrap, identity delegated.ProviderIdentity) error {
 	state := boot.State
 	if boot.HandoffID != handoffID || state.HandoffID != handoffID {
 		return failure.New(failure.InvalidDaemonResponse, map[string]string{"reason": "handoff_identity_mismatch"}, nil)
 	}
-	if err := state.ValidateH2(); err != nil {
+	if err := state.ValidateH4(); err != nil {
 		return failure.New(failure.InvalidDaemonResponse, map[string]string{"reason": "invalid_handoff_state"}, err)
 	}
 	providerOwnerOK := state.ProviderOwner == delegated.OwnerAgent || state.ProviderOwner == delegated.OwnerNone

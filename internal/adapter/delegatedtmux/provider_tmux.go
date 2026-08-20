@@ -286,7 +286,7 @@ func (p *Provider) observationFromFacts(c *controlClient, state privateState, fa
 	if facts.Terminal {
 		owner = core.OwnerNone
 	}
-	return app.Observation{Provider: p.Identity(), ProviderCurrent: true, ProviderGeneration: state.ProviderGeneration, Owner: owner, Terminal: facts.Terminal, ExitCode: facts.ExitCode, PanePID: facts.PanePID, CurrentCommand: facts.CurrentCommand, OutputBytes: c.outputBytes.Load()}
+	return app.Observation{Provider: p.Identity(), ProviderCurrent: true, ProviderGeneration: state.ProviderGeneration, Owner: owner, Terminal: facts.Terminal, ExitCode: facts.ExitCode, PanePID: facts.PanePID, CurrentCommand: facts.CurrentCommand, OutputBytes: c.outputByteCount()}
 }
 func (p *Provider) currentControl(ctx context.Context, ref core.ProviderRef) (*controlClient, privateState, app.Observation, error) {
 	state, err := p.state.load(ref.Ref)
