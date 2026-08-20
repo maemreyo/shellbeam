@@ -30,6 +30,11 @@ func (h *Handler) Handle(ctx context.Context, req Request) (Response, error) {
 	if req.ProtocolVersion == 2 && req.Action == "read_media" {
 		return h.handleMedia(ctx, req)
 	}
+	if req.ProtocolVersion == 2 && req.Action == "handoff.request" {
+		req.TerminalAffinity = h.TerminalAffinity()
+	} else {
+		req.TerminalAffinity = nil
+	}
 	response, err := h.client.Forward(ctx, req)
 	if err != nil || response.Code == "" {
 		return response, err

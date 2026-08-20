@@ -8,6 +8,7 @@ import (
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	terminal "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 const MaxWait = 30 * time.Second
@@ -72,4 +73,25 @@ type WaitResult struct {
 // It does not grant authority and must not infer presence from terminal UI state.
 type ExactClientProver interface {
 	ExactHumanClientPresent(context.Context, string) (bool, error)
+}
+
+// PresentationRequest carries ephemeral terminal evidence only. It is never
+// part of the durable H2 request identity.
+type PresentationRequest struct {
+	HandoffID      string
+	BridgeAffinity *terminal.BridgeAffinityHint
+}
+
+func (r PresentationRequest) Validate() error {
+	if err := handoff.ValidateHandoffID(r.HandoffID); err != nil {
+		return err
+	}
+	if r.BridgeAffinity != nil {
+		return r.BridgeAffinity.Validate()
+	}
+	return nil
+}
+
+type Presenter interface {
+	Present(context.Context, PresentationRequest) error
 }

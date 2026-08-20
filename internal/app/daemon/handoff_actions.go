@@ -7,6 +7,7 @@ import (
 	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 func (s *Service) RequestHandoff(ctx context.Context, req handoff.Request) (handoff.State, error) {
@@ -14,6 +15,17 @@ func (s *Service) RequestHandoff(ctx context.Context, req handoff.Request) (hand
 		return handoff.State{}, handoffUnavailable()
 	}
 	return s.handoff.Request(ctx, req)
+}
+
+func (s *Service) RequestHandoffWithPresentation(ctx context.Context, req handoff.Request, hint *terminalpresentation.BridgeAffinityHint) (handoff.State, error) {
+	if s == nil || s.handoff == nil {
+		return handoff.State{}, handoffUnavailable()
+	}
+	presentation, ok := s.handoff.(handoffPresentationCoordinator)
+	if !ok {
+		return s.handoff.Request(ctx, req)
+	}
+	return presentation.RequestWithPresentation(ctx, req, hint)
 }
 
 func (s *Service) WaitHandoff(ctx context.Context, req handoffapp.WaitRequest) (handoffapp.WaitResult, error) {
@@ -78,6 +90,14 @@ func handoffUnavailable() error {
 
 func (s *Service) RequestHandoffPublic(ctx context.Context, req handoff.Request) (handoff.PublicState, error) {
 	state, err := s.RequestHandoff(ctx, req)
+	if err != nil {
+		return handoff.PublicState{}, err
+	}
+	return s.handoff.ProjectPublic(ctx, state)
+}
+
+func (s *Service) RequestHandoffPublicWithPresentation(ctx context.Context, req handoff.Request, hint *terminalpresentation.BridgeAffinityHint) (handoff.PublicState, error) {
+	state, err := s.RequestHandoffWithPresentation(ctx, req, hint)
 	if err != nil {
 		return handoff.PublicState{}, err
 	}

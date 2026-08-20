@@ -100,6 +100,10 @@ func applyBridgeHandoffV2(req *RequestV2, in bridge.Request) {
 		req.HandoffPrivacy = in.HandoffRequest.Privacy
 		completion := in.HandoffRequest.Completion
 		req.HandoffCompletion = &completion
+		if in.TerminalAffinity != nil {
+			copy := *in.TerminalAffinity
+			req.TerminalAffinity = &copy
+		}
 	case "handoff.wait":
 		req.HandoffID = in.HandoffWait.HandoffID
 		req.YieldMS = in.HandoffWait.Yield.Milliseconds()

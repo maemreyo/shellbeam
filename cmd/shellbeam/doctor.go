@@ -12,8 +12,29 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 )
+
+type terminalProviderFailureReason string
+
+const (
+	terminalProviderNotRunning          terminalProviderFailureReason = "not_running"
+	terminalProviderProbeFailed         terminalProviderFailureReason = "probe_failed"
+	terminalProviderPlatformUnsupported terminalProviderFailureReason = "platform_unsupported"
+)
+
+type terminalProviderDiagnostic struct {
+	ProviderID    string
+	Available     bool
+	FailureReason terminalProviderFailureReason
+}
+
+type terminalPresentationDiagnostics struct {
+	Providers     []terminalProviderDiagnostic
+	FailureReason terminalProviderFailureReason
+}
 
 func runDoctor(args []string, out io.Writer) error {
 	r, err := doctorReport(args)
@@ -87,8 +108,47 @@ func doctorReport(args []string) (control.Report, error) {
 	} else {
 		report.Checks = append(report.Checks, control.Check{ID: "tunnel_client", Status: control.Warn, Message: "tunnel-client not found", Hint: "install OpenAI Secure MCP Tunnel client separately"})
 	}
+	report.Checks = append(report.Checks, doctorHostTerminalPresentationCheck(context.Background()))
 	report.Checks = append(report.Checks, doctorFreeSpaceCheck(paths.StateDir, cfg.MinFreeSpaceBytes))
 	return report, nil
+}
+
+func doctorTerminalPresentationCheck(diagnostics terminalPresentationDiagnostics) control.Check {
+	check := control.Check{ID: "terminal_presentation", Status: control.Warn, Message: "automatic terminal presentation unavailable"}
+	if len(diagnostics.Providers) == 0 {
+		reason := diagnostics.FailureReason
+		if reason == "" {
+			reason = terminalProviderProbeFailed
+		}
+		check.Hint = fmt.Sprintf("providers=none; reason=%s; freshness_sources=none", reason)
+		return check
+	}
+
+	providers := append([]terminalProviderDiagnostic(nil), diagnostics.Providers...)
+	sort.Slice(providers, func(i, j int) bool { return providers[i].ProviderID < providers[j].ProviderID })
+	parts := make([]string, 0, len(providers))
+	available := false
+	for _, provider := range providers {
+		if provider.Available {
+			available = true
+			parts = append(parts, provider.ProviderID+":available")
+			continue
+		}
+		reason := provider.FailureReason
+		if reason == "" {
+			reason = terminalProviderProbeFailed
+		}
+		parts = append(parts, fmt.Sprintf("%s:unavailable(reason=%s)", provider.ProviderID, reason))
+	}
+	if available {
+		check.Status = control.Pass
+		check.Message = "automatic terminal presentation available"
+	}
+	check.Hint = fmt.Sprintf(
+		"providers=%s; freshness_sources=active=%s,recent=%s,bridge_affinity=request_bound,single_running=%s",
+		strings.Join(parts, ","), terminalActiveFreshness, terminalRecentFreshness, terminalRunningFreshness,
+	)
+	return check
 }
 
 // doctorFreeSpaceCheck reports room on the volume holding the state store.

@@ -20,7 +20,7 @@ func actionFieldsV2(action string) []string {
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "handoff.request":
-		return []string{"handoff_id", "session_id", "reason", "privacy", "completion"}
+		return []string{"handoff_id", "session_id", "reason", "privacy", "completion", "terminal_affinity"}
 	case "handoff.wait":
 		return []string{"handoff_id", "yield_time_ms"}
 	case "handoff.abort", "inspect.handoff":

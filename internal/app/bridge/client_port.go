@@ -30,6 +30,7 @@ import (
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -67,6 +68,7 @@ type Request struct {
 	CheckpointID             string
 	InputTraceInspect        inputtraceapp.InspectRequest
 	HandoffRequest           handoff.Request
+	TerminalAffinity         *terminalpresentation.BridgeAffinityHint
 	HandoffWait              handoffapp.WaitRequest
 	HandoffID                string
 }

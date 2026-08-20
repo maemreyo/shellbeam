@@ -12,6 +12,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 type handoffCoordinator interface {
@@ -26,6 +27,10 @@ type handoffCoordinator interface {
 	AttachLocalHuman(context.Context, string, delegatedapp.HumanAttachSpec) (handoffapp.LocalAttachResult, error)
 	HumanControl(context.Context, handoff.ControlSignal) (handoffapp.ControlResult, error)
 	ProjectPublic(context.Context, handoff.State) (handoff.PublicState, error)
+}
+
+type handoffPresentationCoordinator interface {
+	RequestWithPresentation(context.Context, handoff.Request, *terminalpresentation.BridgeAffinityHint) (handoff.State, error)
 }
 
 type handoffStoreAdapter struct {
@@ -46,11 +51,18 @@ func configureHandoffCoordinator(service *Service) {
 		return
 	}
 	provider := delegatedapp.New(service.options.DelegatedRuntime)
-	service.handoff = handoffapp.New(
+	coordinator := handoffapp.NewWithPresenter(
 		handoffStoreAdapter{handoff: handoffStore, delegated: delegatedStore},
 		provider,
 		daemonAgentIngressFencer{service: service},
+		service.options.HandoffPresenter,
 	)
+	if service.options.HandoffPresenterFactory != nil {
+		if presenter := service.options.HandoffPresenterFactory(coordinator); presenter != nil {
+			coordinator.SetPresenter(presenter)
+		}
+	}
+	service.handoff = coordinator
 }
 
 func (a handoffStoreAdapter) FindHandoff(ctx context.Context, id string) (handoff.Request, handoff.State, bool, error) {

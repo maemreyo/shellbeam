@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 type publicHandoffFakeActions struct {
@@ -124,5 +126,63 @@ func TestInteractiveHandoffIPCV2DispatchesPublicActionsAndProjectsSafeState(t *t
 				t.Fatalf("unsafe public projection contains %q: %s", forbidden, text)
 			}
 		}
+	}
+}
+
+func TestHandoffRequestV2CarriesValidatedPresentationHintWithoutChangingH2Request(t *testing.T) {
+	now := time.Date(2026, 8, 19, 17, 0, 0, 0, time.UTC)
+	identity := terminalpresentation.TerminalIdentity{ProviderID: "ghostty", ProviderVersion: 1, Platform: terminalpresentation.PlatformDarwin, BundleID: "com.mitchellh.ghostty", ExecutableName: "ghostty"}
+	hint, err := terminalpresentation.NewBridgeAffinityHint(identity, now, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := handoff.Completion{Kind: handoff.CompletionManualReady}
+	req := RequestV2{IPVersion: 2, Kind: "request", RequestID: "h3-hint", Action: "handoff.request", HandoffID: "handoff-h3", SessionID: "session-h3", HandoffReason: handoff.ReasonManualIntervention, HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion, TerminalAffinity: &hint}
+	if err := validateRequestV2(req); err != nil {
+		t.Fatal(err)
+	}
+	bad := req
+	copyHint := hint
+	copyHint.EvidenceSource = terminalpresentation.SourceRecent
+	bad.TerminalAffinity = &copyHint
+	if err := validateRequestV2(bad); err == nil {
+		t.Fatal("invalid terminal affinity accepted on IPC handoff request")
+	}
+}
+
+type presentationHandoffFakeActions struct {
+	*publicHandoffFakeActions
+	hint *terminalpresentation.BridgeAffinityHint
+}
+
+func (a *presentationHandoffFakeActions) RequestHandoffPublicWithPresentation(_ context.Context, req handoff.Request, hint *terminalpresentation.BridgeAffinityHint) (handoff.PublicState, error) {
+	a.calls = append(a.calls, "request_present:"+req.HandoffID)
+	if hint != nil {
+		copy := *hint
+		a.hint = &copy
+	}
+	return a.public, nil
+}
+
+func TestInteractiveHandoffIPCV2DispatchesPresentationHintOnlyWhenSupported(t *testing.T) {
+	canonical := publicHandoffState()
+	projected, err := handoff.ProjectPublicState(canonical, time.Time{}, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := &publicHandoffFakeActions{state: canonical, public: projected}
+	actions := &presentationHandoffFakeActions{publicHandoffFakeActions: base}
+	_, client := localHandoffServer(t, actions)
+	hint, err := terminalpresentation.NewBridgeAffinityHint(terminalpresentation.TerminalIdentity{ProviderID: "ghostty", ProviderVersion: 1, Platform: terminalpresentation.PlatformDarwin, BundleID: "com.mitchellh.ghostty", ExecutableName: "ghostty"}, time.Date(2026, 8, 19, 17, 0, 0, 0, time.UTC), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := handoff.Completion{Kind: handoff.CompletionManualReady}
+	resp, err := client.CallV2(t.Context(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "h3-present", Action: "handoff.request", HandoffID: canonical.HandoffID, SessionID: canonical.SessionID, HandoffReason: handoff.ReasonManualIntervention, HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion, TerminalAffinity: &hint})
+	if err != nil || !resp.OK || actions.hint == nil || *actions.hint != hint {
+		t.Fatalf("resp=%#v err=%v hint=%#v calls=%v", resp, err, actions.hint, actions.calls)
+	}
+	if !reflect.DeepEqual(actions.calls, []string{"request_present:" + canonical.HandoffID}) {
+		t.Fatalf("presentation dispatch calls=%v", actions.calls)
 	}
 }

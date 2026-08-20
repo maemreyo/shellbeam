@@ -11,12 +11,14 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	terminal "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 type Service struct {
-	store   Store
-	runtime Runtime
-	fencer  AgentIngressFencer
+	store     Store
+	runtime   Runtime
+	fencer    AgentIngressFencer
+	presenter Presenter
 
 	mu             sync.Mutex
 	changed        chan struct{}
@@ -25,10 +27,35 @@ type Service struct {
 }
 
 func New(store Store, runtime Runtime, fencer AgentIngressFencer) *Service {
-	return &Service{store: store, runtime: runtime, fencer: fencer, changed: make(chan struct{}), attachments: map[string]delegatedapp.HumanAttachResult{}}
+	return NewWithPresenter(store, runtime, fencer, nil)
+}
+
+func NewWithPresenter(store Store, runtime Runtime, fencer AgentIngressFencer, presenter Presenter) *Service {
+	return &Service{store: store, runtime: runtime, fencer: fencer, presenter: presenter, changed: make(chan struct{}), attachments: map[string]delegatedapp.HumanAttachResult{}}
+}
+
+// SetPresenter binds the optional H3 presentation service during daemon composition,
+// before the coordinator is exposed to concurrent requests.
+func (s *Service) SetPresenter(presenter Presenter) {
+	if s != nil {
+		s.presenter = presenter
+	}
 }
 
 func (s *Service) Request(ctx context.Context, req handoff.Request) (handoff.State, error) {
+	return s.request(ctx, req, nil)
+}
+
+func (s *Service) RequestWithPresentation(ctx context.Context, req handoff.Request, hint *terminal.BridgeAffinityHint) (handoff.State, error) {
+	if hint != nil {
+		if err := hint.Validate(); err != nil {
+			return handoff.State{}, err
+		}
+	}
+	return s.request(ctx, req, hint)
+}
+
+func (s *Service) request(ctx context.Context, req handoff.Request, hint *terminal.BridgeAffinityHint) (handoff.State, error) {
 	if err := req.ValidateH2(); err != nil {
 		return handoff.State{}, err
 	}
@@ -43,9 +70,12 @@ func (s *Service) Request(ctx context.Context, req handoff.Request) (handoff.Sta
 			return handoff.State{}, failure.New(failure.HandoffConflict, map[string]string{"handoff_id": req.HandoffID}, nil)
 		}
 		if state.Phase == handoff.PhaseAgentFencing {
-			return s.finishAgentFence(ctx, state)
+			state, err = s.finishAgentFence(ctx, state)
+			if err != nil {
+				return handoff.State{}, err
+			}
 		}
-		return state, nil
+		return s.presentAfterH2(ctx, state, hint)
 	}
 	binding, ref, obs, err := s.preflightAgentOwned(ctx, req.SessionID)
 	if err != nil {
@@ -65,10 +95,55 @@ func (s *Service) Request(ctx context.Context, req handoff.Request) (handoff.Sta
 	if err != nil {
 		return handoff.State{}, failure.Normalize(err)
 	}
-	if state.Phase != handoff.PhaseAgentFencing {
+	if state.Phase == handoff.PhaseAgentFencing {
+		state, err = s.finishAgentFence(ctx, state)
+		if err != nil {
+			return handoff.State{}, err
+		}
+	}
+	return s.presentAfterH2(ctx, state, hint)
+}
+
+func (s *Service) presentAfterH2(ctx context.Context, state handoff.State, hint *terminal.BridgeAffinityHint) (handoff.State, error) {
+	if s.presenter == nil || state.Phase != handoff.PhaseHumanConnecting || state.HumanClient != nil {
 		return state, nil
 	}
-	return s.finishAgentFence(ctx, state)
+	err := s.presenter.Present(ctx, PresentationRequest{HandoffID: state.HandoffID, BridgeAffinity: hint})
+	if err == nil {
+		return state, nil
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return state, ctxErr
+	}
+	switch failure.Public(err).Code {
+	case failure.TerminalLauncherUnavailable, failure.TerminalLaunchFailed, failure.TerminalLaunchUnknown, failure.TerminalIdentityAmbiguous:
+		return state, nil
+	default:
+		return state, failure.Normalize(err)
+	}
+}
+
+func (s *Service) ExactHumanClientPresent(ctx context.Context, handoffID string) (bool, error) {
+	_, state, err := s.store.LoadHandoff(ctx, handoffID)
+	if err != nil {
+		return false, failure.Normalize(err)
+	}
+	if state.HumanClient == nil {
+		return false, nil
+	}
+	ref, err := s.store.LoadDelegatedProviderRef(ctx, operation.SessionID(state.SessionID))
+	if err != nil {
+		return false, failure.Normalize(err)
+	}
+	want := delegatedapp.ProviderClientRef{Ref: state.HumanClient.Ref}
+	obs, err := s.runtime.InspectHumanClient(ctx, ref, want)
+	if err != nil {
+		return false, failure.Normalize(err)
+	}
+	if !obs.Present || obs.ClientRef.Ref != want.Ref || obs.ProviderGeneration != state.ProviderGeneration {
+		return false, nil
+	}
+	return true, nil
 }
 
 func (s *Service) lockMutation(handoffID string) func() {

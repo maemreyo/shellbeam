@@ -90,8 +90,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	defer inputTraceRuntime.Close(context.Background())
 	catalog = inputTraceRuntime.Catalog
 	processOwner, catalog := composeResourceEnforcement(catalog, nil)
-	delegatedRuntime, catalog := composeDelegatedInteractiveRuntime(ctx, paths.StateDir, paths.RuntimeDir, catalog)
-	catalog = composeInteractiveHandoffCapability(catalog, delegatedRuntime)
+	delegatedRuntime, terminalRuntime, catalog := composeInteractiveDaemonRuntimes(ctx, paths.StateDir, paths.RuntimeDir, store, catalog)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
@@ -105,20 +104,21 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
-		DefaultTimeoutMS:     cfg.DefaultTimeoutMS,
-		MaxTimeoutMS:         cfg.MaxTimeoutMS,
-		MaxQueuedInputBytes:  cfg.MaxQueuedInputSessionBytes,
-		TerminationGrace:     time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
-		Capabilities:         catalog,
-		StructuredWorker:     structuredScheduler,
-		TelemetryWorker:      telemetryScheduler,
-		EvidenceWorker:       evidenceScheduler,
-		ProjectCommandBinder: projectBinder,
-		PersistentRuntime:    persistentRuntime,
-		DelegatedRuntime:     delegatedRuntime,
-		MediaReader:          daemonMediaReader(),
-		InputTracePreparer:   inputTraceRuntime.Preparer,
-		InputTraceWorker:     inputTraceRuntime.Worker,
+		DefaultTimeoutMS:        cfg.DefaultTimeoutMS,
+		MaxTimeoutMS:            cfg.MaxTimeoutMS,
+		MaxQueuedInputBytes:     cfg.MaxQueuedInputSessionBytes,
+		TerminationGrace:        time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
+		Capabilities:            catalog,
+		StructuredWorker:        structuredScheduler,
+		TelemetryWorker:         telemetryScheduler,
+		EvidenceWorker:          evidenceScheduler,
+		ProjectCommandBinder:    projectBinder,
+		PersistentRuntime:       persistentRuntime,
+		DelegatedRuntime:        delegatedRuntime,
+		HandoffPresenterFactory: terminalRuntime.PresenterFactory,
+		MediaReader:             daemonMediaReader(),
+		InputTracePreparer:      inputTraceRuntime.Preparer,
+		InputTraceWorker:        inputTraceRuntime.Worker,
 	})
 	hostReadiness := projectadapter.NewHostReadiness()
 	projectSvc := projectapp.NewWithReadiness(
@@ -136,7 +136,21 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
 	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector}
+	startTerminalPresentationRuntime(ctx, terminalRuntime)
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+}
+
+func composeInteractiveDaemonRuntimes(ctx context.Context, stateDir, runtimeDir string, store *storeadapter.Repository, catalog capability.Catalog) (daemonapp.DelegatedRuntime, terminalPresentationRuntime, capability.Catalog) {
+	delegatedRuntime, catalog := composeDelegatedInteractiveRuntime(ctx, stateDir, runtimeDir, catalog)
+	catalog = composeInteractiveHandoffCapability(catalog, delegatedRuntime)
+	terminalRuntime := composeHostTerminalPresentationRuntime(ctx, catalog, store)
+	return delegatedRuntime, terminalRuntime, terminalRuntime.Catalog
+}
+
+func startTerminalPresentationRuntime(ctx context.Context, runtime terminalPresentationRuntime) {
+	if runtime.Start != nil {
+		go func() { _ = runtime.Start(ctx) }()
+	}
 }
 
 // openOwnedDaemonState claims durable authority before opening the store. The

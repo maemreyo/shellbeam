@@ -8,6 +8,7 @@ import (
 	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 type HandoffActions interface {
@@ -17,11 +18,20 @@ type HandoffActions interface {
 	InspectHandoffPublic(context.Context, string) (handoff.PublicState, error)
 }
 
+type HandoffPresentationActions interface {
+	RequestHandoffPublicWithPresentation(context.Context, handoff.Request, *terminalpresentation.BridgeAffinityHint) (handoff.PublicState, error)
+}
+
 func validateHandoffRequestV2(v RequestV2) error {
 	switch v.Action {
 	case "handoff.request":
 		if v.HandoffCompletion == nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "completion"}, fmt.Errorf("handoff completion missing"))
+		}
+		if v.TerminalAffinity != nil {
+			if err := v.TerminalAffinity.Validate(); err != nil {
+				return failure.New(failure.InvalidInput, map[string]string{"field": "terminal_affinity"}, err)
+			}
 		}
 		return (handoff.Request{HandoffID: v.HandoffID, SessionID: v.SessionID, Reason: v.HandoffReason, Privacy: v.HandoffPrivacy, Completion: *v.HandoffCompletion}).Validate()
 	case "handoff.wait":
@@ -48,7 +58,12 @@ func (s *Server) handoffV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 	var err error
 	switch req.Action {
 	case "handoff.request":
-		state, err = actions.RequestHandoffPublic(ctx, handoff.Request{HandoffID: req.HandoffID, SessionID: req.SessionID, Reason: req.HandoffReason, Privacy: req.HandoffPrivacy, Completion: *req.HandoffCompletion})
+		handoffReq := handoff.Request{HandoffID: req.HandoffID, SessionID: req.SessionID, Reason: req.HandoffReason, Privacy: req.HandoffPrivacy, Completion: *req.HandoffCompletion}
+		if presentation, ok := s.actions.(HandoffPresentationActions); ok {
+			state, err = presentation.RequestHandoffPublicWithPresentation(ctx, handoffReq, req.TerminalAffinity)
+		} else {
+			state, err = actions.RequestHandoffPublic(ctx, handoffReq)
+		}
 	case "handoff.wait":
 		state, resp.HandoffTimedOut, err = actions.WaitHandoffPublic(ctx, handoffapp.WaitRequest{HandoffID: req.HandoffID, Yield: time.Duration(req.YieldMS) * time.Millisecond})
 	case "handoff.abort":

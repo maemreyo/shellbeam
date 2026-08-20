@@ -15,6 +15,7 @@ import (
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 )
 
 func handoffRequestForSession(sid, suffix string) handoff.Request {
@@ -290,5 +291,84 @@ func TestPublicHandoffProjectionUsesDurableTimestampsAndOmitsProviderPrivateStat
 		if bytes.Contains(wire, []byte(forbidden)) {
 			t.Fatalf("public projection leaked %q: %s", forbidden, wire)
 		}
+	}
+}
+
+type daemonPresentationFake struct {
+	calls []handoffapp.PresentationRequest
+	err   error
+}
+
+func (p *daemonPresentationFake) Present(_ context.Context, req handoffapp.PresentationRequest) error {
+	p.calls = append(p.calls, req)
+	return p.err
+}
+
+func TestDaemonRequestHandoffPublicWithPresentationUsesInjectedPresenterAfterH2Fence(t *testing.T) {
+	store := openDelegatedStartStore(t)
+	runtime := newH2LocalDaemonRuntime()
+	presenter := &daemonPresentationFake{}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "h3-present", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime, HandoffPresenter: presenter})
+	startReq := delegatedStartRequest()
+	startReq.OperationID = "op-h3-daemon-presentation"
+	started, err := svc.Start(t.Context(), startReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := handoff.Request{HandoffID: "handoff-h3-daemon-presentation", SessionID: started.SessionID, Reason: handoff.ReasonManualIntervention, Privacy: handoff.PrivacyStandard, Completion: handoff.Completion{Kind: handoff.CompletionManualReady}}
+	identity := terminalpresentation.TerminalIdentity{ProviderID: "ghostty", ProviderVersion: 1, Platform: terminalpresentation.PlatformDarwin, BundleID: "com.mitchellh.ghostty", ExecutableName: "ghostty"}
+	hint, err := terminalpresentation.NewBridgeAffinityHint(identity, time.Date(2026, 8, 19, 17, 0, 0, 0, time.UTC), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public, err := svc.RequestHandoffPublicWithPresentation(t.Context(), req, &hint)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(presenter.calls) != 1 || presenter.calls[0].HandoffID != req.HandoffID || presenter.calls[0].BridgeAffinity == nil || *presenter.calls[0].BridgeAffinity != hint {
+		t.Fatalf("presenter calls=%#v", presenter.calls)
+	}
+	if public.Status != handoff.StatusHumanConnecting || len(public.AttachArgv) != 5 || public.AttachArgv[4] != req.HandoffID {
+		t.Fatalf("public=%#v", public)
+	}
+	binding, err := store.LoadDelegatedBinding(t.Context(), operation.SessionID(started.SessionID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if binding.DesiredOwner != delegated.OwnerHuman || binding.AuthorityEpoch != public.AuthorityEpoch {
+		t.Fatalf("binding=%#v public=%#v", binding, public)
+	}
+}
+
+func TestDaemonHandoffPresenterFactoryBindsExactClientProverBeforeRequests(t *testing.T) {
+	store := openDelegatedStartStore(t)
+	runtime := newH2LocalDaemonRuntime()
+	presenter := &daemonPresentationFake{}
+	factoryCalls := 0
+	svc := app.NewService(store, &fakeOwner{}, app.Options{
+		Incarnation: "h3-present-factory", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime,
+		HandoffPresenterFactory: func(prover handoffapp.ExactClientProver) handoffapp.Presenter {
+			factoryCalls++
+			if prover == nil {
+				t.Fatal("presenter factory received nil exact-client prover")
+			}
+			return presenter
+		},
+	})
+	if factoryCalls != 1 {
+		t.Fatalf("presenter factory calls=%d want=1", factoryCalls)
+	}
+	startReq := delegatedStartRequest()
+	startReq.OperationID = "op-h3-daemon-presentation-factory"
+	started, err := svc.Start(t.Context(), startReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := handoff.Request{HandoffID: "handoff-h3-daemon-presentation-factory", SessionID: started.SessionID, Reason: handoff.ReasonManualIntervention, Privacy: handoff.PrivacyStandard, Completion: handoff.Completion{Kind: handoff.CompletionManualReady}}
+	if _, err := svc.RequestHandoffPublicWithPresentation(t.Context(), req, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(presenter.calls) != 1 || presenter.calls[0].HandoffID != req.HandoffID {
+		t.Fatalf("presenter calls=%#v", presenter.calls)
 	}
 }

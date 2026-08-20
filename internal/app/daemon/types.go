@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -18,23 +19,25 @@ type Options struct {
 	// DefaultTimeoutMS bounds an ordinary command whose caller named no
 	// timeout. Zero leaves such commands unbounded, which is the behaviour that
 	// let stuck sessions hold capacity indefinitely.
-	DefaultTimeoutMS     int64
-	MaxTimeoutMS         int64
-	Incarnation          string
-	Shell                string
-	MaxQueuedInputBytes  int
-	TerminationGrace     time.Duration
-	Capabilities         capability.Catalog
-	StructuredWorker     StructuredWorker
-	TelemetryWorker      TelemetryWorker
-	EvidenceWorker       EvidenceWorker
-	ProjectCommandBinder ProjectCommandBinder
-	PersistentRuntime    PersistentRuntime
-	DelegatedRuntime     DelegatedRuntime
-	MediaReader          MediaReader
-	MediaReadBudget      time.Duration
-	InputTracePreparer   traceapp.Preparer
-	InputTraceWorker     InputTraceWorker
+	DefaultTimeoutMS        int64
+	MaxTimeoutMS            int64
+	Incarnation             string
+	Shell                   string
+	MaxQueuedInputBytes     int
+	TerminationGrace        time.Duration
+	Capabilities            capability.Catalog
+	StructuredWorker        StructuredWorker
+	TelemetryWorker         TelemetryWorker
+	EvidenceWorker          EvidenceWorker
+	ProjectCommandBinder    ProjectCommandBinder
+	PersistentRuntime       PersistentRuntime
+	DelegatedRuntime        DelegatedRuntime
+	HandoffPresenter        handoffapp.Presenter
+	HandoffPresenterFactory func(handoffapp.ExactClientProver) handoffapp.Presenter
+	MediaReader             MediaReader
+	MediaReadBudget         time.Duration
+	InputTracePreparer      traceapp.Preparer
+	InputTraceWorker        InputTraceWorker
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`

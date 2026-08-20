@@ -132,9 +132,10 @@ type Limits struct {
 }
 
 type InteractiveHandoffSupport struct {
-	ManualStandard     bool `json:"manual_standard"`
-	Secret             bool `json:"secret"`
-	AutomaticReadiness bool `json:"automatic_readiness"`
+	ManualStandard       bool                         `json:"manual_standard"`
+	Secret               bool                         `json:"secret"`
+	AutomaticReadiness   bool                         `json:"automatic_readiness"`
+	TerminalPresentation *TerminalPresentationSupport `json:"terminal_presentation,omitempty"`
 }
 
 func (s InteractiveHandoffSupport) ValidH2() bool {
@@ -300,7 +301,7 @@ func (c Catalog) Clone() Catalog {
 		out.DelegatedInteractive = &support
 	}
 	if c.InteractiveHandoff != nil {
-		support := *c.InteractiveHandoff
+		support := c.InteractiveHandoff.Clone()
 		out.InteractiveHandoff = &support
 	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
