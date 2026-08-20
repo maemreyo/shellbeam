@@ -238,6 +238,9 @@ git -c core.hooksPath=.githooks commit -m "feat: select structured records failu
 - Create: `internal/core/structuredresult/failure_excerpt_test.go`
 - Modify: `internal/core/structuredresult/record.go`
 - Modify: `internal/core/structuredresult/record_test.go`
+- Modify: `internal/adapter/store/structured_legacy.go`, `structured_legacy_test.go`, `structured_records.go`, `structured_results.go`, `structured_results_private.go`
+- Modify: `internal/adapter/store/retention.go`, `retention_test.go`
+- Conditional on the Step 5 gate passing: modify `api/schema/ipc-v2.json`, `api/schema/mcp-output-v2.json`, `api/schema/structured_inspect_test.go`, `internal/adapter/ipc/structured_inspect_test.go`, `internal/adapter/mcp/structured_inspect_test.go`
 
 **Interfaces:**
 - Produces `FailureExcerpt` plus `NormalizeFailureExcerpt`, a pure function with no filesystem access.
@@ -289,6 +292,8 @@ A second test in Task 1 Step 1 SHALL exercise the budget at scale: build an inpu
 
 Persisting the new member uses record/record-set schema v3. Add explicit v1/v2/v3 record decoding tests, prove existing v2 Go/pytest record bytes are not rewritten, and keep the shared `core.SchemaVersion=2` constant unchanged; use a dedicated record-v3 constant for the new shape.
 
+A record-set v3 is deliberately **mixed-version**: records that carry `FailureExcerpt` are schema v3; records in the same set that do not carry the member remain schema v2. A v3 set MUST contain at least one v3 record and MUST contain only v2/v3 records. V1 and v2 sets remain homogeneous. `PutRecords` chooses set schema v3 iff at least one input record is v3. This avoids pointlessly rewriting pass records merely because a sibling failure has an excerpt.
+
 - [ ] **Step 4: Prove no existing-adapter regression**
 
 ```bash
@@ -301,14 +306,26 @@ Spec §34 makes the excerpt conditional on retention containment: the excerpt's 
 
 The real gap: raw output is deleted by session retention after `TerminalRetention` (168h default), while a structured record with an excerpt outlives that window because records live until explicit compaction. An excerpt therefore outlives the raw output it derives from, becoming the only surviving copy of that failure text in daemon storage.
 
-Establish it mechanically. Add a test in `internal/core/structuredresult` (or in the existing record-retention authority) that proves a per-record marker can be honored by an explicit compaction sweep no later than the raw output's `TerminalRetention`. Without that marker the field stays unpopulated; with it the field ships. Record the result in this plan:
+Establish it mechanically. Add a test in `internal/core/structuredresult` (or in the existing record-retention authority) that proves a per-record marker can be honored by an explicit compaction sweep no later than the raw output's `TerminalRetention`. Without that marker the field stays unpopulated; with it the field ships.
+
+The marker is private store metadata, keyed by source session + derivation + record ordinal, and is created durably **before** a record-set containing the excerpt becomes visible. Session retention consults those markers before deleting the terminal raw output. It rewrites the affected record set with the expired session's excerpts removed and those records downgraded to schema v2; if no v3 records remain, the set itself downgrades to schema v2, otherwise it remains v3. Marker/rewrite failure blocks collection of that session, so raw output cannot disappear while its derived excerpt remains. A stale marker without a live excerpt may be removed safely. Only after this mechanical gate passes are the closed IPC/MCP schemas extended and adapters authorized to populate the field.
+
+Record the result in this plan:
 
 ```text
-gate PASSED  → per-record retention marker honored by compaction sweep;
-               adapters populate the field in Tasks 5 and 10
-gate FAILED  → field stays unpopulated; Tasks 5 and 10 skip it;
-               record the failing control here and stop — do not
-               work around it
+gate PASSED (2026-08-20) → per-record retention marker is created before
+               record-set visibility; terminal retention strips/downgrades the
+               excerpt before collecting raw output, and an injected rewrite
+               failure blocks collection while preserving raw output + marker.
+               Adapters may populate the field in Tasks 5 and 10.
+
+Mechanical controls:
+  TestTerminalRetentionStripsFailureExcerptBeforeCollectingRawOutput
+  TestTerminalRetentionBlocksCollectionWhenFailureExcerptStripFails
+
+Follow-up: pytest V1 retained artifact-blob bytes can still outlive raw-output
+retention with unnormalized producer failure text. That pre-existing at-rest
+hazard remains out of scope for this plan and needs separate hardening.
 ```
 
 This is a real gate that can fail. The pytest V1 producer V1 also stores blob bytes that live past raw-output retention with unnormalized failure text — that is a separate at-rest hazard and out of scope for this work, but should be opened as a follow-up issue if retention-containment here succeeds.
@@ -317,7 +334,7 @@ This is a real gate that can fail. The pytest V1 producer V1 also stores blob by
 
 ```bash
 go run ./tools/devctl check
-git add internal/core/structuredresult internal/adapter/ipc internal/adapter/mcp docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md
+git add internal/core/structuredresult internal/adapter/store internal/adapter/ipc internal/adapter/mcp api/schema docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "feat: bound structured failure excerpts"
 ```
@@ -671,6 +688,8 @@ git -c core.hooksPath=.githooks commit -m "feat: parse jest json structured resu
 
 ### Task 6: Wire Jest into selection, admission, composition, capability and inspect
 
+Before the adapter can persist its advertised 8192-record budget, raise the shared structured-record store ceiling from 1024 to at least 8192 and raise the bounded record-file byte ceiling enough to hold 8192 schema-v3 records at the declared per-record limits. Pin both bounds with store tests; the parser-level 8192 cap is not deployable while the store rejects the same set at 1024.
+
 **Files:**
 - Modify: `internal/app/structuredresult/selection.go`, `selection_test.go`
 - Modify: `internal/app/daemon/admission.go`, `project_command.go`
@@ -679,6 +698,7 @@ git -c core.hooksPath=.githooks commit -m "feat: parse jest json structured resu
 - Modify: `cmd/shellbeam/execution_observation.go`
 - Modify: `internal/core/capability/catalog.go`, `catalog_test.go`
 - Modify: `internal/app/structuredresult/inspect.go`, `inspect_test.go`
+- Modify: `internal/adapter/store/structured_records.go`, `structured_results_private.go`, focused store limit tests
 - Modify: `internal/adapter/ipc/structured_inspect_test.go`, `internal/adapter/mcp/structured_inspect_test.go`, `internal/adapter/mcp/discovery_test.go`
 - Modify: `api/schema/ipc-v2.json`, `api/schema/mcp-output-v2.json`
 

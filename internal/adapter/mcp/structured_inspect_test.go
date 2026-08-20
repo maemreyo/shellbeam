@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
@@ -24,7 +25,7 @@ func (c *structuredInspectClient) Forward(_ context.Context, req bridge.Request)
 		c.startCalls++
 	}
 	if req.Action == "inspect.structured" {
-		result := structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.StructuredInspect.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParsePartial, Completeness: core.CompletenessPartial, CompletenessReason: core.CompletenessReasonPassRecordsElided, ObservedEntries: &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}
+		result := structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.StructuredInspect.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParsePartial, Completeness: core.CompletenessPartial, CompletenessReason: core.CompletenessReasonPassRecordsElided, ObservedEntries: &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Records: []core.Record{mcpTransportFailureRecord()}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}
 		return bridge.Response{Structured: &result}, nil
 	}
 	if req.Action == "inspect.server" {
@@ -32,6 +33,15 @@ func (c *structuredInspectClient) Forward(_ context.Context, req bridge.Request)
 		return bridge.Response{Server: &catalog}, nil
 	}
 	return bridge.Response{}, nil
+}
+
+func mcpTransportFailureRecord() core.Record {
+	return core.Record{
+		SchemaVersion: core.RecordSchemaVersionV3, RecordKind: core.RecordTestCase, Authority: core.AuthorityMechanical,
+		DerivationMethod: core.DerivationNativeFieldMapping, Producer: core.Producer{AdapterID: "jest-json", AdapterVersion: 1, CapabilityVersion: 1}, OperationID: "op-1",
+		SourceRef: core.RawInputRef(core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: 1, SHA256: strings.Repeat("a", 64)}),
+		TestCase:  &core.TestCase{Name: "fails", Status: core.TestFailed, FailureExcerpt: &core.FailureExcerpt{Namespace: "jest", VocabularyVersion: 1, Text: "failure"}},
+	}
 }
 
 func TestStructuredInspectMCPV2ForwardsFiltersWithoutSpawn(t *testing.T) {
@@ -52,6 +62,16 @@ func TestStructuredInspectMCPV2ForwardsFiltersWithoutSpawn(t *testing.T) {
 	structuredBody, _ := body["structured"].(map[string]any)
 	if structuredBody["source_kind"] != "artifact_blob" || structuredBody["source_state"] != "retained" || structuredBody["semantics_coverage"] == nil || structuredBody["completeness_reason"] != "pass_records_elided" || structuredBody["observed_entries"] == nil {
 		t.Fatalf("structured=%#v", structuredBody)
+	}
+	records, _ := structuredBody["records"].([]any)
+	if len(records) != 1 {
+		t.Fatalf("failure_excerpt records=%#v", structuredBody["records"])
+	}
+	record, _ := records[0].(map[string]any)
+	testCase, _ := record["test_case"].(map[string]any)
+	excerpt, _ := testCase["failure_excerpt"].(map[string]any)
+	if excerpt["text"] != "failure" {
+		t.Fatalf("failure_excerpt missing from MCP response: %#v", structuredBody["records"])
 	}
 	encoded, _ := json.Marshal(structuredBody)
 	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`} {

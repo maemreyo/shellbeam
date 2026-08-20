@@ -24,13 +24,27 @@ func validateRecordsForDerivation(records []core.Record, derivation core.Derivat
 }
 
 func validateStructuredRecordSet(set structuredRecordSet, derivation core.Derivation) error {
-	if set.SchemaVersion != core.SchemaVersionV1 && set.SchemaVersion != core.SchemaVersion || set.DerivationKey != derivation.DerivationKey || len(set.Records) < 1 || len(set.Records) > MaxStructuredRecords {
+	if set.SchemaVersion != core.SchemaVersionV1 && set.SchemaVersion != core.SchemaVersion && set.SchemaVersion != core.RecordSchemaVersionV3 || set.DerivationKey != derivation.DerivationKey || len(set.Records) < 1 || len(set.Records) > MaxStructuredRecords {
 		return fmt.Errorf("invalid_structured_record_set")
 	}
+	hasV3 := false
 	for _, record := range set.Records {
-		if record.SchemaVersion != set.SchemaVersion {
-			return fmt.Errorf("structured_record_schema_mismatch")
+		switch set.SchemaVersion {
+		case core.SchemaVersionV1, core.SchemaVersion:
+			if record.SchemaVersion != set.SchemaVersion {
+				return fmt.Errorf("structured_record_schema_mismatch")
+			}
+		case core.RecordSchemaVersionV3:
+			if record.SchemaVersion != core.SchemaVersion && record.SchemaVersion != core.RecordSchemaVersionV3 {
+				return fmt.Errorf("structured_record_schema_mismatch")
+			}
+			if record.SchemaVersion == core.RecordSchemaVersionV3 {
+				hasV3 = true
+			}
 		}
+	}
+	if set.SchemaVersion == core.RecordSchemaVersionV3 && !hasV3 {
+		return fmt.Errorf("structured_record_schema_mismatch")
 	}
 	return validateRecordsForDerivation(set.Records, derivation)
 }
@@ -125,6 +139,9 @@ func (r *Repository) structuredOperationDir() string {
 }
 func (r *Repository) structuredCaptureAuthorityDir() string {
 	return filepath.Join(r.structuredRoot(), "capture-authority")
+}
+func (r *Repository) failureExcerptRetentionRoot() string {
+	return filepath.Join(r.structuredRoot(), "failure-excerpt-retention")
 }
 func (r *Repository) rawOutputRefPath(sessionID string) string {
 	return filepath.Join(r.structuredInputDir(), sessionID+".json")

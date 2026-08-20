@@ -13,6 +13,8 @@ type DerivationMethod string
 type Severity string
 type TestStatus string
 
+const RecordSchemaVersionV3 = 3
+
 const (
 	RecordDiagnostic     RecordKind = "diagnostic"
 	RecordTestCase       RecordKind = "test_case"
@@ -65,6 +67,7 @@ type TestCase struct {
 	ProducerDisposition *ProducerTestDisposition `json:"producer_disposition,omitempty"`
 	ProducerAddress     *ProducerTestAddress     `json:"producer_address,omitempty"`
 	ArtifactEntry       *ArtifactTestEntryRef    `json:"artifact_entry,omitempty"`
+	FailureExcerpt      *FailureExcerpt          `json:"failure_excerpt,omitempty"`
 }
 type TestSuite struct {
 	Name       string              `json:"name"`
@@ -79,11 +82,17 @@ type ArtifactResult struct {
 }
 
 func (r Record) Validate() error {
-	if r.SchemaVersion != SchemaVersionV1 && r.SchemaVersion != SchemaVersion || r.Producer.Validate() != nil || r.SourceRef.Validate() != nil {
+	if r.SchemaVersion != SchemaVersionV1 && r.SchemaVersion != SchemaVersion && r.SchemaVersion != RecordSchemaVersionV3 || r.Producer.Validate() != nil || r.SourceRef.Validate() != nil {
 		return fmt.Errorf("invalid structured record metadata")
 	}
-	if r.SchemaVersion == SchemaVersionV1 && (r.SourceRef.Kind != StructuredInputRawOutput || r.RecordID != "" || recordHasV2Metadata(r)) {
-		return fmt.Errorf("schema v1 record claims v2 metadata")
+	if r.SchemaVersion == SchemaVersionV1 && (r.SourceRef.Kind != StructuredInputRawOutput || r.RecordID != "" || recordHasV2Metadata(r) || recordHasV3Metadata(r)) {
+		return fmt.Errorf("schema v1 record claims newer metadata")
+	}
+	if r.SchemaVersion == SchemaVersion && recordHasV3Metadata(r) {
+		return fmt.Errorf("schema v2 record claims v3 metadata")
+	}
+	if r.SchemaVersion == RecordSchemaVersionV3 && !recordHasV3Metadata(r) {
+		return fmt.Errorf("schema v3 record missing v3 metadata")
 	}
 	if r.RecordID != "" && !validDigest(r.RecordID) {
 		return fmt.Errorf("invalid structured record id")
@@ -138,6 +147,11 @@ func (t TestCase) Validate() error {
 	if t.ProducerDisposition != nil && t.ProducerDisposition.Validate() != nil || t.ProducerAddress != nil && t.ProducerAddress.Validate() != nil || t.ArtifactEntry != nil && t.ArtifactEntry.Validate() != nil {
 		return fmt.Errorf("invalid test case producer metadata")
 	}
+	if t.FailureExcerpt != nil {
+		if t.Status != TestFailed && t.Status != TestSkipped || t.FailureExcerpt.Validate() != nil {
+			return fmt.Errorf("invalid test case failure excerpt")
+		}
+	}
 	return nil
 }
 func (t TestSuite) Validate() error {
@@ -165,4 +179,8 @@ func validTestStatus(v TestStatus) bool {
 
 func recordHasV2Metadata(r Record) bool {
 	return r.TestCase != nil && (r.TestCase.ProducerDisposition != nil || r.TestCase.ProducerAddress != nil || r.TestCase.ArtifactEntry != nil) || r.TestSuite != nil && r.TestSuite.Aggregate != nil
+}
+
+func recordHasV3Metadata(r Record) bool {
+	return r.TestCase != nil && r.TestCase.FailureExcerpt != nil
 }

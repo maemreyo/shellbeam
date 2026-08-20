@@ -778,6 +778,8 @@ The implementation SHALL verify, before populating the field, that the excerpt's
 
 Concretely: the implementation SHALL add a per-record retention marker that lets an operator or a future compaction sweep retire the excerpt no later than the raw output's terminal retention would have retired it. If that marker cannot be made effective in the existing record-retention authority, the field stays unpopulated.
 
+Implementation qualification on 2026-08-20: this gate passed mechanically. The store creates the source-session/derivation/record marker before publishing a record set with an excerpt; terminal retention strips and schema-downgrades the marked excerpt before collecting raw output; and an injected rewrite failure blocks collection while leaving the raw output and marker intact.
+
 ## 35. Coverage payloads consume the artifact ceiling
 
 Both producers can embed coverage data in the same document: Vitest adds a top-level `coverageMap` when coverage is enabled (`3.x` onward), and Jest appends `coverageMap` as a trailing key under `--coverage` [SRC + RUN]. Keys are absolute source paths.
@@ -1070,7 +1072,7 @@ adapter ParseResult
 
 The shipped schema-v2 derivation is strict-decoded and cannot safely accept new JSON members in place. V1 SHALL therefore add a **derivation-only schema v3**. This does not change the current record schema version and SHALL NOT rewrite existing v1/v2 derivations. New Go/pytest derivations that do not carry v3 terminal metadata remain schema v2 byte-for-byte; a JS derivation upgrades from v2 pending/processing state to schema v3 only when terminal metadata is committed. The store SHALL read v1, v2, and v3 derivations explicitly and fail closed on unknown versions.
 
-Likewise, Task 2 SHALL introduce a **record/record-set schema v3** only for records that use the new bounded failure-excerpt member. Existing Go/pytest record sets remain schema v2. The shared constant `SchemaVersion=2` SHALL NOT simply be changed to `3`, because doing so would silently rewrite unrelated persisted bytes.
+Likewise, Task 2 SHALL introduce a **record/record-set schema v3** only when the set contains the new bounded failure-excerpt member. A schema-v3 record set may contain schema-v2 records without excerpts alongside schema-v3 records with excerpts; it MUST contain at least one schema-v3 record and no v1 records. Existing Go/pytest record sets remain homogeneous schema v2. The shared constant `SchemaVersion=2` SHALL NOT simply be changed to `3`, because doing so would silently rewrite unrelated persisted bytes.
 
 Downgrade behavior is explicit: an older binary that predates schema v3 may reject a v3 JS derivation/record set as unsupported, but it SHALL continue to read all pre-existing v1/v2 data. New code SHALL NOT mutate old persisted bytes merely to normalize them to v3.
 

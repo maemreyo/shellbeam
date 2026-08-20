@@ -98,7 +98,7 @@ func decodeStructuredRecordSet(raw []byte, derivation core.Derivation) (structur
 		}
 		set := normalizeLegacyRecordSet(legacy)
 		return set, validateStructuredRecordSet(set, derivation)
-	case core.SchemaVersion:
+	case core.SchemaVersion, core.RecordSchemaVersionV3:
 		var current structuredRecordSet
 		if err := decodeStructuredStrict(raw, &current); err != nil {
 			return structuredRecordSet{}, err

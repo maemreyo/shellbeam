@@ -1,6 +1,9 @@
 package schema
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestStructuredInspectV2SchemasAreClosedAndBounded(t *testing.T) {
 	inputValid := []struct {
@@ -16,15 +19,25 @@ func TestStructuredInspectV2SchemasAreClosedAndBounded(t *testing.T) {
 		}
 	}
 
-	summary := map[string]any{"errors": 1.0, "warnings": 0.0, "files": 1.0, "test_passed": 0.0, "test_failed": 0.0, "test_skipped": 0.0, "mechanical_records": 1.0, "advisory_records": 0.0, "records_returned": 1.0, "records_total_or_lower_bound": 1.0, "records_total_exact": true, "truncated": false, "details_status": "available"}
-	record := map[string]any{"schema_version": 1.0, "record_kind": "diagnostic", "authority": "mechanical", "derivation_method": "native_field_mapping", "producer": map[string]any{"adapter_id": "go-vet-json", "adapter_version": 1.0, "capability_version": 1.0}, "operation_id": "op-1", "source_ref": map[string]any{"session_id": "session-1", "start_byte": 0.0, "end_byte": 10.0, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "diagnostic": map[string]any{"severity": "error", "code": "printf", "message": "bad printf", "location": map[string]any{"kind": "provider_reported", "provider_reported": map[string]any{"origin": "repository", "sanitized_logical_path": "internal/a.go", "line": 5.0, "column": 2.0, "normalization_quality": "partial"}}}}
-	structured := map[string]any{"schema_version": 1.0, "operation_id": "op-1", "status": "terminal", "derivation_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "producer": map[string]any{"adapter_id": "go-vet-json", "adapter_version": 1.0, "capability_version": 1.0}, "parse_outcome": "partial", "completeness": "partial", "completeness_reason": "pass_records_elided", "observed_entries": map[string]any{"namespace": "jest", "vocabulary_version": 1.0, "files": 2.0, "entries": 2.0, "pass": 1.0, "fail": 1.0, "skip": 0.0, "error": 0.0}, "summary": summary, "records": []any{record}}
+	_, structured, failureRecord := structuredInspectSchemaFixtures()
+	structuredWithFailure := cloneMap(structured)
+	structuredWithFailure["records"] = []any{failureRecord}
+	v2Record := cloneMap(failureRecord)
+	v2Record["schema_version"] = 2.0
+	v2Case := cloneMap(failureRecord["test_case"].(map[string]any))
+	delete(v2Case, "failure_excerpt")
+	v2Record["test_case"] = v2Case
+	structuredWithV2 := cloneMap(structured)
+	structuredWithV2["records"] = []any{v2Record}
 	validOutputs := []struct {
 		name  Name
 		value map[string]any
 	}{
 		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": structured}},
 		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "s", "action": "inspect.structured", "ok": true, "structured": structured}},
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": structuredWithFailure}},
+		{IPCV2, map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "f", "action": "inspect.structured", "ok": true, "structured": structuredWithFailure}},
+		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": structuredWithV2}},
 		{MCPOutputV2, map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": map[string]any{"schema_version": 1.0, "operation_id": "missing", "status": "not_found", "summary": map[string]any{"errors": 0.0, "warnings": 0.0, "files": 0.0, "test_passed": 0.0, "test_failed": 0.0, "test_skipped": 0.0, "mechanical_records": 0.0, "advisory_records": 0.0, "records_returned": 0.0, "records_total_or_lower_bound": 0.0, "records_total_exact": false, "truncated": false, "details_status": "unavailable"}}}},
 	}
 	for _, tc := range validOutputs {
@@ -49,7 +62,10 @@ func TestStructuredInspectV2SchemasAreClosedAndBounded(t *testing.T) {
 			t.Errorf("%s accepted invalid %#v", tc.name, tc.value)
 		}
 	}
+}
 
+func TestStructuredInspectV2OutputSchemasRejectInvalidMetadata(t *testing.T) {
+	record, structured, _ := structuredInspectSchemaFixtures()
 	badRecord := cloneMap(record)
 	badRecord["extra"] = true
 	badStructured := cloneMap(structured)
@@ -76,6 +92,45 @@ func TestStructuredInspectV2SchemasAreClosedAndBounded(t *testing.T) {
 	if err := resolvedSchema(t, IPCV2).Validate(map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "s", "action": "inspect.structured", "ok": true, "structured": badCounts}); err == nil {
 		t.Fatal("observed entry count above bound accepted")
 	}
+}
+
+func TestStructuredFailureExcerptSchemasAreClosedAndVersioned(t *testing.T) {
+	_, structured, failureRecord := structuredInspectSchemaFixtures()
+	v2WithExcerpt := cloneMap(failureRecord)
+	v2WithExcerpt["schema_version"] = 2.0
+	badV2Structured := cloneMap(structured)
+	badV2Structured["records"] = []any{v2WithExcerpt}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": badV2Structured}); err == nil {
+		t.Fatal("schema-v2 record accepted failure_excerpt")
+	}
+	passWithExcerpt := cloneMap(failureRecord)
+	passCase := cloneMap(failureRecord["test_case"].(map[string]any))
+	passCase["status"] = "pass"
+	passWithExcerpt["test_case"] = passCase
+	badPassStructured := cloneMap(structured)
+	badPassStructured["records"] = []any{passWithExcerpt}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": badPassStructured}); err == nil {
+		t.Fatal("pass record accepted failure_excerpt")
+	}
+	oversizedExcerpt := cloneMap(failureRecord)
+	oversizedCase := cloneMap(failureRecord["test_case"].(map[string]any))
+	oversizedFailure := cloneMap(oversizedCase["failure_excerpt"].(map[string]any))
+	oversizedFailure["text"] = strings.Repeat("x", 2049)
+	oversizedCase["failure_excerpt"] = oversizedFailure
+	oversizedExcerpt["test_case"] = oversizedCase
+	badExcerptStructured := cloneMap(structured)
+	badExcerptStructured["records"] = []any{oversizedExcerpt}
+	if err := resolvedSchema(t, IPCV2).Validate(map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "x", "action": "inspect.structured", "ok": true, "structured": badExcerptStructured}); err == nil {
+		t.Fatal("failure excerpt above bound accepted")
+	}
+}
+
+func structuredInspectSchemaFixtures() (map[string]any, map[string]any, map[string]any) {
+	summary := map[string]any{"errors": 1.0, "warnings": 0.0, "files": 1.0, "test_passed": 0.0, "test_failed": 0.0, "test_skipped": 0.0, "mechanical_records": 1.0, "advisory_records": 0.0, "records_returned": 1.0, "records_total_or_lower_bound": 1.0, "records_total_exact": true, "truncated": false, "details_status": "available"}
+	record := map[string]any{"schema_version": 1.0, "record_kind": "diagnostic", "authority": "mechanical", "derivation_method": "native_field_mapping", "producer": map[string]any{"adapter_id": "go-vet-json", "adapter_version": 1.0, "capability_version": 1.0}, "operation_id": "op-1", "source_ref": map[string]any{"session_id": "session-1", "start_byte": 0.0, "end_byte": 10.0, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, "diagnostic": map[string]any{"severity": "error", "code": "printf", "message": "bad printf", "location": map[string]any{"kind": "provider_reported", "provider_reported": map[string]any{"origin": "repository", "sanitized_logical_path": "internal/a.go", "line": 5.0, "column": 2.0, "normalization_quality": "partial"}}}}
+	failureRecord := map[string]any{"schema_version": 3.0, "record_kind": "test_case", "authority": "mechanical", "derivation_method": "native_field_mapping", "producer": map[string]any{"adapter_id": "jest-json", "adapter_version": 1.0, "capability_version": 1.0}, "operation_id": "op-1", "source_ref": map[string]any{"kind": "raw_output", "raw_output": map[string]any{"session_id": "session-1", "start_byte": 0.0, "end_byte": 10.0, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "test_case": map[string]any{"name": "fails", "status": "fail", "failure_excerpt": map[string]any{"namespace": "jest", "vocabulary_version": 1.0, "text": "failure at src/a.ts:12", "truncated": false, "redacted": false}}}
+	structured := map[string]any{"schema_version": 1.0, "operation_id": "op-1", "status": "terminal", "derivation_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "producer": map[string]any{"adapter_id": "go-vet-json", "adapter_version": 1.0, "capability_version": 1.0}, "parse_outcome": "partial", "completeness": "partial", "completeness_reason": "pass_records_elided", "observed_entries": map[string]any{"namespace": "jest", "vocabulary_version": 1.0, "files": 2.0, "entries": 2.0, "pass": 1.0, "fail": 1.0, "skip": 0.0, "error": 0.0}, "summary": summary, "records": []any{record}}
+	return record, structured, failureRecord
 }
 
 func TestStructuredCapabilityCatalogSchemaIsOptionalAndClosed(t *testing.T) {
