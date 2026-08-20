@@ -61,7 +61,7 @@ func TestJestInvocationQualifiesDirectProducerAndOutputForms(t *testing.T) {
 			if binding.ExcludedFlagState != JestExcludedFlagsAbsent || binding.ArgumentFileState != ArgumentFileStateNotExpanded || binding.ArgumentFileEvidence != JestV1ReleaseEvidence {
 				t.Fatalf("authority fields=%#v", binding)
 			}
-			if binding.ZeroMatchEmitsArtifact || len(observer.names) != 1 || observer.names[0] != JestJasmineEnvironment {
+			if !binding.ZeroMatchEmitsArtifact || len(observer.names) != 1 || observer.names[0] != JestJasmineEnvironment {
 				t.Fatalf("zero-match=%v observations=%v", binding.ZeroMatchEmitsArtifact, observer.names)
 			}
 		})

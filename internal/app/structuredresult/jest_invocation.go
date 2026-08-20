@@ -52,7 +52,7 @@ func (b JestInvocationBindingV1) Validate() error {
 	if b.JasmineEnvironmentFact.Validate() != nil || b.JasmineEnvironmentFact.Name != JestJasmineEnvironment {
 		return fmt.Errorf("invalid jest jasmine environment fact")
 	}
-	if b.ArgumentFileState != ArgumentFileStateNotExpanded || b.ArgumentFileEvidence != JestV1ReleaseEvidence || b.ZeroMatchEmitsArtifact {
+	if b.ArgumentFileState != ArgumentFileStateNotExpanded || b.ArgumentFileEvidence != JestV1ReleaseEvidence || !b.ZeroMatchEmitsArtifact {
 		return fmt.Errorf("invalid jest release behavior facts")
 	}
 	return nil
@@ -115,7 +115,7 @@ func QualifyJestInvocation(ctx context.Context, req JestInvocationRequest, obser
 		SchemaVersion: JestInvocationSchemaV1, ProducerForm: JestProducerDirect, JSONFlag: "--json", OutputFile: output,
 		ExcludedFlagState: JestExcludedFlagsAbsent, JasmineEnvironmentFact: fact,
 		ArgumentFileState: ArgumentFileStateNotExpanded, ArgumentFileEvidence: JestV1ReleaseEvidence,
-		ZeroMatchEmitsArtifact: false,
+		ZeroMatchEmitsArtifact: true,
 	}
 	return binding, binding.QualifiedV1(), nil
 }

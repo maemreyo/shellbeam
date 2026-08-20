@@ -430,7 +430,7 @@ V1 SHALL therefore reject **every argv token beginning with `@`** during automat
 
 Each `ProducerInvocationBindingV1` may still carry the closed `argument_file_state = producer_does_not_expand` plus a bounded `argument_file_evidence` release label. Those fields record qualification evidence for the tested release matrix and remain digest-bound, but they are **not runtime authority to accept `@token` argv**. The release matrix (§31) keeps the `@file non-expansion` probe only as evidence for a future design that might add producer-version attestation or otherwise reopen this shape safely.
 
-For Jest V1 the release-evidence label is `jest-v1:29.7.0,30.4.1`: `30.4.1` is the version string reported by `jest --version` from the qualified `jest@30.4.2` installation (§31). The same bounded release matrix establishes `zero_match_emits_artifact=false`. These fields do not claim that the current executable has either version. Task 4.5 re-verifies them mechanically before parser work proceeds; disagreement requires an amendment rather than silently changing the binding.
+For Jest V1 the release-evidence label is `jest-v1:29.7.0,30.4.1`: `30.4.1` is the version string reported by `jest --version` from the qualified `jest@30.4.2` installation (§31). Task 4.5 mechanically established `zero_match_emits_artifact=true` for both qualified Jest releases. These fields do not claim that the current executable has either version; they bind the release-matrix facts that parser behavior relies on.
 
 Zero-match behavior remains a separate per-release fact (§22.5). Jest `30.4.2` does not emit the output file when zero tests match [RUN 30.4.2]; Vitest `3.2.7` does emit a zero-result document and the parser SHALL detect that case and set `Completeness=partial` with `CompletenessReason=zero_match` rather than `complete`.
 
@@ -471,25 +471,29 @@ A config `reporters` setting cannot suppress or alter `--json`: with `reporters:
 
 ### 22.5 Zero-match emission behavior is pinned per producer version
 
-Producer behavior diverges on what happens when an invocation filters out every test:
+Qualified releases emit an artifact when a **test-file filter** matches zero test files:
 
 ```text
-Jest 30.4.2    zero tests match → no output file at declared path,
-               exit code 1, no document emitted [RUN 30.4.2]
+Jest 29.7.0    zero test-file matches → output file emitted with
+               numTotalTests=0, success=true, testResults=[],
+               exit code 1 [RUN Task 4.5]
+Jest 30.4.2    same; producer-reported version is 30.4.1 [RUN Task 4.5]
 Vitest 3.2.7   zero tests match → output file emitted with
                numTotalTests=0, success=false, testResults=[],
                exit code 1 [RUN 3.2.7]
 ```
 
-A Vitest zero-match document decodes cleanly into the v3/v4 profile. Without per-version awareness the adapter would persist `ObservedEntryCounts.Entries=0` and a complete derivation, and a P1 obligation over "did the run pass" would receive a vacuous affirmative. That is a silent-divergence failure mode, not a missing-result failure mode, and it is the reason the per-version emission pin matters.
+The Jest qualification probe uses a nonexistent positional test-file filter. `--testNamePattern=__none__ pass.test.js` is **not** a zero-run probe: both qualified Jest releases emit one pending test (`numTotalTests=1`, `numPendingTests=1`) and exit 0. The parser therefore keys zero-match only from mechanically observed entry counts, never from the command-line spelling or producer `success` field.
+
+A zero-match document decodes cleanly into the qualified structural profile. Without the release fact the adapter could persist `ObservedEntryCounts.Entries=0` and a complete derivation, and a P1 obligation over "did the run pass" would receive a vacuous affirmative. That is a silent-divergence failure mode and is why the emission pin matters.
 
 V1 SHALL:
 
 ```text
-<ns>:zero_match_emits_artifact     Jest 30.4.2: false
+<ns>:zero_match_emits_artifact     Jest 29.7.0 / 30.4.1: true
                                    Vitest 3.2.7: true
 
-<ns>:zero_match_completeness       Jest 30.4.2: n/a (no document)
+<ns>:zero_match_completeness       Jest 29.7.0 / 30.4.1: partial + reason zero_match
                                    Vitest 3.2.7: partial + reason zero_match
 ```
 
@@ -665,8 +669,8 @@ The matrix SHALL additionally cover, per qualified producer version, two produce
 
 zero-match emission    an invocation that filters out every test:
                        does the declared output path receive a document?
-                       (§22.5) — Jest 30.4.2: no document; Vitest 3.2.7:
-                       document with numTotalTests=0, success=false
+                       (§22.5) — Jest 29.7.0 / 30.4.1 and Vitest 3.2.7:
+                       document emitted with numTotalTests=0
 ```
 
 These are release-qualification tests, not runtime detectors. They bind the per-version facts that the binding's `argument_file_state` and `zero_match_emits_artifact` fields carry into the digest.
@@ -1414,7 +1418,7 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 22. Multi-project invocations are unqualified.
 23. Terminal receipt remains child execution truth; structured projection never mutates execution semantics.
 24. Jest and Vitest V1 auto-qualification rejects every `@token` argv token, including after `--`. Release-matrix `@file` non-expansion evidence is recorded but is not runtime authority without producer-version attestation (§20.1, §28, §31).
-25. Zero-match emission is pinned per producer version (§22.5). Vitest emits a zero-result document; Jest does not. The parser SHALL set `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0` and the producer binding records `zero_match_emits_artifact == true`. The reason is distinct from `pass_records_elided`; `budget_exceeded` remains a distinct parse outcome.
+25. Zero-match emission is pinned per producer version (§22.5). Both qualified Jest releases and qualified Vitest releases emit a zero-result document for the release-matrix zero-file-match probe. The parser SHALL set `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0` and the producer binding records `zero_match_emits_artifact == true`. Producer `success` is never consulted. The reason is distinct from `pass_records_elided`; `budget_exceeded` remains a distinct parse outcome.
 
 ## 63. Deferred beyond V1
 

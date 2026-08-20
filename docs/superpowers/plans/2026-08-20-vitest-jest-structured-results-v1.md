@@ -548,6 +548,8 @@ git -c core.hooksPath=.githooks commit -m "feat: qualify jest structured invocat
 **Files:**
 - Create: `scripts/generate-jest-real-doc-fixtures.sh`
 - Create: `tests/fixtures/jest-json/real-doc-fixtures/{manifest.json,jest-29.7.0/,jest-30.4.2/}`
+- Modify: `internal/app/structuredresult/jest_invocation.go`, `jest_invocation_test.go` — Task 4.5 corrected the release fact to `zero_match_emits_artifact=true`.
+- Modify: `docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md`, this plan — record observed producer facts before parser work.
 
 **Interfaces:**
 - Produces at least one real `--json --outputFile=<path>` document per qualified Jest version (29.7.0, 30.4.2) by running the actual producer in a throwaway install, with `JEST_JASMINE` unset.
@@ -555,7 +557,7 @@ git -c core.hooksPath=.githooks commit -m "feat: qualify jest structured invocat
 
 > This task is sequenced BEFORE Task 5 for the same reason Task 1 is sequenced before any parser: the structural profile discriminator (§30 of the spec) and the zero-match emission behavior (§22.5) are facts about real producer output, not about presumed output. Pinning a parser against assumed key sets is the same defect as pinning a parser against a document-order cap: the parser passes its fixtures and fails on real repositories.
 
-- [ ] **Step 1: Write the manifest shell**
+- [x] **Step 1: Write the manifest shell**
 
 Generate one minimal pass-only document per version:
 
@@ -568,45 +570,52 @@ INSTALLED="$(npx jest --version | awk '{print $1}')"
 
 The manifest format mirrors `tests/fixtures/pytest-junit/manifest.json`: producer version, exact generator command, normalization note, SHA-256.
 
-- [ ] **Step 2: Generate the zero-match emission document per version**
+- [x] **Step 2: Generate the zero-match emission document per version**
 
 For each version, run an invocation that filters out every test and capture what happens at the declared output path. Record:
 
+Observed Task 4.5 result:
+
 ```text
-Jest 30.4.2   argv: jest --json --outputFile=/tmp/empty.json --testNamePattern=__none__
-              file present after invocation?  NO
-              exit code: 1
-Jest 29.7.0   (same)
-              file present after invocation?  NO
-              exit code: 1
+Jest 29.7.0   argv: jest --json --outputFile=/tmp/empty.json __definitely_no_such_test_file__
+              file present after invocation?  YES
+              numTotalTests=0, testResults=[], exit code: 1
+Jest 30.4.2   same; jest --version reports 30.4.1
+              file present after invocation?  YES
+              numTotalTests=0, testResults=[], exit code: 1
 ```
 
-If a version emits the file, the binding's `zero_match_emits_artifact` is set to `true` and the parser-level `Completeness=partial`, `CompletenessReason=zero_match` detection (Task 5) is required. If not, `false`.
+`--testNamePattern=__none__ pass.test.js` was rejected as a zero-run probe because Jest reports one pending test, not zero observed entries. The binding is therefore corrected to `zero_match_emits_artifact=true`, and Task 5 SHALL emit `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0`.
 
-- [ ] **Step 3: Generate the `@file` non-expansion document per version**
+- [x] **Step 3: Generate the `@file` non-expansion document per version**
 
 For each version, run an invocation whose argv contains `@args.txt` (file containing `--bail`) and verify the producer does not expand the file:
 
+Observed on both qualified releases:
+
 ```text
-Jest 30.4.2   argv: jest --json --outputFile=/tmp/expand.json @args.txt
-              args.txt content: --bail
-              producer behavior: 0 matches, no file emitted at declared path
-              argfile expansion observed?  NO
+argv: jest --json --outputFile=/tmp/expand.json @args.txt
+args.txt content: --bail
+@args result:     numTotalTests=0, exit 1
+explicit --bail control on pass.test.js: numTotalTests=1, exit 0
+argfile expansion observed? NO
 ```
 
-Record the result. If a version DOES expand, the binding's `argument_file_state` flips to `producer_expands` (a new closed value) and the plan returns to amend spec §20.1.
+The output file is present even for the zero-file-match case, so file presence alone is not expansion evidence. The control proves the token was treated as a positional test-file filter rather than expanded into `--bail`. Runtime V1 still rejects every `@token` independently (§20.1).
 
-- [ ] **Step 4: Verify the observed key set before any parser code is written**
+- [x] **Step 4: Verify the observed key set before any parser code is written**
 
-For each version, dump the JSON document and verify the assertion-key count and the presence of `failing`/`startAt` match the spec §30 table. If they do not, stop and amend spec §30 rather than letting the parser commit to an assumed profile.
+For each version, dump the JSON document and verify the assertion-key count and the presence of `failing`/`startAt` match the spec §30 table. Observed result: Jest 29.7.0 has 11 assertion keys with neither `failing` nor `startAt`; Jest 30.4.2 has 13 with both present. The spec §30 discriminator is confirmed unchanged.
 
-- [ ] **Step 5: Commit real-doc fixtures**
+- [x] **Step 5: Commit real-doc fixtures**
+
+Task 4.5 verification note (2026-08-20): fixture regeneration was byte-for-byte deterministic; manifest SHA entries matched the frozen files; no ephemeral temp/worktree paths remained. `devctl test --dirty --base main --json` passed the full affected selection, including `internal/adapter/store` in 234.075s and `cmd/shellbeam` in 349.121s.
 
 ```bash
 ./scripts/generate-jest-real-doc-fixtures.sh
 go test ./tests/fixtures/jest-json -count=1 || true
 go run ./tools/devctl check
-git add scripts/generate-jest-real-doc-fixtures.sh tests/fixtures/jest-json
+git add scripts/generate-jest-real-doc-fixtures.sh tests/fixtures/jest-json internal/app/structuredresult/jest_invocation.go internal/app/structuredresult/jest_invocation_test.go docs/superpowers/specs/2026-08-20-vitest-jest-structured-results-design.md docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "test: freeze jest real-document fixtures"
 ```
