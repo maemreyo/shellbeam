@@ -80,6 +80,67 @@ func TestStructuredRecordSetV3StrictDecodeAndClosedMixedVersionRules(t *testing.
 	}
 }
 
+func TestStructuredV2SuiteDispositionPersistsAndReplays(t *testing.T) {
+	r := openStructuredRepository(t)
+	pending := structuredDerivation(t, 1, core.LifecyclePending, "", core.CompletenessUnavailable)
+	processing := pending
+	processing.Lifecycle = core.LifecycleProcessing
+	if err := r.PutDerivation(context.Background(), pending); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.PutDerivation(context.Background(), processing); err != nil {
+		t.Fatal(err)
+	}
+	record := core.Record{
+		SchemaVersion: core.SchemaVersion, RecordKind: core.RecordTestSuite, Authority: core.AuthorityMechanical,
+		DerivationMethod: core.DerivationNativeFieldMapping, Producer: processing.Producer, OperationID: "op-1", SourceRef: processing.SourceAuthorityRefs[0],
+		TestSuite: &core.TestSuite{Name: "src/a.test.js", Status: core.TestPassed, ProducerDisposition: &core.ProducerTestDisposition{Namespace: "jest", VocabularyVersion: 1, Code: "jest:suite_focused"}},
+	}
+	if err := r.PutRecords(context.Background(), processing.DerivationKey, []core.Record{record}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.PutRecords(context.Background(), processing.DerivationKey, []core.Record{record}); err != nil {
+		t.Fatalf("exact replay: %v", err)
+	}
+	listed, err := r.ListRecords(context.Background(), processing.DerivationKey, structuredapp.RecordQuery{Offset: 0, Limit: 10})
+	if err != nil || !reflect.DeepEqual(listed, []core.Record{record}) {
+		t.Fatalf("listed=%#v err=%v", listed, err)
+	}
+	raw, err := os.ReadFile(r.recordPath(processing.DerivationKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"producer_disposition":{"namespace":"jest","vocabulary_version":1,"code":"jest:suite_focused"}`) {
+		t.Fatalf("suite disposition not persisted in v2 bytes: %s", raw)
+	}
+}
+
+func TestStructuredV2TestCaseAttemptCountPersistsExactly(t *testing.T) {
+	r := openStructuredRepository(t)
+	pending := structuredDerivation(t, 1, core.LifecyclePending, "", core.CompletenessUnavailable)
+	processing := pending
+	processing.Lifecycle = core.LifecycleProcessing
+	if err := r.PutDerivation(context.Background(), pending); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.PutDerivation(context.Background(), processing); err != nil {
+		t.Fatal(err)
+	}
+	attempts := 3
+	record := structuredTestCaseRecord(processing, core.SchemaVersion, "retried pass", core.TestPassed, nil)
+	record.TestCase.AttemptCount = &attempts
+	if err := r.PutRecords(context.Background(), processing.DerivationKey, []core.Record{record}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.PutRecords(context.Background(), processing.DerivationKey, []core.Record{record}); err != nil {
+		t.Fatalf("exact replay: %v", err)
+	}
+	listed, err := r.ListRecords(context.Background(), processing.DerivationKey, structuredapp.RecordQuery{Offset: 0, Limit: 10})
+	if err != nil || len(listed) != 1 || listed[0].TestCase == nil || listed[0].TestCase.AttemptCount == nil || *listed[0].TestCase.AttemptCount != 3 {
+		t.Fatalf("listed=%#v err=%v", listed, err)
+	}
+}
+
 func TestStructuredV2RecordSetReadDoesNotRewritePersistedBytes(t *testing.T) {
 	r := openStructuredRepository(t)
 	pending := structuredDerivation(t, 1, core.LifecyclePending, "", core.CompletenessUnavailable)

@@ -119,30 +119,30 @@ type ObservedEntryCounts struct {
 
 Derivation persistence gains an explicit schema-v3 branch while records remain on the current schema. Do **not** change the shared `core.SchemaVersion = 2` constant. Existing v1/v2 derivations decode exactly as before and are never rewritten solely to normalize versions. Existing adapters that return no reason/count metadata still persist schema-v2 derivations.
 
-- [ ] **Step 1: Write RED core validation tests**
+- [x] **Step 1: Write RED core validation tests**
 
 Cover: closed reason values; reason only on terminal partial derivations; `pass_records_elided` and `zero_match` require `ParsePartial` and `CompletenessPartial` before compaction, while `CompletenessCompacted` preserves the terminal reason afterward; observed counts only on terminal derivations; vocabulary version 1; safe bounded namespace; every count non-negative and <= `maxObservedEntries=65536`; `Pass+Fail+Skip+Error == Entries`; and **no** `Files <= Entries` invariant. Include a valid fixture with `Files=2, Entries=1` to pin the Jest module-error case.
 
 Run: `go test ./internal/core/structuredresult -run 'ObservedEntr|CompletenessReason|DerivationV3' -count=1`
 Expected: FAIL because the types/fields do not exist.
 
-- [ ] **Step 2: Implement core types and derivation-only schema v3**
+- [x] **Step 2: Implement core types and derivation-only schema v3**
 
 Add a dedicated derivation-v3 constant. `Derivation.Validate` accepts v1/v2/v3, rejects v3-only fields on v1/v2, and keeps derivation identity unchanged. Do not alter `Record.Validate` or the shared record schema constant in this task.
 
-- [ ] **Step 3: Write RED store compatibility/transition tests**
+- [x] **Step 3: Write RED store compatibility/transition tests**
 
 Pin literal v1 and v2 derivation JSON bytes, then add v3 fixtures. Assert v1/v2 read unchanged, v2 processing -> v3 terminal is allowed only when v3 terminal metadata is present/valid, unknown schema fails closed, and replay/compaction preserves reason/count metadata. Assert old v2 bytes are not rewritten by read/replay.
 
-- [ ] **Step 4: Implement store v3 decoding and transition rules**
+- [x] **Step 4: Implement store v3 decoding and transition rules**
 
 Decode v1, v2, and v3 explicitly with strict unknown-field rejection. Keep record-set decoding unchanged in this task.
 
-- [ ] **Step 5: Write RED app plumbing tests**
+- [x] **Step 5: Write RED app plumbing tests**
 
 Add `CompletenessReason` and `ObservedEntries` to `ParseResult`. Prove worker -> service -> repository persistence, `inspect.structured` exposure, and defensive copying. When output truncation downgrades a parser `complete` result to partial, reason remains empty unless the parser supplied a valid reason for the resulting partial state.
 
-- [ ] **Step 6: Implement app plumbing**
+- [x] **Step 6: Implement app plumbing**
 
 Use one terminal metadata-bearing completion path; preserve compatibility wrappers for callers that only provide coverage. Existing adapters must continue to persist schema-v2 derivations.
 
@@ -628,17 +628,23 @@ git -c core.hooksPath=.githooks commit -m "test: freeze jest real-document fixtu
 - Create: `internal/adapter/structured/jestjson/types.go`
 - Create: `internal/adapter/structured/jestjson/profile.go`
 - Create: `internal/adapter/structured/jestjson/parser.go`
+- Create: `internal/adapter/structured/jestjson/normalize.go`
+- Create: `internal/adapter/structured/jestjson/bounds.go`
 - Create: `internal/adapter/structured/jestjson/parser_test.go`
 - Create: `internal/adapter/structured/jestjson/parser_limits_test.go`
 - Create: `internal/adapter/structured/jestjson/parser_fuzz_test.go`
+- Modify: `internal/core/structuredresult/record.go`, `record_test.go` — add v2+ `TestCase.AttemptCount` and `TestSuite.ProducerDisposition` required by the frozen Jest semantics.
+- Modify: `internal/adapter/store/structured_record_v3_test.go` — pin v2 replay/no-rewrite and mixed-v3 compatibility for the new metadata.
+- Modify: `api/schema/ipc-v2.json`, `api/schema/mcp-output-v2.json`, `api/schema/structured_inspect_test.go` — keep the closed public schemas aligned with the core model.
+- Modify: design spec and this plan — record profile/zero-match/model corrections found by parser TDD.
 
 **Interfaces:**
 - Produces `jestjson.Adapter{}` with `ID() == "jest-json"`, version `1`, artifact-only input.
 - Emits `ParseResult` with `SemanticsCoverage`, `ObservedEntries`, and `CompletenessReason`, and applies `SelectRecordsFailureFirst` before returning.
 
-- [ ] **Step 1: Write RED profile-discrimination tests**
+- [x] **Step 1: Write RED profile-discrimination tests**
 
-Two closed decode structs. `v30` declares the 13 assertion members; `v29` declares 11 (no `failing`, no `startAt`). Try `v30` first, then `v29`; first clean strict decode wins.
+Two closed decode structs. `v30` declares the 13 assertion members; `v29` declares 11 (no `failing`, no `startAt`). Try `v30` first, then `v29`; `v30` additionally requires at least one assertion carrying both discriminator members. A document with zero assertions has no mechanical v30 discriminator and deliberately falls back to v29 least-capability coverage.
 
 Members the adapter does not consume — `snapshot`, `openHandles`, `coverageMap`, `failureDetails`, `retryReasons` — SHALL be declared as raw-message fields so their internal shape is not pinned, while still satisfying `RejectUnknownMembers` at the level the profile does pin.
 
@@ -654,7 +660,7 @@ trailing bytes after the document    → fails closed
 Run: `go test ./internal/adapter/structured/jestjson -count=1`
 Expected: FAIL because the package does not exist.
 
-- [ ] **Step 2: Write RED status and disposition tests**
+- [x] **Step 2: Write RED status and disposition tests**
 
 ```text
 passed,  failing=false              → pass,  no disposition
@@ -671,7 +677,9 @@ File-level: `failed → fail`, `passed → pass`, `skipped → skip`, `focused �
 
 `invocations` maps to `jest:invocations` from the integer only. Assert a `passed` record with `invocations == 3` stays `pass` and is never relabeled or described as flaky.
 
-- [ ] **Step 3: Write RED suite-error and budget tests**
+Task 5 TDD exposed two missing durable slots in the shared core model. The approved bounded correction adds optional v2+ `TestCase.AttemptCount` for the integer fact and optional v2+ `TestSuite.ProducerDisposition` for `jest:suite_focused`; schema-v1 rejects both. Store and IPC/MCP tests pin exact replay/no-rewrite and closed-schema behavior.
+
+- [x] **Step 3: Write RED suite-error and budget tests**
 
 ```text
 beforeAll throws     → per-assertion fail entries, no error status
@@ -683,21 +691,21 @@ Assert no record anywhere carries `TestStatus = error`, and that the heuristic "
 
 Budget: build a document with more entries than the cap where failures sit past the cap position, and assert every failure is persisted, passes are elided, completeness is `partial` with reason `pass_records_elided`, and `ObservedEntryCounts.Entries` still equals the full traversed count.
 
-- [ ] **Step 4: Implement the parser**
+- [x] **Step 4: Implement the parser**
 
 Bounds: `maxJestJSONRecords = 8192`, observed-entry ceiling `65536`, per string field `64 KiB`, input bytes inherited from the resolver, plus the context deadline. Reject on the observed-entry ceiling before normalizing anything.
 
-Never read `success`. Never recompute a suite status from records. Never emit `TestSuiteAggregate`.
+Never read `success`. Never recompute a suite status from records. Never emit `TestSuiteAggregate`. Zero-match is `Files == 0 && Entries == 0`, not `Entries == 0` alone, because a module-level throw legitimately yields one file and zero assertion entries.
 
-- [ ] **Step 5: Implement identity, address, and duration**
+- [x] **Step 5: Implement identity, address, and duration**
 
 `ArtifactTestEntryRef` from blob ID plus file and assertion ordinals; `RecordID = H(derivation_key + "testcase" + ordinals)`. `ProducerTestAddress` carries the `PathClass`-classified file path, joined ancestor titles, and title. Never treat `fullName` as identity. Durations truncate to whole milliseconds toward zero; the exec-error branch's equal `startTime`/`endTime` are not persisted as facts.
 
-- [ ] **Step 6: Emit coverage, and populate excerpts only if Task 2 gate passed**
+- [x] **Step 6: Emit coverage, and populate excerpts only if Task 2 gate passed**
 
 Coverage exactly as spec §53, with `family` set from the observed profile and both `failing` codes moved to `unavailable` under `v29`.
 
-- [ ] **Step 7: Run parser, limits, fuzz and commit**
+- [x] **Step 7: Run parser, limits, fuzz and commit**
 
 ```bash
 go test ./internal/adapter/structured/jestjson ./internal/core/structuredresult -count=1
@@ -713,14 +721,15 @@ git -c core.hooksPath=.githooks commit -m "feat: parse jest json structured resu
 
 ### Task 6: Wire Jest into selection, admission, composition, capability and inspect
 
-Before the adapter can persist its advertised 8192-record budget, raise the shared structured-record store ceiling from 1024 to at least 8192 and raise the bounded record-file byte ceiling enough to hold 8192 schema-v3 records at the declared per-record limits. Pin both bounds with store tests; the parser-level 8192 cap is not deployable while the store rejects the same set at 1024.
+Before the adapter can persist its advertised 8192-record budget, raise **all three shared ceilings together**: `structuredresult.Limits.Validate()` currently rejects `MaxRecords > 4096`, `cmd/shellbeam` currently constructs workers with `structuredWorkerMaxRecords = 1024`, and the store currently has `MaxStructuredRecords = 1024` plus an 8 MiB record-file ceiling. Raise the parser/worker allowance and store ceiling to at least 8192, raise the bounded record-file byte ceiling enough for 8192 schema-v3 records at the declared per-record limits, and pin each boundary with tests. The Task 5 parser owns the 8192 algorithmic cap, but it is intentionally not deployable above the current shared limits until this Task 6 gate lands.
 
 **Files:**
 - Modify: `internal/app/structuredresult/selection.go`, `selection_test.go`
+- Modify: `internal/app/structuredresult/ports.go` + limits tests — permit the 8192 parser budget.
 - Modify: `internal/app/daemon/admission.go`, `project_command.go`
 - Modify: `internal/app/daemon/structured_pytest_admission_test.go` (rename to cover both producers) or add `structured_js_admission_test.go`
 - Modify: `cmd/shellbeam/execution_structured_capture.go`, `execution_structured_capture_test.go`
-- Modify: `cmd/shellbeam/execution_observation.go`
+- Modify: `cmd/shellbeam/execution_observation.go` — raise `structuredWorkerMaxRecords` with the store/parser ceiling.
 - Modify: `internal/core/capability/catalog.go`, `catalog_test.go`
 - Modify: `internal/app/structuredresult/inspect.go`, `inspect_test.go`
 - Modify: `internal/adapter/store/structured_records.go`, `structured_results_private.go`, focused store limit tests

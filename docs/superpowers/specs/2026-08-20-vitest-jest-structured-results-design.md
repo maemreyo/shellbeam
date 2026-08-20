@@ -483,7 +483,7 @@ Vitest 3.2.7   zero tests match → output file emitted with
                exit code 1 [RUN 3.2.7]
 ```
 
-The Jest qualification probe uses a nonexistent positional test-file filter. `--testNamePattern=__none__ pass.test.js` is **not** a zero-run probe: both qualified Jest releases emit one pending test (`numTotalTests=1`, `numPendingTests=1`) and exit 0. The parser therefore keys zero-match only from mechanically observed entry counts, never from the command-line spelling or producer `success` field.
+The Jest qualification probe uses a nonexistent positional test-file filter. `--testNamePattern=__none__ pass.test.js` is **not** a zero-run probe: both qualified Jest releases emit one pending test (`numTotalTests=1`, `numPendingTests=1`) and exit 0. The parser therefore keys zero-match only from mechanically traversed file/entry counts, never from the command-line spelling, producer counters, or producer `success` field.
 
 A zero-match document decodes cleanly into the qualified structural profile. Without the release fact the adapter could persist `ObservedEntryCounts.Entries=0` and a complete derivation, and a P1 obligation over "did the run pass" would receive a vacuous affirmative. That is a silent-divergence failure mode and is why the emission pin matters.
 
@@ -497,7 +497,7 @@ V1 SHALL:
                                    Vitest 3.2.7: partial + reason zero_match
 ```
 
-`zero_match` is a closed `CompletenessReason`, not a new `Completeness` enum value. The parser SHALL emit `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0` AND the producer binding says zero-match emits an artifact. The reason SHALL be observable through `inspect.structured` and the existing structured-evidence bridge so consumers can distinguish "did not run" from "ran and passed" without inventing a parallel P1 ontology. Free-form reason strings do not automatically gain policy semantics; an explicit bounded/versioned P1 requirement is still required before sufficiency logic consumes one.
+`zero_match` is a closed `CompletenessReason`, not a new `Completeness` enum value. The parser SHALL emit `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Files == 0`, `ObservedEntryCounts.Entries == 0`, AND the producer binding says zero-match emits an artifact. `Entries == 0` alone is insufficient: a module-level execution error produces one traversed file with `assertionResults=[]` (§44, §47.2) and MUST remain a real failed-suite document rather than being mislabeled zero-match. The reason SHALL be observable through `inspect.structured` and the existing structured-evidence bridge so consumers can distinguish "did not run" from "ran and passed" without inventing a parallel P1 ontology. Free-form reason strings do not automatically gain policy semantics; an explicit bounded/versioned P1 requirement is still required before sufficiency logic consumes one.
 
 The release qualification matrix SHALL verify this behavior per version, in the same matrix that verifies `@file non-expansion`.
 
@@ -625,6 +625,8 @@ Verified profile-bearing key deltas:
 | `v30` | 13 | adds `failing`, `startAt`, both always present in 30.x output |
 
 Top-level key set, per-file key set, file-level status union, `Status` union, counters, and retry representation were **identical** between `29.7.0` and `30.4.2` [RUN]. The 29→30 change was purely additive at the assertion level. Jest `28.x` is [UNVERIFIED] and SHALL NOT be qualified.
+
+The `v30` discriminator is observable only when at least one assertion entry exists. A zero-match document or a module-level execution-error document can contain no assertions at all, so neither `failing` nor `startAt` exists to prove `v30`. In that discriminator-free case the parser SHALL use the clean `v29` decode and its least-capability coverage rather than claim unobserved `v30` semantics. This is conservative profile attribution, not producer-version inference: all top-level and file-level members are identical across the two qualified Jest profiles, while the two `failing` disposition codes remain unavailable until an assertion actually proves the `v30` key set.
 
 **Vitest** [SRC]
 
@@ -945,6 +947,8 @@ attempts = invocations
 retries  = invocations - 1
 ```
 
+The mechanically observed integer SHALL be persisted as `TestCase.AttemptCount`, an optional generic core field with range `1..1048576`. The field records attempts only; the adapter SHALL NOT persist a derived retry count and SHALL NOT infer flake state. `AttemptCount` is v2+ record metadata: schema-v1 records reject it, while schema-v3 failure-excerpt records may carry it alongside the excerpt.
+
 This is a genuine mechanical fact, unlike the Vitest inference forbidden in §39. The distinction is exactly the one pytest §75 draws: an integer field published by the producer is authority; a message-array length is not.
 
 A record with `status = pass` and `invocations > 1` SHALL NOT be relabeled `fail`, and SHALL NOT be described as "flaky" by the adapter. It records attempts; a flake policy is a P1 concern with its own contract (pytest §66).
@@ -1018,7 +1022,7 @@ focused → pass + jest:suite_focused
 
 `focused` means no failures **and** at least one pending test. It is assigned as `allTestsPassed ? (allTestsExecuted ? 'passed' : 'focused') : 'failed'` where `allTestsExecuted` is `numPendingTests == 0` [SRC]. A file with one passing test plus one `it.skip` therefore reports `focused`, not `passed` — reproduced on both `29.7.0` and `30.4.2` [RUN]. `skipped` occurs when `--testNamePattern` filters out every test in the file [RUN].
 
-Mapping `focused` to `pass` is the honest coarse reduction, because no failure occurred; the disposition preserves the fact that execution was incomplete. A `focused` suite record SHALL NOT be read as complete suite execution.
+Mapping `focused` to `pass` is the honest coarse reduction, because no failure occurred; the disposition preserves the fact that execution was incomplete. The disposition SHALL be persisted on the file record as `TestSuite.ProducerDisposition{namespace=jest, vocabulary_version=1, code=jest:suite_focused}`. `TestSuite.ProducerDisposition` is optional v2+ record metadata; schema-v1 records reject it. A `focused` suite record SHALL NOT be read as complete suite execution.
 
 ## 47. Suite aggregate counters are unavailable in V1
 
@@ -1079,6 +1083,8 @@ adapter ParseResult
 The shipped schema-v2 derivation is strict-decoded and cannot safely accept new JSON members in place. V1 SHALL therefore add a **derivation-only schema v3**. This does not change the current record schema version and SHALL NOT rewrite existing v1/v2 derivations. New Go/pytest derivations that do not carry v3 terminal metadata remain schema v2 byte-for-byte; a JS derivation upgrades from v2 pending/processing state to schema v3 only when terminal metadata is committed. The store SHALL read v1, v2, and v3 derivations explicitly and fail closed on unknown versions.
 
 Likewise, Task 2 SHALL introduce a **record/record-set schema v3** only when the set contains the new bounded failure-excerpt member. A schema-v3 record set may contain schema-v2 records without excerpts alongside schema-v3 records with excerpts; it MUST contain at least one schema-v3 record and no v1 records. Existing Go/pytest record sets remain homogeneous schema v2. The shared constant `SchemaVersion=2` SHALL NOT simply be changed to `3`, because doing so would silently rewrite unrelated persisted bytes.
+
+Task 5 additionally extends the existing v2 record payload with two optional mechanical metadata fields required by the frozen Jest contract: `TestCase.AttemptCount` and `TestSuite.ProducerDisposition`. They do not change record identity and do not trigger a v3 record by themselves; v3 remains owned by `FailureExcerpt`. Pre-existing v2 bytes remain byte-for-byte unchanged and readable. A strict older binary whose v2 struct predates these optional members may reject a **new** v2 Jest record carrying them; that local downgrade hazard is accepted rather than inventing a new schema version for each additive typed metadata field. Schema-v1 records explicitly reject both fields.
 
 Downgrade behavior is explicit: an older binary that predates schema v3 may reject a v3 JS derivation/record set as unsupported, but it SHALL continue to read all pre-existing v1/v2 data. New code SHALL NOT mutate old persisted bytes merely to normalize them to v3.
 
@@ -1418,7 +1424,7 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 22. Multi-project invocations are unqualified.
 23. Terminal receipt remains child execution truth; structured projection never mutates execution semantics.
 24. Jest and Vitest V1 auto-qualification rejects every `@token` argv token, including after `--`. Release-matrix `@file` non-expansion evidence is recorded but is not runtime authority without producer-version attestation (§20.1, §28, §31).
-25. Zero-match emission is pinned per producer version (§22.5). Both qualified Jest releases and qualified Vitest releases emit a zero-result document for the release-matrix zero-file-match probe. The parser SHALL set `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when `ObservedEntryCounts.Entries == 0` and the producer binding records `zero_match_emits_artifact == true`. Producer `success` is never consulted. The reason is distinct from `pass_records_elided`; `budget_exceeded` remains a distinct parse outcome.
+25. Zero-match emission is pinned per producer version (§22.5). Both qualified Jest releases and qualified Vitest releases emit a zero-result document for the release-matrix zero-file-match probe. The parser SHALL set `ParseOutcome=partial`, `Completeness=partial`, `CompletenessReason=zero_match` when both `ObservedEntryCounts.Files == 0` and `ObservedEntryCounts.Entries == 0` and the producer binding records `zero_match_emits_artifact == true`; a traversed file with zero assertions is not zero-match (§44, §47.2). Producer `success` is never consulted. The reason is distinct from `pass_records_elided`; `budget_exceeded` remains a distinct parse outcome.
 
 ## 63. Deferred beyond V1
 

@@ -40,6 +40,55 @@ func TestStructuredRecordRejectsControlBearingSemanticText(t *testing.T) {
 	}
 }
 
+func TestSuiteProducerDispositionIsV2Metadata(t *testing.T) {
+	producer := Producer{AdapterID: "jest-json", AdapterVersion: 1, CapabilityVersion: 1}
+	ref := RawOutputRef{SessionID: "session-suite", StartByte: 0, EndByte: 10, SHA256: strings.Repeat("a", 64)}
+	disposition := &ProducerTestDisposition{Namespace: "jest", VocabularyVersion: 1, Code: "jest:suite_focused"}
+	record := Record{
+		SchemaVersion: SchemaVersion, RecordKind: RecordTestSuite, Authority: AuthorityMechanical,
+		DerivationMethod: DerivationNativeFieldMapping, Producer: producer, OperationID: "op-suite", SourceRef: RawInputRef(ref),
+		TestSuite: &TestSuite{Name: "src/a.test.js", Status: TestPassed, ProducerDisposition: disposition},
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatalf("v2 suite disposition rejected: %v", err)
+	}
+	legacy := record
+	legacy.SchemaVersion = SchemaVersionV1
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("schema v1 suite accepted v2 producer disposition")
+	}
+	invalid := record
+	invalid.TestSuite = &TestSuite{Name: "src/a.test.js", Status: TestPassed, ProducerDisposition: &ProducerTestDisposition{Namespace: "jest", VocabularyVersion: 0, Code: "jest:suite_focused"}}
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("suite accepted invalid producer disposition")
+	}
+}
+
+func TestTestCaseAttemptCountIsV2MetadataAndBounded(t *testing.T) {
+	attempts := 3
+	record := failureExcerptTestRecord(TestPassed)
+	record.SchemaVersion = SchemaVersion
+	record.TestCase.AttemptCount = &attempts
+	if err := record.Validate(); err != nil {
+		t.Fatalf("v2 attempt count rejected: %v", err)
+	}
+	legacy := record
+	legacy.SchemaVersion = SchemaVersionV1
+	if err := legacy.Validate(); err == nil {
+		t.Fatal("schema v1 record accepted attempt count")
+	}
+	zero := 0
+	record.TestCase.AttemptCount = &zero
+	if err := record.Validate(); err == nil {
+		t.Fatal("zero attempt count accepted")
+	}
+	tooMany := 1<<20 + 1
+	record.TestCase.AttemptCount = &tooMany
+	if err := record.Validate(); err == nil {
+		t.Fatal("attempt count above bound accepted")
+	}
+}
+
 func TestFailureExcerptValidationIsClosedBoundedAndPathSafe(t *testing.T) {
 	valid := FailureExcerpt{Namespace: "jest", VocabularyVersion: 1, Text: "expected true\nreceived false", Truncated: false, Redacted: false}
 	if err := valid.Validate(); err != nil {

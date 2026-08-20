@@ -64,17 +64,19 @@ type TestCase struct {
 	Package             string                   `json:"package,omitempty"`
 	Status              TestStatus               `json:"status"`
 	DurationMS          int64                    `json:"duration_ms,omitempty"`
+	AttemptCount        *int                     `json:"attempt_count,omitempty"`
 	ProducerDisposition *ProducerTestDisposition `json:"producer_disposition,omitempty"`
 	ProducerAddress     *ProducerTestAddress     `json:"producer_address,omitempty"`
 	ArtifactEntry       *ArtifactTestEntryRef    `json:"artifact_entry,omitempty"`
 	FailureExcerpt      *FailureExcerpt          `json:"failure_excerpt,omitempty"`
 }
 type TestSuite struct {
-	Name       string              `json:"name"`
-	Package    string              `json:"package,omitempty"`
-	Status     TestStatus          `json:"status"`
-	DurationMS int64               `json:"duration_ms,omitempty"`
-	Aggregate  *TestSuiteAggregate `json:"aggregate,omitempty"`
+	Name                string                   `json:"name"`
+	Package             string                   `json:"package,omitempty"`
+	Status              TestStatus               `json:"status"`
+	DurationMS          int64                    `json:"duration_ms,omitempty"`
+	ProducerDisposition *ProducerTestDisposition `json:"producer_disposition,omitempty"`
+	Aggregate           *TestSuiteAggregate      `json:"aggregate,omitempty"`
 }
 type ArtifactResult struct {
 	Name   string `json:"name"`
@@ -144,6 +146,9 @@ func (t TestCase) Validate() error {
 	if !safeStructuredText(t.Name, 1024) || !validTestStatus(t.Status) || t.DurationMS < 0 {
 		return fmt.Errorf("invalid test case")
 	}
+	if t.AttemptCount != nil && (*t.AttemptCount < 1 || *t.AttemptCount > 1<<20) {
+		return fmt.Errorf("invalid test case attempt count")
+	}
 	if t.ProducerDisposition != nil && t.ProducerDisposition.Validate() != nil || t.ProducerAddress != nil && t.ProducerAddress.Validate() != nil || t.ArtifactEntry != nil && t.ArtifactEntry.Validate() != nil {
 		return fmt.Errorf("invalid test case producer metadata")
 	}
@@ -155,7 +160,7 @@ func (t TestCase) Validate() error {
 	return nil
 }
 func (t TestSuite) Validate() error {
-	if !safeStructuredText(t.Name, 1024) || !validTestStatus(t.Status) || t.DurationMS < 0 || t.Aggregate != nil && t.Aggregate.Validate() != nil {
+	if !safeStructuredText(t.Name, 1024) || !validTestStatus(t.Status) || t.DurationMS < 0 || t.ProducerDisposition != nil && t.ProducerDisposition.Validate() != nil || t.Aggregate != nil && t.Aggregate.Validate() != nil {
 		return fmt.Errorf("invalid test suite")
 	}
 	return nil
@@ -178,7 +183,7 @@ func validTestStatus(v TestStatus) bool {
 }
 
 func recordHasV2Metadata(r Record) bool {
-	return r.TestCase != nil && (r.TestCase.ProducerDisposition != nil || r.TestCase.ProducerAddress != nil || r.TestCase.ArtifactEntry != nil) || r.TestSuite != nil && r.TestSuite.Aggregate != nil
+	return r.TestCase != nil && (r.TestCase.AttemptCount != nil || r.TestCase.ProducerDisposition != nil || r.TestCase.ProducerAddress != nil || r.TestCase.ArtifactEntry != nil) || r.TestSuite != nil && (r.TestSuite.ProducerDisposition != nil || r.TestSuite.Aggregate != nil)
 }
 
 func recordHasV3Metadata(r Record) bool {

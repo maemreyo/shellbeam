@@ -94,6 +94,78 @@ func TestStructuredInspectV2OutputSchemasRejectInvalidMetadata(t *testing.T) {
 	}
 }
 
+func TestStructuredTestSuiteProducerDispositionSchemaIsV2OnlyAndClosed(t *testing.T) {
+	_, structured, _ := structuredInspectSchemaFixtures()
+	suiteRecord := map[string]any{
+		"schema_version": 2.0, "record_kind": "test_suite", "authority": "mechanical", "derivation_method": "native_field_mapping",
+		"producer": map[string]any{"adapter_id": "jest-json", "adapter_version": 1.0, "capability_version": 1.0}, "operation_id": "op-1",
+		"source_ref": map[string]any{"kind": "raw_output", "raw_output": map[string]any{"session_id": "session-1", "start_byte": 0.0, "end_byte": 10.0, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+		"test_suite": map[string]any{"name": "src/a.test.js", "status": "pass", "producer_disposition": map[string]any{"namespace": "jest", "vocabulary_version": 1.0, "code": "jest:suite_focused"}},
+	}
+	withSuite := cloneMap(structured)
+	withSuite["records"] = []any{suiteRecord}
+	ipcRoot := map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "suite", "action": "inspect.structured", "ok": true, "structured": withSuite}
+	if err := resolvedSchema(t, IPCV2).Validate(ipcRoot); err != nil {
+		t.Fatalf("ipc rejected v2 suite disposition: %v", err)
+	}
+	mcpRoot := map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": withSuite}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(mcpRoot); err != nil {
+		t.Fatalf("mcp rejected v2 suite disposition: %v", err)
+	}
+	legacy := cloneMap(suiteRecord)
+	legacy["schema_version"] = 1.0
+	legacyStructured := cloneMap(structured)
+	legacyStructured["records"] = []any{legacy}
+	if err := resolvedSchema(t, IPCV2).Validate(map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "legacy", "action": "inspect.structured", "ok": true, "structured": legacyStructured}); err == nil {
+		t.Fatal("schema v1 suite accepted producer_disposition")
+	}
+	future := cloneMap(suiteRecord)
+	futureSuite := cloneMap(suiteRecord["test_suite"].(map[string]any))
+	futureDisposition := cloneMap(futureSuite["producer_disposition"].(map[string]any))
+	futureDisposition["future"] = true
+	futureSuite["producer_disposition"] = futureDisposition
+	future["test_suite"] = futureSuite
+	futureStructured := cloneMap(structured)
+	futureStructured["records"] = []any{future}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": futureStructured}); err == nil {
+		t.Fatal("suite producer disposition accepted unknown member")
+	}
+}
+
+func TestStructuredTestCaseAttemptCountSchemaIsV2PlusAndBounded(t *testing.T) {
+	_, structured, _ := structuredInspectSchemaFixtures()
+	record := map[string]any{
+		"schema_version": 2.0, "record_kind": "test_case", "authority": "mechanical", "derivation_method": "native_field_mapping",
+		"producer": map[string]any{"adapter_id": "jest-json", "adapter_version": 1.0, "capability_version": 1.0}, "operation_id": "op-1",
+		"source_ref": map[string]any{"kind": "raw_output", "raw_output": map[string]any{"session_id": "session-1", "start_byte": 0.0, "end_byte": 10.0, "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+		"test_case":  map[string]any{"name": "retried pass", "status": "pass", "attempt_count": 3.0},
+	}
+	withRecord := cloneMap(structured)
+	withRecord["records"] = []any{record}
+	if err := resolvedSchema(t, IPCV2).Validate(map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "attempts", "action": "inspect.structured", "ok": true, "structured": withRecord}); err != nil {
+		t.Fatalf("ipc rejected attempt count: %v", err)
+	}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": withRecord}); err != nil {
+		t.Fatalf("mcp rejected attempt count: %v", err)
+	}
+	legacy := cloneMap(record)
+	legacy["schema_version"] = 1.0
+	legacyStructured := cloneMap(structured)
+	legacyStructured["records"] = []any{legacy}
+	if err := resolvedSchema(t, IPCV2).Validate(map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "legacy-attempts", "action": "inspect.structured", "ok": true, "structured": legacyStructured}); err == nil {
+		t.Fatal("schema v1 test case accepted attempt_count")
+	}
+	bad := cloneMap(record)
+	badCase := cloneMap(record["test_case"].(map[string]any))
+	badCase["attempt_count"] = 1048577.0
+	bad["test_case"] = badCase
+	badStructured := cloneMap(structured)
+	badStructured["records"] = []any{bad}
+	if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": badStructured}); err == nil {
+		t.Fatal("attempt_count above bound accepted")
+	}
+}
+
 func TestStructuredFailureExcerptSchemasAreClosedAndVersioned(t *testing.T) {
 	_, structured, failureRecord := structuredInspectSchemaFixtures()
 	v2WithExcerpt := cloneMap(failureRecord)
