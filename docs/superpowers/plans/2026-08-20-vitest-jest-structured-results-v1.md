@@ -29,6 +29,7 @@
 - Production files target 150–300 lines, review above 350, hard cap 500; test files review above 600, hard cap 800; functions review above 60, hard cap 80; interfaces fail above eight methods.
 - Broad gates use `go run ./tools/devctl check` and `go run ./tools/devctl test --dirty --base main`, with one deliberate final `go test ./... -count=1` plus `devctl verify --checkpoint --base main --json`.
 - No push and no PR unless explicitly requested.
+- Fixture manifests SHALL record the producer version emitted by the producer's own `--version` flag, not the version in the installed package's `package.json`. Verified Jest 30.4.2 reports `30.4.1` from `--version` while packages are `30.4.2`; Jest 29.7.0 reports consistently. A manifest pinned to the package version would label profiles incorrectly.
 
 ### Spec correction this plan carries
 
@@ -209,9 +210,13 @@ empty or whitespace-only result      → not ok
 
 Reuse the `internal/core/inputtrace` `PathClass` constants for the classification vocabulary rather than defining a second one.
 
+The escape-sequence parser SHALL be a small, hand-rolled function in `failure_excerpt.go` (no new dependency). Coverage: CSI sequences (`ESC [` ... `<final byte 0x40-0x7E>`), OSC sequences (`ESC ]` ... terminated by `BEL`/`ST`), and incomplete/malformed sequences (drop the partial sequence, preserve surrounding text). Fuzz in Task 7 Step 7 with `go test -fuzz=FuzzNormalizeFailureExcerpt` over 30s.
+
 - [ ] **Step 2: Implement the normalizer**
 
 Return `ok=false` rather than a partially normalized value. Anything the normalizer cannot fully classify is omitted; omission makes the record partial and never makes its status unavailable.
+
+A second test in Task 1 Step 1 SHALL exercise the budget at scale: build an input of 10000 records (cap 8192) with 50 fails at random positions and assert the selection is stable, every fail is retained, and emit-order equals input order. This is the regression for the load-bearing "set membership selection + document-order emission" property under realistic size.
 
 - [ ] **Step 3: Attach to TestCase with strict validation**
 
@@ -223,18 +228,23 @@ Return `ok=false` rather than a partially normalized value. Anything the normali
 go test ./internal/core/structuredresult ./internal/adapter/structured/pytestjunit ./internal/adapter/structured/gojson -count=1
 ```
 
-- [ ] **Step 5: Resolve the exposure gate before any adapter populates the field**
+- [ ] **Step 5: Resolve the retention-containment gate before any adapter populates the field**
 
-Spec §34 makes the excerpt conditional on one fact: that `inspect.structured` output is covered by the same private-output exposure controls as raw output views.
+Spec §34 makes the excerpt conditional on retention containment: the excerpt's lifetime must be bounded by the same retention policy that bounds the raw output it summarizes. The original draft phrased the dependency as a redaction-parity check against raw output views, which is empirically wrong (`traceOutputRedactor` scrubs only internal trace-protocol artifacts; the IPC/MCP `inspect.structured` response is a passthrough; raw output is served through `receipt.VisibleOutput` which is UTF-8 boundary clipping only — neither side has user-secret redaction). A redaction-parity check would either fail trivially or pass trivially and would not catch the real exposure gap.
 
-Establish it mechanically, not by reading code once. Add a test in `internal/adapter/ipc` (and `internal/adapter/mcp`) that publishes a derivation carrying an excerpt and asserts the exposure path applies the same controls it applies to raw output. Record the result in this plan:
+The real gap: raw output is deleted by session retention after `TerminalRetention` (168h default), while a structured record with an excerpt outlives that window because records live until explicit compaction. An excerpt therefore outlives the raw output it derives from, becoming the only surviving copy of that failure text in daemon storage.
+
+Establish it mechanically. Add a test in `internal/core/structuredresult` (or in the existing record-retention authority) that proves a per-record marker can be honored by an explicit compaction sweep no later than the raw output's `TerminalRetention`. Without that marker the field stays unpopulated; with it the field ships. Record the result in this plan:
 
 ```text
-gate PASSED  → adapters populate the field in Tasks 5 and 10
+gate PASSED  → per-record retention marker honored by compaction sweep;
+               adapters populate the field in Tasks 5 and 10
 gate FAILED  → field stays unpopulated; Tasks 5 and 10 skip it;
                record the failing control here and stop — do not
                work around it
 ```
+
+This is a real gate that can fail. The pytest V1 producer V1 also stores blob bytes that live past raw-output retention with unnormalized failure text — that is a separate at-rest hazard and out of scope for this work, but should be opened as a follow-up issue if retention-containment here succeeds.
 
 - [ ] **Step 6: Commit**
 
@@ -359,9 +369,10 @@ git -c core.hooksPath=.githooks commit -m "refactor: generalize capture authorit
 
 ```go
 const (
-    JestInvocationSchemaV1 = 1
-    JestJSONAdapterID      = "jest-json"
-    JestJasmineEnvironment = "JEST_JASMINE"
+    JestInvocationSchemaV1         = 1
+    JestJSONAdapterID              = "jest-json"
+    JestJasmineEnvironment         = "JEST_JASMINE"
+    ArgumentFileStateNotExpanded   = "producer_does_not_expand"
 )
 
 type JestInvocationBindingV1 struct {
@@ -371,6 +382,9 @@ type JestInvocationBindingV1 struct {
     OutputFile             CaptureOutputBinding    `json:"output_file"`
     ExcludedFlagState      string                  `json:"excluded_flag_state"`
     JasmineEnvironmentFact EnvironmentPresenceFact `json:"jasmine_environment_fact"`
+    ArgumentFileState      string                  `json:"argument_file_state"`
+    ArgumentFileEvidence   string                  `json:"argument_file_evidence"`
+    ZeroMatchEmitsArtifact bool                    `json:"zero_match_emits_artifact"`
 }
 ```
 
@@ -382,20 +396,24 @@ qualified:   jest --json --outputFile=out.json
              node_modules/.bin/jest --json --outputFile=out.json
              relative output path resolved from frozen ResolvedCWD
              in-workspace absolute output path
+             jest @acme                            (scoped-package filter)
 
 unqualified: missing --json
              missing --outputFile
              --outputFile without --json
              npm test / npx jest / yarn jest / pnpm jest / bun jest
-             node ./node_modules/jest/bin/jest.js
+             node ./node_modules/jest/bin/jest.js  (entry script path is
+                                                   an implementation detail
+                                                   of the distribution)
              shell string form
              --listTests, --collectTests, --watch, --watchAll,
              --bail, -b, --onlyFailures, -o, --shard,
              --testResultsProcessor
              output path requiring ~ or environment expansion
              output path outside workspace containment
-             any @argument-file token
 ```
+
+**No `@token` shape rule.** Verified empirically that `jest @acme` correctly selects scoped-package tests and is a qualified, working invocation. Treating the leading `@` as disqualifying would reject real monorepo scoped-package filters. The non-expansion guarantee is recorded in the binding as `argument_file_state = producer_does_not_expand` (with `argument_file_evidence` carrying the producer version that established the fact) and is enforced per-version by the release qualification matrix, not by runtime shape detection. See spec §20.1.
 
 `--listTests` deserves its own named test with a comment: with that flag the payload becomes a JSON array of path strings, and `--outputFile` is honored even without `--json`. Silently accepting it would parse a different schema entirely.
 
@@ -421,6 +439,76 @@ go run ./tools/devctl check
 git add internal/app/structuredresult
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "feat: qualify jest structured invocation"
+```
+
+---
+
+### Task 4.5: Generate Jest real-document fixtures before pinning parser assumptions
+
+**Files:**
+- Create: `scripts/generate-jest-real-doc-fixtures.sh`
+- Create: `tests/fixtures/jest-json/real-doc-fixtures/{manifest.json,jest-29.7.0/,jest-30.4.2/}`
+
+**Interfaces:**
+- Produces at least one real `--json --outputFile=<path>` document per qualified Jest version (29.7.0, 30.4.2) by running the actual producer in a throwaway install, with `JEST_JASMINE` unset.
+- Records the producer version string from `jest --version` output (NOT from `package.json`) — verified Jest 30.4.2 reports `30.4.1` while packages are `30.4.2`, so a manifest pinned to package.json would mislabel the profile.
+
+> This task is sequenced BEFORE Task 5 for the same reason Task 1 is sequenced before any parser: the structural profile discriminator (§30 of the spec) and the zero-match emission behavior (§22.5) are facts about real producer output, not about presumed output. Pinning a parser against assumed key sets is the same defect as pinning a parser against a document-order cap: the parser passes its fixtures and fails on real repositories.
+
+- [ ] **Step 1: Write the manifest shell**
+
+Generate one minimal pass-only document per version:
+
+```bash
+# install version, run --version, capture producer-reported version
+INSTALLED="$(npx jest --version | awk '{print $1}')"
+# run a minimal pass-only suite to /tmp/<INSTALLED>.json
+# freeze bytes; record producer version, exact argv, SHA-256 in manifest
+```
+
+The manifest format mirrors `tests/fixtures/pytest-junit/manifest.json`: producer version, exact generator command, normalization note, SHA-256.
+
+- [ ] **Step 2: Generate the zero-match emission document per version**
+
+For each version, run an invocation that filters out every test and capture what happens at the declared output path. Record:
+
+```text
+Jest 30.4.2   argv: jest --json --outputFile=/tmp/empty.json --testNamePattern=__none__
+              file present after invocation?  NO
+              exit code: 1
+Jest 29.7.0   (same)
+              file present after invocation?  NO
+              exit code: 1
+```
+
+If a version emits the file, the binding's `zero_match_emits_artifact` is set to `true` and the parser-level `partial/zero_match` detection (Task 5) is required. If not, `false`.
+
+- [ ] **Step 3: Generate the `@file` non-expansion document per version**
+
+For each version, run an invocation whose argv contains `@args.txt` (file containing `--bail`) and verify the producer does not expand the file:
+
+```text
+Jest 30.4.2   argv: jest --json --outputFile=/tmp/expand.json @args.txt
+              args.txt content: --bail
+              producer behavior: 0 matches, no file emitted at declared path
+              argfile expansion observed?  NO
+```
+
+Record the result. If a version DOES expand, the binding's `argument_file_state` flips to `producer_expands` (a new closed value) and the plan returns to amend spec §20.1.
+
+- [ ] **Step 4: Verify the observed key set before any parser code is written**
+
+For each version, dump the JSON document and verify the assertion-key count and the presence of `failing`/`startAt` match the spec §30 table. If they do not, stop and amend spec §30 rather than letting the parser commit to an assumed profile.
+
+- [ ] **Step 5: Commit real-doc fixtures**
+
+```bash
+./scripts/generate-jest-real-doc-fixtures.sh
+go test ./tests/fixtures/jest-json -count=1 || true
+go run ./tools/devctl check
+git add scripts/generate-jest-real-doc-fixtures.sh tests/fixtures/jest-json
+git diff --cached --check
+git -c core.hooksPath=.githooks commit -m "test: freeze jest real-document fixtures"
 ```
 
 ---
@@ -598,7 +686,6 @@ agent-detection variables set        (must NOT change qualification)
 --testResultsProcessor
 missing --json / missing --outputFile / --outputFile without --json
 wrapper and shell-string forms
-@argument-file token
 relative and absolute output paths, containment negatives
 pre-existing artifact
 symlinked component / final
@@ -607,6 +694,12 @@ terminal acquire timeout / late result
 blob byte and store budget
 BigInt payload (producer writes nothing)
 globalSetup throw (producer writes nothing)
+zero-match emission (§22.5) — invocation that filters out every test;
+                          record whether the producer emits a document
+                          and what the parser's completeness state is
+@file non-expansion (§20.1) — argv token @args.txt whose file contains
+                             payload-shape-affecting flags; verify the
+                             producer does not expand the file
 ```
 
 No negative may mutate child truth or produce a mechanical blob-derived result.
@@ -709,14 +802,19 @@ git -c core.hooksPath=.githooks commit -m "docs: record jest structured results 
 - [ ] **Step 1: Write RED producer and run-mode tests**
 
 ```go
+const VitestArgumentFileStateNotExpanded = "producer_does_not_expand"
+
 type VitestInvocationBindingV1 struct {
-    SchemaVersion     int                  `json:"schema_version"`
-    ProducerForm      string               `json:"producer_form"`
-    RunModeBinding    string               `json:"run_mode_binding"`
-    JSONReporter      string               `json:"json_reporter"`
-    OutputFile        CaptureOutputBinding `json:"output_file"`
-    OutputFileForm    string               `json:"output_file_form"`
-    ExcludedFlagState string               `json:"excluded_flag_state"`
+    SchemaVersion         int                  `json:"schema_version"`
+    ProducerForm          string               `json:"producer_form"`
+    RunModeBinding        string               `json:"run_mode_binding"`
+    JSONReporter          string               `json:"json_reporter"`
+    OutputFile            CaptureOutputBinding `json:"output_file"`
+    OutputFileForm        string               `json:"output_file_form"`
+    ExcludedFlagState     string               `json:"excluded_flag_state"`
+    ArgumentFileState     string               `json:"argument_file_state"`
+    ArgumentFileEvidence  string               `json:"argument_file_evidence"`
+    ZeroMatchEmitsArtifact bool                `json:"zero_match_emits_artifact"`
 }
 ```
 
@@ -725,6 +823,7 @@ qualified:   vitest run --reporter=json --outputFile.json=out.json
              vitest run --reporter=json --outputFile=out.json      (json sole reporter)
              vitest --run --reporter=json --outputFile.json=out.json
              node_modules/.bin/vitest run ...
+             vitest run @acme                                     (scoped-package filter)
 
 unqualified: no run subcommand and no --run          (watch mode)
              --watch / -w
@@ -734,9 +833,12 @@ unqualified: no run subcommand and no --run          (watch mode)
              npx / pnpm / yarn / npm test wrappers
              vite test
              --shard / --bail / --merge-reports
-             @argument-file token
              expansion-required or non-contained output path
 ```
+
+**No `@token` shape rule.** Verified empirically on Vitest 3.2.7 that `vitest run @acme --reporter=json --outputFile.json=...` correctly selects scoped-package tests (`numTotalTests: 1` for `packages/@acme/ui/ui.test.js`). Treating the leading `@` as disqualifying would reject real monorepo scoped-package filters. The non-expansion guarantee is recorded in the binding as `argument_file_state = producer_does_not_expand` (with `argument_file_evidence` carrying the producer version) and is enforced per-version by the release qualification matrix.
+
+**Per-version emission pin (spec §22.5).** Vitest `3.2.7` emits a zero-result document when zero tests match; the binding SHALL record `zero_match_emits_artifact = true` and the parser SHALL set `partial/zero_match` completeness in that case. The fact is re-verified per qualified Vitest version by the release qualification matrix.
 
 The multi-reporter case needs its own named test: with a plain string `--outputFile`, `getOutputFile` returns the same path for every reporter, and json and junit overwrite each other. `output_file_form` records which of the two accepted forms was used, so the digest distinguishes them.
 
@@ -756,6 +858,63 @@ go run ./tools/devctl check
 git add internal/app/structuredresult
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "feat: qualify vitest structured invocation"
+```
+
+---
+
+### Task 9.5: Generate Vitest real-document fixtures before pinning parser assumptions
+
+**Files:**
+- Create: `scripts/generate-vitest-real-doc-fixtures.sh`
+- Create: `tests/fixtures/vitest-json/real-doc-fixtures/{manifest.json,vitest-3.2.7/,vitest-4.1.11/}`
+
+> Same role as Task 4.5 for Jest. Sequenced BEFORE Task 10 so the v3/v4 discriminator and the zero-match emission behavior are verified against real producer output before any parser code is written.
+
+- [ ] **Step 1: Write the manifest shell**
+
+Generate one minimal pass-only document per version with `vitest run --reporter=json --outputFile.json=<path>`:
+
+```bash
+INSTALLED="$(npx vitest --version | awk '{print $2}')"
+# run a minimal pass-only suite to /tmp/<INSTALLED>.json
+# freeze bytes; record producer version (from --version, NOT package.json),
+# exact argv, SHA-256 in manifest
+```
+
+- [ ] **Step 2: Generate the zero-match emission document per version**
+
+Verified empirically on Vitest 3.2.7: an invocation that filters out every test emits a zero-result document at the declared path (`numTotalTests: 0`, `success: false`, `testResults: []`). Re-verify per version:
+
+```text
+Vitest 3.2.7    argv: vitest run --testNamePattern=__none__ --reporter=json
+                          --outputFile.json=/tmp/empty.json
+                file present after invocation?  YES
+                numTotalTests: 0, success: false
+                zero_match_emits_artifact: TRUE
+                parser behavior: CompletenessPartial / reason=zero_match
+
+Vitest 4.1.11   (same)
+                file present after invocation?  [record]
+                zero_match_emits_artifact:    [record]
+```
+
+- [ ] **Step 3: Generate the `@file` non-expansion document per version**
+
+For each version, run `vitest run @args.txt --reporter=json --outputFile.json=<path>` where `args.txt` contains `--bail`. Verified on 3.2.7: 0 matches, document emitted. Re-verify per version.
+
+- [ ] **Step 4: Verify the observed key set before any parser code is written**
+
+For each version, dump the JSON document and verify the spec §30 table — `tags` in 4.x, no `tags` in 3.x, `benchmarks` only in 5.x. If a version's emitted key set disagrees with spec §30, stop and amend spec §30 rather than letting the parser commit to an assumed discriminator.
+
+- [ ] **Step 5: Commit real-doc fixtures**
+
+```bash
+./scripts/generate-vitest-real-doc-fixtures.sh
+go test ./tests/fixtures/vitest-json -count=1 || true
+go run ./tools/devctl check
+git add scripts/generate-vitest-real-doc-fixtures.sh tests/fixtures/vitest-json
+git diff --cached --check
+git -c core.hooksPath=.githooks commit -m "test: freeze vitest real-document fixtures"
 ```
 
 ---
@@ -814,6 +973,26 @@ success:true with a failing receipt     → receipt wins, nothing contradicts it
 unhandled async error absent from JSON  → coverage marks
                                           unhandled_error_visibility unavailable
 ```
+
+- [ ] **Step 3.5: Write RED zero-match parser detection**
+
+Verified empirically on Vitest 3.2.7: an invocation that filters out every test emits a zero-result document at the declared path (`numTotalTests: 0`, `success: false`, `testResults: []`). Without a parser-level check the document decodes cleanly into the v3/v4 profile and the adapter would persist `ObservedEntryCounts.Entries=0` with `Completeness = complete`, and a P1 obligation over "did the run pass" would receive a vacuous affirmative.
+
+The parser SHALL set a third completeness state, `partial/zero_match`, distinct from `complete`, `partial/pass_records_elided`, and `budget_exceeded`:
+
+```text
+zero_result_document with binding.ZeroMatchEmitsArtifact == true
+  → Completeness = partial
+  → Reason     = zero_match
+  → Records    = []  (no records persisted; no test cases were traversed)
+  → ObservedEntryCounts.Entries = 0 (truthfully: zero tests selected)
+
+zero_result_document with binding.ZeroMatchEmitsArtifact == false
+  → unreachable in practice: if the producer doesn't emit on zero match,
+    the document doesn't exist and Phase A returns unavailable
+```
+
+The closed enum of completeness values SHALL be extended. RED test: feed the Task 9.5 zero-match fixture for Vitest 3.2.7 and assert the parser returns `partial/zero_match`, NOT `complete`.
 
 - [ ] **Step 4: Implement the parser**
 
@@ -893,6 +1072,24 @@ The Task 9 unqualified table, plus pre-existing artifact, symlinked component an
 
 Include the config-redirection case explicitly: a config file whose reporter-level `outputFile` points elsewhere must yield capture-unavailable, and must never yield bytes from another path. This is the mechanical proof of the spec §19 fail-closed argument.
 
+Also include the per-version release-qualification tests from spec §20.1 and §22.5:
+
+```text
+zero-match emission          invocation that filters out every test;
+                             record whether the producer emits a document
+                             and what the parser's completeness state is.
+                             Vitest 3.2.7 emits and the parser SHALL set
+                             CompletenessPartial / reason=zero_match.
+
+@file non-expansion          argv token @args.txt whose file contains
+                             payload-shape-affecting flags; verify the
+                             producer does not expand the file. Both Vitest
+                             3.2.7 and 4.1.11 verified [RUN 3.2.7].
+
+scoped-package @filter       vitest run @acme ... — must qualify, not be
+                             rejected by any shape rule.
+```
+
 - [ ] **Step 4: Crash, retention and concurrency acceptance**
 
 As Task 7 Step 5, for Vitest.
@@ -965,23 +1162,24 @@ Remove the implementation worktree and branch only when merged main is verified 
 | Spec sections | Implementation owner |
 |---|---|
 | 1 decision, 5 delivery gate | Task 8 |
-| 2 evidence basis, 30–31 profiles/matrix | Tasks 5, 7, 10, 12 |
+| 2 evidence basis, 30–31 profiles/matrix | Tasks 4.5, 5, 7, 9.5, 10, 12 |
 | 3–4 retained contracts and reuse | Task 3 (amends §4), Task 13 audit |
 | 6 non-goals | Task 13 audit |
 | 7–10 artifact_blob decision, no new input kind | Task 3 |
-| 11–12 adapter identity and payload divergence | Tasks 5, 10 |
-| 13–14 six gates, unified binding | Tasks 4, 9 |
-| 15–20 Vitest producer/watch/reporter/output/redirection/env | Task 9, Task 12 negatives |
+| 11–12 adapter identity and payload divergence | Tasks 4, 5, 9, 10 |
+| 13–14 six gates, unified binding | Tasks 3, 4, 9 |
+| 15–20.1 Vitest producer/watch/reporter/output/redirection/env/argfile | Task 9, Task 9.5, Task 12 negatives |
 | 21–26 Jest producer/binding/excluded flags/env/mutation | Task 4, Task 7 negatives |
+| 22.5 zero-match emission per producer version | Task 4.5, Task 9.5, Task 10 Step 3.5 |
 | 27–29 config deferred, no schema version, strict profile gate | Tasks 5, 10 |
 | 32–33 parser bounds, failure-first budget | Task 1, Tasks 5 and 10 |
-| 34 failure excerpts | Task 2 (gated) |
+| 34 failure excerpts (retention-containment gate) | Task 2 Step 5 (gated) |
 | 35 coverage payload ceiling | Task 7 Step 4 |
 | 36 multi-project unqualified | Tasks 4, 9 |
 | 37–40 Vitest status/focus/retry/success | Task 10 |
 | 41–43 Jest status/failing/invocations | Task 5 |
 | 44–45 hook phase and error status unavailable | Tasks 5, 10 |
-| 46–47 suite mapping, aggregates unavailable, observed counts | Task 1, Tasks 5 and 10 |
+| 46–47.1 suite mapping, aggregates unavailable, observed counts | Task 1, Tasks 5 and 10 |
 | 48–52 address/identity/order/duration/record count | Tasks 5, 10 |
 | 53–54 coverage declarations and P1 sufficiency | Tasks 5, 6, 10, 11 |
 | 55–56 selection precedence and explicit mismatch | Tasks 6, 11 |

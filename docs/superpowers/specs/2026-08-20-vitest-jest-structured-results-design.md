@@ -99,7 +99,6 @@ The following pytest V1 mechanisms SHALL be reused as-is. This design introduces
 
 ```text
 StructuredInputRef schema v2 (raw_output | artifact_blob)
-ArtifactCaptureIntent + durable pre-spawn capture authority
 pre-spawn descriptor-relative absent baseline
 managed same-path collision registry
 terminal Phase A ArtifactSourceHandle acquisition + 250ms bound
@@ -112,7 +111,9 @@ artifact resolver + bounded range reads
 StructuredEvidenceDetail read bridge into P1
 ```
 
-Reusing the capture layer unchanged is a hard requirement, not a convenience. Any adapter that needs a different capture contract is out of scope for this document and requires its own amendment.
+Capture *mechanics* are reused unchanged. Capture *authority typing* is not in this list: `ArtifactCaptureIntent` and the durable pre-spawn authority it commits to are generalized in step B.5 to a closed `ProducerInvocationBinding` union (pytest / jest / vitest), so a third producer needs no further refactor of the capture path. The original draft of this section listed `ArtifactCaptureIntent + durable pre-spawn capture authority` as unchanged; that line is corrected here.
+
+Reusing the capture mechanics unchanged is a hard requirement, not a convenience. Any adapter that needs a different capture mechanic is out of scope for this document and requires its own amendment.
 
 ## 5. Delivery scope and order
 
@@ -294,6 +295,9 @@ VitestInvocationBindingV1
   json_reporter_binding
   output_file_binding
   excluded_flag_state
+  argument_file_state                  // §20.1, "producer_does_not_expand"
+  argument_file_evidence               // §20.1, producer version
+  zero_match_emits_artifact            // §22.5, per-version boolean
 
 JestInvocationBindingV1
   schema_version
@@ -302,6 +306,9 @@ JestInvocationBindingV1
   output_file_binding
   excluded_flag_state
   jest_jasmine_environment_fact
+  argument_file_state                  // §20.1, "producer_does_not_expand"
+  argument_file_evidence               // §20.1, producer version
+  zero_match_emits_artifact            // §22.5, per-version boolean
 ```
 
 Each binding's canonical digest SHALL be the `producer_binding_digest` stored by `ArtifactCaptureIntent`, exactly as `PytestInvocationBindingV1` is today. It SHALL commit every identity-bearing field above.
@@ -412,6 +419,46 @@ Only three environment variables reach resolved config at all, and none is ident
 Historical `VITEST_JUNIT_CLASSNAME` / `VITEST_JUNIT_SUITE_NAME` existed in `1.x` and were removed in `2.0`; neither ever affected the `json` reporter [SRC].
 
 Therefore `VitestInvocationBindingV1` SHALL NOT carry an environment-presence fact. Unlike pytest, there is no argument-injection channel to prove absent.
+
+### 20.1 Argument-file non-expansion is verified per release, not detected at runtime
+
+Neither Vitest nor Jest natively expands `@filename` argument files (yargs, used by Jest, does not implement GNU-style `@file` expansion [external]; Vitest passes `@args.txt` through as a plain test-file filter [RUN 4.1.11, 3.2.7]). V1 SHALL NOT treat a token beginning with `@` as shape-based disqualifier, because the same token is a legitimate scoped-package path filter in a monorepo — `jest @acme` on `packages/@acme/ui/ui.test.js` and `packages/@acme/api/api.test.js` correctly selects the two tests in `@acme/*` and excludes `packages/plain/plain.test.js` [RUN 30.4.2]. A shape rule would reject a qualified, working invocation.
+
+What is required instead:
+
+1. Each `ProducerInvocationBindingV1` SHALL carry an `argument_file_state` field with the closed value `producer_does_not_expand`, plus an `argument_file_evidence` field that records the producer version that established the fact.
+2. The release qualification matrix (§31) SHALL add, per qualified producer version, a `@file non-expansion` test: a file containing a payload-shape-affecting flag (`--bail`, `--listTests`, `--outputFile=<other>`) is passed as `@args.txt` on the argv; the producer SHALL NOT expand the file.
+3. The digest SHALL bind the `argument_file_state` so a future producer version that adds expansion cannot silently inherit the prior binding's authority.
+
+The forward-compat concern is real but the structural fail-closed argument still holds: an argv that happens to qualify but where a non-expanded `@file` happens to filter out every test produces a document whose `ObservedEntryCounts.Entries == 0`. The producer-specific emission behavior is pinned per-version (§22.5 below). Jest `30.4.2` does not emit the output file when zero tests match [RUN 30.4.2]; Vitest `3.2.7` does emit a zero-result document and the parser SHALL detect that case and mark completeness `partial/zero_match` rather than `complete`.
+
+### 22.5 Zero-match emission behavior is pinned per producer version
+
+Producer behavior diverges on what happens when an invocation filters out every test:
+
+```text
+Jest 30.4.2    zero tests match → no output file at declared path,
+               exit code 1, no document emitted [RUN 30.4.2]
+Vitest 3.2.7   zero tests match → output file emitted with
+               numTotalTests=0, success=false, testResults=[],
+               exit code 1 [RUN 3.2.7]
+```
+
+A Vitest zero-match document decodes cleanly into the v3/v4 profile. Without per-version awareness the adapter would persist `ObservedEntryCounts.Entries=0` and a complete derivation, and a P1 obligation over "did the run pass" would receive a vacuous affirmative. That is a silent-divergence failure mode, not a missing-result failure mode, and it is the reason the per-version emission pin matters.
+
+V1 SHALL:
+
+```text
+<ns>:zero_match_emits_artifact     Jest 30.4.2: false
+                                   Vitest 3.2.7: true
+
+<ns>:zero_match_completeness       Jest 30.4.2: n/a (no document)
+                                   Vitest 3.2.7: partial/zero_match
+```
+
+The `zero_match_completeness` value is a third distinct state alongside `complete` and `partial/pass_records_elided` (and the existing `budget_exceeded` from §33). It SHALL be set by the parser when `ObservedEntryCounts.Entries == 0` AND the producer is one that emits on zero-match. The state SHALL be observable through `inspect.structured` so a P1 obligation can distinguish "did not run" from "ran and passed".
+
+The release qualification matrix SHALL verify this behavior per version, in the same matrix that verifies `@file non-expansion`.
 
 ## 21. Jest producer qualification
 
@@ -606,7 +653,22 @@ vitest-json@v1   vitest 3.2.7, vitest 4.1.11
 
 For each producer line the matrix SHALL cover, at minimum: ordinary pass; ordinary failure; `skip`; `todo`; a skipped `describe` block; a `beforeAll` failure; a `beforeEach` failure; an `afterAll` failure; a module-level/collection throw; a retry sequence that ends failed; a retry sequence that ends passed; and for Jest additionally an `it.failing` that fails and an `it.failing` that passes.
 
-Fixtures SHALL be frozen with recorded producer version, exact generating invocation, and SHA-256, and committed tests SHALL consume frozen bytes with no network and no installed runner, exactly as the pytest fixture manifest does.
+The matrix SHALL additionally cover, per qualified producer version, two producer-behavior facts that no shape rule can detect:
+
+```text
+@file non-expansion    an argv token @args.txt whose file contains
+                       --bail / --listTests / --outputFile=<other>
+                       is NOT expanded by the producer (§20.1)
+
+zero-match emission    an invocation that filters out every test:
+                       does the declared output path receive a document?
+                       (§22.5) — Jest 30.4.2: no document; Vitest 3.2.7:
+                       document with numTotalTests=0, success=false
+```
+
+These are release-qualification tests, not runtime detectors. They bind the per-version facts that the binding's `argument_file_state` and `zero_match_emits_artifact` fields carry into the digest.
+
+Fixtures SHALL be frozen with recorded producer version, exact generating invocation, and SHA-256, and committed tests SHALL consume frozen bytes with no network and no installed runner, exactly as the pytest fixture manifest does. The recorded producer version SHALL be the version string emitted by the producer's own `--version` output, not the version in the installed package's `package.json`: verified on Jest 30.4.2, where `jest --version` reports `30.4.1` while the installed packages are `jest@30.4.2` and `jest-cli@30.4.2` [RUN 30.4.2]. Jest 29.7.0 reports consistently [RUN 29.7.0]. A manifest that records the package version would pin a label the producer never attested.
 
 The end-to-end release script MAY create throwaway installs to exercise the real daemon path. That is deliberate qualification cost, not ordinary spawn tax.
 
@@ -689,7 +751,29 @@ An excerpt that cannot be fully normalized SHALL be omitted rather than persiste
 
 Because §33 guarantees the non-pass set is small relative to a full suite, the storage cost of this allowance is bounded by the failure count rather than the test count.
 
-One dependency SHALL be confirmed before implementation rather than assumed: excerpts flow to callers through `inspect.structured`, which is a different exposure path from raw output views. The implementation SHALL verify that structured-record excerpts are covered by the same private-output exposure controls as raw output, and SHALL NOT ship the allowance if they are not. Until that is confirmed, the excerpt field is specified but not enabled.
+One dependency SHALL be confirmed before implementation rather than assumed, and the dependency is **retention containment**, not redaction parity. The original draft phrased the dependency as "the same private-output exposure controls as raw output", which is empirically false: `traceOutputRedactor` only scrubs internal trace-protocol artifacts (`DYLD_INSERT_LIBRARIES`, `SHELLBEAM_TRACE_SOCKET`, `SHELLBEAM_TRACE_PROTOCOL`, `SHELLBEAM_TRACE_ID`); it does not redact user-secret-shaped content; and the IPC/MCP `inspect.structured` response is a passthrough that ships `InspectResult.Records` verbatim. Raw output, by contrast, is served through `receipt.VisibleOutput` (UTF-8 boundary clipping only). Neither side has user-secret redaction, so a redaction-parity gate would either fail trivially or pass trivially — both useless.
+
+The real exposure gap is **retention containment**:
+
+```text
+raw output (terminal stream)   served to callers, deleted by session
+                               retention after TerminalRetention (168h
+                               default, configurable)
+
+artifact blob                  at rest, never served to callers,
+                               survives session retention, released
+                               only by explicit compaction
+
+structured records             served to callers (via InspectResult),
+                               survive session retention, released
+                               only by explicit compaction
+```
+
+An excerpt that lands in a structured record therefore outlives the raw output it was derived from. After the retention window closes, the excerpt becomes the only surviving copy of that failure text in the daemon's storage. That is a new exposure created by this design, not an extension of an existing one.
+
+The implementation SHALL verify, before populating the field, that the excerpt's lifetime is bounded by the same retention policy that bounds the raw output it summarizes. The verification is mechanical, not by code reading. The implementation SHALL NOT ship the allowance if retention containment cannot be established. Until that is confirmed, the excerpt field is specified but not enabled.
+
+Concretely: the implementation SHALL add a per-record retention marker that lets an operator or a future compaction sweep retire the excerpt no later than the raw output's terminal retention would have retired it. If that marker cannot be made effective in the existing record-retention authority, the field stays unpopulated.
 
 ## 35. Coverage payloads consume the artifact ceiling
 
@@ -1048,7 +1132,7 @@ this design   test_case record count = normalized entry count
 
 The persisted record count is therefore **not** the entry count, not the number of tests that ran, and not a logical test count. The traversed entry count lives in `ObservedEntryCounts` (§47.1) and is the only field that may be read for that purpose.
 
-A consumer that counts persisted records to answer "how many tests ran" SHALL be considered incorrect. A consumer that counts persisted `fail` records to answer "how many tests failed" is correct whenever completeness is `complete` or `partial/pass_records_elided`, and incorrect under `budget_exceeded` — which is exactly why §33 keeps those two states distinct.
+A consumer that counts persisted records to answer "how many tests ran" SHALL be considered incorrect. A consumer that counts persisted `fail` records to answer "how many tests failed" is correct whenever completeness is `complete` or `partial/pass_records_elided`, and incorrect under `budget_exceeded` — which is exactly why §33 keeps those two states distinct. A consumer that counts persisted records to answer "how many tests ran" under `partial/zero_match` (§22.5) SHALL be considered incorrect: the state means zero tests were selected, not that zero tests passed.
 
 For Jest specifically, a `describe.skip` emits one `pending` entry per inner test [RUN], and retried tests collapse to one entry regardless of attempt count (§43).
 
@@ -1072,6 +1156,8 @@ mechanically_observable:
   core:failure_set_completeness
   vitest:skipped
   vitest:todo
+  vitest:zero_match_emits_artifact
+  vitest:zero_match_completeness
 
 unavailable:
   vitest:error_status
@@ -1104,6 +1190,7 @@ mechanically_observable:
   jest:suite_focused
   jest:failing_expected      (v30 profile only)
   jest:failing_unexpected    (v30 profile only)
+  jest:zero_match_emits_artifact
 
 unavailable:
   jest:error_status
@@ -1271,7 +1358,7 @@ A future opt-in execution-transform feature would require its own mutation/autho
 Frozen V1 invariants for this document, in addition to every pytest V1 invariant:
 
 1. Both adapters use `artifact_blob`; neither uses `raw_output`.
-2. No new `StructuredInputRef` kind, and no capture-layer change.
+2. No new `StructuredInputRef` kind. Capture *mechanics* (baseline, collision, Phase A, Phase B, blob identity, retention, recovery) are unchanged; capture *authority typing* is generalized to a closed `ProducerInvocationBinding` union so a third producer needs no further refactor (Task 3 in the implementation plan).
 3. Vitest and Jest are separate adapters with separate coverage; the payloads are not interchangeable.
 4. Explicit CLI bindings are mandatory; ShellBeam never appends a producer flag.
 5. Watch-mode invocations are unqualified.
@@ -1288,11 +1375,13 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 16. `partial/pass_records_elided` and `budget_exceeded` are distinct states and are never collapsed.
 17. Persisted record count is never read as tests-run; `ObservedEntryCounts` is the only field carrying that fact, and it is derived during traversal rather than from the persisted set.
 18. No mechanical fact is ever derived from failure text, its presence, or its length.
-19. Failure excerpts are bounded, ANSI-stripped, path-classified, attached only to non-pass records, and gated on the §34 exposure confirmation.
+19. Failure excerpts are bounded, ANSI-stripped, path-classified, attached only to non-pass records, and gated on the §34 retention-containment confirmation.
 20. Absolute host paths are never persisted in any path class.
 21. File-entry order is non-deterministic in both producers; ordinals are derivation-scoped only and records are never re-sorted.
 22. Multi-project invocations are unqualified.
 23. Terminal receipt remains child execution truth; structured projection never mutates execution semantics.
+24. `@token` argv tokens are not shape-disqualified. The `argument_file_state` binding fact (`producer_does_not_expand`) and the per-version `@file` non-expansion test (§20.1, §31) are the authority.
+25. Zero-match emission is pinned per producer version (§22.5). Vitest emits a zero-result document; Jest does not. The parser SHALL set `partial/zero_match` completeness when `ObservedEntryCounts.Entries == 0` and the producer's binding records `zero_match_emits_artifact == true`. The state SHALL be distinct from `complete`, `partial/pass_records_elided`, and `budget_exceeded`.
 
 ## 63. Deferred beyond V1
 
@@ -1316,13 +1405,18 @@ Frozen V1 invariants for this document, in addition to every pytest V1 invariant
 ```text
 A. shared JS/TS strict-profile decode scaffolding on jsonstrict
 B. failure-first record budget + ObservedEntryCounts + excerpt normalization
+B.5 generalized capture authority producer-binding union (Task 3)
 C. jest invocation binding + JEST_JASMINE presence authority + excluded-flag resolver
+C.5 jest real-doc fixtures: produce at least one real document per profile version
+    (§20.1, §22.5, §31) BEFORE parser, to verify observed key set and zero-match
+    emission before committing parser assumptions
 D. jest-json@v1 parser, profiles v29/v30, normalized semantics/identity
 E. jest selection/admission/capability/inspect integration
 F. jest frozen fixtures + release qualification matrix + real-daemon E2E
 G. deploy jest-json@v1
 ─────────── value-review gate (§5) ───────────
 H. vitest invocation binding + run-mode/reporter/output-file resolver
+H.5 vitest real-doc fixtures: same role as C.5
 I. vitest-json@v1 parser, profiles v3/v4
 J. vitest selection/admission/capability/inspect integration
 K. vitest frozen fixtures + release qualification matrix + real-daemon E2E
@@ -1331,9 +1425,11 @@ L. deploy vitest-json@v1
 
 Step B is sequenced before any parser because the budget policy of §33 is the difference between a usable and an unusable result on realistic suite sizes. Building either parser against a document-order cap first would produce an adapter that passes its fixtures and fails on real repositories.
 
+Steps C.5 and H.5 are sequenced before their respective parsers (D and I) because the structural profile discriminator and the zero-match emission behavior are facts about real producer output, not about presumed output. Pinning a parser against assumed key sets risks producing an adapter that decodes a fiction; the real-document step verifies the discriminator before code commits to it. This is the same sequencing discipline as Step B, applied to the per-adapter facts.
+
 Step F SHALL measure document size with and without `--coverage` on a representative repository and feed the §35 ceiling decision. Step G SHALL run long enough to answer the §5 review question before H begins.
 
-No capture-layer, blob-store, retention, or P1 change is scheduled, and any need for one is a signal to stop and amend this design.
+Capture *mechanics* (baseline, collision, Phase A, Phase B, blob identity, retention, recovery) are reused unchanged; capture *authority typing* is generalized in B.5 to a closed `ProducerInvocationBinding` union so a third producer needs no further refactor. Blob-store, retention, and P1 changes are not scheduled, and any need for one is a signal to stop and amend this design.
 
 ## 65. Acceptance boundary
 
