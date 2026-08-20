@@ -104,6 +104,13 @@ const (
 	TerminalIdentityAmbiguous         Code = "terminal_identity_ambiguous"
 	HumanControlUnreachable           Code = "human_control_unreachable"
 	HumanClientNotProven              Code = "human_client_not_proven"
+	PrivateOutputBarrierFailed        Code = "private_output_barrier_failed"
+	PrivacyReleaseUnproven            Code = "privacy_release_unproven"
+	ShellIntegrationUnavailable       Code = "shell_integration_unavailable"
+	ShellIntegrationLost              Code = "shell_integration_lost"
+	RequirementUnsupported            Code = "requirement_unsupported"
+	RequirementNotSatisfied           Code = "requirement_not_satisfied"
+	ShellIdentityChanged              Code = "shell_identity_changed"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
 	MediaPathNotFound                 Code = "media_path_not_found"
 	MediaPathUnsafe                   Code = "media_path_unsafe"
@@ -255,6 +262,13 @@ var publicSpecs = map[Code]publicSpec{
 	TerminalIdentityAmbiguous:         {message: "terminal identity is ambiguous", details: keys("provider_id", "reason")},
 	HumanControlUnreachable:           {message: "human control is unreachable", retryable: true, details: keys("handoff_id", "reason")},
 	HumanClientNotProven:              {message: "human client identity not proven", retryable: true, details: keys("handoff_id", "reason")},
+	PrivateOutputBarrierFailed:        {message: "private output barrier failed", retryable: true, details: keys("handoff_id", "reason")},
+	PrivacyReleaseUnproven:            {message: "privacy release unproven", retryable: true, details: keys("handoff_id", "reason")},
+	ShellIntegrationUnavailable:       {message: "shell integration unavailable", details: keys("handoff_id", "shell", "reason")},
+	ShellIntegrationLost:              {message: "shell integration lost", retryable: true, details: keys("handoff_id", "shell", "reason")},
+	RequirementUnsupported:            {message: "shell requirement unsupported", details: keys("handoff_id", "kind", "shell", "reason")},
+	RequirementNotSatisfied:           {message: "shell requirement not satisfied", details: keys("handoff_id", "kind", "shell", "reason")},
+	ShellIdentityChanged:              {message: "shell identity changed", retryable: true, details: keys("handoff_id", "shell", "reason")},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
 	MediaPathNotFound:                 {message: "media path not found"},
 	MediaPathUnsafe:                   {message: "media path is unsafe"},

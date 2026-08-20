@@ -207,10 +207,19 @@ func (v State) Validate() error {
 	if v.PrivacyState == PrivacyStateStandard && (v.PrivacyRelease != PrivacyReleaseNotRequired || v.CaptureState != CapturePublic) {
 		return fmt.Errorf("standard privacy state mismatch")
 	}
-	if v.PrivacyState == PrivacyPrivate && v.PrivacyRelease == PrivacyReleasePending && v.CaptureState != CapturePrivate {
-		return fmt.Errorf("pending privacy release requires private capture")
+	if v.PrivacyState == PrivacyPrivate {
+		if v.PrivacyRelease == PrivacyReleaseNotRequired {
+			return fmt.Errorf("private privacy state requires release proof state")
+		}
+		if v.CaptureState == CapturePublic && v.PrivacyRelease != PrivacyReleaseProven {
+			return fmt.Errorf("public capture requires proven privacy release")
+		}
 	}
 	return nil
+}
+
+func (v State) ValidateH4() error {
+	return v.Validate()
 }
 
 func (v State) ValidateH2() error {

@@ -100,6 +100,10 @@ func (v Request) Validate() error {
 	return nil
 }
 
+func (v Request) ValidateH4() error {
+	return v.Validate()
+}
+
 func (v Request) ValidateH2() error {
 	if err := v.Validate(); err != nil {
 		return err
