@@ -25,3 +25,15 @@ func TestValidityObservationValidateRejectsMalformedDimensions(t *testing.T) {
 		t.Fatal("invalid freshness accepted")
 	}
 }
+
+func TestMechanicalEvidenceAuthorityRejectsDelegatedLifecycleOnly(t *testing.T) {
+	if err := ValidateMechanicalReceiptAuthority(""); err != nil {
+		t.Fatalf("ordinary receipt authority rejected: %v", err)
+	}
+	if err := ValidateMechanicalReceiptAuthority("session_lifecycle_only"); err == nil {
+		t.Fatal("delegated lifecycle authority accepted as mechanical verification")
+	}
+	if err := ValidateMechanicalReceiptAuthority("future"); err == nil {
+		t.Fatal("unknown receipt authority accepted")
+	}
+}

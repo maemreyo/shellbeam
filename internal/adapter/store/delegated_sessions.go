@@ -41,7 +41,7 @@ func (m delegatedRecoveryMarker) validate() error {
 }
 
 func (r *Repository) initDelegatedSessionStore() error {
-	for _, path := range []string{r.delegatedSessionDir(), r.delegatedBindingDir(), r.delegatedProviderRefDir(), r.delegatedRecoveryDir(), r.delegatedMutationDir()} {
+	for _, path := range []string{r.delegatedSessionDir(), r.delegatedBindingDir(), r.delegatedProviderRefDir(), r.delegatedRecoveryDir(), r.delegatedCaptureDir(), r.delegatedMutationDir()} {
 		if err := ensurePrivateDir(path); err != nil {
 			return fmt.Errorf("delegated sessions: %w", err)
 		}

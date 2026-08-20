@@ -1,6 +1,7 @@
 package receipt
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -75,5 +76,48 @@ func TestReceiptSchemasOneThroughFourRejectDelegatedFields(t *testing.T) {
 		if err := r.Validate(); err == nil {
 			t.Fatalf("schema %d accepted delegated fields", schema)
 		}
+	}
+}
+
+func TestDelegatedV5PrivateCaptureTruthIsPartialAndComposable(t *testing.T) {
+	zero := 0
+	base := Receipt{
+		SchemaVersion: 5, OperationID: "op-v5-private", SessionID: "session-v5-private",
+		RequestFingerprint: strings.Repeat("a", 64), ExecutionFingerprint: strings.Repeat("b", 64),
+		DaemonIncarnation: "daemon", State: session.Completed, Outcome: session.Success,
+		Spawn: SpawnEvidence{Attempted: true, Succeeded: true}, Exit: ExitEvidence{Code: &zero},
+		SessionMode: delegated.ModeDelegatedInteractive, AuthorityEpoch: 2,
+		EvidenceAuthority: EvidenceAuthoritySessionLifecycleOnly, InputAuthorityProvenance: InputAuthorityHumanWriteGranted,
+	}
+	truth := CompleteCaptureTruth()
+	var err error
+	truth, err = truth.WithReason(CaptureReasonPrivateIntervalsOmitted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	private := base
+	private.OutputComplete, private.CaptureQuality, private.CaptureReasons = truth.OutputComplete, truth.Quality, truth.Reasons
+	if err := private.Validate(); err != nil {
+		t.Fatalf("privacy-only v5 rejected: %v", err)
+	}
+	if private.OutputComplete || private.CaptureQuality != CapturePartial || len(private.CaptureReasons) != 1 || private.CaptureReasons[0] != CaptureReasonPrivateIntervalsOmitted {
+		t.Fatalf("private capture=%#v", private)
+	}
+	truth, err = truth.WithReason(CaptureReasonTransportGap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	truth, err = truth.WithReason(CaptureReasonProviderLost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := base
+	combined.OutputComplete, combined.CaptureQuality, combined.CaptureReasons = truth.OutputComplete, truth.Quality, truth.Reasons
+	if err := combined.Validate(); err != nil {
+		t.Fatalf("composed v5 rejected: %v", err)
+	}
+	want := []CaptureReason{CaptureReasonPrivateIntervalsOmitted, CaptureReasonTransportGap, CaptureReasonProviderLost}
+	if combined.OutputComplete || combined.CaptureQuality != CaptureIncomplete || !reflect.DeepEqual(combined.CaptureReasons, want) {
+		t.Fatalf("combined capture=%#v want=%v", combined.CaptureReasons, want)
 	}
 }

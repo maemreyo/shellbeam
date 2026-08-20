@@ -56,6 +56,8 @@ type DelegatedSessionStore interface {
 	ListDelegatedRecoveryCandidates(context.Context) ([]delegated.Binding, error)
 	LoadDelegatedRecoveryState(context.Context, operation.SessionID) (DelegatedRecoveryState, error)
 	DelegatedOutputBytes(context.Context, operation.SessionID) (int64, error)
+	LoadDelegatedCaptureTruth(context.Context, operation.SessionID) (receipt.CaptureTruth, error)
+	MarkDelegatedCaptureReason(context.Context, operation.SessionID, receipt.CaptureReason) (receipt.CaptureTruth, StoreResult)
 }
 
 type InteractiveHandoffStore interface {

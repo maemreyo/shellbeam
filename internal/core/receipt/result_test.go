@@ -157,3 +157,26 @@ func TestOrdinaryLiveResultDoesNotAcquireDelegatedAuthorityMetadata(t *testing.T
 		t.Fatalf("ordinary live metadata=%#v", got)
 	}
 }
+
+func TestDelegatedV5StructuredResultProjectsPrivateOmissionWithoutPretendingComplete(t *testing.T) {
+	zero := 0
+	rec := Receipt{
+		SchemaVersion: 5, OperationID: "op-v5-private-result", SessionID: "session-v5-private-result",
+		RequestFingerprint: "request", ExecutionFingerprint: "execution", DaemonIncarnation: "daemon",
+		State: session.Completed, Outcome: session.Success, OutputBytes: 4, OutputComplete: false,
+		Spawn: SpawnEvidence{Attempted: true, Succeeded: true}, Exit: ExitEvidence{Code: &zero},
+		SessionMode: delegated.ModeDelegatedInteractive, AuthorityEpoch: 3,
+		EvidenceAuthority: EvidenceAuthoritySessionLifecycleOnly, InputAuthorityProvenance: InputAuthorityHumanWriteGranted,
+		CaptureQuality: CapturePartial, CaptureReasons: []CaptureReason{CaptureReasonPrivateIntervalsOmitted},
+	}
+	got, err := NewResult(ResultInput{OperationID: rec.OperationID, SessionID: rec.SessionID, State: rec.State, Outcome: rec.Outcome, RawBytes: 4, NextCursor: 4, Receipt: &rec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Output.OutputComplete || got.Output.CaptureQuality != CapturePartial || len(got.Output.CaptureReasons) != 1 || got.Output.CaptureReasons[0] != CaptureReasonPrivateIntervalsOmitted {
+		t.Fatalf("output=%#v", got.Output)
+	}
+	if got.EvidenceAuthority != EvidenceAuthoritySessionLifecycleOnly {
+		t.Fatalf("evidence authority=%q", got.EvidenceAuthority)
+	}
+}

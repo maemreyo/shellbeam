@@ -1,6 +1,9 @@
 package receipt
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 type CaptureQuality string
 type CaptureReason string
@@ -22,6 +25,58 @@ const (
 	InputAuthorityHumanWriteGranted       = "human_write_authority_granted"
 	EvidenceAuthoritySessionLifecycleOnly = "session_lifecycle_only"
 )
+
+type CaptureTruth struct {
+	Quality        CaptureQuality  `json:"capture_quality"`
+	Reasons        []CaptureReason `json:"capture_reasons"`
+	OutputComplete bool            `json:"output_complete"`
+}
+
+func CompleteCaptureTruth() CaptureTruth {
+	return CaptureTruth{Quality: CaptureComplete, OutputComplete: true}
+}
+
+func (v CaptureTruth) Clone() CaptureTruth {
+	v.Reasons = append([]CaptureReason(nil), v.Reasons...)
+	return v
+}
+
+func (v CaptureTruth) Validate() error {
+	return ValidateCaptureTruth(v.Quality, v.Reasons, v.OutputComplete)
+}
+
+func (v CaptureTruth) WithReason(reason CaptureReason) (CaptureTruth, error) {
+	if err := v.Validate(); err != nil {
+		return CaptureTruth{}, err
+	}
+	if _, ok := captureReasonRank(reason); !ok {
+		return CaptureTruth{}, fmt.Errorf("invalid capture reason")
+	}
+	seen := make(map[CaptureReason]struct{}, len(v.Reasons)+1)
+	reasons := make([]CaptureReason, 0, len(v.Reasons)+1)
+	for _, existing := range v.Reasons {
+		if _, ok := seen[existing]; !ok {
+			seen[existing] = struct{}{}
+			reasons = append(reasons, existing)
+		}
+	}
+	if _, ok := seen[reason]; !ok {
+		reasons = append(reasons, reason)
+	}
+	sort.Slice(reasons, func(i, j int) bool {
+		left, _ := captureReasonRank(reasons[i])
+		right, _ := captureReasonRank(reasons[j])
+		return left < right
+	})
+	out := CaptureTruth{Reasons: reasons, OutputComplete: false, Quality: CaptureIncomplete}
+	if len(reasons) == 1 && reasons[0] == CaptureReasonPrivateIntervalsOmitted {
+		out.Quality = CapturePartial
+	}
+	if err := out.Validate(); err != nil {
+		return CaptureTruth{}, err
+	}
+	return out, nil
+}
 
 func ValidateInputAuthorityProvenance(v string) error {
 	switch v {
@@ -75,9 +130,9 @@ func captureReasonRank(reason CaptureReason) (int, bool) {
 	switch reason {
 	case CaptureReasonPrivateIntervalsOmitted:
 		return 0, true
-	case CaptureReasonProviderLost:
-		return 1, true
 	case CaptureReasonTransportGap:
+		return 1, true
+	case CaptureReasonProviderLost:
 		return 2, true
 	default:
 		return 0, false

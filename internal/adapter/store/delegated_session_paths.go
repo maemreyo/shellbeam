@@ -20,6 +20,9 @@ func (r *Repository) delegatedProviderRefDir() string {
 func (r *Repository) delegatedRecoveryDir() string {
 	return filepath.Join(r.delegatedSessionDir(), "active")
 }
+func (r *Repository) delegatedCaptureDir() string {
+	return filepath.Join(r.delegatedSessionDir(), "capture")
+}
 func (r *Repository) delegatedMutationDir() string {
 	return filepath.Join(r.delegatedSessionDir(), "mutations")
 }
@@ -31,6 +34,9 @@ func (r *Repository) delegatedProviderRefPath(id operation.SessionID) string {
 }
 func (r *Repository) delegatedRecoveryPath(id operation.SessionID) string {
 	return filepath.Join(r.delegatedRecoveryDir(), string(id)+".json")
+}
+func (r *Repository) delegatedCapturePath(id operation.SessionID) string {
+	return filepath.Join(r.delegatedCaptureDir(), string(id)+".json")
 }
 func (r *Repository) delegatedSessionMutationDir(id operation.SessionID) string {
 	return filepath.Join(r.delegatedMutationDir(), string(id))

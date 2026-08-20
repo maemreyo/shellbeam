@@ -136,6 +136,8 @@ func (s *Service) reconcileDelegatedStartupCandidate(ctx context.Context, bindin
 	live.spawn = receipt.SpawnEvidence{Attempted: true, Succeeded: true}
 	if result.Observation.Terminal {
 		snapshot := delegatedTerminalSnapshot{accepted: live.accepted, delivered: live.delivered, outputBytes: live.outputBytes, observerBase: live.delegatedObserverBase, captureGap: true, binding: binding}
+		snapshot.captureTruth, snapshot.captureGap = s.delegatedCaptureTruth(binding.SessionID, snapshot.captureGap)
+		snapshot.captureTruth, snapshot.captureGap = s.delegatedCaptureTruth(binding.SessionID, snapshot.captureGap)
 		decision := classifyDelegatedTerminal(snapshot, result.Observation, nil)
 		rec := s.delegatedTerminalReceipt(live, snapshot, decision)
 		s.publishDelegatedTerminal(live, binding, decision, rec)

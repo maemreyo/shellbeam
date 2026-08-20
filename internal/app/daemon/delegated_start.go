@@ -297,6 +297,7 @@ type delegatedTerminalSnapshot struct {
 	outputBytes  int64
 	observerBase int64
 	captureGap   bool
+	captureTruth receipt.CaptureTruth
 	binding      delegated.Binding
 }
 
@@ -339,63 +340,18 @@ func (s *Service) delegatedWaitLoop(ctx context.Context, live *liveSession, done
 
 func (s *Service) snapshotDelegatedFinalizing(live *liveSession) delegatedTerminalSnapshot {
 	live.mu.Lock()
-	defer live.mu.Unlock()
 	// Fence new unseen mutations before any terminal evidence becomes durable.
 	// Known retries still replay from the durable mutation ledger first.
 	live.state = session.Finalizing
 	live.notify()
-	return delegatedTerminalSnapshot{
+	snapshot := delegatedTerminalSnapshot{
 		accepted: live.accepted, delivered: live.delivered, signal: live.signal,
 		target: live.terminalTarget, outputBytes: live.outputBytes,
 		observerBase: live.delegatedObserverBase, captureGap: live.delegatedCaptureGap,
 	}
-}
-
-func classifyDelegatedTerminal(snapshot delegatedTerminalSnapshot, obs delegatedapp.Observation, waitErr error) delegatedTerminalDecision {
-	decision := delegatedTerminalDecision{state: session.Abandoned, outcome: session.Ambiguous, captureQuality: receipt.CaptureComplete, outputComplete: true, bindingLifecycle: delegated.LifecycleLost}
-	if waitErr != nil || obs.Provider != snapshot.binding.ProviderIdentity() || !obs.ProviderCurrent || !obs.Terminal || obs.Owner != delegated.OwnerNone {
-		decision.failureReason = "provider_lost"
-		decision.captureQuality = receipt.CaptureIncomplete
-		decision.captureReasons = []receipt.CaptureReason{receipt.CaptureReasonProviderLost}
-		if snapshot.captureGap {
-			decision.captureReasons = append(decision.captureReasons, receipt.CaptureReasonTransportGap)
-		}
-		decision.outputComplete = false
-		return decision
-	}
-	decision.bindingLifecycle = delegated.LifecycleTerminal
-	decision.exit.Code = obs.ExitCode
-	// A reattached control observer counts only bytes delivered after the new
-	// observer was established. Compare that forward-only count with the
-	// canonical durable delta, never with the session lifetime total.
-	observedDurableBytes := snapshot.outputBytes - snapshot.observerBase
-	if observedDurableBytes < 0 || obs.OutputBytes != observedDurableBytes {
-		decision.state, decision.outcome = session.Failed, session.Failure
-		decision.failureReason = "output_capture_failed"
-		decision.captureQuality = receipt.CaptureIncomplete
-		decision.captureReasons = []receipt.CaptureReason{receipt.CaptureReasonTransportGap}
-		decision.outputComplete = false
-		return decision
-	}
-	if snapshot.captureGap {
-		decision.captureQuality = receipt.CaptureIncomplete
-		decision.captureReasons = []receipt.CaptureReason{receipt.CaptureReasonTransportGap}
-		decision.outputComplete = false
-	}
-	switch {
-	case snapshot.target == session.Killed:
-		decision.state, decision.outcome = session.Killed, session.KilledOutcome
-	case snapshot.target == session.TimedOut:
-		decision.state, decision.outcome = session.TimedOut, session.Timeout
-	case obs.ExitCode == nil:
-		decision.state, decision.outcome = session.Failed, session.Failure
-		decision.failureReason = "exit_unobserved"
-	case *obs.ExitCode == 0:
-		decision.state, decision.outcome = session.Completed, session.Success
-	default:
-		decision.state, decision.outcome = session.Failed, session.Failure
-	}
-	return decision
+	live.mu.Unlock()
+	snapshot.captureTruth, snapshot.captureGap = s.delegatedCaptureTruth(live.sessionID, snapshot.captureGap)
+	return snapshot
 }
 
 func (s *Service) delegatedTerminalReceipt(live *liveSession, snapshot delegatedTerminalSnapshot, decision delegatedTerminalDecision) receipt.Receipt {

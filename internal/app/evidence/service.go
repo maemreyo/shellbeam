@@ -30,6 +30,9 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 	if err != nil {
 		return core.Record{}, false, err
 	}
+	if err := core.ValidateMechanicalReceiptAuthority(authority.EvidenceAuthority); err != nil {
+		return core.Record{}, false, err
+	}
 	contract, ok, err := contractFromReservation(reservation)
 	if err != nil {
 		return core.Record{}, false, err

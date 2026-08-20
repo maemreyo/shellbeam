@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
 	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
@@ -199,5 +200,31 @@ func TestE27InputTraceBindingCannotNarrowEvidenceSourceValidity(t *testing.T) {
 	}
 	if after.Source != before.Source || after.Result != before.Result || after.Terminal != before.Terminal {
 		t.Fatalf("trace narrowed evidence before=%#v after=%#v", before, after)
+	}
+}
+
+func TestDeriveTerminalRejectsDelegatedLifecycleOnlyEvenWithTestIntent(t *testing.T) {
+	now := time.Now().UTC()
+	zero := 0
+	res := operation.Reservation{
+		SchemaVersion: 5, OperationID: "delegated-evidence-op", SessionID: "delegated-evidence-session",
+		RequestFingerprint: strings.Repeat("a", 64), ExecutionFingerprint: strings.Repeat("b", 64), ObservationBindingFingerprint: strings.Repeat("c", 64),
+		ExecutionMode: operation.ExecutionModeShell, Executable: "/bin/sh", Shell: "/bin/sh", Command: "true", CWD: t.TempDir(),
+		SessionMode: delegated.ModeDelegatedInteractive, AuthorityEpoch: 1, Intent: &operation.DeclaredIntent{Kind: operation.IntentKindTest}, CreatedAt: now,
+	}
+	rec := receipt.Receipt{
+		SchemaVersion: 5, OperationID: string(res.OperationID), SessionID: string(res.SessionID),
+		RequestFingerprint: res.RequestFingerprint, ExecutionFingerprint: res.ExecutionFingerprint, ObservationBindingFingerprint: res.ObservationBindingFingerprint,
+		DaemonIncarnation: "daemon", ExecutionMode: "shell", Executable: "/bin/sh", Shell: "/bin/sh", CWD: res.CWD,
+		State: session.Completed, Outcome: session.Success, OutputComplete: true, CaptureQuality: receipt.CaptureComplete,
+		SessionMode: delegated.ModeDelegatedInteractive, AuthorityEpoch: 1, EvidenceAuthority: receipt.EvidenceAuthoritySessionLifecycleOnly, InputAuthorityProvenance: receipt.InputAuthorityAgentOnly,
+		Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Code: &zero},
+	}
+	repo := &serviceRepo{reservation: res, terminal: rec, snapshot: session.Snapshot{OperationID: rec.OperationID, SessionID: rec.SessionID, State: rec.State, Outcome: rec.Outcome, UpdatedAt: now}}
+	if _, created, err := NewService(repo, NewObserver(DefaultLimits())).DeriveTerminal(context.Background(), rec); err == nil || created {
+		t.Fatalf("delegated lifecycle derived mechanical evidence: created=%v err=%v", created, err)
+	}
+	if len(repo.records) != 0 {
+		t.Fatalf("records=%#v", repo.records)
 	}
 }

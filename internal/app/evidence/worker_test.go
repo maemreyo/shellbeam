@@ -3,10 +3,12 @@ package evidence
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -198,5 +200,42 @@ func TestEvidenceWorkerRecoverClearsOrphanCandidate(t *testing.T) {
 	}
 	if len(recovery.cleared) != 1 || recovery.cleared[0] != orphan {
 		t.Fatalf("cleared=%#v", recovery.cleared)
+	}
+}
+
+func TestEvidenceWorkerDoesNotDeriveDelegatedLifecycleReceiptAtAnyCaptureQuality(t *testing.T) {
+	for _, truth := range []receipt.CaptureTruth{
+		receipt.CompleteCaptureTruth(),
+		{Quality: receipt.CapturePartial, Reasons: []receipt.CaptureReason{receipt.CaptureReasonPrivateIntervalsOmitted}, OutputComplete: false},
+		{Quality: receipt.CaptureIncomplete, Reasons: []receipt.CaptureReason{receipt.CaptureReasonPrivateIntervalsOmitted, receipt.CaptureReasonTransportGap, receipt.CaptureReasonProviderLost}, OutputComplete: false},
+	} {
+		deriver := &workerDeriverFake{}
+		recovery := &workerRecoveryFake{}
+		worker, err := NewWorker(deriver, recovery, WorkerOptions{MaxWorkers: 1, QueueDepth: 1, MaxDuration: time.Second, RecoveryLimit: 8})
+		if err != nil {
+			t.Fatal(err)
+		}
+		rec := workerDelegatedTerminalReceipt("delegated-worker-op", "delegated-worker-session", truth)
+		if err := worker.ScheduleTerminal(context.Background(), rec); err != nil {
+			t.Fatal(err)
+		}
+		if err := worker.Shutdown(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if deriver.count() != 0 {
+			t.Fatalf("delegated capture %#v derived %d records", truth, deriver.count())
+		}
+	}
+}
+
+func workerDelegatedTerminalReceipt(op, sid string, truth receipt.CaptureTruth) receipt.Receipt {
+	zero := 0
+	return receipt.Receipt{
+		SchemaVersion: 5, OperationID: op, SessionID: sid,
+		RequestFingerprint: strings.Repeat("a", 64), ExecutionFingerprint: strings.Repeat("b", 64), ObservationBindingFingerprint: strings.Repeat("c", 64),
+		DaemonIncarnation: "d", State: session.Completed, Outcome: session.Success,
+		SessionMode: delegated.ModeDelegatedInteractive, AuthorityEpoch: 1, EvidenceAuthority: receipt.EvidenceAuthoritySessionLifecycleOnly, InputAuthorityProvenance: receipt.InputAuthorityAgentOnly,
+		CaptureQuality: truth.Quality, CaptureReasons: append([]receipt.CaptureReason(nil), truth.Reasons...), OutputComplete: truth.OutputComplete,
+		Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Code: &zero},
 	}
 }

@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -238,5 +239,57 @@ func TestDelegatedCreateResponseLossPreservesPreAckOutputAccountingThroughTermin
 	terminal := waitForTerminal(t, svc, started.SessionID)
 	if terminal.State != session.Completed || terminal.Receipt == nil || !terminal.Receipt.OutputComplete || terminal.Receipt.CaptureQuality != receipt.CaptureComplete {
 		t.Fatalf("terminal=%#v", terminal)
+	}
+}
+
+func TestDelegatedTerminalCaptureTruthComposesPrivateOmissionWithLaterLoss(t *testing.T) {
+	st := openDelegatedStartStore(t)
+	runtime := newDelegatedStartRuntime()
+	svc := app.NewService(st, &fakeOwner{}, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime})
+	req := delegatedStartRequest()
+	req.OperationID = "op-delegated-private-loss"
+	started, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid := operation.SessionID(started.SessionID)
+	if _, got := st.MarkDelegatedCaptureReason(context.Background(), sid, receipt.CaptureReasonPrivateIntervalsOmitted); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	if _, got := st.MarkDelegatedCaptureReason(context.Background(), sid, receipt.CaptureReasonTransportGap); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	runtime.waitCh <- delegatedWaitResult{err: failure.New(failure.DelegatedProviderLost, map[string]string{"session_id": started.SessionID, "provider_id": "tmux_control_mode", "reason": "observer_lost"}, nil)}
+	terminal := waitForTerminal(t, svc, started.SessionID)
+	if terminal.Receipt == nil {
+		t.Fatalf("terminal=%#v", terminal)
+	}
+	want := []receipt.CaptureReason{receipt.CaptureReasonPrivateIntervalsOmitted, receipt.CaptureReasonTransportGap, receipt.CaptureReasonProviderLost}
+	if terminal.Receipt.OutputComplete || terminal.Receipt.CaptureQuality != receipt.CaptureIncomplete || !reflect.DeepEqual(terminal.Receipt.CaptureReasons, want) {
+		t.Fatalf("capture=%#v want=%v", terminal.Receipt, want)
+	}
+}
+
+func TestDelegatedTerminalPrivacyOnlyOmissionRemainsLifecycleSuccessButPartial(t *testing.T) {
+	st := openDelegatedStartStore(t)
+	runtime := newDelegatedStartRuntime()
+	svc := app.NewService(st, &fakeOwner{}, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, DelegatedRuntime: runtime})
+	req := delegatedStartRequest()
+	req.OperationID = "op-delegated-private-only"
+	started, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got := st.MarkDelegatedCaptureReason(context.Background(), operation.SessionID(started.SessionID), receipt.CaptureReasonPrivateIntervalsOmitted); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	zero := 0
+	runtime.waitCh <- delegatedWaitResult{observation: delegatedapp.Observation{Provider: runtime.Identity(), ProviderCurrent: true, ProviderGeneration: "gen_test", Owner: delegated.OwnerNone, Terminal: true, ExitCode: &zero, OutputBytes: int64(len("delegated-ready\n"))}}
+	terminal := waitForTerminal(t, svc, started.SessionID)
+	if terminal.State != session.Completed || terminal.Outcome != session.Success || terminal.Receipt == nil {
+		t.Fatalf("terminal=%#v", terminal)
+	}
+	if terminal.Receipt.OutputComplete || terminal.Receipt.CaptureQuality != receipt.CapturePartial || !reflect.DeepEqual(terminal.Receipt.CaptureReasons, []receipt.CaptureReason{receipt.CaptureReasonPrivateIntervalsOmitted}) {
+		t.Fatalf("receipt=%#v", terminal.Receipt)
 	}
 }

@@ -12,7 +12,8 @@ func TestDelegatedCaptureTruthVocabulary(t *testing.T) {
 		{CapturePartial, []CaptureReason{CaptureReasonPrivateIntervalsOmitted}, false},
 		{CaptureIncomplete, []CaptureReason{CaptureReasonTransportGap}, false},
 		{CaptureIncomplete, []CaptureReason{CaptureReasonProviderLost}, false},
-		{CaptureIncomplete, []CaptureReason{CaptureReasonPrivateIntervalsOmitted, CaptureReasonProviderLost, CaptureReasonTransportGap}, false},
+		{CaptureIncomplete, []CaptureReason{CaptureReasonTransportGap, CaptureReasonProviderLost}, false},
+		{CaptureIncomplete, []CaptureReason{CaptureReasonPrivateIntervalsOmitted, CaptureReasonTransportGap, CaptureReasonProviderLost}, false},
 	}
 	for _, tc := range valid {
 		if err := ValidateCaptureTruth(tc.quality, tc.reasons, tc.complete); err != nil {
@@ -29,7 +30,7 @@ func TestDelegatedCaptureTruthVocabulary(t *testing.T) {
 		{CaptureIncomplete, nil, false},
 		{CaptureIncomplete, []CaptureReason{CaptureReasonPrivateIntervalsOmitted}, false},
 		{CaptureIncomplete, []CaptureReason{CaptureReasonTransportGap, CaptureReasonTransportGap}, false},
-		{CaptureIncomplete, []CaptureReason{CaptureReasonTransportGap, CaptureReasonProviderLost}, false},
+		{CaptureIncomplete, []CaptureReason{CaptureReasonProviderLost, CaptureReasonTransportGap}, false},
 		{CaptureQuality("future"), nil, false},
 		{CaptureIncomplete, []CaptureReason{"future"}, false},
 		{CaptureComplete, nil, false},

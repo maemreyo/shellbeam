@@ -167,7 +167,7 @@ func TestDelegatedRestartReconcileProviderAbsentPublishesCanonicalLostWithoutRec
 	if err != nil || rec.State != session.Abandoned || rec.Outcome != session.Ambiguous || rec.FailureReason != "provider_lost" || rec.OutputComplete || rec.CaptureQuality != receipt.CaptureIncomplete {
 		t.Fatalf("receipt=%#v err=%v", rec, err)
 	}
-	if len(rec.CaptureReasons) != 2 || rec.CaptureReasons[0] != receipt.CaptureReasonProviderLost || rec.CaptureReasons[1] != receipt.CaptureReasonTransportGap || rec.OutputBytes != 3 {
+	if len(rec.CaptureReasons) != 2 || rec.CaptureReasons[0] != receipt.CaptureReasonTransportGap || rec.CaptureReasons[1] != receipt.CaptureReasonProviderLost || rec.OutputBytes != 3 {
 		t.Fatalf("capture=%#v", rec)
 	}
 	stored, err := st.LoadDelegatedBinding(context.Background(), operation.SessionID(binding.SessionID))
