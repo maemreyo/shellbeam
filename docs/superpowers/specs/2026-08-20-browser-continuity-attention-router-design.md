@@ -525,6 +525,17 @@ The ledger lives in `storage.local` and carries **zero execution authority**. It
 
 **Observation and adjudication SHALL remain separate fields.** Observation is what the system believed. Adjudication is what the human later said. Overwriting the former with the latter destroys the only dataset that can falsify the classifier.
 
+**Cross-store commit ordering is normative, because there is none available.** The authority record lives in `storage.session` and the ledger lives in `storage.local`, so an attention event cannot be committed atomically with the disarm that accompanies it. The ordering SHALL be:
+
+```text
+1. write the ledger record          (storage.local)
+2. write the watch authority record (storage.session)
+```
+
+with the ledger write carrying a **deterministic idempotency key** derived from `watch_task_id`, `controller_generation`, `observation_epoch`, `attention_reason`, and the identity of the triggering observation. A background termination between the two writes leaves the watch still armed, so the next wake re-evaluates and re-emits — and the key makes the re-emission a no-op rather than a duplicate.
+
+The ordering is chosen for its failure direction, not its elegance. Writing authority first would produce a disarmed watch with no ledger entry: a silently unwatched conversation, which is scenario S10 exactly. Writing the ledger first can at worst produce a visible duplicate, and the key removes even that. This is the same asymmetry that governs §17: bias every residual failure toward being seen.
+
 Reported metrics SHALL always show the denominator:
 
 ```text
@@ -625,6 +636,8 @@ The least-privilege property is preserved because **every id after the first is 
 
 Each plan SHALL declare its own coverage. `structured_failure_facts` can only walk retained operation refs, so `compacted_operations > 0` yields partial historical structured coverage; a bounded walk that stops early yields partial coverage for that reason instead. Coverage is reported, never inferred by the extension.
 
+**`verification_facts` SHALL return per-workspace results and SHALL NOT aggregate across workspaces.** An `Activity` may carry several `WorkspaceIDs`, and each workspace has its own policy, its own policy generation, and its own authority. Summing `blocking` counts across workspaces whose policy generations differ produces a number that corresponds to no evaluable question — the flattening that I11 and I13 both forbid. The plan returns a bounded, per-workspace list, each entry carrying its own counts, authority, freshness, and truncation state; whether to compose them into one line of UI is the extension's decision, made with the per-workspace facts still visible.
+
 It holds no cursors, no watch state, no conversation identity, and no session. It never receives or stores conversation content. Statelessness is not merely hygiene here: because a connectionless host cannot hold state, cursors necessarily live in the extension, which is where they belong.
 
 [`internal/adapter/ipc`](../../../internal/adapter/ipc/client_unix.go) speaks HTTP over the Unix socket with a pooled `http.Client`, so concurrent use is safe and no serialization is needed in the host.
@@ -702,6 +715,8 @@ Attribution is P0 core, so the origin of the correlation id SHALL be frozen here
 
 **P0 correlation coverage is partial by construction, and that is intended.** Because delivery is human-gated, watches the human never arms with a preamble and never actuates will stay `unbound` for their whole life. Those watches still work: they run on the browser-only substrate. The resulting coverage number is itself a P0 measurement feeding §28, not a defect to engineer around.
 
+There SHALL be no mechanism that guesses an activity in order to raise coverage. An `unbound` watch stays `unbound`.
+
 ### 22.2 Correlation quality
 
 The extension classifies correlation quality from literal host facts:
@@ -722,6 +737,33 @@ Existence alone is insufficient for `current`: an activity persists forever afte
 **`ambiguous` has teeth and no probe.** Ambiguity yields an attention record and disarms. It SHALL NOT trigger an automated disambiguation message: sending one would be a conversation mutation performed under the very ambiguity being resolved. The human re-arms after reading the record.
 
 **No cross-conversation contamination.** Only facts attributable to a watch's own correlation may enrich it. Global queries such as "all failing tests on this machine" SHALL NOT enrich any conversation. Insufficient attribution yields `facts_unavailable` and a fallback to browser-only substrate. This is fail-open on automation availability and fail-closed on attribution.
+
+### 22.3 Correlation is counted in stages, never as one ratio
+
+A single ratio such as `current / watch_total` mixes two unrelated things — whether the human opted into binding at all, and whether the protocol worked once attempted — into one number from which neither can be recovered. The counters SHALL therefore be staged:
+
+```text
+watch_total
+binding_eligible                  armed in a mode that carries correlation
+binding_instruction_delivered     instruction actually reached the model
+binding_declared                  structured acknowledgement observed
+binding_current
+binding_stale
+binding_ambiguous
+enrichment_unavailable            host / daemon / protocol (§19)
+```
+
+`enrichment_unavailable` is counted separately from every binding stage, because a bridge that is not reachable says nothing about whether binding would have succeeded.
+
+Derived metrics SHALL be reported as ratios between adjacent stages, never as a single coverage figure:
+
+```text
+binding_attempt_coverage   = binding_instruction_delivered / watch_total
+declaration_success        = binding_declared / binding_instruction_delivered
+current_correlation_yield  = binding_current / binding_declared
+```
+
+The three answer different questions and imply different responses: the first is UX adoption, the second is model cooperation with the handshake, and the third is ShellBeam correlation reliability. Reporting only their product would make all three unactionable.
 
 ## 23. Comparable failure surface
 
@@ -884,8 +926,12 @@ P1 design may be *debated* only when the ledger provides:
 minimum adjudicated sample size            (threshold set at P0 review)
 minimum adjudication coverage              reported with every metric
 per-cause confusion matrix                 from adjudicated records
-indeterminate rate                         observed distribution
-attribution ambiguity rate
+unknown-cause rate                         observed distribution
+binding_attempt_coverage                   staged, per §22.3
+declaration_success                        staged, per §22.3
+current_correlation_yield                  staged, per §22.3
+binding_ambiguous rate                     of declared bindings
+enrichment_unavailable rate                counted apart from binding
 adapter-drift incident rate                per feature
 human-actuation failure rate               precondition refusals and
                                            post-actuation surprises
@@ -937,7 +983,7 @@ Normative:
 - **I19** Receipt novelty is not advancement and resets no counter or budget.
 - **I20** ShellBeam core gains no new authority, projection, or durable identity for P0.
 - **I21** Installing ShellBeam never grants a browser extension access to machine facts; the manifest install is separate and revocable.
-- **I22** Every authority transition writes exactly one watch record. No transition clears authority held in another record, so no crash between writes can produce two records claiming control.
+- **I22** In P0, every authority transition commits through exactly one WatchTask authority record. No P0 authority transition requires an atomic multi-record write, so no crash between writes can produce two records claiming control. This invariant is scoped to P0 deliberately: the canonical conversation lease that automatic takeover needs (§29, P2) will change the authority storage model, and it must arrive as an explicit successor design rather than as a violation of this one.
 - **I23** A bridge verb's read plan is fixed in the host. Every id after the caller's single correlation id is derived by the host; the caller can never name an operation, session, workspace, or path.
 - **I24** A correlation reaches `current` only through confirmed existence and recency. A transcript declaration alone never reaches `current`, and a declaration carrying a superseded nonce is `stale`.
 
@@ -948,7 +994,7 @@ This design is ready for P0 implementation planning when reviewers confirm:
 1. the three-authority model and invariants I1–I24 are accepted as normative;
 2. the closed core vocabulary in §13 is accepted as orthogonal axes, and is complete enough for the ChatGPT adapter;
 3. Browser Bridge Protocol v1's verb set, per-verb read plans (§20), version-stable `hello`, and literal response shape are accepted, including the absence of any judgment field;
-4. the binding handshake in §22.1 is accepted, including that P0 correlation coverage is partial by construction;
+4. the binding handshake in §22.1 is accepted, including that P0 correlation coverage is partial by construction and is reported as staged counters per §22.3, never as one ratio;
 5. the install boundary in §21 is accepted, including a fixed `gecko.id`;
 6. the repository split and protocol ownership in §26 are accepted;
 7. the P0 scope in §27 is agreed, including the exclusion of automatic controller takeover, budget enforcement, and completion-marker support;
