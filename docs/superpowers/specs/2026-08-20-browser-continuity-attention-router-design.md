@@ -222,12 +222,25 @@ scan active WatchTasks under a GLOBAL transition lock
     ↓
 no existing controller for that key      → W binds and becomes controller
 existing live controller for that key    → W is demoted to observer
-existing controller fails liveness check → attention record; W is NOT promoted (§11)
+existing controller fails liveness check → controller-release transition on the
+                                           OLD controller (§11); W is NOT
+                                           promoted and stays observer
 ```
 
 The rule is *existing valid controller wins*, never last-writer-wins.
 
-**Every authority transition SHALL write exactly one record.** This is the property that makes one-record-per-watch sound, and it is why P0 has no automatic controller takeover (§11). Each branch above writes only the newcomer's record: binding writes W, demotion writes W, and a failed liveness check writes an attention record and leaves every watch record untouched. No transition needs to clear a controller flag in another watch's record, so no transition can be torn by a crash between two writes.
+**Every authority transition SHALL write exactly one record, and no transition SHALL require an atomic multi-record write.** This is the property that makes one-record-per-watch sound, and it is why P0 has no automatic controller takeover (§11).
+
+A failed liveness check does **not** leave records untouched. It releases the stale claim, writing the *old controller's* record. That release is its own transition, distinct from the newcomer's late-bind transition, which writes the newcomer's record. A single scan may therefore schedule two transitions; each writes one record, each is independently valid, and the sequence is retriable:
+
+```text
+crash after release, before newcomer's bind
+    → zero controllers; the newcomer late-binds again on next observation
+crash after newcomer's bind, before release
+    → the stale claim survives; the next scan pings, fails, and releases it
+```
+
+Neither residual state has two records claiming control, and neither is terminal. Releasing before promoting is what keeps this true: the intermediate state is always *zero* controllers, never two.
 
 **Liveness is a ping, not a tab record.** `tabs.get()` proves only that the browser still has a tab record. Firefox can discard a tab, leaving the record present and the content script dead. Controller liveness SHALL be established by a ping to the content script with a timeout, returning `watch_task_id`, `document_epoch`, `conversation_key?`, and `observation_epoch`.
 
@@ -246,27 +259,45 @@ observation_epoch       proves the information the actor is acting on is fresh
 
 Therefore:
 
+Controller loss and re-arming are **two authority transitions separated in time**, each writing exactly one record:
+
 ```text
-controller ping fails
-    ↓
-attention record (reason = controller_lost)
-    ↓
-watch disarmed
-    ↓
-human explicitly re-arms in a chosen tab
-    ↓
-RESYNC_REQUIRED
-    ↓
-forced reload of the conversation
-    ↓
-adapter bootstrap + qualification (§12)
-    ↓
-conversation identity confirmation
-    ↓
-observation_epoch established
-    ↓
-controller_generation++ and ARMED, written to that one record
+TRANSITION 1 — controller release
+    controller ping fails
+        ↓
+    write Attention Ledger  (reason = controller_lost; §18 ordering)
+        ↓
+    write the OLD controller's WatchTask record:
+        watch_state = disarmed
+        controller  = false
+        ← exactly one authority record
+        ↓
+    any newcomer remains observer; zero controllers now hold the conversation
+
+--- no automation until a human acts ---
+
+TRANSITION 2 — explicit human re-arm
+    human re-arms a chosen tab
+        ↓
+    global reconciliation sees no active controller
+        ↓
+    write the CHOSEN WatchTask record:
+        controller_generation++
+        watch_state = resync_required
+        ← exactly one authority record
+        ↓
+    forced reload of the conversation
+        ↓
+    adapter bootstrap + qualification (§12)
+        ↓
+    conversation identity confirmation
+        ↓
+    observation_epoch established
+        ↓
+    watch_state = armed
 ```
+
+The release SHALL happen even though no human has acted yet. Leaving the stale record `armed` with `controller = true` would deadlock every future re-arm: each subsequent reconciliation scan would find an existing controller, ping it, fail, and decline to promote anyone — forever. Releasing first makes the intermediate state *zero controllers*, which is safe precisely because P0 mutates nothing without a human present.
 
 This is acceptable precisely because the Attention Ledger (§18) makes controller loss visible. An unwatched conversation produces a durable record and a badge, so the failure is loud rather than silent — the S10 failure mode is closed by visibility, not by automation. Automatic takeover is deferred to P2 (§29), where it must arrive with an explicit crash-atomicity design.
 
@@ -559,7 +590,7 @@ verification_facts        { correlation_id }
 structured_failure_facts  { correlation_id }
 ```
 
-There is no `action` field, no `argv`, no `command`, no `cwd`, no path, no caller-chosen session id, and no generic passthrough anywhere in the protocol. Verbs are a closed enum; the host maps each to a hardcoded ShellBeam request. `internal/app/bridge.Handler` SHALL NOT be reused, because it forwards a caller-supplied action and would hand the browser the entire ShellBeam surface including execution.
+There is no `action` field, no `argv`, no `command`, no `cwd`, no path, no caller-chosen session id, and no generic passthrough anywhere in the protocol. Verbs are a closed enum; the host maps each to a fixed hardcoded read plan (§20). `internal/app/bridge.Handler` SHALL NOT be reused, because it forwards a caller-supplied action and would hand the browser the entire ShellBeam surface including execution.
 
 **Responses are literal facts, never judgments.** The host returns counts and provenance; the extension classifies:
 
@@ -636,7 +667,7 @@ The least-privilege property is preserved because **every id after the first is 
 
 Each plan SHALL declare its own coverage. `structured_failure_facts` can only walk retained operation refs, so `compacted_operations > 0` yields partial historical structured coverage; a bounded walk that stops early yields partial coverage for that reason instead. Coverage is reported, never inferred by the extension.
 
-**`verification_facts` SHALL return per-workspace results and SHALL NOT aggregate across workspaces.** An `Activity` may carry several `WorkspaceIDs`, and each workspace has its own policy, its own policy generation, and its own authority. Summing `blocking` counts across workspaces whose policy generations differ produces a number that corresponds to no evaluable question — the flattening that I11 and I13 both forbid. The plan returns a bounded, per-workspace list, each entry carrying its own counts, authority, freshness, and truncation state; whether to compose them into one line of UI is the extension's decision, made with the per-workspace facts still visible.
+**`verification_facts` SHALL return per-workspace results and SHALL NOT aggregate across workspaces.** An `Activity` may carry several `WorkspaceIDs`, and each workspace has its own policy, its own policy generation, and its own authority. Summing `blocking` counts across workspaces whose policy generations differ produces a number that corresponds to no evaluable question — the flattening forbidden by I11 here and by invariant 13 of the [Machine Truth Harness](./2026-08-18-machine-truth-harness-architecture-design.md), which requires model-facing projections to preserve authority, freshness, and coverage rather than flatten uncertainty. The plan returns a bounded, per-workspace list, each entry carrying its own counts, authority, freshness, and truncation state; whether to compose them into one line of UI is the extension's decision, made with the per-workspace facts still visible.
 
 It holds no cursors, no watch state, no conversation identity, and no session. It never receives or stores conversation content. Statelessness is not merely hygiene here: because a connectionless host cannot hold state, cursors necessarily live in the extension, which is where they belong.
 
@@ -678,7 +709,7 @@ The extension is not same-UID-privileged; the host is. The host is the only plac
 
 ## 22. Correlation semantics
 
-`activity_id` correlation is **optional, best-effort, and may be absent, stale, or wrong**. It is a model-supplied field ([`internal/adapter/mcp/input.go:39`](../../../internal/adapter/mcp/input.go:39)), so a model may simply omit it, and `inspect.activity` then fails with `ActivityNotFound` ([`internal/app/activity/service.go:38`](../../../internal/app/activity/service.go:38)).
+`activity_id` correlation is **optional, best-effort, and may be absent, stale, or wrong**. It is a model-supplied field ([`internal/adapter/mcp/input.go`](../../../internal/adapter/mcp/input.go), the `ActivityID` field on the MCP input struct), so a model may simply omit it, and `inspect.activity` then fails with `ActivityNotFound` ([`internal/app/activity/service.go`](../../../internal/app/activity/service.go), in `Service.Inspect`).
 
 `ActivityNotFound` SHALL map to `facts_unavailable`. It SHALL NOT map to idle, settled, or complete.
 
@@ -758,12 +789,15 @@ enrichment_unavailable            host / daemon / protocol (§19)
 Derived metrics SHALL be reported as ratios between adjacent stages, never as a single coverage figure:
 
 ```text
-binding_attempt_coverage   = binding_instruction_delivered / watch_total
-declaration_success        = binding_declared / binding_instruction_delivered
-current_correlation_yield  = binding_current / binding_declared
+binding_adoption          = binding_eligible / watch_total
+binding_delivery_success  = binding_instruction_delivered / binding_eligible
+declaration_success       = binding_declared / binding_instruction_delivered
+current_correlation_yield = binding_current / binding_declared
 ```
 
-The three answer different questions and imply different responses: the first is UX adoption, the second is model cooperation with the handshake, and the third is ShellBeam correlation reliability. Reporting only their product would make all three unactionable.
+Four ratios, not three: `binding_eligible` and `binding_instruction_delivered` are separate stages, so a ratio spanning both — `delivered / watch_total` — would recombine adoption with delivery reliability and reproduce the very conflation these counters exist to prevent.
+
+Each ratio answers a different question and implies a different response: adoption is a UX question, delivery is an extension-path question, declaration is model cooperation with the handshake, and yield is ShellBeam correlation reliability. Reporting only their product would make all four unactionable.
 
 ## 23. Comparable failure surface
 
@@ -927,7 +961,8 @@ minimum adjudicated sample size            (threshold set at P0 review)
 minimum adjudication coverage              reported with every metric
 per-cause confusion matrix                 from adjudicated records
 unknown-cause rate                         observed distribution
-binding_attempt_coverage                   staged, per §22.3
+binding_adoption                           staged, per §22.3
+binding_delivery_success                   staged, per §22.3
 declaration_success                        staged, per §22.3
 current_correlation_yield                  staged, per §22.3
 binding_ambiguous rate                     of declared bindings
@@ -973,7 +1008,7 @@ Normative:
 - **I9** An unqualified adapter feature yields `unknown` with a reason, never a negative fact.
 - **I10** Facts enrich a conversation only when attributable to it; insufficient attribution yields `facts_unavailable`.
 - **I11** The bridge exposes literal facts with authority, freshness, and coverage. No response field encodes a policy judgment.
-- **I12** The bridge has no generic action passthrough. Verbs are a closed enum mapped to hardcoded requests.
+- **I12** The bridge has no generic action passthrough. Verbs are a closed enum mapped to fixed hardcoded read plans.
 - **I13** Only the extension background writes authority state. Cross-record authority transitions are serialized globally; native read admission uses a separate bounded limiter, and the authority lock is never held across a slot wait or native I/O.
 - **I14** Watch authority state lives only in `storage.session`; `storage.local` holds no authority.
 - **I15** The Attention Ledger carries no execution authority and cannot resume automation.
@@ -983,7 +1018,7 @@ Normative:
 - **I19** Receipt novelty is not advancement and resets no counter or budget.
 - **I20** ShellBeam core gains no new authority, projection, or durable identity for P0.
 - **I21** Installing ShellBeam never grants a browser extension access to machine facts; the manifest install is separate and revocable.
-- **I22** In P0, every authority transition commits through exactly one WatchTask authority record. No P0 authority transition requires an atomic multi-record write, so no crash between writes can produce two records claiming control. This invariant is scoped to P0 deliberately: the canonical conversation lease that automatic takeover needs (§29, P2) will change the authority storage model, and it must arrive as an explicit successor design rather than as a violation of this one.
+- **I22** In P0, every authority transition commits through exactly one WatchTask authority record, and no P0 authority transition requires an atomic multi-record write. Controller loss writes the old controller's record; a later human re-arm writes the selected WatchTask in a separate transition. Where one scan schedules both, each step is independently valid and retriable, and the intermediate state holds zero controllers rather than two. This invariant is scoped to P0 deliberately: the canonical conversation lease that automatic takeover needs (§29, P2) will change the authority storage model, and it must arrive as an explicit successor design rather than as a violation of this one.
 - **I23** A bridge verb's read plan is fixed in the host. Every id after the caller's single correlation id is derived by the host; the caller can never name an operation, session, workspace, or path.
 - **I24** A correlation reaches `current` only through confirmed existence and recency. A transcript declaration alone never reaches `current`, and a declaration carrying a superseded nonce is `stale`.
 
