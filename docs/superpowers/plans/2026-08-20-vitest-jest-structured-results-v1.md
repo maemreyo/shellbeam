@@ -788,22 +788,25 @@ Task 6 verification evidence: targeted integration, store boundary, race subsets
 - Create: `tests/fixtures/jest-json/manifest.json`
 - Create: frozen fixtures under `tests/fixtures/jest-json/jest-29.7.0/` and `jest-30.4.2/`
 - Create: `cmd/shellbeam/structured_jest_test.go`
+- Create: `internal/adapter/structured/jestjson/qualification_fixtures_test.go`
 
 **Interfaces:**
 - Manifest records producer version, exact generating invocation, and SHA-256 per fixture. Committed tests consume frozen bytes and need no network, no Node, and no installed Jest.
 - The release script creates throwaway installs in the scratchpad for deliberate qualification only.
 
-- [ ] **Step 1: Generate producer-realistic fixtures for both versions**
+- [x] **Step 1: Generate producer-realistic fixtures for both versions**
 
 Per version: ordinary pass; ordinary failure; `test.skip`; `test.todo`; `describe.skip`; `beforeAll` throw; `beforeEach` throw; `afterAll` throw; module-level throw; `retryTimes` ending failed; `retryTimes` ending passed; `it.failing` failing; `it.failing` passing; a one-pass-plus-one-skip file for the `focused` trap; and a suite exceeding the record cap.
 
 Exact invocation includes `--json --outputFile=<path>` with `JEST_JASMINE` unset. Freeze SHA-256 and version in the manifest.
 
-- [ ] **Step 2: Prove fixture semantics against parser tests**
+Task 7 qualification generated 15 semantic fixtures for each release (30 documents total). The package/reported-version pairs are `29.7.0 / 29.7.0` and `30.4.2 / 30.4.1`; the latter is a producer packaging fact and the manifest records package version and producer-reported CLI version separately. Regenerating the full fixture tree after generation produced byte-identical SHA-256 output, and all 30 manifest SHA entries were recomputed successfully.
+
+- [x] **Step 2: Prove fixture semantics against parser tests**
 
 Run identical expectations across both version directories, except the `failing` dimension, which must be observable under `v30` and unavailable under `v29`. Assert no fixture yields `TestStatus = error`.
 
-- [ ] **Step 3: Run the qualification negative matrix mechanically**
+- [x] **Step 3: Run the qualification negative matrix mechanically**
 
 ```text
 JEST_JASMINE absent/present
@@ -831,15 +834,29 @@ zero-match emission (§22.5) — invocation that filters out every test;
 
 No negative may mutate child truth or produce a mechanical blob-derived result.
 
-- [ ] **Step 4: Measure document size with and without coverage**
+The committed acceptance harness mechanically covers the existing qualification/capture negative tests and re-probes both real releases. For both releases: zero-file-match exits nonzero but emits a JSON document with zero tests; `@args.txt` containing `--bail` is not expanded while an explicit `--bail` control runs one test; BigInt result serialization exits nonzero and writes no document; `globalSetup` throw exits nonzero and writes no document. `JEST_JASMINE` presence remains a qualification failure, while agent-detection variables do not change qualification.
+
+- [x] **Step 4: Measure document size with and without coverage**
 
 Spec §35 defers the blob-ceiling decision to this measurement. Record, for a representative repository, the document size at `--coverage` on and off, and whether `DefaultMaxArtifactBlobBytes` is adequate. Write the number and the decision into this plan. If the default is inadequate, stop and amend the spec rather than raising a constant quietly.
 
-- [ ] **Step 5: Run crash, retention and concurrency acceptance**
+Measured on the deliberate 8200-test qualification suite through `scripts/test-jest-structured-results.sh`:
+
+```text
+package 29.7.0: coverage off 1,730,966–1,730,967 bytes; coverage on 1,730,983 bytes
+package 30.4.2: coverage off 2,058,967 bytes; coverage on 2,058,984–2,058,986 bytes
+DefaultMaxArtifactBlobBytes: 16,777,216 bytes
+```
+
+The ranges are the two full acceptance runs; raw producer JSON contains timing values, so a byte-exact size is not itself a frozen fixture property. Decision: the existing 16 MiB ceiling is adequate with substantial headroom; no limit change is authorized by Task 7. Earlier direct probes with a different throwaway source-root length were also below 2.21 MiB, so the decision is not sensitive to timing digits or the exact scratch path length.
+
+- [x] **Step 5: Run crash, retention and concurrency acceptance**
 
 Committed blob plus daemon restart before derivation; recovery claim surviving session GC; ref-acquire versus retire race; compaction and tombstone; identical terminal/observation cuts after restart. Assert recovery never re-runs Jest and never reopens the workspace output path.
 
-- [ ] **Step 6: Run the real daemon end-to-end path**
+Task 7 re-ran the durable artifact acceptance set covering duplicate scheduling/restart no-rerun, recovery with the same derivation key, terminal/observation-cut identity, session-GC survival of unbound recovery authority, ref-acquire versus retirement serialization, compaction/tombstone barriers, and store-open recovery. All passed without invoking producer code on recovery.
+
+- [x] **Step 6: Run the real daemon end-to-end path**
 
 Disposable daemon and state root, temp git workspace, throwaway Jest install, exact qualified argv through public IPC. Poll the terminal receipt, wait for `inspect.structured`, and assert mechanical records plus independent receipt truth.
 
@@ -853,16 +870,20 @@ an unqualified invocation
   → child execution preserved, inspect.structured not_found
 ```
 
-- [ ] **Step 7: Commit qualification evidence**
+Both public-IPC trust cases passed. The frozen-shim case intentionally exits nonzero while emitting a `success:true` Jest document: the terminal receipt remains failure while `inspect.structured` independently reports the mechanical pass. Daemon restart replays the same session and derivation. The deliberate real-producer path passed for both package releases, and an unqualified invocation still executed the child while `inspect.structured` returned `not_found`.
+
+- [x] **Step 7: Commit qualification evidence**
 
 ```bash
 ./scripts/test-jest-structured-results.sh
 go test ./internal/adapter/structured/jestjson ./cmd/shellbeam -run 'Jest|Structured' -count=1
 go run ./tools/devctl check
-git add scripts/generate-jest-json-fixtures.sh scripts/test-jest-structured-results.sh tests/fixtures/jest-json cmd/shellbeam/structured_jest_test.go docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md
+git add scripts/generate-jest-json-fixtures.sh scripts/test-jest-structured-results.sh tests/fixtures/jest-json cmd/shellbeam/structured_jest_test.go internal/adapter/structured/jestjson/qualification_fixtures_test.go docs/superpowers/plans/2026-08-20-vitest-jest-structured-results-v1.md
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "test: qualify jest structured results"
 ```
+
+Task 7 verification evidence before staging: the complete acceptance harness passed twice on the final implementation/test shape for both package releases; deterministic regeneration was byte-stable across all 30 fixtures and every manifest SHA recomputed; focused `Jest|Structured` tests passed; `devctl check` passed; and the repository dirty gate passed with full `cmd/shellbeam` in 444.330s.
 
 ---
 
