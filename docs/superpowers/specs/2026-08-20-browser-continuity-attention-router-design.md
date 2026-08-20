@@ -622,12 +622,14 @@ There is no `action` field, no `argv`, no `command`, no `cwd`, no path, no calle
   "operation_count_retained": 64,
   "compacted_operations": 12,
   "event_cursor_continuity": "continuous",
-  "sessions": { "running": 1, "finalizing": 0 },
+  "sessions": { "provisioning": 0, "live": 1, "terminal": 3, "lost": 0 },
   "verification": { "satisfied": 7, "waived": 0,
                     "blocking": 1, "indeterminate": 2 },
   "coverage": { "historical": "partial", "session_scope": "activity" }
 }
 ```
+
+Session counts SHALL use ShellBeam's own lifecycle state names (`provisioning`, `live`, `terminal`, `lost` — the values of `persistentsession.Lifecycle`) rather than a browser-invented taxonomy such as *running* or *finalizing*. Renaming a producer's states inside a projection is a quiet reinterpretation of its facts.
 
 A field named `mechanical_blockers` — or any array whose name encodes a policy judgment — is forbidden. `blocking: 1` is a literal count under the effective policy; calling it a blocker is the extension's policy, not ShellBeam's fact. This follows [Machine Truth Harness §16](./2026-08-18-machine-truth-harness-architecture-design.md) invariants 4 and 13: policy gaps are advisory, and projections preserve authority, freshness, and coverage rather than flattening uncertainty.
 
