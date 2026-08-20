@@ -90,7 +90,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	defer inputTraceRuntime.Close(context.Background())
 	catalog = inputTraceRuntime.Catalog
 	processOwner, catalog := composeResourceEnforcement(catalog, nil)
-	delegatedRuntime, terminalRuntime, catalog := composeInteractiveDaemonRuntimes(ctx, paths.StateDir, paths.RuntimeDir, store, catalog)
+	delegatedRuntime, handoffReadiness, terminalRuntime, catalog := composeInteractiveDaemonRuntimes(ctx, paths.StateDir, paths.RuntimeDir, store, catalog)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
@@ -115,7 +115,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		ProjectCommandBinder:    projectBinder,
 		PersistentRuntime:       persistentRuntime,
 		DelegatedRuntime:        delegatedRuntime,
-		HandoffReadiness:        composeDelegatedHandoffReadiness(delegatedRuntime, paths.RuntimeDir),
+		HandoffReadiness:        handoffReadiness,
 		HandoffPresenterFactory: terminalRuntime.PresenterFactory,
 		MediaReader:             daemonMediaReader(),
 		InputTracePreparer:      inputTraceRuntime.Preparer,
@@ -141,11 +141,12 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
 }
 
-func composeInteractiveDaemonRuntimes(ctx context.Context, stateDir, runtimeDir string, store *storeadapter.Repository, catalog capability.Catalog) (daemonapp.DelegatedRuntime, terminalPresentationRuntime, capability.Catalog) {
+func composeInteractiveDaemonRuntimes(ctx context.Context, stateDir, runtimeDir string, store *storeadapter.Repository, catalog capability.Catalog) (daemonapp.DelegatedRuntime, handoffapp.ReadinessPreparer, terminalPresentationRuntime, capability.Catalog) {
 	delegatedRuntime, catalog := composeDelegatedInteractiveRuntime(ctx, stateDir, runtimeDir, catalog)
-	catalog = composeInteractiveHandoffCapability(catalog, delegatedRuntime)
+	readiness := composeDelegatedHandoffReadiness(delegatedRuntime, runtimeDir)
+	catalog = composeInteractiveHandoffCapability(catalog, delegatedRuntime, readiness != nil)
 	terminalRuntime := composeHostTerminalPresentationRuntime(ctx, catalog, store)
-	return delegatedRuntime, terminalRuntime, terminalRuntime.Catalog
+	return delegatedRuntime, readiness, terminalRuntime, terminalRuntime.Catalog
 }
 
 func startTerminalPresentationRuntime(ctx context.Context, runtime terminalPresentationRuntime) {

@@ -1,5 +1,10 @@
 package capability
 
+import (
+	receipt "github.com/maemreyo/shellbeam/internal/core/receipt"
+	shell "github.com/maemreyo/shellbeam/internal/core/shellintegration"
+)
+
 type TerminalPresentationSupport struct {
 	ResolutionSources  []string `json:"resolution_sources,omitempty"`
 	QualifiedLaunchers []string `json:"qualified_launchers,omitempty"`
@@ -11,6 +16,13 @@ func (s TerminalPresentationSupport) Valid() bool {
 
 func (s InteractiveHandoffSupport) Clone() InteractiveHandoffSupport {
 	out := s
+	out.ShellIntegrations = append([]ShellIntegrationSupport(nil), s.ShellIntegrations...)
+	out.RequirementKinds = append([]shell.RequirementKind(nil), s.RequirementKinds...)
+	out.CaptureQualities = append([]receipt.CaptureQuality(nil), s.CaptureQualities...)
+	if s.Privacy != nil {
+		privacy := *s.Privacy
+		out.Privacy = &privacy
+	}
 	if s.TerminalPresentation != nil {
 		presentation := *s.TerminalPresentation
 		presentation.ResolutionSources = append([]string(nil), presentation.ResolutionSources...)

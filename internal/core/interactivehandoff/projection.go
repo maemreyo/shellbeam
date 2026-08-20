@@ -71,6 +71,9 @@ type PublicState struct {
 	AgentIngress     IngressState             `json:"agent_ingress"`
 	HumanIngress     IngressState             `json:"human_ingress"`
 	TransferBoundary TransferBoundary         `json:"transfer_boundary"`
+	PrivacyState     PrivacyState             `json:"privacy_state,omitempty"`
+	PrivacyRelease   PrivacyReleaseState      `json:"privacy_release,omitempty"`
+	CaptureState     CaptureState             `json:"capture_state,omitempty"`
 	Attached         bool                     `json:"attached"`
 	FailureCode      string                   `json:"failure_code,omitempty"`
 	CreatedAt        *time.Time               `json:"created_at,omitempty"`
@@ -79,7 +82,7 @@ type PublicState struct {
 }
 
 func ProjectPublicState(v State, createdAt, updatedAt time.Time) (PublicState, error) {
-	if err := v.ValidateH2(); err != nil {
+	if err := v.ValidateH4(); err != nil {
 		return PublicState{}, err
 	}
 	if createdAt.IsZero() != updatedAt.IsZero() || (!createdAt.IsZero() && updatedAt.Before(createdAt)) {
@@ -91,6 +94,9 @@ func ProjectPublicState(v State, createdAt, updatedAt time.Time) (PublicState, e
 		HandoffID:     v.HandoffID, SessionID: v.SessionID, AuthorityEpoch: v.AuthorityEpoch,
 		Status: status, AgentIngress: v.AgentIngress, HumanIngress: v.HumanIngress,
 		TransferBoundary: v.TransferBoundary, Attached: v.HumanClient != nil,
+	}
+	if v.PrivacyState != PrivacyStateStandard || v.PrivacyRelease != PrivacyReleaseNotRequired || v.CaptureState != CapturePublic {
+		out.PrivacyState, out.PrivacyRelease, out.CaptureState = v.PrivacyState, v.PrivacyRelease, v.CaptureState
 	}
 	if !createdAt.IsZero() {
 		created, updated := createdAt.UTC(), updatedAt.UTC()

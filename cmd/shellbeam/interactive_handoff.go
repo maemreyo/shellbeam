@@ -10,6 +10,8 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
+	receipt "github.com/maemreyo/shellbeam/internal/core/receipt"
+	shellcore "github.com/maemreyo/shellbeam/internal/core/shellintegration"
 	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 	"sort"
 	"time"
@@ -39,14 +41,43 @@ func reconcileHandoffDaemonStartup(ctx context.Context, store handoffStartupStor
 	return svc.ReconcileHandoffStartup(ctx, candidates, daemonapp.HandoffStartupOptions{})
 }
 
-func composeInteractiveHandoffCapability(catalog capability.Catalog, runtime daemonapp.DelegatedRuntime) capability.Catalog {
+func composeInteractiveHandoffCapability(catalog capability.Catalog, runtime daemonapp.DelegatedRuntime, readiness ...bool) capability.Catalog {
 	if runtime == nil || catalog.Features[capability.FeatureDelegatedInteractive] != capability.Available || catalog.DelegatedInteractive == nil {
 		return catalog
 	}
 	if _, ok := runtime.(delegatedapp.HumanProvider); !ok {
 		return catalog
 	}
-	return catalog.WithInteractiveHandoff(capability.InteractiveHandoffSupport{ManualStandard: true})
+	support := capability.InteractiveHandoffSupport{ManualStandard: true}
+	if catalog.InteractiveHandoff != nil && catalog.InteractiveHandoff.TerminalPresentation != nil {
+		presentation := *catalog.InteractiveHandoff.TerminalPresentation
+		presentation.ResolutionSources = append([]string(nil), presentation.ResolutionSources...)
+		presentation.QualifiedLaunchers = append([]string(nil), presentation.QualifiedLaunchers...)
+		support.TerminalPresentation = &presentation
+	}
+	automatic := len(readiness) > 0 && readiness[0]
+	if automatic {
+		support.AutomaticReadiness = true
+		support.ShellIntegrations = supportedHandoffShellIntegrations()
+		if len(support.ShellIntegrations) == 0 {
+			support.AutomaticReadiness = false
+		} else {
+			support.RequirementKinds = []shellcore.RequirementKind{shellcore.RequirementEnvironmentExportedNonempty}
+			support.CaptureQualities = handoffCaptureQualities()
+		}
+	}
+	if _, ok := runtime.(delegatedapp.PrivacyProvider); ok {
+		support.Secret = true
+		support.Privacy = &capability.HandoffPrivacySupport{SecretPrivateInterval: true, PrivacyReleaseSeparate: true, ObserverTopologyQualified: true, HumanInputPersisted: false}
+		if len(support.CaptureQualities) == 0 {
+			support.CaptureQualities = handoffCaptureQualities()
+		}
+	}
+	return catalog.WithInteractiveHandoff(support)
+}
+
+func handoffCaptureQualities() []receipt.CaptureQuality {
+	return []receipt.CaptureQuality{receipt.CaptureComplete, receipt.CapturePartial, receipt.CaptureIncomplete}
 }
 
 const (

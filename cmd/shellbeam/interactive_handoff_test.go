@@ -183,3 +183,34 @@ func TestBuildTerminalPresentationRuntimeBindsSharedResolverAndPresenterFactory(
 		t.Fatalf("activity runs=%d want=1", activity.runs)
 	}
 }
+
+type h4PrivacyCapabilityProvider struct{ h2CapabilityProvider }
+
+func (*h4PrivacyCapabilityProvider) ArmPrivateObservation(context.Context, delegated.ProviderRef, delegatedapp.PrivacySpec) (delegatedapp.PrivacyHandle, error) {
+	return delegatedapp.PrivacyHandle{}, nil
+}
+func (*h4PrivacyCapabilityProvider) ProvePrivateObservation(context.Context, delegated.ProviderRef, delegatedapp.PrivacyHandle) (delegatedapp.PrivateObservationProof, error) {
+	return delegatedapp.PrivateObservationProof{}, nil
+}
+func (*h4PrivacyCapabilityProvider) ReleasePrivateObservation(context.Context, delegated.ProviderRef, delegatedapp.PrivacyHandle, delegatedapp.ForwardBoundary) error {
+	return nil
+}
+
+func TestInteractiveHandoffCapabilityIntersectsPrivacyAndShellReadiness(t *testing.T) {
+	base := capability.Baseline(capability.Limits{}).WithDelegatedInteractive(capability.DelegatedInteractiveSupport{ProviderID: "tmux_control_mode", ProviderVersion: 1, Platform: "darwin", MaxMutationRecords: 4096})
+
+	privacyOnly := composeInteractiveHandoffCapability(base, &h4PrivacyCapabilityProvider{}, false)
+	if privacyOnly.InteractiveHandoff == nil || !privacyOnly.InteractiveHandoff.Secret || privacyOnly.InteractiveHandoff.AutomaticReadiness || privacyOnly.InteractiveHandoff.Privacy == nil || len(privacyOnly.InteractiveHandoff.CaptureQualities) != 3 {
+		t.Fatalf("privacy-only capability=%#v", privacyOnly.InteractiveHandoff)
+	}
+
+	readinessOnly := composeInteractiveHandoffCapability(base, &h2CapabilityProvider{}, true)
+	if readinessOnly.InteractiveHandoff == nil || readinessOnly.InteractiveHandoff.Secret || !readinessOnly.InteractiveHandoff.AutomaticReadiness || len(readinessOnly.InteractiveHandoff.ShellIntegrations) != 3 || len(readinessOnly.InteractiveHandoff.RequirementKinds) != 1 {
+		t.Fatalf("readiness-only capability=%#v", readinessOnly.InteractiveHandoff)
+	}
+
+	full := composeInteractiveHandoffCapability(base, &h4PrivacyCapabilityProvider{}, true)
+	if full.InteractiveHandoff == nil || !full.InteractiveHandoff.Secret || !full.InteractiveHandoff.AutomaticReadiness || full.InteractiveHandoff.Privacy == nil || len(full.InteractiveHandoff.ShellIntegrations) != 3 || len(full.InteractiveHandoff.RequirementKinds) != 1 || len(full.InteractiveHandoff.CaptureQualities) != 3 || !full.InteractiveHandoff.ValidH4() {
+		t.Fatalf("full H4 capability=%#v", full.InteractiveHandoff)
+	}
+}

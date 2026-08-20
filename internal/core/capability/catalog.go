@@ -131,17 +131,6 @@ type Limits struct {
 	InputTraceWorkerQueueDepth           int   `json:"input_trace_worker_queue_depth,omitempty"`
 }
 
-type InteractiveHandoffSupport struct {
-	ManualStandard       bool                         `json:"manual_standard"`
-	Secret               bool                         `json:"secret"`
-	AutomaticReadiness   bool                         `json:"automatic_readiness"`
-	TerminalPresentation *TerminalPresentationSupport `json:"terminal_presentation,omitempty"`
-}
-
-func (s InteractiveHandoffSupport) ValidH2() bool {
-	return s.ManualStandard && !s.Secret && !s.AutomaticReadiness
-}
-
 type DelegatedInteractiveSupport struct {
 	ProviderID              string `json:"provider_id"`
 	ProviderVersion         int    `json:"provider_version"`
@@ -473,11 +462,11 @@ func (c Catalog) WithDelegatedInteractive(support DelegatedInteractiveSupport) C
 
 func (c Catalog) WithInteractiveHandoff(support InteractiveHandoffSupport) Catalog {
 	out := c.Clone()
-	if !support.ValidH2() || out.Features[FeatureDelegatedInteractive] != Available || out.DelegatedInteractive == nil {
+	if (!support.ValidH2() && !support.ValidH4()) || out.Features[FeatureDelegatedInteractive] != Available || out.DelegatedInteractive == nil {
 		return out
 	}
 	out.Features[FeatureInteractiveHandoff] = Available
-	copy := support
+	copy := support.Clone()
 	out.InteractiveHandoff = &copy
 	return out
 }

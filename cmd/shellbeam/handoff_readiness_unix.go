@@ -14,12 +14,21 @@ import (
 	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	shellapp "github.com/maemreyo/shellbeam/internal/app/shellintegration"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	shellcore "github.com/maemreyo/shellbeam/internal/core/shellintegration"
 )
 
 const maxHandoffShellScriptBytes = 64 << 10
+
+func supportedHandoffShellIntegrations() []capability.ShellIntegrationSupport {
+	return []capability.ShellIntegrationSupport{
+		{Shell: shellcore.ShellFish, Level: shellcore.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
+		{Shell: shellcore.ShellZsh, Level: shellcore.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
+		{Shell: shellcore.ShellBash, Level: shellcore.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
+	}
+}
 
 type delegatedHandoffReadiness struct {
 	provider   daemonapp.DelegatedRuntime

@@ -7,6 +7,7 @@ import (
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	control "github.com/maemreyo/shellbeam/internal/app/control"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	"github.com/maemreyo/shellbeam/internal/ownership"
 	"io"
 	"os"
@@ -109,8 +110,65 @@ func doctorReport(args []string) (control.Report, error) {
 		report.Checks = append(report.Checks, control.Check{ID: "tunnel_client", Status: control.Warn, Message: "tunnel-client not found", Hint: "install OpenAI Secure MCP Tunnel client separately"})
 	}
 	report.Checks = append(report.Checks, doctorHostTerminalPresentationCheck(context.Background()))
+	handoffCatalog := capability.Baseline(capability.Limits{})
+	if socket.Status == control.Pass {
+		handoffCatalog = doctorInteractiveHandoffCatalog(paths.Socket)
+	}
+	report.Checks = append(report.Checks, doctorInteractiveHandoffCheck(handoffCatalog))
 	report.Checks = append(report.Checks, doctorFreeSpaceCheck(paths.StateDir, cfg.MinFreeSpaceBytes))
 	return report, nil
+}
+
+func doctorInteractiveHandoffCatalog(socket string) capability.Catalog {
+	catalog := capability.Baseline(capability.Limits{})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	resp, err := ipcadapter.NewClient(socket).CallV2(ctx, ipcadapter.RequestV2{IPVersion: 2, Kind: "request", RequestID: "doctor-interactive-handoff", Action: "inspect.server"})
+	if err != nil || !resp.OK || resp.Server == nil {
+		return catalog
+	}
+	return resp.Server.Clone()
+}
+
+func doctorInteractiveHandoffCheck(catalog capability.Catalog) control.Check {
+	check := control.Check{ID: "interactive_handoff", Status: control.Warn, Message: "interactive handoff unavailable"}
+	if catalog.Features[capability.FeatureInteractiveHandoff] != capability.Available || catalog.InteractiveHandoff == nil || catalog.DelegatedInteractive == nil {
+		check.Hint = "provider=unavailable; secret=unavailable; shell_integrations=none; privacy_topology=unqualified"
+		return check
+	}
+	support := catalog.InteractiveHandoff
+	parts := []string{"provider=" + catalog.DelegatedInteractive.ProviderID}
+	if support.Secret {
+		parts = append(parts, "secret=available")
+	} else {
+		parts = append(parts, "secret=unavailable")
+	}
+	if support.Privacy != nil && support.Privacy.ObserverTopologyQualified {
+		parts = append(parts, "privacy_topology=qualified")
+	} else {
+		parts = append(parts, "privacy_topology=unqualified")
+	}
+	for _, integration := range support.ShellIntegrations {
+		parts = append(parts, fmt.Sprintf("%s=%s", integration.Shell, integration.Level))
+	}
+	if len(support.RequirementKinds) > 0 {
+		requirements := make([]string, len(support.RequirementKinds))
+		for i, kind := range support.RequirementKinds {
+			requirements[i] = string(kind)
+		}
+		parts = append(parts, "requirements="+strings.Join(requirements, ","))
+	}
+	if len(support.CaptureQualities) > 0 {
+		qualities := make([]string, len(support.CaptureQualities))
+		for i, quality := range support.CaptureQualities {
+			qualities[i] = string(quality)
+		}
+		parts = append(parts, "capture="+strings.Join(qualities, ","))
+	}
+	check.Status = control.Pass
+	check.Message = "interactive handoff available"
+	check.Hint = strings.Join(parts, "; ")
+	return check
 }
 
 func doctorTerminalPresentationCheck(diagnostics terminalPresentationDiagnostics) control.Check {
