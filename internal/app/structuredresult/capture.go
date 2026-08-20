@@ -311,6 +311,20 @@ func (r PytestCaptureRequest) Qualify(ctx context.Context, observer EnvironmentP
 	return ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &binding}, true, nil
 }
 
+type JestCaptureRequest struct {
+	Invocation JestInvocationRequest
+}
+
+func (r JestCaptureRequest) AdapterID() string { return JestJSONAdapterID }
+
+func (r JestCaptureRequest) Qualify(ctx context.Context, observer EnvironmentPresenceObserver) (ProducerInvocationBinding, bool, error) {
+	binding, qualified, err := QualifyJestInvocation(ctx, r.Invocation, observer)
+	if err != nil || !qualified {
+		return ProducerInvocationBinding{}, qualified, err
+	}
+	return ProducerInvocationBinding{Kind: ProducerInvocationJest, JestInvocation: &binding}, true, nil
+}
+
 type PreSpawnCaptureRequest struct {
 	OperationID   operation.ID
 	SessionID     operation.SessionID

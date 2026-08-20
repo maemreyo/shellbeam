@@ -238,3 +238,12 @@ func failNthAtomicWriter(point string, nth int) atomicWriter {
 		return nil
 	}}
 }
+
+func TestStructuredStoreCeilingsSupportJSPersistedRecordBudget(t *testing.T) {
+	if MaxStructuredRecords != 8192 {
+		t.Fatalf("MaxStructuredRecords=%d want=8192", MaxStructuredRecords)
+	}
+	if maxStructuredRecordFileBytes < 128<<20 {
+		t.Fatalf("record file ceiling=%d want>=128MiB", maxStructuredRecordFileBytes)
+	}
+}

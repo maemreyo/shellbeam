@@ -102,3 +102,81 @@ func TestPytestCandidateRequiresExactProducerAndFrozenAuthorityFlags(t *testing.
 		})
 	}
 }
+
+func qualifiedJestSelectionBinding(t *testing.T) ProducerInvocationBinding {
+	t.Helper()
+	execution := environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/jest"}
+	fact, err := NewEnvironmentPresenceFact(execution, JestJasmineEnvironment, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := JestInvocationBindingV1{
+		SchemaVersion:          JestInvocationSchemaV1,
+		ProducerForm:           JestProducerDirect,
+		JSONFlag:               "--json",
+		OutputFile:             CaptureOutputBinding{DeclaredPathToken: "reports/jest.json", NormalizedWorkspacePath: "reports/jest.json"},
+		ExcludedFlagState:      JestExcludedFlagsAbsent,
+		JasmineEnvironmentFact: fact,
+		ArgumentFileState:      ArgumentFileStateNotExpanded,
+		ArgumentFileEvidence:   JestV1ReleaseEvidence,
+		ZeroMatchEmitsArtifact: true,
+	}
+	if !binding.QualifiedV1() {
+		t.Fatalf("fixture did not qualify: %#v", binding)
+	}
+	return ProducerInvocationBinding{Kind: ProducerInvocationJest, JestInvocation: &binding}
+}
+
+func TestCaptureSelectionRequiresExactlyOneQualifiedProducerBinding(t *testing.T) {
+	jest := qualifiedJestSelectionBinding(t)
+	argv := []string{"jest", "--runInBand", "--json", "--outputFile=reports/jest.json"}
+	if !JestCandidateArgv(argv) {
+		t.Fatal("qualified jest argv was not a syntactic candidate")
+	}
+	if got := SelectAdapterWithCapture("", argv, nil); got.Status != SelectionNone {
+		t.Fatalf("unqualified auto selection=%#v", got)
+	}
+	if got := SelectAdapterWithCapture("", argv, &jest); got.Status != SelectionSelected || got.AdapterID != JestJSONAdapterID || got.Source != "qualified_jest_invocation" {
+		t.Fatalf("qualified jest auto=%#v", got)
+	}
+	if got := SelectAdapterWithCapture(JestJSONAdapterID, argv, nil); got.Status != SelectionUnsupported || got.ObservationCode != "structured_adapter_precondition_failed" {
+		t.Fatalf("explicit unqualified jest=%#v", got)
+	}
+	if got := SelectAdapterWithCapture(JestJSONAdapterID, argv, &jest); got.Status != SelectionSelected || got.Source != "explicit" {
+		t.Fatalf("explicit qualified jest=%#v", got)
+	}
+
+	pytestRoot := t.TempDir()
+	pytest := qualifiedPytestBinding(t, pytestRoot, environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/pytest"})
+	both := jest
+	both.PytestInvocation = &pytest
+	if both.Validate() == nil {
+		t.Fatal("two producer branches unexpectedly validated")
+	}
+	if got := SelectAdapterWithCapture("", argv, &both); got.Status != SelectionNone {
+		t.Fatalf("invalid multi-producer union selected=%#v", got)
+	}
+	if got := SelectAdapterWithCapture("", []string{"node", "script.js"}, nil); got.Status != SelectionNone {
+		t.Fatalf("non-producer argv selected=%#v", got)
+	}
+}
+
+func TestJestAdapterAcceptsOnlyQualifiedCandidateShape(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		argv []string
+		ok   bool
+	}{
+		{"qualified shape", []string{"jest", "--json", "--outputFile=reports/jest.json"}, true},
+		{"missing json", []string{"jest", "--outputFile=reports/jest.json"}, false},
+		{"missing output", []string{"jest", "--json"}, false},
+		{"excluded", []string{"jest", "--json", "--outputFile=reports/jest.json", "--bail"}, false},
+		{"argfile", []string{"jest", "@args.txt", "--json", "--outputFile=reports/jest.json"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := AdapterAcceptsArgv(JestJSONAdapterID, tc.argv); got != tc.ok {
+				t.Fatalf("got=%v want=%v", got, tc.ok)
+			}
+		})
+	}
+}

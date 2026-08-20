@@ -599,3 +599,23 @@ func TestPreSpawnCaptureReplayRejectsIncompatibleFrozenIntentMetadataWithoutReob
 		t.Fatalf("incompatible replay reached execution ports reserve=%d/%d spawn=%d/%d", len(reserver.calls), baseReserveCalls, len(spawner.calls), baseSpawnCalls)
 	}
 }
+
+func TestJestCaptureRequestQualifiesThroughProducerInterface(t *testing.T) {
+	root := t.TempDir()
+	execution := environment.ExecutionContext{Mode: "argv", Identity: "/usr/bin/jest"}
+	observer := orderedPresenceObserver{}
+	request := JestCaptureRequest{Invocation: JestInvocationRequest{
+		Argv:        []string{"jest", "--json", "--outputFile=reports/jest.json"},
+		ResolvedCWD: root, WorkspaceRoot: root, Execution: execution,
+	}}
+	if request.AdapterID() != JestJSONAdapterID {
+		t.Fatalf("adapter=%q", request.AdapterID())
+	}
+	binding, qualified, err := request.Qualify(context.Background(), observer)
+	if err != nil || !qualified || binding.Kind != ProducerInvocationJest || binding.JestInvocation == nil || binding.AdapterID() != JestJSONAdapterID {
+		t.Fatalf("binding=%#v qualified=%v err=%v", binding, qualified, err)
+	}
+	if binding.JestInvocation.JasmineEnvironmentFact.Name != JestJasmineEnvironment {
+		t.Fatalf("observed environment=%q", binding.JestInvocation.JasmineEnvironmentFact.Name)
+	}
+}

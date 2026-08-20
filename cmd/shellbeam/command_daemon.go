@@ -400,7 +400,7 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 		).
 		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
 		WithStructuredResults(
-			[]string{"go-test-json", "go-vet-json", structuredapp.PytestJUnitAdapterID},
+			[]string{"go-test-json", "go-vet-json", structuredapp.PytestJUnitAdapterID, structuredapp.JestJSONAdapterID},
 			[]string{"diagnostic", "test_case", "test_suite", "artifact_result"},
 			structuredapp.MaxListRecords, true,
 		).

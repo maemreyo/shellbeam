@@ -61,6 +61,7 @@ type Reader interface {
 
 type ArtifactInputStore interface {
 	ReadArtifactBlobRange(context.Context, core.ArtifactBlobRef, int64, int) ([]byte, error)
+	DescribeArtifactInput(context.Context, core.ArtifactBlobRef) (InputContext, error)
 }
 
 type Limits struct {
@@ -115,7 +116,7 @@ func (c InputContext) Validate() error {
 }
 
 func (l Limits) Validate() error {
-	if l.MaxBytes < 1 || l.MaxBytes > 64<<20 || l.MaxRecords < 1 || l.MaxRecords > 4096 || l.MaxStringBytes < 1 || l.MaxStringBytes > 1<<20 || l.MaxDepth < 1 || l.MaxDepth > 64 || l.MaxDuration <= 0 || l.MaxDuration > time.Minute {
+	if l.MaxBytes < 1 || l.MaxBytes > 64<<20 || l.MaxRecords < 1 || l.MaxRecords > 8192 || l.MaxStringBytes < 1 || l.MaxStringBytes > 1<<20 || l.MaxDepth < 1 || l.MaxDepth > 64 || l.MaxDuration <= 0 || l.MaxDuration > time.Minute {
 		return errors.New("invalid structured parse limits")
 	}
 	return nil

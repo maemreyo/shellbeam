@@ -60,7 +60,7 @@ func TestStructuredInspectIPCV2ForwardsClosedFiltersWithoutSpawn(t *testing.T) {
 		t.Fatalf("failure_excerpt missing from IPC response: %#v", got.Structured.Records)
 	}
 	encoded, _ := json.Marshal(got.Structured)
-	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`} {
+	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`, `"task_complete"`, `"work_complete"`, `"safe_to_finish"`} {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("invented completion claim %s in %s", forbidden, encoded)
 		}

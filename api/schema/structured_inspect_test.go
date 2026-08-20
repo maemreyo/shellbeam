@@ -92,6 +92,13 @@ func TestStructuredInspectV2OutputSchemasRejectInvalidMetadata(t *testing.T) {
 	if err := resolvedSchema(t, IPCV2).Validate(map[string]any{"ipc_version": 2.0, "kind": "response", "request_id": "s", "action": "inspect.structured", "ok": true, "structured": badCounts}); err == nil {
 		t.Fatal("observed entry count above bound accepted")
 	}
+	for _, forbidden := range []string{"task_complete", "work_complete", "safe_to_finish"} {
+		claim := cloneMap(structured)
+		claim[forbidden] = true
+		if err := resolvedSchema(t, MCPOutputV2).Validate(map[string]any{"schema_version": 2.0, "ok": true, "action": "inspect.structured", "structured": claim}); err == nil {
+			t.Fatalf("structured schema accepted completion claim %q", forbidden)
+		}
+	}
 }
 
 func TestStructuredTestSuiteProducerDispositionSchemaIsV2OnlyAndClosed(t *testing.T) {

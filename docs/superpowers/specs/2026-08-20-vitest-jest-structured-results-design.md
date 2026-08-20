@@ -1092,6 +1092,9 @@ The public `inspect.structured` projection remains schema version 1 but is exten
 
 ## 48. Producer address and path handling
 
+For artifact-backed JS parsing, repository-root context SHALL come from durable artifact authority, not from the parser process CWD: resolve the exact retained `ArtifactBlobRef`, require its capture authority fields to match, then resolve its persisted `WorkspaceID`/`RepositoryID` to the workspace root. The structured worker injects the derivation key independently after this lookup. Missing, compacted, authority-mismatched, or workspace-missing context fails closed. The public inspect projection does not expose this absolute root.
+
+
 Presentation and correlation fields SHALL be carried in `ProducerTestAddress`, per pytest §69:
 
 ```text

@@ -105,8 +105,8 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 	if err != nil {
 		return View{}, true, err
 	}
-	if structuredAdapter == "" && stored.StructuredAdapter == structuredapp.PytestJUnitAdapterID && structuredapp.PytestCandidateArgv(stored.ProjectCommand.ResolvedArgv) {
-		structuredAdapter = structuredapp.PytestJUnitAdapterID
+	if structuredAdapter == "" && stored.StructuredAdapter != "" && structuredapp.AdapterAcceptsArgv(stored.StructuredAdapter, stored.ProjectCommand.ResolvedArgv) {
+		structuredAdapter = stored.StructuredAdapter
 	}
 	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest}).Fingerprint()
 	if err != nil {

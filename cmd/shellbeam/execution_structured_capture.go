@@ -36,13 +36,58 @@ func newExecutionStructuredCaptureRuntime(store *storeadapter.Repository, worker
 	if store == nil || worker == nil {
 		return nil, fmt.Errorf("structured capture runtime unavailable")
 	}
-	preparer := structuredapp.NewCapturePreparer(store, localfs.ArtifactBaselineProvider{}, hostPytestPresenceObserver{}, nil, nil)
+	preparer := structuredapp.NewCapturePreparer(store, localfs.ArtifactBaselineProvider{}, hostStructuredPresenceObserver{}, nil, nil)
 	return &executionStructuredCaptureRuntime{
 		store: store, preparer: preparer,
 		acquirer:     structuredapp.NewTerminalCaptureAcquirer(structuredapp.DefaultTerminalCaptureLimits(), store),
 		materializer: structuredapp.NewMaterializer(store), worker: worker,
 		prepared: map[operation.ID]preparedStructuredCapture{},
 	}, nil
+}
+
+type structuredCaptureProducer struct {
+	adapterID string
+	candidate func([]string) bool
+	request   func(daemonapp.StructuredCapturePrepareRequest, string, environmentcore.ExecutionContext) structuredapp.ProducerCaptureRequest
+}
+
+var orderedStructuredCaptureProducers = []structuredCaptureProducer{
+	{
+		adapterID: structuredapp.PytestJUnitAdapterID,
+		candidate: structuredapp.PytestCandidateArgv,
+		request: func(req daemonapp.StructuredCapturePrepareRequest, root string, execution environmentcore.ExecutionContext) structuredapp.ProducerCaptureRequest {
+			return structuredapp.PytestCaptureRequest{Invocation: structuredapp.PytestInvocationRequest{Argv: append([]string(nil), req.Argv...), ResolvedCWD: req.CWD, WorkspaceRoot: root, Execution: execution}}
+		},
+	},
+	{
+		adapterID: structuredapp.JestJSONAdapterID,
+		candidate: structuredapp.JestCandidateArgv,
+		request: func(req daemonapp.StructuredCapturePrepareRequest, root string, execution environmentcore.ExecutionContext) structuredapp.ProducerCaptureRequest {
+			return structuredapp.JestCaptureRequest{Invocation: structuredapp.JestInvocationRequest{Argv: append([]string(nil), req.Argv...), ResolvedCWD: req.CWD, WorkspaceRoot: root, Execution: execution}}
+		},
+	},
+}
+
+func structuredCaptureProducerFor(explicit string, argv []string) (*structuredCaptureProducer, bool, error) {
+	if explicit != "" {
+		for i := range orderedStructuredCaptureProducers {
+			if orderedStructuredCaptureProducers[i].adapterID == explicit {
+				return &orderedStructuredCaptureProducers[i], true, nil
+			}
+		}
+		return nil, false, nil
+	}
+	var selected *structuredCaptureProducer
+	for i := range orderedStructuredCaptureProducers {
+		if !orderedStructuredCaptureProducers[i].candidate(argv) {
+			continue
+		}
+		if selected != nil {
+			return nil, false, fmt.Errorf("multiple structured capture producers matched argv")
+		}
+		selected = &orderedStructuredCaptureProducers[i]
+	}
+	return selected, false, nil
 }
 
 func (r *executionStructuredCaptureRuntime) PrepareStructuredCapture(ctx context.Context, req daemonapp.StructuredCapturePrepareRequest) (daemonapp.StructuredCapturePreparation, error) {
@@ -52,14 +97,16 @@ func (r *executionStructuredCaptureRuntime) PrepareStructuredCapture(ctx context
 	if r == nil || r.store == nil || r.preparer == nil || req.OperationID == "" || req.SessionID == "" {
 		return daemonapp.StructuredCapturePreparation{}, fmt.Errorf("structured capture runtime unavailable")
 	}
-	explicit := req.StructuredAdapter == structuredapp.PytestJUnitAdapterID
-	candidate := structuredapp.PytestCandidateArgv(req.Argv)
-	if !explicit && !candidate {
+	producer, explicit, err := structuredCaptureProducerFor(req.StructuredAdapter, req.Argv)
+	if err != nil {
+		return daemonapp.StructuredCapturePreparation{}, err
+	}
+	if producer == nil {
 		return daemonapp.StructuredCapturePreparation{}, nil
 	}
 	if req.ExecutionMode != operation.ExecutionModeArgv || req.WorkspaceID == "" {
 		if explicit {
-			return daemonapp.StructuredCapturePreparation{}, fmt.Errorf("pytest structured capture requires resolved argv workspace")
+			return daemonapp.StructuredCapturePreparation{}, fmt.Errorf("%s structured capture requires resolved argv workspace", producer.adapterID)
 		}
 		return daemonapp.StructuredCapturePreparation{}, nil
 	}
@@ -70,7 +117,7 @@ func (r *executionStructuredCaptureRuntime) PrepareStructuredCapture(ctx context
 		if current.sessionID != req.SessionID {
 			return daemonapp.StructuredCapturePreparation{}, fmt.Errorf("structured capture operation already preparing")
 		}
-		return daemonPreparation(current.result, false), nil
+		return daemonPreparation(current.result, current.result.Record.Authority.Intent.AdapterID, false), nil
 	}
 	r.mu.Unlock()
 
@@ -81,21 +128,19 @@ func (r *executionStructuredCaptureRuntime) PrepareStructuredCapture(ctx context
 		}
 		return daemonapp.StructuredCapturePreparation{}, nil
 	}
+	execution := environmentcore.ExecutionContext{Mode: string(req.ExecutionMode), Identity: req.Executable}
 	result, err := r.preparer.Prepare(ctx, structuredapp.PreSpawnCaptureRequest{
 		OperationID: req.OperationID, SessionID: req.SessionID,
 		RepositoryID: string(workspace.RepositoryID), WorkspaceID: string(workspace.ID), WorkspaceRoot: workspace.Root,
 		MaxBlobBytes: structuredapp.DefaultMaxArtifactBlobBytes,
-		Producer: structuredapp.PytestCaptureRequest{Invocation: structuredapp.PytestInvocationRequest{
-			Argv: append([]string(nil), req.Argv...), ResolvedCWD: req.CWD, WorkspaceRoot: workspace.Root,
-			Execution: environmentcore.ExecutionContext{Mode: string(req.ExecutionMode), Identity: req.Executable},
-		}},
+		Producer:     producer.request(req, workspace.Root, execution),
 	})
 	if err != nil {
 		return daemonapp.StructuredCapturePreparation{}, err
 	}
 	if !result.InvocationQualified {
 		if explicit {
-			return daemonapp.StructuredCapturePreparation{}, fmt.Errorf("pytest invocation authority unqualified")
+			return daemonapp.StructuredCapturePreparation{}, fmt.Errorf("%s invocation authority unqualified", producer.adapterID)
 		}
 		return daemonapp.StructuredCapturePreparation{}, nil
 	}
@@ -112,7 +157,7 @@ func (r *executionStructuredCaptureRuntime) PrepareStructuredCapture(ctx context
 		r.prepared[req.OperationID] = preparedStructuredCapture{sessionID: req.SessionID, result: result}
 		r.mu.Unlock()
 	}
-	preparation := daemonPreparation(result, owned)
+	preparation := daemonPreparation(result, producer.adapterID, owned)
 	// Invocation authority may be fully qualified while the filesystem baseline
 	// is unavailable. Keep the selected adapter, but leave CaptureDigest empty so
 	// terminal handling never falls back to the raw-output parser.
@@ -122,8 +167,8 @@ func (r *executionStructuredCaptureRuntime) PrepareStructuredCapture(ctx context
 	return preparation, nil
 }
 
-func daemonPreparation(result structuredapp.PreSpawnCaptureResult, owned bool) daemonapp.StructuredCapturePreparation {
-	return daemonapp.StructuredCapturePreparation{AdapterID: structuredapp.PytestJUnitAdapterID, CaptureDigest: result.StructuredCaptureDigest, Owned: owned}
+func daemonPreparation(result structuredapp.PreSpawnCaptureResult, adapterID string, owned bool) daemonapp.StructuredCapturePreparation {
+	return daemonapp.StructuredCapturePreparation{AdapterID: adapterID, CaptureDigest: result.StructuredCaptureDigest, Owned: owned}
 }
 
 func (r *executionStructuredCaptureRuntime) AbortStructuredCapture(ctx context.Context, id operation.ID, sessionID operation.SessionID) error {
@@ -211,9 +256,14 @@ func (r *executionStructuredCaptureRuntime) workspace(ctx context.Context, id st
 	return workspacecore.Workspace{}, fmt.Errorf("workspace capture authority unavailable")
 }
 
-type hostPytestPresenceObserver struct{}
+type hostStructuredPresenceObserver struct{}
 
-func (hostPytestPresenceObserver) ObserveEnvironmentPresence(_ context.Context, execution environmentcore.ExecutionContext, name string) (structuredapp.EnvironmentPresenceFact, error) {
+func (hostStructuredPresenceObserver) ObserveEnvironmentPresence(_ context.Context, execution environmentcore.ExecutionContext, name string) (structuredapp.EnvironmentPresenceFact, error) {
+	switch name {
+	case structuredapp.PytestAddoptsEnvironment, structuredapp.JestJasmineEnvironment:
+	default:
+		return structuredapp.EnvironmentPresenceFact{}, fmt.Errorf("unsupported structured environment presence fact %q", name)
+	}
 	_, present := os.LookupEnv(name)
 	return structuredapp.NewEnvironmentPresenceFact(execution, name, present)
 }

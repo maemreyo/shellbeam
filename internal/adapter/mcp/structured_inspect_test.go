@@ -74,7 +74,7 @@ func TestStructuredInspectMCPV2ForwardsFiltersWithoutSpawn(t *testing.T) {
 		t.Fatalf("failure_excerpt missing from MCP response: %#v", structuredBody["records"])
 	}
 	encoded, _ := json.Marshal(structuredBody)
-	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`} {
+	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`, `"task_complete"`, `"work_complete"`, `"safe_to_finish"`} {
 		if bytes.Contains(encoded, []byte(forbidden)) {
 			t.Fatalf("invented completion claim %s in %s", forbidden, encoded)
 		}

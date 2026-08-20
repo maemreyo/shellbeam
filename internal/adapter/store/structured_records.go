@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	MaxStructuredRecords         = 1024
-	maxStructuredRecordFileBytes = 8 << 20
+	MaxStructuredRecords         = 8192
+	maxStructuredRecordFileBytes = 128 << 20
 )
 
 var ErrStructuredRecordsCompacted = errors.New("structured records compacted")

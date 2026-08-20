@@ -726,6 +726,7 @@ Before the adapter can persist its advertised 8192-record budget, raise **all th
 **Files:**
 - Modify: `internal/app/structuredresult/selection.go`, `selection_test.go`
 - Modify: `internal/app/structuredresult/ports.go` + limits tests — permit the 8192 parser budget.
+- Modify: `internal/app/structuredresult/artifact_reader.go`, `artifact_reader_test.go`, `internal/adapter/store/structured_artifact_input.go` — provide artifact-backed parsers the repository-root context authorized by the retained blob/capture/workspace records; the worker continues to inject the derivation key separately.
 - Modify: `internal/app/daemon/admission.go`, `project_command.go`
 - Modify: `internal/app/daemon/structured_pytest_admission_test.go` (rename to cover both producers) or add `structured_js_admission_test.go`
 - Modify: `cmd/shellbeam/execution_structured_capture.go`, `execution_structured_capture_test.go`
@@ -740,29 +741,31 @@ Before the adapter can persist its advertised 8192-record budget, raise **all th
 - `SelectAdapterWithPytest` becomes a producer-agnostic `SelectAdapterWithCapture` taking the qualified binding set; the pytest entry point is preserved for existing callers until its last caller moves.
 - Capability advertises `jest-json` and the observed-profile vocabulary additively.
 
-- [ ] **Step 1: Write RED selection and admission tests**
+- [x] **Step 1: Write RED selection and admission tests**
 
 Auto-selection only on a fully qualified binding. Explicit `structured_adapter=jest-json` with any missing element returns a typed precondition error **before spawn**. Assert an argv that would qualify for neither producer selects nothing, and that no argv can qualify for two producers at once.
 
 Extend the `admission.go` precondition-message switch with a `jest-json` case describing the required shape, matching the existing pytest wording style.
 
-- [ ] **Step 2: Generalize the capture-runtime dispatch**
+- [x] **Step 2: Generalize the capture-runtime dispatch**
 
 `PrepareStructuredCapture` currently branches on `req.StructuredAdapter == PytestJUnitAdapterID` and `PytestCandidateArgv`. Replace with a small ordered producer table so a third producer is a table entry, not another branch. Compose a `JEST_JASMINE` presence observer alongside the existing `PYTEST_ADDOPTS` one.
 
-- [ ] **Step 3: Register the adapter and advertise it**
+- [x] **Step 3: Register the adapter and advertise it**
 
 Add `jestjson.Adapter{}` to the worker adapter slice. Advertise adapter ID `jest-json`; advertise structured schema versions `[1,2,3]`; add nothing to the MCP tool surface.
 
-- [ ] **Step 4: Extend inspection additively**
+Task 6 integration TDD exposed an artifact-context handoff required by path-safe JS parsing: `ArtifactReader` previously returned only `OperationID` for artifact blobs, while Jest normalization requires the repository root to classify producer-reported absolute file paths. `ArtifactInputStore` therefore also describes the retained artifact using the exact blob ref, its matching capture authority, and its persisted workspace record. It returns only `OperationID + RepositoryRoot`; the worker-owned `derivationContextReader` remains the sole authority that injects `DerivationKey`. Compacted, missing, authority-mismatched, or workspace-missing artifact context fails closed.
+
+- [x] **Step 4: Extend inspection additively**
 
 `inspect.structured` reports observed profile, semantics coverage, observed entry counts, budget completeness reason, and retained/compacted/unavailable source state. It exposes no blob bytes and no workspace path beyond bounded logical provenance.
 
-- [ ] **Step 5: Schema and model-truth tests**
+- [x] **Step 5: Schema and model-truth tests**
 
 Assert v1 clients still decode additive output; assert `task_complete`, `work_complete`, and `safe_to_finish` remain absent from structured transport; assert the raw terminal receipt is unchanged by any of this.
 
-- [ ] **Step 6: Run integration gates and commit**
+- [x] **Step 6: Run integration gates and commit**
 
 ```bash
 go test ./internal/app/structuredresult ./internal/app/daemon ./internal/core/capability ./internal/adapter/ipc ./internal/adapter/mcp ./api/schema ./cmd/shellbeam -run 'Structured|Jest|Pytest|Capability' -count=1
@@ -772,6 +775,8 @@ git add internal/app/structuredresult internal/app/daemon internal/core/capabili
 git diff --cached --check
 git -c core.hooksPath=.githooks commit -m "feat: expose jest structured results"
 ```
+
+Task 6 verification evidence: targeted integration, store boundary, race subsets, `devctl check`, `git diff --check`, and the repository dirty gate all passed on the final implementation snapshot before staging. The dirty gate included full store (`421.674s`), daemon (`217.240s`), and `cmd/shellbeam` (`346.955s`) suites.
 
 ---
 

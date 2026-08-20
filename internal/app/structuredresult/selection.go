@@ -39,23 +39,41 @@ func SelectAdapter(explicit string, argv []string) AdapterSelection {
 }
 
 func supportedAdapter(id string) bool {
-	return id == "go-test-json" || id == "go-vet-json" || id == PytestJUnitAdapterID
+	return id == "go-test-json" || id == "go-vet-json" || id == PytestJUnitAdapterID || id == JestJSONAdapterID
 }
 
-func SelectAdapterWithPytest(explicit string, argv []string, binding *PytestInvocationBindingV1) AdapterSelection {
-	if explicit == PytestJUnitAdapterID {
-		if binding != nil && binding.QualifiedV1() {
-			return AdapterSelection{Status: SelectionSelected, AdapterID: PytestJUnitAdapterID, Source: "explicit"}
+func SelectAdapterWithCapture(explicit string, argv []string, binding *ProducerInvocationBinding) AdapterSelection {
+	if explicit == PytestJUnitAdapterID || explicit == JestJSONAdapterID {
+		if binding != nil && binding.Validate() == nil && binding.AdapterID() == explicit && AdapterAcceptsArgv(explicit, argv) {
+			return AdapterSelection{Status: SelectionSelected, AdapterID: explicit, Source: "explicit"}
 		}
-		return AdapterSelection{Status: SelectionUnsupported, AdapterID: PytestJUnitAdapterID, Source: "explicit", ObservationCode: "structured_adapter_precondition_failed"}
+		return AdapterSelection{Status: SelectionUnsupported, AdapterID: explicit, Source: "explicit", ObservationCode: "structured_adapter_precondition_failed"}
 	}
 	if explicit != "" {
 		return SelectAdapter(explicit, argv)
 	}
-	if binding != nil && binding.QualifiedV1() {
-		return AdapterSelection{Status: SelectionSelected, AdapterID: PytestJUnitAdapterID, Source: "qualified_pytest_invocation"}
+	if binding != nil && binding.Validate() == nil {
+		adapterID := binding.AdapterID()
+		if AdapterAcceptsArgv(adapterID, argv) {
+			source := "qualified_producer_invocation"
+			switch binding.Kind {
+			case ProducerInvocationPytest:
+				source = "qualified_pytest_invocation"
+			case ProducerInvocationJest:
+				source = "qualified_jest_invocation"
+			}
+			return AdapterSelection{Status: SelectionSelected, AdapterID: adapterID, Source: source}
+		}
 	}
 	return SelectAdapter("", argv)
+}
+
+func SelectAdapterWithPytest(explicit string, argv []string, binding *PytestInvocationBindingV1) AdapterSelection {
+	var producer *ProducerInvocationBinding
+	if binding != nil {
+		producer = &ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: binding}
+	}
+	return SelectAdapterWithCapture(explicit, argv, producer)
 }
 
 func PytestCandidateArgv(argv []string) bool {
@@ -76,8 +94,11 @@ func PytestCandidateArgv(argv []string) bool {
 // machine-readable format consumed by adapter. It is intentionally strict:
 // shell strings and wrappers are not parsed or guessed here.
 func AdapterAcceptsArgv(adapter string, argv []string) bool {
-	if adapter == PytestJUnitAdapterID {
+	switch adapter {
+	case PytestJUnitAdapterID:
 		return PytestCandidateArgv(argv)
+	case JestJSONAdapterID:
+		return JestCandidateArgv(argv)
 	}
 	if len(argv) < 3 || argv[0] != "go" || !hasJSONOutputFlag(argv[2:]) {
 		return false
