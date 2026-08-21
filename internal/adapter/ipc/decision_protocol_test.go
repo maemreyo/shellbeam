@@ -307,12 +307,14 @@ func TestStartAcceptsOptionalExperimentIDAndPollRejectsIt(t *testing.T) {
 
 type decisionTrustedPeerActions struct {
 	fakeActions
-	uid uint32
-	ok  bool
+	uid         uint32
+	ok          bool
+	workspaceID string
 }
 
-func (a *decisionTrustedPeerActions) DecisionProtocol(ctx context.Context, _ string, _ DecisionRequestV1) (DecisionResponseV1, error) {
+func (a *decisionTrustedPeerActions) DecisionProtocol(ctx context.Context, _, workspaceID string, _ DecisionRequestV1) (DecisionResponseV1, error) {
 	a.uid, a.ok = TrustedPeerUID(ctx)
+	a.workspaceID = workspaceID
 	return DecisionResponseV1{}, nil
 }
 
@@ -333,12 +335,15 @@ func TestDecisionProtocolRequestContextCarriesAuthenticatedPeerUID(t *testing.T)
 	defer srv.Close()
 	go srv.Serve()
 	client := NewClient(srv.SocketPath())
-	_, err = client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "decision-peer", Action: "decision.inspect", Decision: &DecisionRequestV1{EpisodeID: "episode-transport"}})
+	_, err = client.CallV2(context.Background(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "decision-peer", Action: "decision.inspect", WorkspaceID: "ws_01K00000000000000000000000", Decision: &DecisionRequestV1{EpisodeID: "episode-transport"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !actions.ok || actions.uid != uint32(os.Getuid()) {
 		t.Fatalf("trusted peer uid=%d ok=%v want=%d", actions.uid, actions.ok, os.Getuid())
+	}
+	if actions.workspaceID != "ws_01K00000000000000000000000" {
+		t.Fatalf("workspace selector=%q", actions.workspaceID)
 	}
 }
 

@@ -17,6 +17,7 @@ const (
 	OperationConflict                 Code = "operation_conflict"
 	OperationMetadataConflict         Code = "operation_metadata_conflict"
 	WorkspaceNotFound                 Code = "workspace_not_found"
+	DecisionContextUnavailable        Code = "decision_context_unavailable"
 	WorkspaceStale                    Code = "workspace_stale"
 	WorkspaceRootMissing              Code = "workspace_root_missing"
 	ActivityNotFound                  Code = "activity_not_found"
@@ -154,6 +155,7 @@ var publicSpecs = map[Code]publicSpec{
 	OperationConflict:                 {message: "operation conflicts with an existing intent", details: keys("operation_id")},
 	OperationMetadataConflict:         {message: "operation metadata conflicts with existing metadata", details: keys("operation_id", "field")},
 	WorkspaceNotFound:                 {message: "workspace not found", details: keys("workspace_id")},
+	DecisionContextUnavailable:        {message: "decision context unavailable"},
 	WorkspaceStale:                    {message: "workspace registration is stale", details: keys("workspace_id", "reason")},
 	WorkspaceRootMissing:              {message: "workspace root is missing", details: keys("workspace_id", "reason")},
 	ActivityNotFound:                  {message: "activity not found", details: keys("activity_id")},

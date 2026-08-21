@@ -297,7 +297,7 @@ type DecisionResponseV1 struct {
 }
 
 type DecisionProtocolActions interface {
-	DecisionProtocol(context.Context, string, DecisionRequestV1) (DecisionResponseV1, error)
+	DecisionProtocol(context.Context, string, string, DecisionRequestV1) (DecisionResponseV1, error)
 }
 
 func (s *Server) decisionProtocolV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
@@ -308,7 +308,7 @@ func (s *Server) decisionProtocolV2(ctx context.Context, req RequestV2, resp *Re
 	if req.Decision == nil {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "decision"}, fmt.Errorf("missing decision payload"))
 	}
-	out, err := actions.DecisionProtocol(ctx, req.Action, *req.Decision)
+	out, err := actions.DecisionProtocol(ctx, req.Action, req.WorkspaceID, *req.Decision)
 	if err != nil {
 		return err
 	}
