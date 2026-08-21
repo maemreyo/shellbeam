@@ -1,0 +1,148 @@
+{
+  "fixtures": [
+    {
+      "argument_file_non_expansion": {
+        "args_file_content": "--bail",
+        "argv": "<jest> --runInBand --json --outputFile=<argfile.json> @args.txt",
+        "exit_code": 1,
+        "expansion_observed": false,
+        "explicit_bail_control_num_total_tests": 1,
+        "file_present": true,
+        "num_total_tests": 0,
+        "runtime_qualification": "rejected_by_v1_at_token_rule"
+      },
+      "fixture": "jest-29.7.0/pass.json",
+      "generator_command": "env -u JEST_JASMINE <jest> --runInBand --json --outputFile=<raw.json> pass.test.js",
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership and semantic counts/statuses",
+      "observed_profile": {
+        "assertion_has_failing": false,
+        "assertion_has_startAt": false,
+        "assertion_key_count": 11,
+        "assertion_keys": [
+          "ancestorTitles",
+          "duration",
+          "failureDetails",
+          "failureMessages",
+          "fullName",
+          "invocations",
+          "location",
+          "numPassingAsserts",
+          "retryReasons",
+          "status",
+          "title"
+        ],
+        "test_result_keys": [
+          "assertionResults",
+          "endTime",
+          "message",
+          "name",
+          "startTime",
+          "status",
+          "summary"
+        ],
+        "top_level_keys": [
+          "numFailedTestSuites",
+          "numFailedTests",
+          "numPassedTestSuites",
+          "numPassedTests",
+          "numPendingTestSuites",
+          "numPendingTests",
+          "numRuntimeErrorTestSuites",
+          "numTodoTests",
+          "numTotalTestSuites",
+          "numTotalTests",
+          "openHandles",
+          "snapshot",
+          "startTime",
+          "success",
+          "testResults",
+          "wasInterrupted"
+        ]
+      },
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "560e641e5d0d8f5a7af995b37014c58bfe17606ab82810144b58149b077ae0e3",
+      "zero_match": {
+        "argv": "<jest> --runInBand --json --outputFile=<zero.json> __definitely_no_such_test_file__",
+        "exit_code": 1,
+        "file_present": true,
+        "num_total_tests": 0
+      }
+    },
+    {
+      "argument_file_non_expansion": {
+        "args_file_content": "--bail",
+        "argv": "<jest> --runInBand --json --outputFile=<argfile.json> @args.txt",
+        "exit_code": 1,
+        "expansion_observed": false,
+        "explicit_bail_control_num_total_tests": 1,
+        "file_present": true,
+        "num_total_tests": 0,
+        "runtime_qualification": "rejected_by_v1_at_token_rule"
+      },
+      "fixture": "jest-30.4.2/pass.json",
+      "generator_command": "env -u JEST_JASMINE <jest> --runInBand --json --outputFile=<raw.json> pass.test.js",
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership and semantic counts/statuses",
+      "observed_profile": {
+        "assertion_has_failing": true,
+        "assertion_has_startAt": true,
+        "assertion_key_count": 13,
+        "assertion_keys": [
+          "ancestorTitles",
+          "duration",
+          "failing",
+          "failureDetails",
+          "failureMessages",
+          "fullName",
+          "invocations",
+          "location",
+          "numPassingAsserts",
+          "retryReasons",
+          "startAt",
+          "status",
+          "title"
+        ],
+        "test_result_keys": [
+          "assertionResults",
+          "endTime",
+          "message",
+          "name",
+          "startTime",
+          "status",
+          "summary"
+        ],
+        "top_level_keys": [
+          "numFailedTestSuites",
+          "numFailedTests",
+          "numPassedTestSuites",
+          "numPassedTests",
+          "numPendingTestSuites",
+          "numPendingTests",
+          "numRuntimeErrorTestSuites",
+          "numTodoTests",
+          "numTotalTestSuites",
+          "numTotalTests",
+          "openHandles",
+          "snapshot",
+          "startTime",
+          "success",
+          "testResults",
+          "wasInterrupted"
+        ]
+      },
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "c9ebf666efbd7c3aedcfc08ab01fb46a5a12c3f4fcbb131126eb68a50e7c2e03",
+      "zero_match": {
+        "argv": "<jest> --runInBand --json --outputFile=<zero.json> __definitely_no_such_test_file__",
+        "exit_code": 1,
+        "file_present": true,
+        "num_total_tests": 0
+      }
+    }
+  ],
+  "generator": "scripts/generate-jest-real-doc-fixtures.sh",
+  "schema_version": 1
+}

@@ -42,7 +42,7 @@ func (p *CapturePreparer) abandonPrepared(ctx context.Context, id operation.ID) 
 }
 
 func (p *CapturePreparer) validatePreparationRequest(req PreSpawnCaptureRequest) error {
-	if p == nil || p.store == nil || p.baseline == nil || p.presence == nil || p.coordinator == nil {
+	if p == nil || p.store == nil || p.baseline == nil || p.coordinator == nil {
 		return fmt.Errorf("capture preparer unavailable")
 	}
 	if _, err := operation.ParseID(string(req.OperationID)); err != nil {
@@ -51,25 +51,26 @@ func (p *CapturePreparer) validatePreparationRequest(req PreSpawnCaptureRequest)
 	if _, err := operation.ParseSessionID(string(req.SessionID)); err != nil {
 		return err
 	}
-	if req.RepositoryID == "" || req.WorkspaceID == "" || req.WorkspaceRoot == "" || req.MaxBlobBytes < 1 || req.MaxBlobBytes > MaxArtifactBlobBytes {
+	if req.RepositoryID == "" || req.WorkspaceID == "" || req.WorkspaceRoot == "" || req.MaxBlobBytes < 1 || req.MaxBlobBytes > MaxArtifactBlobBytes || req.Producer == nil || !operation.ValidStructuredAdapterID(req.Producer.AdapterID()) {
 		return fmt.Errorf("invalid pre-spawn capture request")
 	}
 	return nil
 }
 
-func buildCaptureAuthority(req PreSpawnCaptureRequest, binding PytestInvocationBindingV1, baseline CaptureBaselineIdentity) (CaptureAuthority, error) {
+func buildCaptureAuthority(req PreSpawnCaptureRequest, binding ProducerInvocationBinding, baseline CaptureBaselineIdentity) (CaptureAuthority, error) {
 	producerDigest, err := binding.ProducerBindingDigest()
 	if err != nil {
 		return CaptureAuthority{}, err
 	}
+	output := binding.OutputBinding()
 	intent := ArtifactCaptureIntent{
 		SchemaVersion: ArtifactCaptureIntentSchemaV1,
 		OperationID:   string(req.OperationID), SessionID: string(req.SessionID), RepositoryID: req.RepositoryID, WorkspaceID: req.WorkspaceID,
-		AdapterID:         PytestJUnitAdapterID,
-		DeclaredPathToken: binding.JUnitOutput.DeclaredPathToken, NormalizedWorkspacePath: binding.JUnitOutput.NormalizedWorkspacePath,
+		AdapterID:         binding.AdapterID(),
+		DeclaredPathToken: output.DeclaredPathToken, NormalizedWorkspacePath: output.NormalizedWorkspacePath,
 		ExpectedKind: CaptureExpectedRegularFile, MaxBlobBytes: req.MaxBlobBytes, ProducerBindingDigest: producerDigest, Baseline: baseline,
 	}
-	authority := CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, PytestInvocation: &binding, Intent: intent}
+	authority := CaptureAuthority{SchemaVersion: CaptureAuthoritySchemaV1, ProducerInvocationBinding: binding, Intent: intent}
 	return authority, authority.Validate()
 }
 

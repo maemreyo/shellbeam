@@ -122,7 +122,7 @@ func (s *Service) scheduleStructuredAfterReceipt(rec receipt.Receipt, reservatio
 		s.scheduleStructuredCaptureTerminal(rec, capture)
 		return
 	}
-	if reservation.StructuredAdapter == structuredapp.PytestJUnitAdapterID {
+	if isStructuredCaptureAdapter(reservation.StructuredAdapter) {
 		return
 	}
 	s.scheduleStructuredTerminal(rec, reservation.StructuredAdapter)
@@ -132,14 +132,14 @@ func (s *Service) prepareStructuredCaptureAdmission(ctx context.Context, req Sta
 	if reservation == nil {
 		return StructuredCapturePreparation{}, failure.New(failure.Internal, nil, fmt.Errorf("structured capture reservation unavailable"))
 	}
-	explicitPytest := req.StructuredAdapter == structuredapp.PytestJUnitAdapterID
-	autoCandidate := req.StructuredAdapter == "" && structuredapp.PytestCandidateArgv(spec.Argv)
-	if !explicitPytest && !autoCandidate {
+	explicitCapture := isStructuredCaptureAdapter(req.StructuredAdapter)
+	autoCandidate := req.StructuredAdapter == "" && (structuredapp.PytestCandidateArgv(spec.Argv) || structuredapp.JestCandidateArgv(spec.Argv))
+	if !explicitCapture && !autoCandidate {
 		return StructuredCapturePreparation{}, nil
 	}
 	if s.options.StructuredCapturePreparer == nil {
-		if explicitPytest {
-			return StructuredCapturePreparation{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "pytest_structured_capture"}, nil)
+		if explicitCapture {
+			return StructuredCapturePreparation{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": structuredCaptureFeature(req.StructuredAdapter)}, nil)
 		}
 		return StructuredCapturePreparation{}, nil
 	}
@@ -148,19 +148,19 @@ func (s *Service) prepareStructuredCaptureAdmission(ctx context.Context, req Sta
 		StructuredAdapter: req.StructuredAdapter, Argv: append([]string(nil), spec.Argv...), CWD: spec.CWD, ExecutionMode: spec.Mode, Executable: spec.Executable,
 	})
 	if err != nil {
-		if explicitPytest {
-			return preparation, failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter", "adapter": structuredapp.PytestJUnitAdapterID, "reason": "producer_precondition_failed"}, err)
+		if explicitCapture {
+			return preparation, failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter", "adapter": req.StructuredAdapter, "reason": "producer_precondition_failed"}, err)
 		}
 		return StructuredCapturePreparation{}, nil
 	}
 	if preparation.AdapterID == "" {
-		if explicitPytest {
-			return preparation, failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter", "adapter": structuredapp.PytestJUnitAdapterID, "reason": "producer_precondition_failed"}, fmt.Errorf("pytest invocation did not establish qualified authority"))
+		if explicitCapture {
+			return preparation, failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter", "adapter": req.StructuredAdapter, "reason": "producer_precondition_failed"}, fmt.Errorf("producer invocation did not establish qualified authority"))
 		}
 		reservation.StructuredAdapter = ""
 		reservation.StructuredCaptureDigest = ""
 	} else {
-		if preparation.AdapterID != structuredapp.PytestJUnitAdapterID || !operation.ValidStructuredAdapterID(preparation.AdapterID) {
+		if !isStructuredCaptureAdapter(preparation.AdapterID) || !operation.ValidStructuredAdapterID(preparation.AdapterID) || (explicitCapture && preparation.AdapterID != req.StructuredAdapter) {
 			return preparation, failure.New(failure.Internal, nil, fmt.Errorf("invalid structured capture preparation"))
 		}
 		reservation.StructuredAdapter = preparation.AdapterID
@@ -172,6 +172,21 @@ func (s *Service) prepareStructuredCaptureAdmission(ctx context.Context, req Sta
 	}
 	reservation.ObservationBindingFingerprint = fingerprint
 	return preparation, nil
+}
+
+func isStructuredCaptureAdapter(adapter string) bool {
+	return adapter == structuredapp.PytestJUnitAdapterID || adapter == structuredapp.JestJSONAdapterID
+}
+
+func structuredCaptureFeature(adapter string) string {
+	switch adapter {
+	case structuredapp.PytestJUnitAdapterID:
+		return "pytest_structured_capture"
+	case structuredapp.JestJSONAdapterID:
+		return "jest_structured_capture"
+	default:
+		return "structured_capture"
+	}
 }
 
 func structuredObservationFingerprint(req StartRequest, reservation operation.Reservation) (string, error) {

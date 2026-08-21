@@ -41,10 +41,14 @@ type EnvironmentPresenceObserver interface {
 	ObserveEnvironmentPresence(context.Context, environment.ExecutionContext, string) (EnvironmentPresenceFact, error)
 }
 
-type JUnitOutputBinding struct {
+type CaptureOutputBinding struct {
 	DeclaredPathToken       string `json:"declared_path_token"`
 	NormalizedWorkspacePath string `json:"normalized_workspace_path"`
 }
+
+// JUnitOutputBinding preserves the pytest V1 source/API name while the
+// identical durable path binding is shared by later capture producers.
+type JUnitOutputBinding = CaptureOutputBinding
 
 type PytestInvocationBindingV1 struct {
 	SchemaVersion                int                     `json:"schema_version"`
@@ -100,7 +104,7 @@ func (f EnvironmentPresenceFact) Validate() error {
 	return nil
 }
 
-func (b JUnitOutputBinding) Validate() error {
+func (b CaptureOutputBinding) Validate() error {
 	if !boundedAuthorityText(b.DeclaredPathToken, maxPytestTokenBytes) || !validNormalizedCapturePath(b.NormalizedWorkspacePath) {
 		return fmt.Errorf("invalid junit output binding")
 	}

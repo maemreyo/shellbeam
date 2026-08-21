@@ -134,3 +134,25 @@ func TestQualifiedPytestStructuredReplayPreservesCaptureDigestBinding(t *testing
 		t.Fatalf("replay=%#v first=%#v starts=%d prepares=%d", replayed, first, owner.starts.Load(), preparer.calls.Load())
 	}
 }
+
+func TestExplicitJestStructuredPreconditionFailsBeforeReservationAndSpawn(t *testing.T) {
+	store := openPytestAdmissionStore(t)
+	owner := &pytestPreconditionOwner{}
+	preparer := &pytestCapturePreparerStub{err: errors.New("JEST_JASMINE present")}
+	svc := app.NewService(store, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100, StructuredCapturePreparer: preparer})
+	req := app.StartRequest{ProtocolVersion: 2, OperationID: "jest-precondition-explicit", CWD: "/", StructuredAdapter: "jest-json", Argv: []string{"jest", "--runInBand", "--json", "--outputFile=reports/jest.json"}}
+	_, err := svc.Start(context.Background(), req)
+	if err == nil || !errors.Is(err, failure.InvalidInput) {
+		t.Fatalf("err=%v", err)
+	}
+	if owner.starts.Load() != 0 || preparer.calls.Load() != 1 {
+		t.Fatalf("starts=%d prepare=%d", owner.starts.Load(), preparer.calls.Load())
+	}
+	if _, loadErr := store.LoadOperation(context.Background(), operation.ID(req.OperationID)); loadErr == nil {
+		t.Fatal("jest precondition failure reserved operation")
+	}
+	public := failure.Public(err)
+	if public.Details["field"] != "structured_adapter" || public.Details["reason"] != "producer_precondition_failed" {
+		t.Fatalf("public=%#v", public)
+	}
+}

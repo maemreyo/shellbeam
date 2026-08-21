@@ -48,6 +48,51 @@ func (r *Repository) ReadArtifactBlobRange(ctx context.Context, expected core.Ar
 	}
 }
 
+func (r *Repository) DescribeArtifactInput(ctx context.Context, expected core.ArtifactBlobRef) (structuredapp.InputContext, error) {
+	if err := ctx.Err(); err != nil {
+		return structuredapp.InputContext{}, err
+	}
+	if err := expected.Validate(); err != nil {
+		return structuredapp.InputContext{}, structuredapp.ErrArtifactInputUnavailable
+	}
+
+	r.structuredMu.Lock()
+	resolution, err := r.resolveArtifactBlobStateUnlocked(expected)
+	if err != nil {
+		r.structuredMu.Unlock()
+		return structuredapp.InputContext{}, fmt.Errorf("%w: %v", structuredapp.ErrArtifactInputUnavailable, err)
+	}
+	if resolution.State == ArtifactBlobCompacted {
+		r.structuredMu.Unlock()
+		return structuredapp.InputContext{}, structuredapp.ErrArtifactInputCompacted
+	}
+	if resolution.State != ArtifactBlobRetained {
+		r.structuredMu.Unlock()
+		return structuredapp.InputContext{}, structuredapp.ErrArtifactInputUnavailable
+	}
+	record, err := readCaptureAuthorityRecord(r.captureAuthorityPath(operation.ID(expected.OperationID)))
+	r.structuredMu.Unlock()
+	if err != nil {
+		return structuredapp.InputContext{}, structuredapp.ErrArtifactInputUnavailable
+	}
+	intent := record.Authority.Intent
+	if record.State != structuredapp.CaptureAuthorityPrepared || intent.OperationID != expected.OperationID || intent.SessionID != expected.SessionID ||
+		intent.RepositoryID != expected.RepositoryID || intent.WorkspaceID != expected.WorkspaceID || intent.DeclaredPathToken != expected.DeclaredPath ||
+		intent.NormalizedWorkspacePath != expected.NormalizedWorkspacePath {
+		return structuredapp.InputContext{}, structuredapp.ErrArtifactInputUnavailable
+	}
+	workspaces, err := r.ListWorkspaces(ctx)
+	if err != nil {
+		return structuredapp.InputContext{}, err
+	}
+	for _, workspace := range workspaces {
+		if string(workspace.ID) == expected.WorkspaceID && string(workspace.RepositoryID) == expected.RepositoryID {
+			return structuredapp.InputContext{OperationID: expected.OperationID, RepositoryRoot: workspace.Root}, nil
+		}
+	}
+	return structuredapp.InputContext{}, structuredapp.ErrArtifactInputUnavailable
+}
+
 func readValidatedArtifactBlobRange(blobPath string, expected core.ArtifactBlobRef, offset int64, max int) ([]byte, error) {
 	fd, err := unix.Open(blobPath+"/content", unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
 	if errors.Is(err, unix.ENOENT) {

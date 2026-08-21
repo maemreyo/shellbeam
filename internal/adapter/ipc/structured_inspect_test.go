@@ -27,7 +27,7 @@ func (a *structuredInspectActions) Start(ctx context.Context, req daemonapp.Star
 }
 func (a *structuredInspectActions) InspectStructured(_ context.Context, req structuredapp.InspectRequest) (structuredapp.InspectResult, error) {
 	a.last = req
-	return structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParseComplete, Completeness: core.CompletenessComplete, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}, nil
+	return structuredapp.InspectResult{SchemaVersion: 1, OperationID: req.OperationID, Status: structuredapp.InspectTerminal, ParseOutcome: core.ParsePartial, Completeness: core.CompletenessPartial, CompletenessReason: core.CompletenessReasonPassRecordsElided, ObservedEntries: &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}, SourceKind: core.StructuredInputArtifactBlob, SourceState: structuredapp.InputSourceRetained, SemanticsCoverage: &core.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}, Records: []core.Record{transportFailureRecord()}, Summary: structuredapp.InspectSummary{DetailsStatus: structuredapp.DetailsAvailable, RecordsTotalExact: true}}, nil
 }
 
 func TestStructuredInspectIPCV2ForwardsClosedFiltersWithoutSpawn(t *testing.T) {
@@ -50,17 +50,29 @@ func TestStructuredInspectIPCV2ForwardsClosedFiltersWithoutSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.OK || got.Structured == nil || got.Structured.Status != structuredapp.InspectTerminal || got.Structured.SourceKind != core.StructuredInputArtifactBlob || got.Structured.SourceState != structuredapp.InputSourceRetained || got.Structured.SemanticsCoverage == nil || got.Structured.SemanticsCoverage.Family != "xunit2" || actions.startCalls != 0 {
+	if !got.OK || got.Structured == nil || got.Structured.Status != structuredapp.InspectTerminal || got.Structured.SourceKind != core.StructuredInputArtifactBlob || got.Structured.SourceState != structuredapp.InputSourceRetained || got.Structured.SemanticsCoverage == nil || got.Structured.SemanticsCoverage.Family != "xunit2" || got.Structured.CompletenessReason != core.CompletenessReasonPassRecordsElided || got.Structured.ObservedEntries == nil || got.Structured.ObservedEntries.Fail != 1 || actions.startCalls != 0 {
 		t.Fatalf("response=%#v starts=%d", got, actions.startCalls)
 	}
 	if actions.last.OperationID != "op-1" || actions.last.Filter.RecordKind != core.RecordDiagnostic || actions.last.Filter.Path != "internal/a.go" || actions.last.MaxRecords != 10 {
 		t.Fatalf("request=%#v", actions.last)
 	}
+	if len(got.Structured.Records) != 1 || got.Structured.Records[0].TestCase == nil || got.Structured.Records[0].TestCase.FailureExcerpt == nil || got.Structured.Records[0].TestCase.FailureExcerpt.Text != "failure" {
+		t.Fatalf("failure_excerpt missing from IPC response: %#v", got.Structured.Records)
+	}
 	encoded, _ := json.Marshal(got.Structured)
-	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`} {
+	for _, forbidden := range []string{`"xpassed"`, `"xpass_count"`, `"error_phase"`, `"xfail_execution_state"`, `"task_complete"`, `"work_complete"`, `"safe_to_finish"`} {
 		if strings.Contains(string(encoded), forbidden) {
 			t.Fatalf("invented completion claim %s in %s", forbidden, encoded)
 		}
+	}
+}
+
+func transportFailureRecord() core.Record {
+	return core.Record{
+		SchemaVersion: core.RecordSchemaVersionV3, RecordKind: core.RecordTestCase, Authority: core.AuthorityMechanical,
+		DerivationMethod: core.DerivationNativeFieldMapping, Producer: core.Producer{AdapterID: "jest-json", AdapterVersion: 1, CapabilityVersion: 1}, OperationID: "op-1",
+		SourceRef: core.RawInputRef(core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: 1, SHA256: strings.Repeat("a", 64)}),
+		TestCase:  &core.TestCase{Name: "fails", Status: core.TestFailed, FailureExcerpt: &core.FailureExcerpt{Namespace: "jest", VocabularyVersion: 1, Text: "failure"}},
 	}
 }
 

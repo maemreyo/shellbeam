@@ -62,7 +62,13 @@ func TestEvidenceCandidateStructuredDetailIsValidatedButExcludedFromCompatibilit
 	if !ok {
 		t.Fatal("base compatibility unavailable")
 	}
-	base.StructuredDetail = &StructuredEvidenceDetail{DerivationKey: strings.Repeat("a", 64), Completeness: structuredresult.CompletenessComplete, MechanicalTestStatuses: []structuredresult.TestStatus{structuredresult.TestFailed, structuredresult.TestPassed}, SemanticsCoverage: &structuredresult.ProducerSemanticsCoverage{Namespace: "pytest", VocabularyVersion: 1, Format: "junit-xml", Family: "xunit2", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"pytest:xpass_exact"}}}
+	base.StructuredDetail = &StructuredEvidenceDetail{
+		DerivationKey: strings.Repeat("a", 64), ParseOutcome: structuredresult.ParsePartial, Completeness: structuredresult.CompletenessPartial,
+		CompletenessReason:     structuredresult.CompletenessReasonPassRecordsElided,
+		ObservedEntries:        &structuredresult.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1},
+		MechanicalTestStatuses: []structuredresult.TestStatus{structuredresult.TestFailed, structuredresult.TestPassed},
+		SemanticsCoverage:      &structuredresult.ProducerSemanticsCoverage{Namespace: "jest", VocabularyVersion: 1, Format: "json", Family: "v30", MechanicallyObservable: []string{"coarse:pass"}, Unavailable: []string{"jest:error_status"}},
+	}
 	if err := base.Validate(); err != nil {
 		t.Fatal(err)
 	}

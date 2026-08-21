@@ -45,10 +45,10 @@ func TestExecutionObservationDaemonComposesEventAndStructuredServices(t *testing
 			t.Fatalf("feature %s=%s", feature, server.Server.Features[feature])
 		}
 	}
-	if got := server.Server.StructuredAdapterIDs; len(got) != 3 || got[0] != "go-test-json" || got[1] != "go-vet-json" || got[2] != structuredapp.PytestJUnitAdapterID {
+	if got := server.Server.StructuredAdapterIDs; len(got) != 4 || got[0] != "go-test-json" || got[1] != "go-vet-json" || got[2] != structuredapp.PytestJUnitAdapterID || got[3] != structuredapp.JestJSONAdapterID {
 		t.Fatalf("structured adapters=%v", got)
 	}
-	if !slices.Equal(server.Server.StructuredSchemaVersions, []int{1, 2}) || !slices.Equal(server.Server.StructuredInputKinds, []string{"raw_output", "artifact_blob"}) || server.Server.Limits.StructuredArtifactBlobBytes != structuredapp.DefaultMaxArtifactBlobBytes {
+	if !slices.Equal(server.Server.StructuredSchemaVersions, []int{1, 2, 3}) || !slices.Equal(server.Server.StructuredInputKinds, []string{"raw_output", "artifact_blob"}) || server.Server.Limits.StructuredArtifactBlobBytes != structuredapp.DefaultMaxArtifactBlobBytes {
 		t.Fatalf("structured artifact capability=%#v", server.Server)
 	}
 

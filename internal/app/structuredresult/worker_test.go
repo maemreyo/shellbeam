@@ -499,3 +499,57 @@ func TestStructuredWorkerRecoveryBackpressureDoesNotFailStartup(t *testing.T) {
 		t.Fatalf("startup recovery failed under queue backpressure: %v", err)
 	}
 }
+
+func TestStructuredWorkerPersistsObservedEntriesAndCompletenessReason(t *testing.T) {
+	ref := core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: 3, SHA256: strings.Repeat("a", 64)}
+	repo := newWorkerRepo()
+	counts := &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 2, Entries: 2, Pass: 1, Fail: 1}
+	adapter := workerAdapter{id: "jest-json", version: 1, parse: func() (ParseResult, error) {
+		return ParseResult{Outcome: core.ParsePartial, Completeness: core.CompletenessPartial, CompletenessReason: core.CompletenessReasonPassRecordsElided, ObservedEntries: counts}, nil
+	}}
+	worker, err := NewWorker(&workerBinderFake{ref: ref}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 1, QueueDepth: 1, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Shutdown(context.Background())
+	if err := worker.ScheduleTerminal(context.Background(), workerReceipt(), "jest-json"); err != nil {
+		t.Fatal(err)
+	}
+	waitWorkerState(t, repo, core.LifecycleTerminal)
+	key := onlyWorkerKey(t, repo)
+	repo.mu.Lock()
+	derivation := repo.derivations[key]
+	repo.mu.Unlock()
+	if derivation.SchemaVersion != core.DerivationSchemaVersionV3 || derivation.CompletenessReason != core.CompletenessReasonPassRecordsElided || derivation.ObservedEntries == nil || derivation.ObservedEntries.Fail != 1 {
+		t.Fatalf("derivation=%#v", derivation)
+	}
+	counts.Fail = 0
+	if derivation.ObservedEntries.Fail != 1 {
+		t.Fatal("worker terminal metadata aliases parser result")
+	}
+}
+
+func TestStructuredWorkerOutputTruncationPreservesObservedCountsWithoutInventingReason(t *testing.T) {
+	ref := core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: 3, SHA256: strings.Repeat("a", 64)}
+	repo := newWorkerRepo()
+	adapter := workerAdapter{id: "jest-json", version: 1, parse: func() (ParseResult, error) {
+		return ParseResult{Outcome: core.ParseComplete, Completeness: core.CompletenessComplete, ObservedEntries: &core.ObservedEntryCounts{Namespace: "jest", VocabularyVersion: 1, Files: 1, Entries: 1, Pass: 1}}, nil
+	}}
+	worker, err := NewWorker(&workerBinderFake{ref: ref}, repo, workerReaderFake{}, []Adapter{adapter}, WorkerOptions{MaxWorkers: 1, QueueDepth: 1, Limits: validWorkerLimits()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer worker.Shutdown(context.Background())
+	rec := receipt.Receipt{SchemaVersion: 1, OperationID: "op-worker", SessionID: "session-1", Fingerprint: "fp", DaemonIncarnation: "d", State: session.Failed, Outcome: session.Failure, OutputBytes: 3, OutputComplete: false}
+	if err := worker.ScheduleTerminal(context.Background(), rec, "jest-json"); err != nil {
+		t.Fatal(err)
+	}
+	waitWorkerState(t, repo, core.LifecycleTerminal)
+	key := onlyWorkerKey(t, repo)
+	repo.mu.Lock()
+	derivation := repo.derivations[key]
+	repo.mu.Unlock()
+	if derivation.ParseOutcome != core.ParsePartial || derivation.Completeness != core.CompletenessPartial || derivation.CompletenessReason != "" || derivation.ObservedEntries == nil || derivation.ObservedEntries.Entries != 1 {
+		t.Fatalf("truncated derivation=%#v", derivation)
+	}
+}

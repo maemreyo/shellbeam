@@ -387,7 +387,7 @@ func (c Catalog) WithStructuredArtifactInputs(maxBlobBytes int64, pinnedHandles,
 	if out.Features[FeatureStructuredResults] != Available || maxBlobBytes < 1 || pinnedHandles < 1 || queueDepth < 1 || queueDepth > pinnedHandles || terminalAcquireMS < 1 {
 		return out
 	}
-	out.StructuredSchemaVersions = []int{1, 2}
+	out.StructuredSchemaVersions = []int{1, 2, 3}
 	out.StructuredInputKinds = []string{"raw_output", "artifact_blob"}
 	out.Limits.StructuredArtifactBlobBytes = maxBlobBytes
 	out.Limits.StructuredPinnedArtifactHandles = pinnedHandles

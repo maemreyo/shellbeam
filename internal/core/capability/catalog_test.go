@@ -386,7 +386,7 @@ func TestStructuredArtifactInputCapabilityIsAdditiveVersionedAndBounded(t *testi
 		t.Fatalf("base=%#v", base)
 	}
 	got := base.WithStructuredArtifactInputs(16<<20, 4, 4, 250)
-	if !reflect.DeepEqual(got.StructuredSchemaVersions, []int{1, 2}) || !reflect.DeepEqual(got.StructuredInputKinds, []string{"raw_output", "artifact_blob"}) {
+	if !reflect.DeepEqual(got.StructuredSchemaVersions, []int{1, 2, 3}) || !reflect.DeepEqual(got.StructuredInputKinds, []string{"raw_output", "artifact_blob"}) {
 		t.Fatalf("catalog=%#v", got)
 	}
 	if got.Limits.StructuredArtifactBlobBytes != 16<<20 || got.Limits.StructuredPinnedArtifactHandles != 4 || got.Limits.StructuredMaterializationQueueDepth != 4 || got.Limits.StructuredTerminalAcquireMS != 250 {

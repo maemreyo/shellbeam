@@ -31,7 +31,10 @@ var candidateProjectCommandIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63
 
 type StructuredEvidenceDetail struct {
 	DerivationKey          string                                      `json:"derivation_key"`
+	ParseOutcome           structuredresult.ParseOutcome               `json:"parse_outcome,omitempty"`
 	Completeness           structuredresult.Completeness               `json:"completeness"`
+	CompletenessReason     structuredresult.CompletenessReason         `json:"completeness_reason,omitempty"`
+	ObservedEntries        *structuredresult.ObservedEntryCounts       `json:"observed_entries,omitempty"`
 	MechanicalTestStatuses []structuredresult.TestStatus               `json:"mechanical_test_statuses,omitempty"`
 	SemanticsCoverage      *structuredresult.ProducerSemanticsCoverage `json:"semantics_coverage,omitempty"`
 }
@@ -44,6 +47,30 @@ func (d StructuredEvidenceDetail) Validate() error {
 	case structuredresult.CompletenessComplete, structuredresult.CompletenessPartial, structuredresult.CompletenessUnavailable, structuredresult.CompletenessCompacted:
 	default:
 		return fmt.Errorf("invalid structured evidence completeness")
+	}
+	if d.ParseOutcome != "" {
+		switch d.ParseOutcome {
+		case structuredresult.ParseComplete, structuredresult.ParsePartial, structuredresult.ParseMalformed, structuredresult.ParseUnavailable, structuredresult.ParseBudgetExceeded:
+		default:
+			return fmt.Errorf("invalid structured evidence parse outcome")
+		}
+	}
+	if d.CompletenessReason.Validate() != nil {
+		return fmt.Errorf("invalid structured evidence completeness reason")
+	}
+	if d.ObservedEntries != nil && d.ObservedEntries.Validate() != nil {
+		return fmt.Errorf("invalid structured evidence observed entries")
+	}
+	if d.CompletenessReason != "" {
+		if d.ParseOutcome != structuredresult.ParsePartial || d.Completeness != structuredresult.CompletenessPartial && d.Completeness != structuredresult.CompletenessCompacted || d.ObservedEntries == nil {
+			return fmt.Errorf("invalid structured evidence partiality metadata")
+		}
+		if d.CompletenessReason == structuredresult.CompletenessReasonZeroMatch && d.ObservedEntries.Entries != 0 {
+			return fmt.Errorf("invalid structured evidence zero-match metadata")
+		}
+	}
+	if d.ObservedEntries != nil && d.ParseOutcome == "" {
+		return fmt.Errorf("structured evidence observed entries require parse outcome")
 	}
 	previous := ""
 	for _, status := range d.MechanicalTestStatuses {

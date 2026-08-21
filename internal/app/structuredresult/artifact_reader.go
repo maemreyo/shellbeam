@@ -65,5 +65,5 @@ func (r *ArtifactReader) DescribeInput(ctx context.Context, input core.Structure
 	if input.Kind != core.StructuredInputArtifactBlob || input.ArtifactBlob == nil {
 		return InputContext{}, ErrArtifactInputUnavailable
 	}
-	return InputContext{OperationID: input.ArtifactBlob.OperationID}, nil
+	return r.artifacts.DescribeArtifactInput(ctx, *input.ArtifactBlob)
 }

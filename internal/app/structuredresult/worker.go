@@ -300,11 +300,16 @@ func (w *Worker) processInput(ctx context.Context, input core.StructuredInputRef
 	if !outputComplete && result.Outcome == core.ParseComplete {
 		result.Outcome = core.ParsePartial
 		result.Completeness = core.CompletenessPartial
+		result.CompletenessReason = ""
 	}
 	if result.Outcome == "" || result.Completeness == "" {
 		return
 	}
-	_, _ = service.CompleteWithCoverage(ctx, key, result.Outcome, result.Completeness, result.Records, result.SemanticsCoverage)
+	_, _ = service.CompleteWithMetadata(ctx, key, result.Outcome, result.Completeness, result.Records, TerminalMetadata{
+		CompletenessReason: result.CompletenessReason,
+		ObservedEntries:    result.ObservedEntries,
+		SemanticsCoverage:  result.SemanticsCoverage,
+	})
 }
 
 type derivationContextReader struct {

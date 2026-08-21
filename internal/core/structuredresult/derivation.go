@@ -13,9 +13,10 @@ import (
 )
 
 const (
-	SchemaVersionV1        = 1
-	SchemaVersion          = 2
-	MaxSourceAuthorityRefs = 8
+	SchemaVersionV1           = 1
+	SchemaVersion             = 2
+	DerivationSchemaVersionV3 = 3
+	MaxSourceAuthorityRefs    = 8
 )
 
 type Lifecycle string
@@ -62,6 +63,8 @@ type Derivation struct {
 	Lifecycle               Lifecycle                  `json:"lifecycle"`
 	ParseOutcome            ParseOutcome               `json:"parse_outcome,omitempty"`
 	Completeness            Completeness               `json:"completeness"`
+	CompletenessReason      CompletenessReason         `json:"completeness_reason,omitempty"`
+	ObservedEntries         *ObservedEntryCounts       `json:"observed_entries,omitempty"`
 	SemanticsCoverage       *ProducerSemanticsCoverage `json:"semantics_coverage,omitempty"`
 }
 
@@ -94,7 +97,7 @@ func DerivationKey(refs []RawOutputRef, producer Producer, schemaVersion int, co
 }
 
 func (d Derivation) Validate() error {
-	if d.SchemaVersion != SchemaVersionV1 && d.SchemaVersion != SchemaVersion || !validDigest(d.DerivationKey) || len(d.SourceAuthorityRefs) == 0 || len(d.SourceAuthorityRefs) > MaxSourceAuthorityRefs || d.DerivationSchemaVersion < 1 || !validDigest(d.DerivationConfigDigest) || d.Producer.Validate() != nil || !validCompleteness(d.Completeness) {
+	if d.SchemaVersion != SchemaVersionV1 && d.SchemaVersion != SchemaVersion && d.SchemaVersion != DerivationSchemaVersionV3 || !validDigest(d.DerivationKey) || len(d.SourceAuthorityRefs) == 0 || len(d.SourceAuthorityRefs) > MaxSourceAuthorityRefs || d.DerivationSchemaVersion < 1 || !validDigest(d.DerivationConfigDigest) || d.Producer.Validate() != nil || !validCompleteness(d.Completeness) || !validCompletenessReason(d.CompletenessReason) {
 		return fmt.Errorf("invalid structured derivation")
 	}
 	for _, ref := range d.SourceAuthorityRefs {
@@ -108,9 +111,18 @@ func (d Derivation) Validate() error {
 	if d.SemanticsCoverage != nil && d.SemanticsCoverage.Validate() != nil {
 		return fmt.Errorf("invalid derivation semantics coverage")
 	}
+	if d.ObservedEntries != nil && d.ObservedEntries.Validate() != nil {
+		return fmt.Errorf("invalid derivation observed entries")
+	}
+	if d.SchemaVersion != DerivationSchemaVersionV3 && (d.CompletenessReason != "" || d.ObservedEntries != nil) {
+		return fmt.Errorf("pre-v3 derivation claims v3 metadata")
+	}
+	if d.SchemaVersion == DerivationSchemaVersionV3 && d.CompletenessReason == "" && d.ObservedEntries == nil {
+		return fmt.Errorf("schema v3 derivation missing v3 metadata")
+	}
 	switch d.Lifecycle {
 	case LifecyclePending, LifecycleProcessing:
-		if d.ParseOutcome != "" || d.SemanticsCoverage != nil {
+		if d.ParseOutcome != "" || d.SemanticsCoverage != nil || d.CompletenessReason != "" || d.ObservedEntries != nil {
 			return fmt.Errorf("terminal metadata before terminal")
 		}
 	case LifecycleTerminal:
@@ -119,6 +131,14 @@ func (d Derivation) Validate() error {
 		}
 	default:
 		return fmt.Errorf("invalid derivation lifecycle")
+	}
+	if d.CompletenessReason != "" {
+		if d.ParseOutcome != ParsePartial || d.Completeness != CompletenessPartial && d.Completeness != CompletenessCompacted || d.ObservedEntries == nil {
+			return fmt.Errorf("invalid derivation completeness reason")
+		}
+		if d.CompletenessReason == CompletenessReasonZeroMatch && d.ObservedEntries.Entries != 0 {
+			return fmt.Errorf("zero-match derivation observed entries")
+		}
 	}
 	if d.SchemaVersion == SchemaVersionV1 && d.SemanticsCoverage != nil {
 		return fmt.Errorf("schema v1 derivation claims v2 metadata")
