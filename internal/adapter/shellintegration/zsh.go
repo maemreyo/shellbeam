@@ -35,3 +35,10 @@ func zshScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) (
 	cleanup := fmt.Sprintf("typeset -ga precmd_functions; precmd_functions=(${precmd_functions:#%s}); unset %s 2>/dev/null || true; unfunction %s 2>/dev/null || true", name, armed, name)
 	return install, cleanup
 }
+
+func (a *ZshAdapter) LaunchContextHelper(ctx context.Context, launch app.ContextHelperLaunch) error {
+	if a == nil {
+		return fmt.Errorf("zsh context helper launcher unavailable")
+	}
+	return launchContextHelper(ctx, a.deps, core.ShellZsh, launch)
+}

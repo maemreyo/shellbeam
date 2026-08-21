@@ -83,7 +83,7 @@ func (r *delegatedHandoffReadiness) Prepare(ctx context.Context, req handoffapp.
 	}
 	port := &delegatedShellCommandPort{
 		provider: r.provider, ref: req.ProviderRef, providerGeneration: req.ProviderGeneration,
-		currentCommand: obs.CurrentCommand,
+		currentCommand: obs.CurrentCommand, panePID: obs.PanePID,
 	}
 	deps := shelladapter.Dependencies{Executable: r.executable, RuntimeDir: r.runtimeDir, Command: port}
 	adapter, err := shellAdapterFor(shellObs.Identity.Family, deps)
@@ -124,6 +124,7 @@ type delegatedShellCommandPort struct {
 	ref                delegated.ProviderRef
 	providerGeneration string
 	currentCommand     string
+	panePID            int
 }
 
 func (p *delegatedShellCommandPort) WriteShell(ctx context.Context, script string) error {
@@ -137,7 +138,7 @@ func (p *delegatedShellCommandPort) WriteShell(ctx context.Context, script strin
 	if !obs.ProviderCurrent || obs.ProviderGeneration != p.providerGeneration || obs.Terminal {
 		return failure.New(failure.ShellIntegrationLost, map[string]string{"reason": "provider_identity_changed"}, nil)
 	}
-	if obs.CurrentCommand != p.currentCommand {
+	if obs.CurrentCommand != p.currentCommand || obs.PanePID != p.panePID {
 		return failure.New(failure.ShellIdentityChanged, map[string]string{"reason": "current_shell_changed"}, nil)
 	}
 	if err := p.provider.Write(ctx, p.ref, []byte(script+"\n")); err != nil {

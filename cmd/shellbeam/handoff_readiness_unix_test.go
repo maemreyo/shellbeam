@@ -127,3 +127,20 @@ func TestDelegatedHandoffReadinessShellDriftBeforeInstallWritesNothing(t *testin
 }
 
 var _ daemonapp.DelegatedRuntime = (*handoffReadinessProvider)(nil)
+
+func TestDelegatedHandoffReadinessPanePIDDriftBeforeInstallWritesNothing(t *testing.T) {
+	provider, ref := task7ReadinessProvider("fish")
+	first := provider.obs
+	second := provider.obs
+	second.PanePID = first.PanePID + 1000
+	provider.inspectSeq = []delegatedapp.Observation{first, second}
+	preparer := newDelegatedHandoffReadiness(provider, shortTask7RuntimeDir(t), "/bin/echo")
+
+	_, err := preparer.Prepare(t.Context(), task7ReadinessRequest(ref, "handoff_task5_pid_drift"))
+	if !errors.Is(err, failure.ShellIdentityChanged) {
+		t.Fatalf("err=%v", err)
+	}
+	if len(provider.writeSnapshot()) != 0 {
+		t.Fatalf("changed shell process received syntax: %q", provider.writeSnapshot())
+	}
+}

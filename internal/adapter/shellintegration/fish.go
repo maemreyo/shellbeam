@@ -35,3 +35,10 @@ func fishScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) 
 	cleanup := fmt.Sprintf("functions --erase %s 2>/dev/null; or true; set -e %s 2>/dev/null; or true", name, armed)
 	return install, cleanup
 }
+
+func (a *FishAdapter) LaunchContextHelper(ctx context.Context, launch app.ContextHelperLaunch) error {
+	if a == nil {
+		return fmt.Errorf("fish context helper launcher unavailable")
+	}
+	return launchContextHelper(ctx, a.deps, core.ShellFish, launch)
+}

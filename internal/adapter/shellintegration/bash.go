@@ -35,3 +35,10 @@ func bashScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) 
 	cleanup := fmt.Sprintf("PROMPT_COMMAND=\"${PROMPT_COMMAND%%;%s}\"; unset %s; unset -f %s 2>/dev/null || true", name, armed, name)
 	return install, cleanup
 }
+
+func (a *BashAdapter) LaunchContextHelper(ctx context.Context, launch app.ContextHelperLaunch) error {
+	if a == nil {
+		return fmt.Errorf("bash context helper launcher unavailable")
+	}
+	return launchContextHelper(ctx, a.deps, core.ShellBash, launch)
+}
