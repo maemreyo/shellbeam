@@ -1368,8 +1368,10 @@ git commit -m "feat: serve one browser bridge message with asymmetric decoding"
 
 **Files:**
 - Create: `internal/adapter/browserbridge/daemon_reader.go`
+- Create: `internal/app/browserbridge/framing.go`
 - Create: `cmd/shellbeam-browser-host/main.go`
 - Test: `internal/adapter/browserbridge/daemon_reader_test.go`
+- Test: `internal/app/browserbridge/framing_test.go`
 
 **Interfaces:**
 - Consumes: `bridgeapp.DaemonReader`, `bridgeapp.Serve`, `bridgeapp.NewPlanner`.
@@ -1580,7 +1582,7 @@ Expected: PASS including the two framing tests, and the binary builds.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/adapter/browserbridge cmd/shellbeam-browser-host
+git add internal/adapter/browserbridge internal/app/browserbridge/framing.go internal/app/browserbridge/framing_test.go cmd/shellbeam-browser-host
 git commit -m "feat: add shellbeam-browser-host binary"
 ```
 
