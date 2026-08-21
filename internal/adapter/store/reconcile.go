@@ -89,6 +89,9 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 }
 
 func (r *Repository) repairCommittedOperations(ctx context.Context) error {
+	r.activityOperationMu.Lock()
+	defer r.activityOperationMu.Unlock()
+	activityOperations := map[string]map[operation.ID]struct{}{}
 	entries, err := os.ReadDir(filepath.Join(r.root, "operations"))
 	if err != nil {
 		return err
@@ -108,6 +111,7 @@ func (r *Repository) repairCommittedOperations(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		addActivityOperationToIndex(activityOperations, reservation)
 		if _, err = r.LoadSession(ctx, reservation.SessionID); err == nil {
 			continue
 		} else if !errors.Is(err, ErrNotFound) {
@@ -117,6 +121,8 @@ func (r *Repository) repairCommittedOperations(ctx context.Context) error {
 			return result.Err
 		}
 	}
+	r.activityOperations = activityOperations
+	r.activityOperationIndexReady = true
 	return nil
 }
 

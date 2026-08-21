@@ -69,6 +69,10 @@ type Repository struct {
 	locks                    map[operation.ID]*sync.Mutex
 	now                      func() time.Time
 
+	activityOperationMu         sync.RWMutex
+	activityOperationIndexReady bool
+	activityOperations          map[string]map[operation.ID]struct{}
+
 	admissionMu sync.Mutex
 	admission   admissionLedger
 	// activeSessions holds the ids currently occupying a capacity slot. It is
@@ -174,7 +178,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), observationRetries: map[uint64]observationTransitionRetry{}, observationRetryWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, blobReservations: map[string]int64{}}
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), observationRetries: map[uint64]observationTransitionRetry{}, observationRetryWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, activityOperations: map[string]map[operation.ID]struct{}{}, blobReservations: map[string]int64{}}
 	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
 	if err := repository.initObservationStore(); err != nil {
 		return nil, err
