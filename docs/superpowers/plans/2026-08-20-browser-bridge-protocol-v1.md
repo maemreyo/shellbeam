@@ -1179,6 +1179,8 @@ git commit -m "feat: add bounded structured_failure_facts read plan"
 - Consumes: everything from Tasks 1–6.
 - Produces: `Serve(ctx context.Context, planner *Planner, in io.Reader, out io.Writer) error` — reads exactly one JSON message, dispatches one verb, writes exactly one bounded JSON message, returns. `Decode(raw []byte) (protocol.Request, protocol.Response, bool)` — lenient for `hello`, strict for every other verb.
 
+**Execution correction (2026-08-21):** `Serve` MUST decode exactly one JSON value and return after answering it; do not `io.ReadAll` the stream, because concatenated/trailing input would otherwise turn a valid first request into `malformed_request`. The trailing-input test must also assert that the first response remains `hello`/`ok`, not merely that one response was written.
+
 - [ ] **Step 1: Write the failing test**
 
 ```go
@@ -1351,7 +1353,7 @@ Note the `default` arm is unreachable through `Decode`, and is kept so a future 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/app/browserbridge/ -count=1 -v`
-Expected: PASS, twelve tests.
+Expected: PASS, thirteen tests.
 
 - [ ] **Step 5: Commit**
 
