@@ -1981,7 +1981,7 @@ git commit -m "feat: report browser bridge bootstrap state in doctor"
 
 These mirror the existing completion-truth boundary test in `tests/contract/verification_truth_boundary_test.go`. Read that file first and follow its structure for locating and scanning source files.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the boundary tests**
 
 ```go
 package contract
@@ -2070,12 +2070,12 @@ func TestBrowserBridgeActionsAreLimitedToTheDeclaredReads(t *testing.T) {
 }
 ```
 
-The `contract` package already has a module-root helper, `repoRoot(t)` in `tests/contract/media_privacy_test.go`. Reuse it rather than adding a second way to find the root — add only this two-line wrapper at the top of the new file:
+`repoRoot(t)` lives in package `contract_test`, while this boundary file intentionally lives in package `contract`, so it is not visible here. Reuse `verificationRepositoryRoot(t)` from `verification_truth_boundary_test.go` rather than adding another root resolver; wrap it only to join relative paths:
 
 ```go
 func repoPath(t *testing.T, rel string) string {
 	t.Helper()
-	return filepath.Join(repoRoot(t), rel)
+	return filepath.Join(verificationRepositoryRoot(t), rel)
 }
 ```
 
@@ -2084,7 +2084,7 @@ func repoPath(t *testing.T, rel string) string {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `go test ./tests/contract/ -run TestBrowserBridge -v`
-Expected: FAIL — `undefined: repoPath`, or a real violation if one exists.
+Expected: this enforcement task may PASS immediately because Tasks 1–10 already implemented the behavior. Any real boundary violation is a blocker; do not manufacture a failure.
 
 - [ ] **Step 3: Write minimal implementation**
 
