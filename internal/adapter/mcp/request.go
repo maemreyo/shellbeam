@@ -32,11 +32,15 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 }
 
 func populateRequestFromInput(request *bridge.Request, in input) {
+	if isDecisionProtocolMCPAction(in.Action) {
+		request.Decision = cloneDecisionMCPRequest(in.Decision)
+		return
+	}
 	switch in.Action {
 	case "read_media":
 		request.Media = mediaRequestFromInput(in)
 	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, VerificationAttempt: cloneMCPVerificationAttempt(in.VerificationAttempt), CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone(), Hermetic: in.Hermetic.Clone()}
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, ExperimentID: in.ExperimentID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, VerificationAttempt: cloneMCPVerificationAttempt(in.VerificationAttempt), CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone(), Hermetic: in.Hermetic.Clone()}
 	case "poll":
 		request.Poll = app.PollRequest{SessionID: in.SessionID, Cursor: in.Cursor, YieldMS: in.YieldMS, MaxOutputBytes: in.MaxOutputBytes}
 	case "read_output":

@@ -1,0 +1,334 @@
+package decisionprotocol
+
+import (
+	"fmt"
+	"sort"
+)
+
+type DecisionRequirementStatus string
+
+const (
+	RequirementSatisfied     DecisionRequirementStatus = "SATISFIED"
+	RequirementUnsatisfied   DecisionRequirementStatus = "UNSATISFIED"
+	RequirementIndeterminate DecisionRequirementStatus = "INDETERMINATE"
+)
+
+func (s DecisionRequirementStatus) Validate() error {
+	switch s {
+	case RequirementSatisfied, RequirementUnsatisfied, RequirementIndeterminate:
+		return nil
+	}
+	return fmt.Errorf("invalid decision requirement status %q", s)
+}
+
+type GateStatus string
+
+const (
+	GateClear         GateStatus = "CLEAR"
+	GateBlocked       GateStatus = "BLOCKED"
+	GateIndeterminate GateStatus = "INDETERMINATE"
+)
+
+func (s GateStatus) Validate() error {
+	switch s {
+	case GateClear, GateBlocked, GateIndeterminate:
+		return nil
+	}
+	return fmt.Errorf("invalid decision gate status %q", s)
+}
+
+type DecisionRequirementEvaluation struct {
+	RequirementID string                    `json:"requirement_id"`
+	Kind          RequirementKind           `json:"kind"`
+	Status        DecisionRequirementStatus `json:"status"`
+	BasisRefs     []string                  `json:"basis_refs,omitempty"`
+	ReasonCode    string                    `json:"reason_code"`
+}
+
+func (e DecisionRequirementEvaluation) Validate() error {
+	if !boundedToken(e.RequirementID, 128) || e.Kind.Validate() != nil || e.Status.Validate() != nil || !boundedToken(e.ReasonCode, 256) {
+		return fmt.Errorf("invalid requirement evaluation")
+	}
+	return uniqueStrings(e.BasisRefs, 256, 2048, false)
+}
+
+type CandidateContractBlocker struct {
+	Code         string       `json:"code"`
+	PredictionID PredictionID `json:"prediction_id"`
+	BasisRefs    []string     `json:"basis_refs,omitempty"`
+}
+
+func (b CandidateContractBlocker) Validate() error {
+	if !boundedToken(b.Code, 256) || !validID(b.PredictionID) {
+		return fmt.Errorf("invalid candidate contract blocker")
+	}
+	return uniqueStrings(b.BasisRefs, 256, 2048, false)
+}
+
+type DecisionProtocolEvaluation struct {
+	EpisodeID                 EpisodeID                       `json:"episode_id"`
+	CandidateID               CandidateID                     `json:"candidate_id"`
+	RequirementEvaluations    []DecisionRequirementEvaluation `json:"requirement_evaluations"`
+	CandidateContractBlockers []CandidateContractBlocker      `json:"candidate_contract_blockers"`
+	Gate                      GateStatus                      `json:"gate"`
+	BlockingRequirementDigest string                          `json:"blocking_requirement_digest"`
+}
+
+func (e DecisionProtocolEvaluation) Validate() error {
+	if !validID(e.EpisodeID) || !validID(e.CandidateID) || e.Gate.Validate() != nil || !validDerived(e.BlockingRequirementDigest, "block_") {
+		return fmt.Errorf("invalid protocol evaluation")
+	}
+	for _, r := range e.RequirementEvaluations {
+		if r.Validate() != nil {
+			return fmt.Errorf("invalid requirement evaluation")
+		}
+	}
+	for _, b := range e.CandidateContractBlockers {
+		if b.Validate() != nil {
+			return fmt.Errorf("invalid contract blocker")
+		}
+	}
+	return nil
+}
+
+type CandidateSemanticState struct {
+	CandidateID         CandidateID                  `json:"candidate_id"`
+	LineageRoot         CandidateID                  `json:"lineage_root"`
+	Active              bool                         `json:"active"`
+	Superseded          bool                         `json:"superseded"`
+	ExpectationOutcomes []PredictionEvaluationStatus `json:"expectation_outcomes,omitempty"`
+	Eligible            bool                         `json:"eligible"`
+}
+type RequirementSemanticState struct {
+	RequirementID string                    `json:"requirement_id"`
+	Kind          RequirementKind           `json:"kind"`
+	Status        DecisionRequirementStatus `json:"status"`
+}
+
+type ExperimentSemanticState struct {
+	ExperimentID            ExperimentID                  `json:"experiment_id"`
+	State                   ExperimentLifecycleState      `json:"state"`
+	ObservationState        ObservationSettlementState    `json:"observation_state,omitempty"`
+	PotentialDiscrimination []PotentialDiscriminationPair `json:"potential_discrimination,omitempty"`
+	RealizedDiscrimination  bool                          `json:"realized_discrimination"`
+}
+
+type ProjectionSemanticState struct {
+	EpisodeID                  EpisodeID                  `json:"episode_id"`
+	EpisodeState               EpisodeState               `json:"episode_state,omitempty"`
+	PolicyDigest               string                     `json:"policy_digest,omitempty"`
+	CandidateID                CandidateID                `json:"candidate_id"`
+	CandidateStates            []CandidateSemanticState   `json:"candidate_states,omitempty"`
+	ExperimentStates           []ExperimentSemanticState  `json:"experiment_states,omitempty"`
+	RequirementStates          []RequirementSemanticState `json:"requirement_states,omitempty"`
+	Gate                       GateStatus                 `json:"gate"`
+	UnresolvedDimensions       []string                   `json:"unresolved_dimensions,omitempty"`
+	VerifierState              []VerifierSemanticState    `json:"verifier_state,omitempty"`
+	SourceCompatible           bool                       `json:"source_compatible"`
+	Budget                     BudgetAdmission            `json:"budget,omitempty"`
+	AllowedProtocolTransitions []string                   `json:"allowed_protocol_transitions,omitempty"`
+	BasisRefs                  []string                   `json:"-"`
+}
+
+func canonicalProjectionState(s ProjectionSemanticState) (ProjectionSemanticState, error) {
+	if !validID(s.EpisodeID) || (s.CandidateID != "" && !validID(s.CandidateID)) || s.Gate.Validate() != nil {
+		return s, fmt.Errorf("invalid projection semantic state")
+	}
+	out := s
+	out.BasisRefs = nil
+	out.CandidateStates = append([]CandidateSemanticState(nil), s.CandidateStates...)
+	sort.Slice(out.CandidateStates, func(i, j int) bool { return out.CandidateStates[i].CandidateID < out.CandidateStates[j].CandidateID })
+	for i := range out.CandidateStates {
+		outcomes := append([]PredictionEvaluationStatus(nil), out.CandidateStates[i].ExpectationOutcomes...)
+		sort.Slice(outcomes, func(a, b int) bool { return outcomes[a] < outcomes[b] })
+		for _, status := range outcomes {
+			if status.Validate() != nil {
+				return s, fmt.Errorf("invalid candidate expectation outcome")
+			}
+		}
+		out.CandidateStates[i].ExpectationOutcomes = outcomes
+	}
+	out.ExperimentStates = append([]ExperimentSemanticState(nil), s.ExperimentStates...)
+	sort.Slice(out.ExperimentStates, func(i, j int) bool {
+		return out.ExperimentStates[i].ExperimentID < out.ExperimentStates[j].ExperimentID
+	})
+	for i := range out.ExperimentStates {
+		if !validID(out.ExperimentStates[i].ExperimentID) || out.ExperimentStates[i].State.Validate() != nil || (out.ExperimentStates[i].ObservationState != "" && out.ExperimentStates[i].ObservationState.Validate() != nil) {
+			return s, fmt.Errorf("invalid experiment semantic state")
+		}
+		pairs := append([]PotentialDiscriminationPair(nil), out.ExperimentStates[i].PotentialDiscrimination...)
+		sort.Slice(pairs, func(a, b int) bool {
+			if pairs[a].TargetCandidateID == pairs[b].TargetCandidateID {
+				if pairs[a].ChallengerCandidateID == pairs[b].ChallengerCandidateID {
+					return pairs[a].DimensionKey < pairs[b].DimensionKey
+				}
+				return pairs[a].ChallengerCandidateID < pairs[b].ChallengerCandidateID
+			}
+			return pairs[a].TargetCandidateID < pairs[b].TargetCandidateID
+		})
+		out.ExperimentStates[i].PotentialDiscrimination = pairs
+	}
+	out.RequirementStates = append([]RequirementSemanticState(nil), s.RequirementStates...)
+	sort.Slice(out.RequirementStates, func(i, j int) bool {
+		return out.RequirementStates[i].RequirementID < out.RequirementStates[j].RequirementID
+	})
+	for _, r := range out.RequirementStates {
+		if !boundedToken(r.RequirementID, 128) || r.Kind.Validate() != nil || r.Status.Validate() != nil {
+			return s, fmt.Errorf("invalid requirement semantic state")
+		}
+	}
+	out.UnresolvedDimensions = append([]string(nil), s.UnresolvedDimensions...)
+	sort.Strings(out.UnresolvedDimensions)
+	if err := uniqueStrings(out.UnresolvedDimensions, 128, 512, true); err != nil {
+		return s, err
+	}
+	out.AllowedProtocolTransitions = append([]string(nil), s.AllowedProtocolTransitions...)
+	sort.Strings(out.AllowedProtocolTransitions)
+	if err := uniqueStrings(out.AllowedProtocolTransitions, 64, 256, true); err != nil {
+		return s, err
+	}
+	if s.EpisodeState != "" && s.EpisodeState.Validate() != nil {
+		return s, fmt.Errorf("invalid projection episode state")
+	}
+	if s.PolicyDigest != "" && !validDerived(s.PolicyDigest, "pol_") {
+		return s, fmt.Errorf("invalid projection policy digest")
+	}
+	out.VerifierState = canonicalVerifierState(s.VerifierState)
+	for _, v := range out.VerifierState {
+		if !boundedToken(v.ActorRef, 192) || (v.QualifiedContextClass != "" && v.QualifiedContextClass.ValidateQualified() != nil) || validateCandidateSet(v.PreferredCandidates, 128) != nil || validateCandidateSet(v.SemanticRejections, 128) != nil {
+			return s, fmt.Errorf("invalid verifier semantic state")
+		}
+	}
+	return out, nil
+}
+func ProjectionDigest(s ProjectionSemanticState) (string, error) {
+	out, err := canonicalProjectionState(s)
+	if err != nil {
+		return "", err
+	}
+	return canonicalHash("proj_", out)
+}
+
+type AuditState struct {
+	EpisodeID           EpisodeID   `json:"episode_id"`
+	CanonicalRecordSeqs []RecordSeq `json:"canonical_record_seqs"`
+	BasisRefs           []string    `json:"basis_refs"`
+}
+
+func AuditDigest(s AuditState) (string, error) {
+	if !validID(s.EpisodeID) {
+		return "", fmt.Errorf("invalid audit episode")
+	}
+	for _, seq := range s.CanonicalRecordSeqs {
+		if seq == 0 {
+			return "", fmt.Errorf("invalid audit record seq")
+		}
+	}
+	if err := uniqueStrings(s.BasisRefs, 1024, 2048, false); err != nil {
+		return "", err
+	}
+	return canonicalHash("audit_", s)
+}
+
+type DecisionProjection struct {
+	EpisodeID                     EpisodeID                     `json:"episode_id"`
+	EpisodeState                  EpisodeState                  `json:"episode_state"`
+	EpisodeKind                   EpisodeKind                   `json:"episode_kind"`
+	PolicyBinding                 EpisodePolicyBinding          `json:"policy_binding"`
+	SourceGenerationCompatibility SourceGenerationCompatibility `json:"source_generation_compatibility"`
+	CandidateID                   CandidateID                   `json:"candidate_id,omitempty"`
+	Candidates                    []CandidateProjection         `json:"candidates,omitempty"`
+	Experiments                   []ExperimentProjection        `json:"experiments,omitempty"`
+	ProjectionDigest              string                        `json:"projection_digest"`
+	AuditDigest                   string                        `json:"audit_digest"`
+	Protocol                      DecisionProtocolEvaluation    `json:"protocol,omitempty"`
+	SourceCompatible              bool                          `json:"source_compatible"`
+	UnresolvedDimensions          []string                      `json:"unresolved_dimensions,omitempty"`
+	Budget                        BudgetAdmission               `json:"budget,omitempty"`
+	AllowedProtocolTransitions    []string                      `json:"allowed_protocol_transitions,omitempty"`
+}
+
+type EpisodeState string
+
+const (
+	EpisodeOpen             EpisodeState = "OPEN"
+	EpisodeCommitted        EpisodeState = "COMMITTED"
+	EpisodeClosedUnresolved EpisodeState = "CLOSED_UNRESOLVED"
+)
+
+func (s EpisodeState) Validate() error {
+	switch s {
+	case EpisodeOpen, EpisodeCommitted, EpisodeClosedUnresolved:
+		return nil
+	default:
+		return fmt.Errorf("invalid decision episode state %q", s)
+	}
+}
+
+type SourceGenerationCompatibility string
+
+const (
+	SourceGenerationCurrent SourceGenerationCompatibility = "current"
+	SourceGenerationStale   SourceGenerationCompatibility = "stale"
+)
+
+func (s SourceGenerationCompatibility) Validate() error {
+	if s == SourceGenerationCurrent || s == SourceGenerationStale {
+		return nil
+	}
+	return fmt.Errorf("invalid source generation compatibility %q", s)
+}
+
+type CandidateLifecycleState string
+
+const (
+	CandidateActive     CandidateLifecycleState = "ACTIVE"
+	CandidateSuperseded CandidateLifecycleState = "SUPERSEDED"
+)
+
+type CandidateProjection struct {
+	CandidateID CandidateID             `json:"candidate_id"`
+	LineageRoot CandidateID             `json:"lineage_root"`
+	State       CandidateLifecycleState `json:"state"`
+}
+
+type ExperimentLifecycleState string
+
+const (
+	ExperimentDefined   ExperimentLifecycleState = "DEFINED"
+	ExperimentSealed    ExperimentLifecycleState = "SEALED"
+	ExperimentObserving ExperimentLifecycleState = "OBSERVING"
+	ExperimentClosed    ExperimentLifecycleState = "CLOSED"
+	ExperimentAborted   ExperimentLifecycleState = "ABORTED"
+)
+
+func (s ExperimentLifecycleState) Validate() error {
+	switch s {
+	case ExperimentDefined, ExperimentSealed, ExperimentObserving, ExperimentClosed, ExperimentAborted:
+		return nil
+	default:
+		return fmt.Errorf("invalid experiment lifecycle state %q", s)
+	}
+}
+
+type ObservationSettlementState string
+
+const (
+	ObservationSettling ObservationSettlementState = "SETTLING"
+	ObservationSettled  ObservationSettlementState = "SETTLED"
+)
+
+func (s ObservationSettlementState) Validate() error {
+	if s == ObservationSettling || s == ObservationSettled {
+		return nil
+	}
+	return fmt.Errorf("invalid observation settlement state %q", s)
+}
+
+type ExperimentProjection struct {
+	ExperimentID            ExperimentID                  `json:"experiment_id"`
+	State                   ExperimentLifecycleState      `json:"state"`
+	ObservationState        ObservationSettlementState    `json:"observation_state,omitempty"`
+	PotentialDiscrimination []PotentialDiscriminationPair `json:"potential_discrimination,omitempty"`
+	RealizedDiscrimination  bool                          `json:"realized_discrimination"`
+}

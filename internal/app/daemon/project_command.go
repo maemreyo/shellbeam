@@ -108,7 +108,7 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 	if structuredAdapter == "" && stored.StructuredAdapter != "" && structuredapp.AdapterAcceptsArgv(stored.StructuredAdapter, stored.ProjectCommand.ResolvedArgv) {
 		structuredAdapter = stored.StructuredAdapter
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest}).Fingerprint()
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -146,7 +146,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
@@ -156,7 +156,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 				return 4
 			}
 			return 3
-		}(), OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID,
+		}(), OperationID: id, ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, WorkspaceID: req.WorkspaceID,
 		LogicalCWD: binding.LogicalCWD, StructuredAdapter: structuredAdapter,
 		RequestFingerprint: requestFingerprint, ExecutionFingerprint: executionFingerprint,
 		ObservationBindingFingerprint: observationFingerprint,
@@ -182,8 +182,14 @@ func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, rese
 		reservation.HermeticBoundary = preparedHermetic.binding.Clone()
 		spec.StdinMode = operation.StdinModeClosed
 	}
-	sid := newSessionID()
-	reservation.SessionID = operation.SessionID(sid)
+	sessionID, err := s.resolveAdmissionSessionID(ctx, req, reservation.OperationID)
+	if err != nil {
+		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
+		return View{}, err
+	}
+	sid := string(sessionID)
+	reservation.SessionID = sessionID
 	reservation.CreatedAt = time.Now().UTC()
 	structuredPreparation, err := s.prepareStructuredCaptureAdmission(ctx, req, &reservation, spec)
 	if err != nil {

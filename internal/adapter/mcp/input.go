@@ -35,6 +35,7 @@ type input struct {
 	RestoreID           string                                  `json:"restore_id,omitempty"`
 	CheckpointID        string                                  `json:"checkpoint_id,omitempty"`
 	OperationID         string                                  `json:"operation_id,omitempty"`
+	ExperimentID        string                                  `json:"experiment_id,omitempty"`
 	WorkspaceID         string                                  `json:"workspace_id,omitempty"`
 	ActivityID          string                                  `json:"activity_id,omitempty"`
 	CodeQuery           *codeintel.Query                        `json:"code_query,omitempty"`
@@ -96,6 +97,7 @@ type input struct {
 	Mode                mutationcore.Mode                       `json:"mode,omitempty"`
 	Paths               []string                                `json:"paths,omitempty"`
 	TTLMS               int64                                   `json:"ttl_ms,omitempty"`
+	Decision            *DecisionRequest                        `json:"decision,omitempty"`
 	VerificationInputFields
 }
 
@@ -121,6 +123,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 	if version == 2 {
 		if err := validateV2FieldSet(v.Action, raw); err != nil {
 			return err
+		}
+		if isDecisionProtocolMCPAction(v.Action) {
+			return validateDecisionMCPInput(v, raw)
 		}
 		return validateV2(v)
 	}
@@ -231,7 +236,7 @@ func validateStartEnvelopeV2(v input) error {
 			return err
 		}
 	}
-	return validateHermeticStartInput(v)
+	return validateDecisionStartEnvelope(v)
 }
 
 func validateHermeticStartInput(v input) error {

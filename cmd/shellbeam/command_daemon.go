@@ -226,16 +226,28 @@ func serveDaemonRuntime(
 	if err = verificationRuntime.bindRuntimeEvaluationSources(store, evidenceRuntime, telemetryRuntime); err != nil {
 		return err
 	}
-	actions.repro = reproapp.New(store)
-	observationRuntime.startMaterialization(ctx)
-	evidenceRuntime.startRecovery(ctx)
-	if err = reconcilePersistentDaemonStartup(startupCtx, store, svc); err != nil {
+	if err = bindReadyDaemonDecisionRuntime(store, actions, workspaceObserver, evidenceRuntime); err != nil {
+		return err
+	}
+	if err = prepareReadyDaemonState(ctx, startupCtx, store, svc, actions, observationRuntime, evidenceRuntime); err != nil {
 		return err
 	}
 	server.MarkReady()
 	startHousekeeping(ctx, store, keep)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
+}
+
+func prepareReadyDaemonState(ctx, startupCtx context.Context, store *storeadapter.Repository, svc *daemonapp.Service, actions *daemonActions, observationRuntime *executionObservationRuntime, evidenceRuntime *executionEvidenceRuntime) error {
+	actions.repro = reproapp.New(store)
+	observationRuntime.startMaterialization(ctx)
+	evidenceRuntime.startRecovery(ctx)
+	return reconcilePersistentDaemonStartup(startupCtx, store, svc)
+}
+
+func bindReadyDaemonDecisionRuntime(store *storeadapter.Repository, actions *daemonActions, workspaceObserver *workspaceapp.Observer, evidenceRuntime *executionEvidenceRuntime) error {
+	decisionEvidence := verificationadapter.NewEvidenceSource(evidenceRuntime.inspector, store)
+	return bindDecisionProtocolRuntime(store, actions, actions.workspace, workspaceObserver, actions, decisionEvidence)
 }
 
 func startDaemonServer(server *ipcadapter.Server, cancelStartup context.CancelFunc) <-chan error {
@@ -302,6 +314,7 @@ type daemonActions struct {
 	checkpoints    *checkpointapp.Service
 	inputTrace     *inputtraceapp.Inspector
 	verification   daemonVerificationCoordinator
+	decision       *decisionProtocolRuntime
 }
 
 func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {

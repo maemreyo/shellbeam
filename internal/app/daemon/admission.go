@@ -8,6 +8,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	decisionprotocol "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -40,7 +41,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if structuredAdapter == "" && stored.StructuredAdapter == structuredapp.PytestJUnitAdapterID && structuredapp.PytestCandidateArgv(req.Argv) {
 		structuredAdapter = structuredapp.PytestJUnitAdapterID
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest, Evidence: req.Evidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest, Evidence: req.Evidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -56,7 +57,7 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
+	intent := operation.Intent{ExperimentID: req.ExperimentID, Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
 	if req.ProtocolVersion != 2 {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
@@ -339,4 +340,42 @@ func (s *Service) waitReservedStart(ctx context.Context, req StartRequest, store
 		s.enrichStructuredAdapterAvailability(&view, stored)
 	}
 	return view, err
+}
+
+func (s *Service) resolveAdmissionSessionID(ctx context.Context, req StartRequest, operationID operation.ID) (operation.SessionID, error) {
+	if req.ExperimentID == "" {
+		return operation.SessionID(newSessionID()), nil
+	}
+	store, ok := s.store.(DecisionExperimentAdmissionStore)
+	if !ok {
+		return "", failure.New(failure.FeatureUnavailable, map[string]string{"feature": "decision_protocol"}, nil)
+	}
+	sessionID, found, err := store.ResolveExperimentAdmissionSession(ctx, decisionprotocol.ExperimentID(req.ExperimentID), operationID)
+	if err != nil {
+		return "", failure.Normalize(err)
+	}
+	if found {
+		return sessionID, nil
+	}
+	return operation.SessionID(newSessionID()), nil
+}
+
+func (s *Service) rawReservationCommitter(req StartRequest) (reservationCommitter, error) {
+	if req.ExperimentID == "" {
+		return s.store.ReserveOperation, nil
+	}
+	if req.ProtocolVersion != 2 || req.Persistent {
+		return nil, failure.New(failure.InvalidInput, map[string]string{"field": "experiment_id"}, fmt.Errorf("decision experiment execution requires protocol v2 and non-persistent start"))
+	}
+	store, ok := s.store.(DecisionExperimentAdmissionStore)
+	if !ok {
+		return nil, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "decision_protocol"}, nil)
+	}
+	return func(ctx context.Context, reservation operation.Reservation) (operation.Reservation, bool, StoreResult) {
+		if reservation.WorkspaceID == "" {
+			return operation.Reservation{}, false, StoreResult{Err: failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("decision experiment execution requires durable workspace binding"))}
+		}
+		stored, _, created, result := store.ReserveExperimentOperation(ctx, reservation, decisionprotocol.ExperimentExecutionLink{ExperimentID: decisionprotocol.ExperimentID(req.ExperimentID)})
+		return stored, created, result
+	}, nil
 }

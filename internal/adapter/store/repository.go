@@ -59,6 +59,7 @@ type Repository struct {
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
 	verificationMu           sync.Mutex
+	decisionProtocolMu       sync.Mutex
 	observationHighWatermark uint64
 	observationWake          chan struct{}
 	writer                   atomicWriter
@@ -203,6 +204,9 @@ func Open(root string, limits Limits) (*Repository, error) {
 		return nil, err
 	}
 	if err := repository.initVerificationStore(); err != nil {
+		return nil, err
+	}
+	if err := repository.initDecisionProtocolStore(); err != nil {
 		return nil, err
 	}
 	if err := repository.initAdmissionLedger(); err != nil {

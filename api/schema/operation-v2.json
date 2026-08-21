@@ -8,6 +8,7 @@
   "properties": {
     "schema_version": {"const": 2},
     "operation_id": {"type": "string", "minLength": 1},
+    "experiment_id": {"type": "string", "minLength": 1, "maxLength": 192},
     "session_id": {"type": "string", "minLength": 1},
     "request_fingerprint": {"type": "string", "minLength": 1},
     "execution_fingerprint": {"type": "string", "minLength": 1},

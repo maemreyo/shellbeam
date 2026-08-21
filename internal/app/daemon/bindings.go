@@ -36,7 +36,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		frozenEvidence = &normalized
 	}
 	base := operation.Reservation{
-		OperationID: id, ActivityID: req.ActivityID, WorkspaceID: intent.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, VerificationAttempt: cloneVerificationAttempt(req.VerificationAttempt), Intent: cloneDeclaredIntent(req.Intent),
+		OperationID: id, ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, WorkspaceID: intent.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, VerificationAttempt: cloneVerificationAttempt(req.VerificationAttempt), Intent: cloneDeclaredIntent(req.Intent),
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
 		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, Shell: shell, DaemonIncarnation: s.options.Incarnation,
 		ResourceLimits: req.ResourceLimits.Clone(),
@@ -65,7 +65,7 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		if err != nil {
 			return operation.Reservation{}, err
 		}
-		observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
+		observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
 		if err != nil {
 			return operation.Reservation{}, err
 		}

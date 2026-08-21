@@ -501,3 +501,25 @@ func TestV2DeclaredIntentPersistsForTerminalEvidenceAuthority(t *testing.T) {
 		t.Fatalf("stored intent=%#v", stored.Intent)
 	}
 }
+
+func TestRepositoryWithoutActivatedDecisionPolicyKeepsOrdinaryStartSemantics(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state-decision-policy-absent"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := capability.Baseline(capability.Limits{}).WithDecisionProtocol(capability.DecisionProtocolSupport{
+		SchemaVersion: 1, ProtocolVersion: 1,
+		PredicateKinds:     []string{"OPERATION_OUTCOME", "STRUCTURED_TEST_STATUS", "STRUCTURED_DIAGNOSTIC_PRESENCE", "VERIFICATION_RESULT"},
+		AuthorityProviders: []string{"shellbeam.explicit_caller.v1"}, OneExecutionPerExperiment: true,
+	})
+	owner := &fakeOwner{}
+	svc := app.NewService(st, owner, app.Options{Incarnation: "decision-policy-absent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, Capabilities: catalog})
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-decision-policy-absent", Command: "true", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner.starts.Load() != 1 {
+		t.Fatalf("ordinary start count=%d want 1", owner.starts.Load())
+	}
+	waitForTerminal(t, svc, view.SessionID)
+}

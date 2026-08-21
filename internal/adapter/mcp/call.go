@@ -83,6 +83,14 @@ func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
 	action := in.Action
 	body := map[string]any{"schema_version": 2, "ok": true, "action": action}
 	summary := action
+	if isDecisionProtocolMCPAction(action) {
+		var failed *mcpgo.CallToolResult
+		summary, failed = decisionProtocolSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
+		}
+		return toolSuccess(summary, body)
+	}
 	switch action {
 	case "start", "poll":
 		var failed *mcpgo.CallToolResult

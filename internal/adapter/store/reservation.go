@@ -31,6 +31,12 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	defer unlock()
 	r.admit.Lock()
 	defer r.admit.Unlock()
+	return r.reserveOperationLocked(ctx, want)
+}
+
+// reserveOperationLocked assumes the caller holds the per-operation lock and r.admit.
+// Decision Protocol admission additionally holds decisionProtocolMu after those two locks.
+func (r *Repository) reserveOperationLocked(ctx context.Context, want operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
 	path := filepath.Join(r.root, "operations", string(want.OperationID)+".json")
 	var existing operation.Reservation
 	if err := readStrict(path, &existing); err == nil {
@@ -208,6 +214,9 @@ func validateReservation(v operation.Reservation) error {
 	if v.OperationID == "" || v.SessionID == "" {
 		return fmt.Errorf("invalid reservation")
 	}
+	if err := validateDecisionExperimentReservation(v); err != nil {
+		return err
+	}
 	if err := validateResourceReservation(v); err != nil {
 		return err
 	}
@@ -271,6 +280,10 @@ func validateReservation(v operation.Reservation) error {
 	if err := validateReservationObservationMetadata(v); err != nil {
 		return err
 	}
+	return validateReservationBindings(v)
+}
+
+func validateReservationBindings(v operation.Reservation) error {
 	if v.EnvironmentBinding != nil {
 		if err := v.EnvironmentBinding.Validate(); err != nil {
 			return fmt.Errorf("invalid reservation environment binding: %w", err)
@@ -284,63 +297,14 @@ func validateReservation(v operation.Reservation) error {
 	return nil
 }
 
-func validateReservationObservationMetadata(v operation.Reservation) error {
-	if v.StructuredCaptureDigest != "" && (!operation.ValidStructuredCaptureDigest(v.StructuredCaptureDigest) || v.ObservationBindingFingerprint == "") {
-		return fmt.Errorf("invalid reservation structured capture digest")
-	}
-	return validateReservationVerificationAttempt(v.VerificationAttempt)
-}
-
-func (r *Repository) validateVerificationAttemptAuthority(ctx context.Context, v operation.Reservation) error {
-	if v.StructuredCaptureDigest != "" && v.ProjectCommand == nil {
-		fingerprint, err := (operation.ObservationBinding{
-			ActivityID: v.ActivityID, Intent: v.Intent, StructuredAdapter: v.StructuredAdapter, StructuredCaptureDigest: v.StructuredCaptureDigest,
-			Evidence: v.Evidence, VerificationAttempt: v.VerificationAttempt,
-		}).Fingerprint()
-		if err != nil {
-			return err
-		}
-		if fingerprint != v.ObservationBindingFingerprint {
-			return failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(v.OperationID), "field": "structured_capture_digest"}, nil)
-		}
-	}
-	if v.VerificationAttempt == nil {
+func validateDecisionExperimentReservation(v operation.Reservation) error {
+	if v.ExperimentID == "" {
 		return nil
 	}
-	if err := v.VerificationAttempt.Validate(); err != nil {
-		return fmt.Errorf("invalid reservation verification attempt: %w", err)
-	}
-	if v.ProjectCommand != nil {
-		claim, found, err := r.FindTypedIntent(ctx, v.OperationID)
-		if err != nil {
-			return err
-		}
-		if !found || claim.RequestFingerprint != v.EffectiveRequestFingerprint() || !sameVerificationAttempt(claim.Intent.VerificationAttempt, v.VerificationAttempt) {
-			return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(v.OperationID)}, nil)
-		}
-		return nil
-	}
-	if v.Evidence == nil {
-		return fmt.Errorf("raw verification attempt requires evidence contract")
-	}
-	fingerprint, err := (operation.ObservationBinding{
-		ActivityID: v.ActivityID, Intent: v.Intent, StructuredAdapter: v.StructuredAdapter, StructuredCaptureDigest: v.StructuredCaptureDigest,
-		Evidence: v.Evidence, VerificationAttempt: v.VerificationAttempt,
-	}).Fingerprint()
-	if err != nil {
-		return err
-	}
-	if fingerprint != v.ObservationBindingFingerprint {
-		return failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(v.OperationID)}, nil)
+	if (v.SchemaVersion != 2 && v.SchemaVersion != 3) || v.WorkspaceID == "" || v.Persistent {
+		return fmt.Errorf("invalid decision experiment reservation")
 	}
 	return nil
-}
-
-func sameVerificationAttempt(a, b *evidence.VerificationAttemptIntent) bool {
-	if a == nil || b == nil {
-		return a == nil && b == nil
-	}
-	return *a == *b
 }
 
 func validateReservationVerificationAttempt(attempt *evidence.VerificationAttemptIntent) error {

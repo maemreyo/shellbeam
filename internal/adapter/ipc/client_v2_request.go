@@ -16,6 +16,8 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 
 func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	switch in.Action {
+	case "decision.policy.snapshot", "decision.policy.activate", "decision.create", "decision.inspect", "decision.evaluate", "decision.close_unresolved", "decision.candidate.create", "decision.candidate.revise", "decision.experiment.define", "decision.prediction.bind", "decision.experiment.seal", "decision.experiment.close", "decision.experiment.abort", "decision.assessment.record", "decision.selection.propose", "decision.override.create", "decision.selection.commit", "decision.authority.materialize":
+		req.Decision = decisionRequestV2FromBridge(in.Decision)
 	case "start":
 		applyStartV2(req, in)
 	case "poll":
@@ -141,4 +143,31 @@ func applyVerificationBridgeRequestV2(req *RequestV2, in bridge.Request) {
 		v := in.VerificationWaiverRevoke
 		req.WorkspaceID, req.WaiverID, req.Authority, req.Actor = v.WorkspaceID, v.WaiverID, v.Authority, v.Actor
 	}
+}
+
+func decisionRequestV2FromBridge(in *bridge.DecisionRequest) *DecisionRequestV1 {
+	if in == nil {
+		return nil
+	}
+	out := &DecisionRequestV1{EpisodeID: in.EpisodeID, EpisodeKind: in.EpisodeKind, PredecessorEpisodeID: in.PredecessorEpisodeID, CandidateID: in.CandidateID, ParentCandidateID: in.ParentCandidateID, ExperimentID: in.ExperimentID, ActivationID: in.ActivationID, PolicyDigest: in.PolicyDigest, ProposalGeneration: in.ProposalGeneration, ExpectedPreviousPolicyDigest: in.ExpectedPreviousPolicyDigest, AuthorityAttestationRef: in.AuthorityAttestationRef, ActorRef: in.ActorRef, ExpectedPolicyDigest: in.ExpectedPolicyDigest, ExpectedActivationRef: in.ExpectedActivationRef, ExpectedProjectionDigest: in.ExpectedProjectionDigest, BlockingRequirementDigest: in.BlockingRequirementDigest, IdempotencyKey: in.IdempotencyKey, OverrideRef: in.OverrideRef, AbortPhase: in.AbortPhase, Reason: in.Reason}
+	if in.UnresolvedDimensions != nil {
+		x := append([]string(nil), (*in.UnresolvedDimensions)...)
+		out.UnresolvedDimensions = &x
+	}
+	if in.Policy != nil {
+		out.Policy = &DecisionPolicySnapshotInputV1{Content: in.Policy.Content}
+	}
+	if in.Candidate != nil {
+		out.Candidate = &DecisionCandidateInputV1{CandidateID: in.Candidate.CandidateID, SemanticClaim: in.Candidate.SemanticClaim, CandidateKind: in.Candidate.CandidateKind}
+	}
+	if in.Prediction != nil {
+		out.Prediction = &DecisionPredictionInputV1{PredictionID: in.Prediction.PredictionID, CandidateID: in.Prediction.CandidateID, Role: in.Prediction.Role, Predicate: in.Prediction.Predicate}
+	}
+	if in.Assessment != nil {
+		out.Assessment = &DecisionAssessmentInputV1{AssessmentID: in.Assessment.AssessmentID, DeclaredContextClass: in.Assessment.DeclaredContextClass, DeclaredProviderIdentity: in.Assessment.DeclaredProviderIdentity, PreferredCandidates: append([]string(nil), in.Assessment.PreferredCandidates...), SemanticRejections: append([]string(nil), in.Assessment.SemanticRejections...), Rationale: in.Assessment.Rationale}
+	}
+	if in.AuthorityRequest != nil {
+		out.AuthorityRequest = &DecisionAuthorityMaterializeInputV1{RequiredAuthorityClass: in.AuthorityRequest.RequiredAuthorityClass, RequiredScope: in.AuthorityRequest.RequiredScope}
+	}
+	return out
 }

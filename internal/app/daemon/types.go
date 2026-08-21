@@ -43,6 +43,7 @@ type StartRequest struct {
 	ProtocolVersion     int                                 `json:"-"`
 	OperationID         string                              `json:"operation_id"`
 	ActivityID          string                              `json:"activity_id,omitempty"`
+	ExperimentID        string                              `json:"experiment_id,omitempty"`
 	WorkspaceID         string                              `json:"workspace_id,omitempty"`
 	WorkspaceHint       *workspace.Hint                     `json:"workspace_hint,omitempty"`
 	Command             string                              `json:"command,omitempty"`
