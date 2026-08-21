@@ -170,6 +170,16 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 		}
 	}
+	if existing.ContextExec != nil || want.ContextExec != nil {
+		if existing.ContextExec == nil || want.ContextExec == nil || existing.SchemaVersion != operation.ContextExecReservationSchemaVersion || want.SchemaVersion != operation.ContextExecReservationSchemaVersion || existing.SessionID != want.SessionID || existing.ExecutionFingerprint != want.ExecutionFingerprint || existing.Executable != want.Executable || existing.CWD != want.CWD || existing.TimeoutMS != want.TimeoutMS || !slices.Equal(existing.Argv, want.Argv) {
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
+		}
+		existingDigest, existingErr := existing.ContextExec.Digest()
+		wantDigest, wantErr := want.ContextExec.Digest()
+		if existingErr != nil || wantErr != nil || existingDigest != wantDigest {
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
+		}
+	}
 	if existing.Persistent != want.Persistent || existing.SessionMode != want.SessionMode || existing.AuthorityEpoch != want.AuthorityEpoch || existing.SessionName != want.SessionName {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
@@ -198,6 +208,9 @@ func validateReservation(v operation.Reservation) error {
 		}
 	}
 	if v.SchemaVersion != 5 && (v.SessionMode != "" || v.AuthorityEpoch != 0) {
+		return fmt.Errorf("invalid reservation")
+	}
+	if v.SchemaVersion != operation.ContextExecReservationSchemaVersion && v.ContextExec != nil {
 		return fmt.Errorf("invalid reservation")
 	}
 	if err := validateReservationSchema(v); err != nil {
@@ -272,6 +285,10 @@ func validateReservationSchema(v operation.Reservation) error {
 		if err := validateDelegatedReservation(v); err != nil {
 			return err
 		}
+	case operation.ContextExecReservationSchemaVersion:
+		if err := validateContextExecReservation(v); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("invalid reservation")
 	}
@@ -311,6 +328,26 @@ func ensurePrivateDir(path string) error {
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm() != 0700 || !ownedByCurrent(info) {
 		return fmt.Errorf("unsafe session directory")
+	}
+	return nil
+}
+
+func validateContextExecReservation(v operation.Reservation) error {
+	if v.ContextExec == nil || v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
+		return fmt.Errorf("invalid context exec reservation")
+	}
+	if err := v.ContextExec.Validate(); err != nil || v.ContextExec.RequestFingerprint != v.RequestFingerprint {
+		return fmt.Errorf("invalid context exec reservation binding")
+	}
+	if v.Persistent || v.TTY || v.SessionMode != "" || v.AuthorityEpoch != 0 || v.ProjectCommand != nil || v.Intent != nil || v.Evidence != nil || v.EnvironmentBinding != nil || v.Trace != nil || v.ResourceLimits != nil || v.StructuredAdapter != "" || v.WorkspaceID != "" || v.LogicalCWD != "" {
+		return fmt.Errorf("invalid context exec reservation")
+	}
+	if v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || !filepath.IsAbs(v.Executable) || len(v.Argv) == 0 || v.Argv[0] == "" || v.CWD == "" || !filepath.IsAbs(v.CWD) || v.TimeoutMS < 0 {
+		return fmt.Errorf("invalid context exec reservation execution")
+	}
+	want, err := v.ContextExec.ExecutionFingerprint(v.CWD, v.Executable)
+	if err != nil || want != v.ExecutionFingerprint {
+		return fmt.Errorf("invalid context exec execution fingerprint")
 	}
 	return nil
 }
