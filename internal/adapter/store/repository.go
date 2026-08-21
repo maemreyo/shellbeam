@@ -62,6 +62,9 @@ type Repository struct {
 	decisionProtocolMu       sync.Mutex
 	observationHighWatermark uint64
 	observationWake          chan struct{}
+	observationRetryMu       sync.Mutex
+	observationRetries       map[uint64]observationTransitionRetry
+	observationRetryWake     chan struct{}
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
 	now                      func() time.Time
@@ -171,7 +174,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, blobReservations: map[string]int64{}}
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), observationRetries: map[uint64]observationTransitionRetry{}, observationRetryWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, blobReservations: map[string]int64{}}
 	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
 	if err := repository.initObservationStore(); err != nil {
 		return nil, err
