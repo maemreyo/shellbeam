@@ -2,7 +2,7 @@
 # Bring the ShellBeam runtime up on exactly what is merged on origin/main.
 #
 # This exists because a hand-rolled `shellbeam daemon & ; sleep 1 ; doctor` loop
-# fails in five ways that are all invisible until MCP refuses a call:
+# fails in six ways that are all invisible until MCP refuses a call:
 #
 #   1. It never syncs or rebuilds, so the daemon serves whatever binary happened
 #      to be on disk. That is how `binary_identity_mismatch` happens.
@@ -22,11 +22,16 @@
 #   5. Nothing owned the daemon's lifetime, so quitting the tunnel left an
 #      orphan daemon holding the ownership lease and pinning an old binary.
 #      Here one trap owns both children.
+#   6. Re-running this script could replace only the daemon while an older
+#      launcher+tunnel+MCP stack kept polling the same profile. Requests then
+#      alternated between old and new MCP binaries. A machine-global launcher
+#      owner now makes takeover retire the whole incumbent stack first.
 #
-# Ownership is decided by the daemon's lifetime lease, never by matching process
-# command lines and never by a repo-local pidfile: state and runtime directories
-# are per-user and machine-global on darwin (internal/config/paths.go), so a
-# repo-local pidfile describes a daemon it does not actually own.
+# Daemon ownership is still decided by the daemon lifetime lease, never by a
+# command-line match. Launcher-stack ownership is a separate machine-global
+# record under /tmp, keyed to this user and guarded by PID + process-start
+# fingerprint so PID reuse can never authorize a signal. Exact command matching
+# exists only as a migration path for pre-owner-record tunnel processes.
 #
 # Usage:
 #   scripts/run-main-runtime.sh
@@ -38,7 +43,9 @@
 #   TUNNEL_PROFILE          tunnel-client profile name (default: shellbeam)
 #   TUNNEL_PROFILE_FILE     profile path (default: ~/.config/tunnel-client/<profile>.yaml)
 #   READY_TIMEOUT_SECONDS   how long to wait for the daemon to serve (default: 90)
-#   STOP_TIMEOUT_SECONDS    how long to wait for the old daemon to release (default: 15)
+#   STOP_TIMEOUT_SECONDS    how long to wait for the old stack to release (default: 15)
+#   RUNTIME_OWNER_DIR       machine-global launcher owner directory
+#                           (default: /tmp/shellbeam-main-runtime-<uid>.owner)
 #   SYNC_WATCH_SECONDS      poll origin/main every N seconds while running
 #                           (default: 0, disabled)
 #   SYNC_ON_CHANGE          notify | restart (default: notify)
@@ -69,12 +76,18 @@ STOP_TIMEOUT_SECONDS=${STOP_TIMEOUT_SECONDS:-15}
 SYNC_WATCH_SECONDS=${SYNC_WATCH_SECONDS:-0}
 SYNC_ON_CHANGE=${SYNC_ON_CHANGE:-notify}
 SKIP_TUNNEL=${SKIP_TUNNEL:-}
+RUNTIME_OWNER_DIR=${RUNTIME_OWNER_DIR:-/tmp/shellbeam-main-runtime-$(id -u).owner}
 
 SRC_REPO=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 BIN="$MAIN_WT/shellbeam"
 
 log() { printf '%s %s\n' "[$(date +%H:%M:%S)]" "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
+
+[ -f "$SRC_REPO/scripts/lib/main-runtime-owner.sh" ] ||
+	die "runtime ownership helper missing: $SRC_REPO/scripts/lib/main-runtime-owner.sh"
+# shellcheck source=lib/main-runtime-owner.sh
+. "$SRC_REPO/scripts/lib/main-runtime-owner.sh"
 
 # ---------------------------------------------------------------- preflight ---
 
@@ -202,9 +215,10 @@ tunnel_pid=""
 daemon_log=""
 cleaned=""
 
-# One handler serves EXIT, INT and TERM. Without the guard, a signal-triggered
-# run would be followed by the exit-time run, killing a pid that had already been
-# reaped -- and possibly reused by then.
+# EXIT cleanup is idempotent. INT/TERM must additionally exit after cleanup so
+# a takeover signal cannot return to supervise and accidentally keep the old
+# launcher alive. Ownership is released last, only after tunnel and daemon have
+# been reaped, so a successor cannot start while old children are still live.
 cleanup() {
 	[ -n "$cleaned" ] && return 0
 	cleaned=1
@@ -218,8 +232,14 @@ cleanup() {
 		wait "$daemon_pid" 2>/dev/null || true
 		daemon_pid=""
 	fi
+	release_runtime_owner
 }
-trap cleanup EXIT INT TERM
+handle_signal() {
+	cleanup
+	exit 0
+}
+trap cleanup EXIT
+trap handle_signal INT TERM
 
 # --------------------------------------------------------------------- sync ---
 
@@ -330,6 +350,11 @@ run_cycle() {
 	make -C "$MAIN_WT" build >&2 || die "build failed"
 	built_sha=$(shasum -a 256 "$BIN" | awk '{print $1}')
 
+	# Build first so a failure leaves the incumbent stack untouched. Then acquire
+	# machine-global launcher ownership before retiring anything. The exact-profile
+	# scan is the migration/safety-net path for launchers predating owner records.
+	acquire_runtime_owner
+	retire_legacy_tunnels
 	stop_daemon
 
 	mkdir -p "$MAIN_WT/.build/run"
