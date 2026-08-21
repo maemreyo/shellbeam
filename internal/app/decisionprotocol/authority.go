@@ -73,7 +73,7 @@ func (s *Service) CreateOverride(ctx context.Context, req CreateOverrideRequest)
 		return core.DecisionOverride{}, err
 	}
 	if !found {
-		return core.DecisionOverride{}, fmt.Errorf("decision episode unavailable")
+		return core.DecisionOverride{}, ErrEpisodeNotFound
 	}
 	if req.ExpectedPolicyDigest != episode.PolicyBinding.PolicyDigest {
 		return core.DecisionOverride{}, core.NewReasonError(core.ReasonPolicyConflict, "override policy digest mismatch")

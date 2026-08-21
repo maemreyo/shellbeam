@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
@@ -12,6 +13,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	decisioncore "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -237,7 +239,8 @@ func (s decisionVerificationSource) requireEvidenceCut(ctx context.Context, cut 
 	return nil
 }
 
-func (r *decisionProtocolRuntime) DecisionProtocol(ctx context.Context, action, workspaceSelector string, req ipcadapter.DecisionRequestV1) (ipcadapter.DecisionResponseV1, error) {
+func (r *decisionProtocolRuntime) DecisionProtocol(ctx context.Context, action, workspaceSelector string, req ipcadapter.DecisionRequestV1) (response ipcadapter.DecisionResponseV1, err error) {
+	defer func() { err = projectDecisionProtocolError(err) }()
 	if r == nil || r.service == nil {
 		return ipcadapter.DecisionResponseV1{}, fmt.Errorf("decision protocol runtime unavailable")
 	}
@@ -255,6 +258,28 @@ func (r *decisionProtocolRuntime) DecisionProtocol(ctx context.Context, action, 
 	default:
 		return ipcadapter.DecisionResponseV1{}, fmt.Errorf("unknown decision protocol action %q", action)
 	}
+}
+
+func projectDecisionProtocolError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var public *failure.Failure
+	if errors.As(err, &public) {
+		return err
+	}
+	switch {
+	case errors.Is(err, decisionapp.ErrEpisodeNotFound):
+		return failure.New(failure.DecisionEpisodeNotFound, nil, err)
+	case errors.Is(err, decisionapp.ErrCandidateNotFound):
+		return failure.New(failure.DecisionCandidateNotFound, nil, err)
+	case errors.Is(err, decisionapp.ErrExperimentNotFound):
+		return failure.New(failure.DecisionExperimentNotFound, nil, err)
+	}
+	if reason, ok := decisioncore.ReasonOf(err); ok {
+		return failure.New(failure.DecisionProtocolRejected, map[string]string{"reason": string(reason)}, err)
+	}
+	return err
 }
 
 func (r *decisionProtocolRuntime) dispatchDecisionContextAction(ctx context.Context, action, workspaceSelector string, req ipcadapter.DecisionRequestV1) (ipcadapter.DecisionResponseV1, error) {

@@ -269,7 +269,7 @@ func (s *Service) loadServiceEvaluationContext(ctx context.Context, episodeID co
 		return serviceEvaluationContext{}, err
 	}
 	if !found {
-		return serviceEvaluationContext{}, fmt.Errorf("decision episode unavailable")
+		return serviceEvaluationContext{}, ErrEpisodeNotFound
 	}
 	policy, found, err := s.policies.LoadPolicySnapshot(ctx, episode.RepositoryID, episode.PolicyBinding.PolicyDigest)
 	if err != nil {

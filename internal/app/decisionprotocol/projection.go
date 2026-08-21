@@ -19,7 +19,7 @@ func (s *Service) Inspect(ctx context.Context, episodeID core.EpisodeID, candida
 		return core.DecisionProjection{}, err
 	}
 	if !found {
-		return core.DecisionProjection{}, fmt.Errorf("decision episode unavailable")
+		return core.DecisionProjection{}, ErrEpisodeNotFound
 	}
 	hw, err := s.ledger.CurrentHighWater(ctx)
 	if err != nil {
@@ -99,7 +99,7 @@ func projectEpisodeRecords(episode core.Episode, requested core.CandidateID, rec
 	}
 	if requested != "" {
 		if _, ok := candidates[requested]; !ok {
-			return core.DecisionProjection{}, fmt.Errorf("requested candidate unavailable")
+			return core.DecisionProjection{}, ErrCandidateNotFound
 		}
 	}
 	ids := make([]core.CandidateID, 0, len(candidates))
