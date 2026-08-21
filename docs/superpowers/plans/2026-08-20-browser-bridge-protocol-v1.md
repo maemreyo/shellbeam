@@ -1595,6 +1595,7 @@ git commit -m "feat: add shellbeam-browser-host binary"
 - Create: `internal/app/browserbridge/manifest_test.go`
 - Create: `cmd/shellbeam/command_browser_host.go`
 - Modify: `cmd/shellbeam/command.go`
+- Test: `cmd/shellbeam/main_test.go`
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -1837,7 +1838,7 @@ Expected: tests PASS; the last command prints the usage line.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/app/browserbridge/manifest.go internal/app/browserbridge/manifest_test.go cmd/shellbeam/command_browser_host.go cmd/shellbeam/command.go
+git add internal/app/browserbridge/manifest.go internal/app/browserbridge/manifest_test.go cmd/shellbeam/command_browser_host.go cmd/shellbeam/command.go cmd/shellbeam/main_test.go
 git commit -m "feat: install and remove the browser bridge native manifest"
 ```
 

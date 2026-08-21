@@ -16,7 +16,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/config"
 )
 
-const topLevelUsage = "usage: shellbeam <daemon|mcp|workspace|project|install|uninstall|status|doctor|version>"
+const topLevelUsage = "usage: shellbeam <daemon|mcp|workspace|project|browser-host|install|uninstall|status|doctor|version>"
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -43,6 +43,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runWorkspace(ctx, args[1:], stdout)
 	case "project":
 		err = runProject(ctx, args[1:], stdout)
+	case "browser-host":
+		err = runBrowserHost(ctx, args[1:], stdout)
 	case "install":
 		err = runInstall(ctx, args[1:], false)
 	case "uninstall":
