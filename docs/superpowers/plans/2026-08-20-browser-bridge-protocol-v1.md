@@ -976,7 +976,7 @@ func (p *Planner) VerificationFacts(ctx context.Context, correlationID string) p
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/app/browserbridge/ -count=1 -v`
-Expected: PASS, six tests.
+Expected: PASS, seven tests.
 
 - [ ] **Step 5: Commit**
 
