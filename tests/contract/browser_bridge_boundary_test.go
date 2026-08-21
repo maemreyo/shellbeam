@@ -22,7 +22,7 @@ var browserBridgeProductionFiles = []string{
 	"internal/app/browserbridge/host.go",
 	"internal/app/browserbridge/framing.go",
 	"internal/app/browserbridge/manifest.go",
-	"internal/adapter/browserbridge/daemon_reader.go",
+	"internal/adapter/ipc/browser_bridge_reader.go",
 	"cmd/shellbeam-browser-host/main.go",
 }
 
@@ -70,25 +70,29 @@ func TestBrowserBridgeActionsAreLimitedToTheDeclaredReads(t *testing.T) {
 		"inspect.verification": true,
 		"inspect.structured":   true,
 	}
-	files := []string{
-		"internal/app/browserbridge/facts_activity.go",
-		"internal/app/browserbridge/facts_verification.go",
-		"internal/app/browserbridge/facts_structured.go",
+	rel := "internal/adapter/ipc/browser_bridge_reader.go"
+	raw, err := os.ReadFile(browserBridgeRepoPath(t, rel))
+	if err != nil {
+		t.Fatalf("read %s: %v", rel, err)
 	}
-	for _, rel := range files {
-		raw, err := os.ReadFile(browserBridgeRepoPath(t, rel))
-		if err != nil {
-			t.Fatalf("read %s: %v", rel, err)
+	seen := map[string]bool{}
+	for _, fragment := range strings.Split(string(raw), `Action: "`)[1:] {
+		end := strings.Index(fragment, `"`)
+		if end < 0 {
+			t.Fatalf("%s contains an unterminated action literal", rel)
 		}
-		for _, fragment := range strings.Split(string(raw), `Action: "`)[1:] {
-			end := strings.Index(fragment, `"`)
-			if end < 0 {
-				t.Fatalf("%s contains an unterminated action literal", rel)
-			}
-			action := fragment[:end]
-			if !allowed[action] {
-				t.Fatalf("%s uses undeclared daemon action %q", rel, action)
-			}
+		action := fragment[:end]
+		if !allowed[action] {
+			t.Fatalf("%s uses undeclared daemon action %q", rel, action)
 		}
+		seen[action] = true
+	}
+	for action := range allowed {
+		if !seen[action] {
+			t.Fatalf("%s does not pin declared daemon action %q", rel, action)
+		}
+	}
+	if len(seen) != len(allowed) {
+		t.Fatalf("declared action set drifted: seen=%v", seen)
 	}
 }

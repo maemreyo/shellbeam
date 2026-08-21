@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
@@ -13,26 +12,29 @@ import (
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
-type recordingVerificationReader struct {
-	activity             *activitycore.Activity
-	byWorkspace          map[string]verificationapp.Inspection
-	verificationRequests []ipc.RequestV2
+type verificationCall struct {
+	workspaceID string
+	activityID  string
 }
 
-func (r *recordingVerificationReader) Read(_ context.Context, req ipc.RequestV2) (ipc.ResponseV2, error) {
-	switch req.Action {
-	case "inspect.activity":
-		return ipc.ResponseV2{OK: true, Activity: r.activity}, nil
-	case "inspect.verification":
-		r.verificationRequests = append(r.verificationRequests, req)
-		v, ok := r.byWorkspace[req.WorkspaceID]
-		if !ok {
-			return ipc.ResponseV2{OK: false, Error: &ipc.Error{Code: "verification_unavailable"}}, nil
-		}
-		return ipc.ResponseV2{OK: true, VerificationResponseV2Fields: ipc.VerificationResponseV2Fields{Verification: &v}}, nil
-	default:
-		return ipc.ResponseV2{OK: false, Error: &ipc.Error{Code: "unexpected_action"}}, nil
+type recordingVerificationReader struct {
+	stubDaemonReader
+	activity             *activitycore.Activity
+	byWorkspace          map[string]verificationapp.Inspection
+	verificationRequests []verificationCall
+}
+
+func (r *recordingVerificationReader) Activity(_ context.Context, _ string) (*activitycore.Activity, bool, error) {
+	return r.activity, r.activity != nil, nil
+}
+
+func (r *recordingVerificationReader) Verification(_ context.Context, workspaceID, activityID string) (*verificationapp.Inspection, bool, error) {
+	r.verificationRequests = append(r.verificationRequests, verificationCall{workspaceID: workspaceID, activityID: activityID})
+	v, ok := r.byWorkspace[workspaceID]
+	if !ok {
+		return nil, false, nil
 	}
+	return &v, true, nil
 }
 
 func TestVerificationFactsReturnsPerWorkspaceAndNeverAggregates(t *testing.T) {
@@ -64,10 +66,10 @@ func TestVerificationFactsReturnsPerWorkspaceAndNeverAggregates(t *testing.T) {
 		t.Fatal("source generations were flattened")
 	}
 	for _, req := range reader.verificationRequests {
-		if req.ActivityID != "wt" {
+		if req.activityID != "wt" {
 			t.Fatalf("verification read not activity-scoped: %+v", req)
 		}
-		if req.WorkspaceID == "" {
+		if req.workspaceID == "" {
 			t.Fatal("verification read issued without a host-derived workspace")
 		}
 	}

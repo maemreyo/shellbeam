@@ -3,18 +3,13 @@ package browserbridge
 import (
 	"context"
 
-	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
 
-// StructuredFailureFacts runs the structured_failure_facts read plan.
-//
-// inspect.structured is operation-scoped, so the plan walks the activitys
-// retained operation refs newest-first under a hard cap. Two coverage losses
-// are possible and are reported separately: operations the activity already
-// compacted away, and refs this walk did not reach.
+// StructuredFailureFacts walks retained operation refs newest-first under a
+// hard cap and asks the typed port only for failing structured records.
 func (p *Planner) StructuredFailureFacts(ctx context.Context, correlationID string) protocol.Response {
 	act, failure, ok := p.activity(ctx, protocol.VerbStructuredFailureFacts, correlationID)
 	if !ok {
@@ -31,18 +26,14 @@ func (p *Planner) StructuredFailureFacts(ctx context.Context, correlationID stri
 		}
 		walked++
 		ref := act.Operations[i]
-		resp, err := p.reader.Read(ctx, ipc.RequestV2{
-			IPVersion: 2, Kind: "request", RequestID: "bb-structured", Action: "inspect.structured",
-			OperationID: ref.OperationID, TestStatus: structuredcore.TestFailed,
-			MaxRecords: protocol.MaxFailingCasesPerOperation,
-		})
+		result, found, err := p.reader.Structured(ctx, ref.OperationID, structuredcore.TestFailed, protocol.MaxFailingCasesPerOperation)
 		if err != nil {
 			return unreachable(protocol.VerbStructuredFailureFacts)
 		}
-		if !resp.OK || resp.Structured == nil {
+		if !found || result == nil {
 			continue
 		}
-		out.Structured = append(out.Structured, failureFacts(ref.OperationID, resp.Structured))
+		out.Structured = append(out.Structured, failureFacts(ref.OperationID, result))
 	}
 	return out
 }
@@ -71,7 +62,9 @@ func failureFacts(operationID string, in *structuredInspect) protocol.OperationF
 		}
 		facts.Authority = string(record.Authority)
 		facts.DerivationMethod = string(record.DerivationMethod)
-		facts.FailingCases = append(facts.FailingCases, protocol.FailingCase{Name: record.TestCase.Name, Package: record.TestCase.Package, Status: string(record.TestCase.Status)})
+		facts.FailingCases = append(facts.FailingCases, protocol.FailingCase{
+			Name: record.TestCase.Name, Package: record.TestCase.Package, Status: string(record.TestCase.Status),
+		})
 	}
 	if in.Summary.Truncated {
 		facts.CasesTruncated = true

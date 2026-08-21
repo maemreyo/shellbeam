@@ -4,7 +4,7 @@
 
 **Goal:** Ship the ShellBeam half of the Browser Continuity Attention Router: a connectionless, read-only native-messaging host exposing five closed verbs backed by fixed read plans, plus an explicitly installed Firefox manifest and a doctor check — with no new ShellBeam core authority, projection, or durable identity.
 
-**Architecture:** A pure protocol package (`internal/core/browserbridge`) defines the closed verb enum, request/response types, bounds, and validation with no I/O. An application package (`internal/app/browserbridge`) executes one fixed read plan per verb against a narrow `DaemonReader` port and projects literal facts with authority, freshness, and coverage preserved. A separate tiny binary (`cmd/shellbeam-browser-host`) reads exactly one JSON message from stdin, runs one plan, writes one bounded JSON message, and exits; Firefox execs it with no arguments, which is why it is its own binary rather than a subcommand. The main binary gains `browser-host install|uninstall` for the native manifest and a `browser_bridge` doctor check.
+**Architecture:** A pure protocol package (`internal/core/browserbridge`) defines the closed verb enum, request/response types, bounds, and validation with no I/O. An application package (`internal/app/browserbridge`) executes one fixed read plan per verb against a typed, read-only `DaemonReader` port and projects literal facts with authority, freshness, and coverage preserved. The existing IPC adapter implements that port in `internal/adapter/ipc/browser_bridge_reader.go`, where five typed calls map to five fixed IPC read actions; this preserves the repository rule that app packages never import adapters and adapters never import sibling adapters. The separate `cmd/shellbeam-browser-host` binary is the composition root binding that IPC reader to the planner; it reads one framed JSON message, writes one bounded framed JSON message, and exits. The main binary gains `browser-host install|uninstall` for the native manifest and a `browser_bridge` doctor check.
 
 **Tech Stack:** Go 1.26.6; stdlib `encoding/json`, `os`, `io`, `path/filepath`, `runtime`, `time`; existing `internal/adapter/ipc` HTTP-over-unix-socket client; existing `inspect.activity`, `inspect.sessions`, `inspect.events`, `inspect.verification`, `inspect.structured` daemon reads. No new runtime dependency. No changes to `internal/core` outside the new `browserbridge` package.
 
@@ -15,6 +15,7 @@
 - Execution base is `ef89f27160baf43dd07facd85f7652765b278725` (`origin/main`, 2026-08-21), with the Browser Router design/docs replayed directly on top. The previous `12dc39257b4b76cfdbf6eeb95706335f2aee409b` snapshot is superseded. The current base contains 82 Go packages; re-establish a fresh `go test ./... -count=1` baseline before Task 1 and treat any failure as a blocker rather than as noise.
 - TDD is mandatory: focused RED → minimal GREEN → focused regression → commit. Never write production code first and backfill tests.
 - Revalidation on 2026-08-21 found the intervening `structuredresult`/IPC changes to be additive for this plan: `ipc.Client.CallV2`, `RequestV2.OperationID`, typed `RequestV2.TestStatus`, `RequestV2.MaxRecords`, `ResponseV2.Structured *structuredapp.InspectResult`, and the Task 6 `Producer`/`Completeness`/`Summary`/`Records` fields remain available. No Browser Bridge read-plan redesign is required.
+- **Task 12 structural correction (authoritative):** the initial Tasks 3–8 implementation shaped `DaemonReader` around `ipc.RequestV2/ResponseV2` and added `internal/adapter/browserbridge`; `devctl check` correctly rejected both `app → adapter` and sibling-adapter coupling. The final design uses a typed five-method app port implemented directly by `internal/adapter/ipc.BrowserBridgeReader`; `cmd/shellbeam-browser-host` is the composition root. Earlier wire-shaped snippets in Tasks 3–8 are historical TDD context and are superseded by this correction.
 - This plan implements the ShellBeam repository deliverables only (spec §26). The Firefox extension is a separate repository with its own plan; do not add TypeScript, web-extension tooling, or browser assets to this repo.
 - **No ShellBeam core change outside the new package.** Do not add fields to `RequestV2`/`ResponseV2`, do not add MCP actions, do not add IPC actions, do not touch `internal/core/activity`, `internal/core/verification`, `internal/core/structuredresult`, or `internal/core/persistentsession`. The host is a client of existing reads (spec §27, I20).
 - Keep one MCP tool, `local_shell`. The browser bridge is not an MCP surface and must not appear in the capability catalog.
@@ -55,7 +56,8 @@
 - `internal/app/browserbridge/framing_test.go`
 - `internal/app/browserbridge/manifest.go` — native manifest render, install path resolution, write, remove.
 - `internal/app/browserbridge/manifest_test.go`
-- `internal/adapter/browserbridge/daemon_reader.go` — adapts `ipc.Client` to `DaemonReader`.
+- `internal/adapter/ipc/browser_bridge_reader.go` — implements the typed Browser Bridge read port by mapping exactly five fixed methods to existing IPC v2 reads.
+- `internal/adapter/ipc/browser_bridge_reader_test.go`
 - `cmd/shellbeam-browser-host/main.go` — the host binary Firefox execs.
 - `cmd/shellbeam/command_browser_host.go` — `browser-host install|uninstall`.
 - `tests/contract/browser_bridge_boundary_test.go` — closed-enum, no-passthrough, no-judgment-field, bounds conformance.
@@ -65,7 +67,7 @@
 - `cmd/shellbeam/command.go` — add `browser-host` dispatch and extend `topLevelUsage`.
 - `cmd/shellbeam/doctor.go` — add the `browser_bridge` check.
 
-Boundary rule for this decomposition: `internal/core/browserbridge` imports nothing from `internal/app` or `internal/adapter`; `internal/app/browserbridge` imports core packages and its own port but never `internal/adapter/ipc`; only `internal/adapter/browserbridge` and the two `cmd` packages know the transport exists.
+Boundary rule for this decomposition: `internal/core/browserbridge` imports nothing from `internal/app` or `internal/adapter`; `internal/app/browserbridge` imports core/app result types through a typed port but never any adapter package; the existing `internal/adapter/ipc` package owns wire translation; `cmd/shellbeam-browser-host` is the composition root that binds the IPC reader to the planner.
 
 ---
 
@@ -461,9 +463,9 @@ git commit -m "feat: bound browser bridge responses with explicit truncation"
 
 **Interfaces:**
 - Consumes: `browserbridge.Request/Response/ActivityFacts/SessionFacts/Coverage` from Task 1.
-- Produces: `type DaemonReader interface { Read(ctx context.Context, req ipc.RequestV2) (ipc.ResponseV2, error) }`; `type Planner struct{ reader DaemonReader }`; `NewPlanner(DaemonReader) *Planner`; `(*Planner).ActivityFacts(ctx context.Context, correlationID string) protocol.Response`.
+- Produces: a typed five-method `DaemonReader` port (`Activity`, `Sessions`, `Events`, `Verification`, `Structured`), `type Planner struct{ reader DaemonReader }`, `NewPlanner(DaemonReader) *Planner`, and `(*Planner).ActivityFacts(ctx context.Context, correlationID string) protocol.Response`. The application layer never sees `ipc.RequestV2` or `ipc.ResponseV2`.
 
-Note on the port: it takes `ipc.RequestV2` deliberately, so the read plans stay in one package and the adapter layer adds no translation of its own. The port is *not* exported beyond this package's constructor, and the plans only ever construct requests whose action is one of the five reads named in this plan.
+Structural-gate correction: the original wire-shaped port below was useful for initial TDD but violated repository layering. The final port accepts only typed selectors required by each fixed read. `internal/adapter/ipc.BrowserBridgeReader` owns conversion to IPC requests and pins the action set to exactly `inspect.activity`, `inspect.sessions`, `inspect.events`, `inspect.verification`, and `inspect.structured`. The wire-level snippets later in Tasks 3–6 are retained only as historical TDD context and MUST NOT be used as the final architecture.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1367,17 +1369,19 @@ git commit -m "feat: serve one browser bridge message with asymmetric decoding"
 ### Task 8: The host binary
 
 **Files:**
-- Create: `internal/adapter/browserbridge/daemon_reader.go`
+- Create: `internal/adapter/ipc/browser_bridge_reader.go`
 - Create: `internal/app/browserbridge/framing.go`
 - Create: `cmd/shellbeam-browser-host/main.go`
-- Test: `internal/adapter/browserbridge/daemon_reader_test.go`
+- Test: `internal/adapter/ipc/browser_bridge_reader_test.go`
 - Test: `internal/app/browserbridge/framing_test.go`
 
 **Interfaces:**
 - Consumes: `bridgeapp.DaemonReader`, `bridgeapp.Serve`, `bridgeapp.NewPlanner`.
-- Produces: `NewDaemonReader(socket string) *DaemonReader` with method `Read(ctx context.Context, req ipc.RequestV2) (ipc.ResponseV2, error)`.
+- Produces: `ipc.NewBrowserBridgeReader(socket string) *ipc.BrowserBridgeReader`, which satisfies the typed `bridgeapp.DaemonReader` port and maps its five methods to fixed IPC v2 requests. No sibling adapter package is introduced.
 
 The host is its own binary because Firefox executes the manifest `path` with no arguments of ours; a subcommand string cannot be injected into that exec.
+
+**Structural-gate correction:** the first implementation placed an IPC wrapper in `internal/adapter/browserbridge`, but `devctl check` forbids sibling-adapter imports. The final implementation lives in the existing `internal/adapter/ipc` package, and the host binary composes it directly with `bridgeapp.NewPlanner`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1392,7 +1396,7 @@ import (
 )
 
 func TestDaemonReaderSurfacesTransportFailureRatherThanPanicking(t *testing.T) {
-	reader := NewDaemonReader("/nonexistent/shellbeam-test.sock")
+	reader := NewBrowserBridgeReader("/nonexistent/shellbeam-test.sock")
 	_, err := reader.Read(context.Background(), ipc.RequestV2{IPVersion: 2, Kind: "request", RequestID: "t", Action: "inspect.activity", ActivityID: "wt"})
 	if err == nil {
 		t.Fatal("expected a transport error against a missing socket")
@@ -1402,8 +1406,8 @@ func TestDaemonReaderSurfacesTransportFailureRatherThanPanicking(t *testing.T) {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `go test ./internal/adapter/browserbridge/ -v`
-Expected: FAIL — `undefined: NewDaemonReader`.
+Run: `go test ./internal/adapter/ipc/ -run TestBrowserBridgeReader -v`
+Expected: FAIL — `undefined: NewBrowserBridgeReader`.
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -1445,7 +1449,7 @@ import (
 	"runtime"
 	"time"
 
-	adapter "github.com/maemreyo/shellbeam/internal/adapter/browserbridge"
+	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	bridgeapp "github.com/maemreyo/shellbeam/internal/app/browserbridge"
 	"github.com/maemreyo/shellbeam/internal/config"
 )
@@ -1474,7 +1478,7 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 	defer cancel()
-	planner := bridgeapp.NewPlanner(adapter.NewDaemonReader(paths.Socket))
+	planner := bridgeapp.NewPlanner(ipc.NewBrowserBridgeReader(paths.Socket))
 	return bridgeapp.Serve(ctx, planner, os.Stdin, os.Stdout)
 }
 ```
@@ -1576,13 +1580,13 @@ Then `main.go` uses the framed path rather than raw stdio:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `go test ./internal/adapter/browserbridge/ ./internal/app/browserbridge/ -count=1 -v && go build ./cmd/shellbeam-browser-host`
+Run: `go test ./internal/adapter/ipc/ -run TestBrowserBridgeReader -count=1 -v && go test ./internal/app/browserbridge/ -count=1 -v && go build ./cmd/shellbeam-browser-host`
 Expected: PASS including the two framing tests, and the binary builds.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add internal/adapter/browserbridge internal/app/browserbridge/framing.go internal/app/browserbridge/framing_test.go cmd/shellbeam-browser-host
+git add internal/adapter/ipc/browser_bridge_reader.go internal/adapter/ipc/browser_bridge_reader_test.go internal/app/browserbridge/framing.go internal/app/browserbridge/framing_test.go cmd/shellbeam-browser-host
 git commit -m "feat: add shellbeam-browser-host binary"
 ```
 
@@ -1981,6 +1985,8 @@ git commit -m "feat: report browser bridge bootstrap state in doctor"
 
 These mirror the existing completion-truth boundary test in `tests/contract/verification_truth_boundary_test.go`. Read that file first and follow its structure for locating and scanning source files.
 
+**Structural-gate correction:** because Browser Bridge wire mapping now lives inside the shared `internal/adapter/ipc` package, the final contract test scans an explicit `browserBridgeProductionFiles` list and scans `internal/adapter/ipc/browser_bridge_reader.go` alone for the action set. The directory-walk draft below is historical; the committed explicit-file test is authoritative and requires all five declared reads to be present.
+
 - [ ] **Step 1: Write the boundary tests**
 
 ```go
@@ -2121,7 +2127,7 @@ Expected: PASS.
 
 - [ ] **Step 3: Run the race detector on the new packages**
 
-Run: `go test -race ./internal/core/browserbridge/ ./internal/app/browserbridge/ ./internal/adapter/browserbridge/ -count=1`
+Run: `go test -race ./internal/core/browserbridge/ ./internal/app/browserbridge/ -count=1 && go test -race ./internal/adapter/ipc/ -run TestBrowserBridgeReader -count=1`
 Expected: PASS.
 
 - [ ] **Step 4: Run the full suite once, deliberately**

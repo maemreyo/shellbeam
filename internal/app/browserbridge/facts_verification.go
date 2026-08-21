@@ -3,17 +3,11 @@ package browserbridge
 import (
 	"context"
 
-	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
 )
 
-// VerificationFacts runs the verification_facts read plan.
-//
-// inspect.verification resolves a workspace before deriving an affected
-// surface, so the plan must learn the workspaces from the activity record
-// first. Results stay per workspace: each workspace has its own policy,
-// policy generation and authority, so a summed count would answer no
-// evaluable question.
+// VerificationFacts reads verification per host-derived workspace and never
+// aggregates workspaces with independent policy/source generations.
 func (p *Planner) VerificationFacts(ctx context.Context, correlationID string) protocol.Response {
 	act, failure, ok := p.activity(ctx, protocol.VerbVerificationFacts, correlationID)
 	if !ok {
@@ -28,14 +22,13 @@ func (p *Planner) VerificationFacts(ctx context.Context, correlationID string) p
 		out.Coverage.TruncationReason = "workspace_fan_out_capped"
 	}
 	for _, id := range workspaces {
-		resp, err := p.reader.Read(ctx, ipc.RequestV2{IPVersion: 2, Kind: "request", RequestID: "bb-verification", Action: "inspect.verification", WorkspaceID: string(id), ActivityID: correlationID})
+		v, found, err := p.reader.Verification(ctx, string(id), correlationID)
 		if err != nil {
 			return unreachable(protocol.VerbVerificationFacts)
 		}
-		if !resp.OK || resp.Verification == nil {
+		if !found || v == nil {
 			continue
 		}
-		v := resp.Verification
 		out.Verification = append(out.Verification, protocol.WorkspaceVerification{
 			WorkspaceID:      v.WorkspaceID,
 			PolicyState:      string(v.PolicyState),

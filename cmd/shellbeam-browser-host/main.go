@@ -11,7 +11,7 @@ import (
 	"runtime"
 	"time"
 
-	adapter "github.com/maemreyo/shellbeam/internal/adapter/browserbridge"
+	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	bridgeapp "github.com/maemreyo/shellbeam/internal/app/browserbridge"
 	"github.com/maemreyo/shellbeam/internal/config"
 )
@@ -40,7 +40,7 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 	defer cancel()
-	planner := bridgeapp.NewPlanner(adapter.NewDaemonReader(paths.Socket))
+	planner := bridgeapp.NewPlanner(ipc.NewBrowserBridgeReader(paths.Socket))
 	payload, err := bridgeapp.ReadFramed(os.Stdin)
 	if err != nil {
 		return err

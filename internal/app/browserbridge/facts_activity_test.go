@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
@@ -14,34 +13,71 @@ import (
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
-type fakeReader struct {
-	seen     []ipc.RequestV2
-	byAction map[string]ipc.ResponseV2
-	err      error
+type sessionsCall struct {
+	activityID string
+	maxRecords int
 }
 
-func (f *fakeReader) Read(_ context.Context, req ipc.RequestV2) (ipc.ResponseV2, error) {
-	f.seen = append(f.seen, req)
+type eventsCall struct {
+	target      observationcore.Target
+	afterCursor string
+	maxEvents   int
+}
+
+type fakeReader struct {
+	stubDaemonReader
+	activity      *activitycore.Activity
+	activityFound bool
+	sessions      *persistent.InspectPage
+	sessionsFound bool
+	events        *observationapp.InspectResult
+	eventsFound   bool
+	err           error
+	activityIDs   []string
+	sessionsCalls []sessionsCall
+	eventsCalls   []eventsCall
+}
+
+func (f *fakeReader) Activity(_ context.Context, activityID string) (*activitycore.Activity, bool, error) {
+	f.activityIDs = append(f.activityIDs, activityID)
 	if f.err != nil {
-		return ipc.ResponseV2{}, f.err
+		return nil, false, f.err
 	}
-	return f.byAction[req.Action], nil
+	return f.activity, f.activityFound, nil
+}
+
+func (f *fakeReader) Sessions(_ context.Context, activityID string, maxRecords int) (*persistent.InspectPage, bool, error) {
+	f.sessionsCalls = append(f.sessionsCalls, sessionsCall{activityID: activityID, maxRecords: maxRecords})
+	if f.err != nil {
+		return nil, false, f.err
+	}
+	return f.sessions, f.sessionsFound, nil
+}
+
+func (f *fakeReader) Events(_ context.Context, target observationcore.Target, afterCursor string, maxEvents int) (*observationapp.InspectResult, bool, error) {
+	f.eventsCalls = append(f.eventsCalls, eventsCall{target: target, afterCursor: afterCursor, maxEvents: maxEvents})
+	if f.err != nil {
+		return nil, false, f.err
+	}
+	return f.events, f.eventsFound, nil
 }
 
 func TestActivityFactsComposesActivityAndSessionsAndDerivesEveryID(t *testing.T) {
 	observed := time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
-	reader := &fakeReader{byAction: map[string]ipc.ResponseV2{
-		"inspect.activity": {OK: true, Activity: &activitycore.Activity{
+	reader := &fakeReader{
+		activity: &activitycore.Activity{
 			ID:                  "chatgpt-wt-01",
 			WorkspaceIDs:        []workspace.WorkspaceID{"ws-1"},
 			Operations:          []activitycore.OperationRef{{OperationID: "op-1", SessionID: "s-1", ObservedAt: observed}},
 			CompactedOperations: 12,
-		}},
-		"inspect.sessions": {OK: true, Sessions: &persistent.InspectPage{Sessions: []persistent.Summary{
+		},
+		activityFound: true,
+		sessions: &persistent.InspectPage{Sessions: []persistent.Summary{
 			{SessionID: "s-1", State: string(persistent.LifecycleLive)},
 			{SessionID: "s-2", State: string(persistent.LifecycleTerminal)},
-		}}},
-	}}
+		}},
+		sessionsFound: true,
+	}
 	resp := NewPlanner(reader).ActivityFacts(context.Background(), "chatgpt-wt-01")
 
 	if resp.Status != protocol.StatusOK {
@@ -56,23 +92,16 @@ func TestActivityFactsComposesActivityAndSessionsAndDerivesEveryID(t *testing.T)
 	if resp.Coverage.CompactedOperations != 12 || resp.Coverage.HistoricalOperations != "partial" {
 		t.Fatalf("coverage = %+v", resp.Coverage)
 	}
-	if len(reader.seen) != 2 {
-		t.Fatalf("expected two reads, got %d", len(reader.seen))
+	if len(reader.activityIDs) != 1 || reader.activityIDs[0] != "chatgpt-wt-01" {
+		t.Fatalf("activity selectors = %v", reader.activityIDs)
 	}
-	for _, req := range reader.seen {
-		if req.Command != "" || len(req.Argv) != 0 || req.CWD != "" || req.SessionID != "" || req.OperationID != "" {
-			t.Fatalf("read plan leaked an execution or caller-named selector: %+v", req)
-		}
-		if req.ActivityID != "chatgpt-wt-01" {
-			t.Fatalf("read not scoped to the correlation id: %+v", req)
-		}
+	if len(reader.sessionsCalls) != 1 || reader.sessionsCalls[0].activityID != "chatgpt-wt-01" || reader.sessionsCalls[0].maxRecords != 64 {
+		t.Fatalf("sessions calls = %+v", reader.sessionsCalls)
 	}
 }
 
 func TestActivityFactsReportsFactsUnavailableWhenActivityMissing(t *testing.T) {
-	reader := &fakeReader{byAction: map[string]ipc.ResponseV2{
-		"inspect.activity": {OK: false, Error: &ipc.Error{Code: "activity_not_found"}},
-	}}
+	reader := &fakeReader{}
 	resp := NewPlanner(reader).ActivityFacts(context.Background(), "chatgpt-wt-01")
 	if resp.Status != protocol.StatusFactsUnavailable {
 		t.Fatalf("status = %q, want facts_unavailable", resp.Status)
@@ -91,38 +120,31 @@ func TestActivityFactsReportsDaemonUnreachableOnTransportError(t *testing.T) {
 }
 
 func TestActivityEventsUsesOneActivityScopedReadAndPassesCursorThrough(t *testing.T) {
-	reader := &fakeReader{byAction: map[string]ipc.ResponseV2{
-		"inspect.events": {OK: true, Events: &observationapp.InspectResult{}},
-	}}
+	reader := &fakeReader{events: &observationapp.InspectResult{}, eventsFound: true}
 	resp := NewPlanner(reader).ActivityEvents(context.Background(), "chatgpt-wt-01", "cursor-7")
 	if resp.Status != protocol.StatusOK {
 		t.Fatalf("status = %q", resp.Status)
 	}
-	if len(reader.seen) != 1 {
-		t.Fatalf("expected exactly one read, got %d", len(reader.seen))
+	if len(reader.eventsCalls) != 1 {
+		t.Fatalf("expected exactly one read, got %d", len(reader.eventsCalls))
 	}
-	req := reader.seen[0]
-	if req.Action != "inspect.events" {
-		t.Fatalf("action = %q", req.Action)
+	call := reader.eventsCalls[0]
+	if call.target.Kind != observationcore.TargetActivity || call.target.ActivityID != "chatgpt-wt-01" {
+		t.Fatalf("target = %+v", call.target)
 	}
-	if req.Target == nil || req.Target.Kind != observationcore.TargetActivity || req.Target.ActivityID != "chatgpt-wt-01" {
-		t.Fatalf("target = %+v", req.Target)
-	}
-	if req.Target.OperationID != "" || req.Target.SessionID != "" {
+	if call.target.OperationID != "" || call.target.SessionID != "" {
 		t.Fatal("event target leaked a non-activity selector")
 	}
-	if req.AfterEventCursor != "cursor-7" {
-		t.Fatalf("after_event_cursor = %q", req.AfterEventCursor)
+	if call.afterCursor != "cursor-7" {
+		t.Fatalf("after cursor = %q", call.afterCursor)
 	}
-	if req.MaxEvents != protocol.MaxActivityEvents {
-		t.Fatalf("max_events = %d", req.MaxEvents)
+	if call.maxEvents != protocol.MaxActivityEvents {
+		t.Fatalf("max events = %d", call.maxEvents)
 	}
 }
 
 func TestActivityEventsRejectsAMalformedCursorWithoutCrashing(t *testing.T) {
-	reader := &fakeReader{byAction: map[string]ipc.ResponseV2{
-		"inspect.events": {OK: false, Error: &ipc.Error{Code: "invalid_input"}},
-	}}
+	reader := &fakeReader{}
 	resp := NewPlanner(reader).ActivityEvents(context.Background(), "chatgpt-wt-01", "not-a-valid-cursor")
 	if resp.Status != protocol.StatusFactsUnavailable {
 		t.Fatalf("status = %q, want facts_unavailable", resp.Status)

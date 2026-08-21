@@ -3,16 +3,27 @@ package browserbridge
 import (
 	"context"
 
-	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
+	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
+	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
+	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
+	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
+	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
 
-// DaemonReader is the only way a read plan reaches the daemon.
+// DaemonReader is the typed, read-only port used by Browser Bridge plans.
 //
-// The interface is intentionally one method wide. Every request a plan builds
-// is constructed inside this package from a fixed action string, so no caller
-// input can select an action, a command, or a session.
+// The application layer never sees IPC wire requests. Each method represents
+// exactly one read capability and exposes only the selectors that the plan is
+// allowed to derive, so callers cannot smuggle an action, command, or session
+// selector through this port.
 type DaemonReader interface {
-	Read(ctx context.Context, req ipc.RequestV2) (ipc.ResponseV2, error)
+	Activity(ctx context.Context, activityID string) (*activitycore.Activity, bool, error)
+	Sessions(ctx context.Context, activityID string, maxRecords int) (*persistent.InspectPage, bool, error)
+	Events(ctx context.Context, target observationcore.Target, afterCursor string, maxEvents int) (*observationapp.InspectResult, bool, error)
+	Verification(ctx context.Context, workspaceID, activityID string) (*verificationapp.Inspection, bool, error)
+	Structured(ctx context.Context, operationID string, testStatus structuredcore.TestStatus, maxRecords int) (*structuredapp.InspectResult, bool, error)
 }
 
 type Planner struct{ reader DaemonReader }

@@ -203,7 +203,38 @@ func testSelection(args []string, changed []string) (impactSelection, error) {
 	if err != nil {
 		return impactSelection{}, err
 	}
-	return selectImpact(cfg, changed), nil
+	selection := selectImpact(cfg, changed)
+	if deletedFallbackPackage(selection) {
+		return impactSelection{Mode: "global", Suites: []string{"./..."}, Reasons: selection.Reasons}, nil
+	}
+	return selection, nil
+}
+
+func deletedFallbackPackage(selection impactSelection) bool {
+	for _, reason := range selection.Reasons {
+		if reason.Mapping != "package" || !strings.HasPrefix(reason.Suite, "./") {
+			continue
+		}
+		dir := strings.TrimPrefix(reason.Suite, "./")
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return true
+			}
+			continue
+		}
+		hasGo := false
+		for _, entry := range entries {
+			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
+				hasGo = true
+				break
+			}
+		}
+		if !hasGo {
+			return true
+		}
+	}
+	return false
 }
 
 func goSuites(suites []string) ([]string, error) {
