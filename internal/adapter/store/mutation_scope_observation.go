@@ -104,7 +104,7 @@ func (r *Repository) finishMutationScopeObservation(seq observation.ChangeSeq) {
 	if seq == 0 {
 		return
 	}
-	result := r.CommitObservation(context.Background(), seq)
+	result := r.CommitObservationSequence(context.Background(), uint64(seq))
 	if result.Err == nil {
 		r.removeMutationScopeObservationProofBestEffort(seq)
 	}

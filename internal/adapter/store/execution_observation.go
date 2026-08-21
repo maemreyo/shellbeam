@@ -42,11 +42,19 @@ func (r *Repository) PrepareProcessStartedObservation(ctx context.Context, opera
 }
 
 func (r *Repository) CommitObservationSequence(ctx context.Context, seq uint64) app.StoreResult {
-	return r.CommitObservation(ctx, observation.ChangeSeq(seq))
+	result := r.CommitObservation(ctx, observation.ChangeSeq(seq))
+	if result.Err != nil {
+		r.enqueueObservationTransitionRetry(observation.ChangeSeq(seq), observation.ObligationCommitted, "")
+	}
+	return result
 }
 
 func (r *Repository) AbortObservationSequence(ctx context.Context, seq uint64, reason string) app.StoreResult {
-	return r.AbortObservation(ctx, observation.ChangeSeq(seq), reason)
+	result := r.AbortObservation(ctx, observation.ChangeSeq(seq), reason)
+	if result.Err != nil {
+		r.enqueueObservationTransitionRetry(observation.ChangeSeq(seq), observation.ObligationAborted, reason)
+	}
+	return result
 }
 
 func (r *Repository) prepareOutputObservation(ctx context.Context, id operation.SessionID, start, end int64) (observation.ChangeSeq, app.StoreResult) {
@@ -104,13 +112,13 @@ func (r *Repository) correlationForSession(operationID, sessionID string) observ
 
 func (r *Repository) commitObservationBestEffort(seq observation.ChangeSeq) {
 	if seq != 0 {
-		_ = r.CommitObservation(context.Background(), seq)
+		_ = r.CommitObservationSequence(context.Background(), uint64(seq))
 	}
 }
 
 func (r *Repository) abortObservationBestEffort(seq observation.ChangeSeq, reason string) {
 	if seq != 0 {
-		_ = r.AbortObservation(context.Background(), seq, reason)
+		_ = r.AbortObservationSequence(context.Background(), uint64(seq), reason)
 	}
 }
 
