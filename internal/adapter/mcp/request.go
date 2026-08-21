@@ -105,12 +105,16 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 	case "inspect.repro":
 		request.ReproID = in.ReproID
 	case "kill":
-		signal := in.Signal
-		if signal == "" {
-			signal = "TERM"
-		}
-		request.Kill = app.KillRequest{SessionID: in.SessionID, KillID: in.KillID, Signal: signal}
+		applyKillInput(request, in)
 	}
+}
+
+func applyKillInput(request *bridge.Request, in input) {
+	signal := in.Signal
+	if signal == "" {
+		signal = "TERM"
+	}
+	request.Kill = app.KillRequest{SessionID: in.SessionID, KillID: in.KillID, Signal: signal}
 }
 func cloneMCPVerificationAttempt(value *coreevidence.VerificationAttemptIntent) *coreevidence.VerificationAttemptIntent {
 	if value == nil {

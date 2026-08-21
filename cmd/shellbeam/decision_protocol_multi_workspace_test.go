@@ -7,6 +7,7 @@ import (
 	"time"
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
+	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	decisioncore "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -82,6 +83,19 @@ func TestDecisionProtocolResolveWorkspaceSelectorMatrix(t *testing.T) {
 				t.Fatalf("workspace=%#v err=%v want=%s", got, err, tc.wantID)
 			}
 		})
+	}
+}
+
+func TestDecisionProtocolUnknownSelectorAddsSafeWorkspaceDetail(t *testing.T) {
+	selector := "ws_01K00000000000000000000003"
+	fake := &decisionWorkspaceSelectorFake{inspectErr: workspaceapp.ErrWorkspaceNotFound}
+	_, err := resolveDecisionWorkspace(context.Background(), selector, fake)
+	if err == nil {
+		t.Fatal("unknown selector accepted")
+	}
+	public := failure.Public(err)
+	if public.Code != failure.WorkspaceNotFound || len(public.Details) != 1 || public.Details["workspace_id"] != selector {
+		t.Fatalf("public failure=%#v", public)
 	}
 }
 

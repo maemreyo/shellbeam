@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	decisionapp "github.com/maemreyo/shellbeam/internal/app/decisionprotocol"
+	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -29,6 +31,9 @@ func resolveDecisionWorkspace(ctx context.Context, selector string, workspaces d
 		}
 		value, err := workspaces.Inspect(ctx, string(id))
 		if err != nil {
+			if errors.Is(err, workspaceapp.ErrWorkspaceNotFound) {
+				return workspacecore.Workspace{}, failure.New(failure.WorkspaceNotFound, map[string]string{"workspace_id": string(id)}, err)
+			}
 			return workspacecore.Workspace{}, err
 		}
 		if err := value.Validate(); err != nil {
