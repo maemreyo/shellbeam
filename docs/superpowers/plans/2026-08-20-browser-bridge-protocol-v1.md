@@ -12,8 +12,9 @@
 
 ## Global Constraints
 
-- Execution base is `12dc39257b4b76cfdbf6eeb95706335f2aee409b` on branch `design/browser-continuity-attention-router`. Baseline `go test ./... -count=1` across all 79 packages exited 0 before this plan was written; the exit status is the evidence, since `go test ./...` returns non-zero if any package fails. Re-establish this baseline before Task 1 and treat any pre-existing failure as a blocker rather than as noise.
+- Execution base is `ef89f27160baf43dd07facd85f7652765b278725` (`origin/main`, 2026-08-21), with the Browser Router design/docs replayed directly on top. The previous `12dc39257b4b76cfdbf6eeb95706335f2aee409b` snapshot is superseded. The current base contains 82 Go packages; re-establish a fresh `go test ./... -count=1` baseline before Task 1 and treat any failure as a blocker rather than as noise.
 - TDD is mandatory: focused RED → minimal GREEN → focused regression → commit. Never write production code first and backfill tests.
+- Revalidation on 2026-08-21 found the intervening `structuredresult`/IPC changes to be additive for this plan: `ipc.Client.CallV2`, `RequestV2.OperationID`, typed `RequestV2.TestStatus`, `RequestV2.MaxRecords`, `ResponseV2.Structured *structuredapp.InspectResult`, and the Task 6 `Producer`/`Completeness`/`Summary`/`Records` fields remain available. No Browser Bridge read-plan redesign is required.
 - This plan implements the ShellBeam repository deliverables only (spec §26). The Firefox extension is a separate repository with its own plan; do not add TypeScript, web-extension tooling, or browser assets to this repo.
 - **No ShellBeam core change outside the new package.** Do not add fields to `RequestV2`/`ResponseV2`, do not add MCP actions, do not add IPC actions, do not touch `internal/core/activity`, `internal/core/verification`, `internal/core/structuredresult`, or `internal/core/persistentsession`. The host is a client of existing reads (spec §27, I20).
 - Keep one MCP tool, `local_shell`. The browser bridge is not an MCP surface and must not appear in the capability catalog.
@@ -30,7 +31,7 @@
 - `shellbeam install` SHALL NOT write a native messaging manifest. Manifest installation is a separate, explicit, revocable command (I21, spec §21).
 - The manifest pins `allowed_extensions` to exactly one extension id supplied by the operator; there is no default and no wildcard (spec §21).
 - Production files target 150–300 lines, review above 350, hard cap 500; test files review above 600, hard cap 800; functions review above 60, hard cap 80.
-- Broad gates: `go run ./tools/devctl check`, `go run ./tools/devctl test --dirty --base main`, then one deliberate final `go test ./... -count=1`.
+- Broad gates: `go run ./tools/devctl check`, `go run ./tools/devctl test --dirty --base origin/main`, then one deliberate final `go test ./... -count=1`.
 - No push and no PR in this plan unless explicitly requested.
 
 ## File Structure
@@ -2110,7 +2111,7 @@ Expected: no findings. Fix any file-length or function-length violation by split
 
 - [ ] **Step 2: Run the dirty-scope test gate**
 
-Run: `go run ./tools/devctl test --dirty --base main`
+Run: `go run ./tools/devctl test --dirty --base origin/main`
 Expected: PASS.
 
 - [ ] **Step 3: Run the race detector on the new packages**

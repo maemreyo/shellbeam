@@ -1,8 +1,8 @@
 # Browser Continuity Attention Router Design
 
-**Status:** cross-system architecture freeze approved after four review rounds (`e550988` → `6d2da4a`); the §31 design-completion gate is satisfied. P0 implementation planning may proceed. No implementation approved.
+**Status:** cross-system architecture freeze approved after four review rounds (`e550988` → `6d2da4a`); the §31 design-completion gate is satisfied. P0 implementation was approved on 2026-08-21 and proceeds from the normalized current-main base below.
 
-**Execution/design base:** `55d6b4fc8ce897e43e05de199f7d1f748a8d21a8` (`main`, 2026-08-20)
+**Execution/design base:** `ef89f27160baf43dd07facd85f7652765b278725` (`origin/main`, 2026-08-21). The Browser Router design lineage is replayed directly on this base; the earlier `55d6b4fc8ce897e43e05de199f7d1f748a8d21a8` ancestor was an unrelated docs-only branch and is not a dependency.
 
 **Scope:** a Firefox extension that observes multiple concurrent ChatGPT Web conversations, classifies why each one stopped, correlates each one against attributed ShellBeam machine facts through a least-privilege read-only native bridge, records what needs human attention, and actuates conversation mutations **only** on an explicit human gesture. Autonomous continuation is explicitly out of P0 and gated behind a measured graduation criterion.
 
