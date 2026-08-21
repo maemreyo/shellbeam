@@ -1158,7 +1158,7 @@ Per-record `Authority` and `DerivationMethod` are copied rather than assumed uni
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/app/browserbridge/ -count=1 -v`
-Expected: PASS, eight tests.
+Expected: PASS, nine tests.
 
 - [ ] **Step 5: Commit**
 
