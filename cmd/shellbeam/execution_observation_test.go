@@ -585,3 +585,117 @@ func TestExecutionObservationRuntimeMaterializesCommitAfterInitialPass(t *testin
 		t.Fatalf("projection state=%#v err=%v", state, err)
 	}
 }
+
+type observationTransitionRetryProbe struct {
+	mu       sync.Mutex
+	pending  int
+	failures int
+	calls    chan struct{}
+}
+
+func (p *observationTransitionRetryProbe) arm(pending, failures int) {
+	p.mu.Lock()
+	p.pending = pending
+	p.failures = failures
+	p.mu.Unlock()
+}
+
+func (p *observationTransitionRetryProbe) RetryObservationTransitions(context.Context) (int, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	select {
+	case p.calls <- struct{}{}:
+	default:
+	}
+	if p.pending == 0 {
+		return 0, nil
+	}
+	if p.failures > 0 {
+		p.failures--
+		return p.pending, errors.New("injected observation transition retry failure")
+	}
+	p.pending = 0
+	return 0, nil
+}
+
+type observationRetryTimerRequest struct {
+	delay time.Duration
+	ch    chan time.Time
+}
+
+func TestExecutionObservationMaterializerRetriesQueuedTransitionWithBackoff(t *testing.T) {
+	materialCalls := make(chan struct{}, 8)
+	material := &materializerWakeProbe{calls: materialCalls}
+	materialWakeups := make(chan struct{}, 1)
+	transitionWakeups := make(chan struct{}, 1)
+	retries := &observationTransitionRetryProbe{calls: make(chan struct{}, 8)}
+	timers := make(chan observationRetryTimerRequest, 4)
+	runtime := &executionObservationRuntime{
+		material:               material,
+		wakeups:                materialWakeups,
+		transitionRetries:      retries,
+		transitionRetryWakeups: transitionWakeups,
+		after: func(delay time.Duration) <-chan time.Time {
+			ch := make(chan time.Time, 1)
+			timers <- observationRetryTimerRequest{delay: delay, ch: ch}
+			return ch
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	runtime.startMaterialization(ctx)
+
+	waitTransitionRetryCall(t, retries.calls, "initial retry scan")
+	waitMaterializerCall(t, materialCalls, "initial materialization")
+
+	retries.arm(1, 2)
+	transitionWakeups <- struct{}{}
+	waitTransitionRetryCall(t, retries.calls, "first failed retry")
+	first := waitObservationRetryTimer(t, timers)
+	if first.delay != observationTransitionRetryInitialPeriod {
+		t.Fatalf("first retry delay=%s want=%s", first.delay, observationTransitionRetryInitialPeriod)
+	}
+	materialWakeups <- struct{}{}
+	transitionWakeups <- struct{}{}
+	select {
+	case <-retries.calls:
+		t.Fatal("transition retry bypassed backoff after an unrelated wakeup")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	first.ch <- time.Now()
+	waitTransitionRetryCall(t, retries.calls, "second failed retry")
+	second := waitObservationRetryTimer(t, timers)
+	if second.delay != 2*observationTransitionRetryInitialPeriod {
+		t.Fatalf("second retry delay=%s want=%s", second.delay, 2*observationTransitionRetryInitialPeriod)
+	}
+
+	second.ch <- time.Now()
+	waitTransitionRetryCall(t, retries.calls, "successful retry")
+	retries.mu.Lock()
+	pending := retries.pending
+	retries.mu.Unlock()
+	if pending != 0 {
+		t.Fatalf("pending transitions=%d want=0", pending)
+	}
+}
+
+func waitTransitionRetryCall(t *testing.T, calls <-chan struct{}, phase string) {
+	t.Helper()
+	select {
+	case <-calls:
+	case <-time.After(time.Second):
+		t.Fatalf("%s did not run", phase)
+	}
+}
+
+func waitObservationRetryTimer(t *testing.T, timers <-chan observationRetryTimerRequest) observationRetryTimerRequest {
+	t.Helper()
+	select {
+	case timer := <-timers:
+		return timer
+	case <-time.After(time.Second):
+		t.Fatal("observation transition retry did not schedule backoff")
+		return observationRetryTimerRequest{}
+	}
+}
