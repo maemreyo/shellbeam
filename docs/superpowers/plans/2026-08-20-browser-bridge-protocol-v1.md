@@ -1959,7 +1959,7 @@ adding the `runtime` import if it is not already present in that file.
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./cmd/shellbeam/ -run TestBrowserBridgeCheck -count=1 -v`
-Expected: PASS, three tests.
+Expected: PASS, four tests, including the missing-host warning case.
 
 - [ ] **Step 5: Commit**
 
