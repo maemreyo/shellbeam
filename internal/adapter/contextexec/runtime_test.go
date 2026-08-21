@@ -26,7 +26,8 @@ func TestRuntimeOwnsRealChildContextPipesAndDoesNotAttributePaneNoise(t *testing
 	paneNoise := "PANE_NOISE_SHOULD_NEVER_APPEAR"
 	_ = paneNoise
 	var frames []OutputFrame
-	terminal, err := runtime.Execute(context.Background(), request, func(frame OutputFrame) error { frames = append(frames, frame); return nil })
+	peer := &testExecutionProtocol{onOutput: func(frame OutputFrame) error { frames = append(frames, frame); return nil }}
+	terminal, err := runtime.Execute(context.Background(), request, peer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,7 @@ func TestRuntimeOwnsRealChildContextPipesAndDoesNotAttributePaneNoise(t *testing
 	if strings.Contains(stdout+stderr, paneNoise) {
 		t.Fatal("pane noise entered authoritative output")
 	}
-	if terminal.Result.Output.Attribution != core.OutputAttributionHelperOwnedChildPipes || terminal.Result.EvidenceAuthority != core.EvidenceAuthorityContextExecChildOwnedV1 || !terminal.Result.Exit.Reaped {
+	if terminal.Result.Output.Attribution != core.OutputAttributionHelperOwnedChildPipes || terminal.Result.Lifecycle != core.LifecycleChildTerminal || terminal.Result.EvidenceAuthority != "" || !terminal.Result.Exit.Reaped {
 		t.Fatalf("result=%#v", terminal.Result)
 	}
 }
@@ -56,11 +57,11 @@ func TestRuntimeMarksTruncatedOutputIncompleteWithoutDroppingChildOwnedAuthority
 	cwd := t.TempDir()
 	request := runtimeRequestFrame(t, cwd, []string{"/bin/sh", "-c", `printf '1234567890'; printf 'abcdefghij' >&2`}, 8, 2000)
 	runtime := Runtime{Launcher: testStrongLauncher{}, Environ: func() []string { return []string{"PATH=/usr/bin:/bin"} }, Getwd: func() (string, error) { return cwd, nil }}
-	terminal, err := runtime.Execute(context.Background(), request, nil)
+	terminal, err := runtime.Execute(context.Background(), request, &testExecutionProtocol{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !terminal.Result.Output.Truncated || terminal.Result.Output.OutputComplete || terminal.Result.EvidenceQuality != core.EvidenceQualityIncomplete || terminal.Result.EvidenceAuthority != core.EvidenceAuthorityContextExecChildOwnedV1 {
+	if !terminal.Result.Output.Truncated || terminal.Result.Output.OutputComplete || terminal.Result.EvidenceQuality != core.EvidenceQualityIncomplete || terminal.Result.Lifecycle != core.LifecycleChildTerminal || terminal.Result.EvidenceAuthority != "" {
 		t.Fatalf("result=%#v", terminal.Result)
 	}
 	if err := terminal.Validate(); err != nil {
@@ -73,7 +74,7 @@ func TestRuntimeTimeoutKillsOwnedProcessGroupAndReaps(t *testing.T) {
 	request := runtimeRequestFrame(t, cwd, []string{"/bin/sh", "-c", `sleep 5`}, 1024, 80)
 	runtime := Runtime{Launcher: testStrongLauncher{}, Environ: func() []string { return []string{"PATH=/usr/bin:/bin"} }, Getwd: func() (string, error) { return cwd, nil }}
 	started := time.Now()
-	terminal, err := runtime.Execute(context.Background(), request, nil)
+	terminal, err := runtime.Execute(context.Background(), request, &testExecutionProtocol{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +91,7 @@ func TestRuntimeFailsClosedBeforeSpawnWhenStrongExecutorUnavailable(t *testing.T
 	launcher := &countingUnqualifiedLauncher{}
 	request := runtimeRequestFrame(t, cwd, []string{"/bin/echo", "no"}, 1024, 1000)
 	runtime := Runtime{Launcher: launcher, Environ: os.Environ, Getwd: func() (string, error) { return cwd, nil }}
-	if _, err := runtime.Execute(context.Background(), request, nil); err == nil {
+	if _, err := runtime.Execute(context.Background(), request, &testExecutionProtocol{}); err == nil {
 		t.Fatal("unqualified executor accepted")
 	}
 	if launcher.calls != 0 {
@@ -98,18 +99,39 @@ func TestRuntimeFailsClosedBeforeSpawnWhenStrongExecutorUnavailable(t *testing.T
 	}
 }
 
+type testExecutionProtocol struct {
+	onOutput func(OutputFrame) error
+}
+
+func (*testExecutionProtocol) AuthorizePrepared(_ context.Context, frame PreparedFrame) (ExecuteFrame, error) {
+	if err := frame.Validate(); err != nil {
+		return ExecuteFrame{}, err
+	}
+	if frame.FailureCode != "" {
+		return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: false}, nil
+	}
+	return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01"}, nil
+}
+func (*testExecutionProtocol) SendSpawn(frame SpawnFrame) error { return frame.Validate() }
+func (p *testExecutionProtocol) SendOutput(frame OutputFrame) error {
+	if p.onOutput != nil {
+		return p.onOutput(frame)
+	}
+	return nil
+}
+
 type countingUnqualifiedLauncher struct{ calls int }
 
 func (*countingUnqualifiedLauncher) Qualified() bool { return false }
-func (l *countingUnqualifiedLauncher) Launch(ChildSpec) (*ChildProcess, error) {
+func (l *countingUnqualifiedLauncher) Prepare(ChildSpec) (PreparedExecution, error) {
 	l.calls++
-	return nil, errors.New("must not launch")
+	return nil, errors.New("must not prepare")
 }
 
 type testStrongLauncher struct{}
 
 func (testStrongLauncher) Qualified() bool { return true }
-func (testStrongLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
+func (testStrongLauncher) Prepare(spec ChildSpec) (PreparedExecution, error) {
 	resolved, err := exec.LookPath(spec.Argv[0])
 	if err != nil {
 		return nil, err
@@ -120,20 +142,34 @@ func (testStrongLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
 			return nil, err
 		}
 	}
-	cmd := exec.Command(resolved, spec.Argv[1:]...)
-	cmd.Dir = spec.CWD
-	cmd.Env = append([]string(nil), spec.Env...)
+	return &testStrongPrepared{spec: spec, resolved: resolved}, nil
+}
+
+type testStrongPrepared struct {
+	spec     ChildSpec
+	resolved string
+}
+
+func (p *testStrongPrepared) ResolvedExecutable() string { return p.resolved }
+func (*testStrongPrepared) Close() error                 { return nil }
+func (p *testStrongPrepared) Start() (*ChildProcess, error) {
+	cmd := exec.Command(p.resolved, p.spec.Argv[1:]...)
+	cmd.Dir = p.spec.CWD
+	cmd.Env = append([]string(nil), p.spec.Env...)
 	cmd.Stdin = nil
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
+	pipes, err := attachChildOutputPipes(cmd)
 	if err != nil {
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		_ = pipes.closeAll()
+		return nil, err
+	}
+	if err := pipes.closeParentWriters(); err != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_, _ = cmd.Process.Wait()
+		_ = pipes.closeAll()
 		return nil, err
 	}
 	var once sync.Once
@@ -160,7 +196,7 @@ func (testStrongLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
 		return exit, waitErr
 	}
 	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	return &ChildProcess{ResolvedExecutable: resolved, Stdout: stdout, Stderr: stderr, Wait: wait, KillGroup: kill}, nil
+	return &ChildProcess{ResolvedExecutable: p.resolved, Stdout: pipes.stdoutR, Stderr: pipes.stderrR, Wait: wait, KillGroup: kill}, nil
 }
 
 func runtimeRequestFrame(t *testing.T, cwd string, argv []string, maxOutput, timeout int64) RequestFrame {
@@ -185,3 +221,22 @@ func joinFrames(frames []OutputFrame) (string, string) {
 }
 
 var _ io.Reader
+
+func TestRuntimeReportsChildTerminalWithoutDaemonEvidenceAuthority(t *testing.T) {
+	cwd := t.TempDir()
+	request := runtimeRequestFrame(t, cwd, []string{"/bin/echo", "ok"}, 1024, 1000)
+	runtime := Runtime{Launcher: testStrongLauncher{}, Environ: func() []string { return []string{"PATH=/usr/bin:/bin"} }, Getwd: func() (string, error) { return cwd, nil }}
+	terminal, err := runtime.Execute(context.Background(), request, &testExecutionProtocol{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if terminal.Result.Lifecycle != core.LifecycleChildTerminal {
+		t.Fatalf("helper lifecycle=%q want child_terminal", terminal.Result.Lifecycle)
+	}
+	if terminal.Result.EvidenceAuthority != "" {
+		t.Fatalf("helper claimed daemon evidence authority %q", terminal.Result.EvidenceAuthority)
+	}
+	if err := terminal.Validate(); err != nil {
+		t.Fatalf("child terminal invalid: %v", err)
+	}
+}

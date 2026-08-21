@@ -8,7 +8,7 @@ import (
 )
 
 func TestLifecycleIsClosedAndOnlyMovesForward(t *testing.T) {
-	ordered := []Lifecycle{LifecycleReserved, LifecycleHelperRequested, LifecycleHelperAuthenticated, LifecycleChildSpawned, LifecycleChildTerminal, LifecycleCanonicalized}
+	ordered := []Lifecycle{LifecycleReserved, LifecycleHelperRequested, LifecycleHelperAuthenticated, LifecycleChildReserved, LifecycleChildSpawned, LifecycleChildTerminal, LifecycleCanonicalized}
 	for i, value := range ordered {
 		if err := value.Validate(); err != nil {
 			t.Fatalf("%q: %v", value, err)
@@ -116,5 +116,29 @@ func TestHelperLostBeforeChildSpawnDoesNotInventExecutableOrOutputEvidence(t *te
 	result.EvidenceAuthority = ""
 	if err := result.Validate(); err != nil {
 		t.Fatalf("early helper loss required invented child facts: %v", err)
+	}
+}
+
+func TestChildTerminalRequiresLiteralHelperOwnedTruthAndNoAuthority(t *testing.T) {
+	result := validCanonicalResult()
+	result.Lifecycle = LifecycleChildTerminal
+	result.EvidenceAuthority = ""
+	if err := result.Validate(); err != nil {
+		t.Fatalf("valid child terminal rejected: %v", err)
+	}
+	withAuthority := result
+	withAuthority.EvidenceAuthority = EvidenceAuthorityContextExecChildOwnedV1
+	if err := withAuthority.Validate(); err == nil {
+		t.Fatal("child terminal accepted daemon evidence authority")
+	}
+	withoutSpawn := result
+	withoutSpawn.Spawn.Succeeded = false
+	if err := withoutSpawn.Validate(); err == nil {
+		t.Fatal("child terminal accepted without successful spawn")
+	}
+	withoutReap := result
+	withoutReap.Exit.Reaped = false
+	if err := withoutReap.Validate(); err == nil {
+		t.Fatal("child terminal accepted without reap")
 	}
 }

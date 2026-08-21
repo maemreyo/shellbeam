@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 
 	core "github.com/maemreyo/shellbeam/internal/core/contextexec"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
 const (
-	ProtocolVersion = 1
+	ProtocolVersion = 3
 	MaxFrameBytes   = 128 << 10
 )
 
@@ -21,7 +24,11 @@ const (
 	KindHello     MessageKind = "hello"
 	KindChallenge MessageKind = "challenge"
 	KindProof     MessageKind = "proof"
+	KindContext   MessageKind = "context"
 	KindRequest   MessageKind = "request"
+	KindPrepared  MessageKind = "prepared"
+	KindExecute   MessageKind = "execute"
+	KindSpawn     MessageKind = "spawn"
 	KindOutput    MessageKind = "output"
 	KindTerminal  MessageKind = "terminal"
 )
@@ -66,6 +73,19 @@ func (f ProofFrame) Validate() error {
 	return nil
 }
 
+type ContextFrame struct {
+	ProtocolVersion int         `json:"protocol_version"`
+	Kind            MessageKind `json:"kind"`
+	CWD             string      `json:"cwd"`
+}
+
+func (f ContextFrame) Validate() error {
+	if f.ProtocolVersion != ProtocolVersion || f.Kind != KindContext || f.CWD == "" || len(f.CWD) > core.MaxPathBytes || !filepath.IsAbs(f.CWD) {
+		return fmt.Errorf("invalid context helper context frame")
+	}
+	return nil
+}
+
 type RequestFrame struct {
 	ProtocolVersion int                 `json:"protocol_version"`
 	Kind            MessageKind         `json:"kind"`
@@ -93,6 +113,93 @@ func (f RequestFrame) Validate() error {
 	}
 	if fp != f.Helper.RequestFingerprint || f.Context.SessionID != f.Request.SessionID || f.Context.AuthorityEpoch != f.Request.AuthorityEpoch {
 		return fmt.Errorf("context helper request binding mismatch")
+	}
+	return nil
+}
+
+type PreparedFrame struct {
+	ProtocolVersion    int         `json:"protocol_version"`
+	Kind               MessageKind `json:"kind"`
+	ResolvedExecutable string      `json:"resolved_executable,omitempty"`
+	FailureCode        string      `json:"failure_code,omitempty"`
+}
+
+func (f PreparedFrame) Validate() error {
+	if f.ProtocolVersion != ProtocolVersion || f.Kind != KindPrepared {
+		return fmt.Errorf("invalid context helper prepared frame")
+	}
+	hasExecutable := f.ResolvedExecutable != ""
+	hasFailure := f.FailureCode != ""
+	if hasExecutable == hasFailure {
+		return fmt.Errorf("context helper prepared frame must contain exactly one outcome")
+	}
+	if hasExecutable {
+		if len(f.ResolvedExecutable) > core.MaxPathBytes || !filepath.IsAbs(f.ResolvedExecutable) {
+			return fmt.Errorf("invalid context helper prepared executable")
+		}
+		return nil
+	}
+	if !validOpaque(f.FailureCode, core.MaxOpaqueRefBytes) {
+		return fmt.Errorf("invalid context helper prepare failure")
+	}
+	return nil
+}
+
+type ExecuteFrame struct {
+	ProtocolVersion  int                 `json:"protocol_version"`
+	Kind             MessageKind         `json:"kind"`
+	Authorized       bool                `json:"authorized"`
+	ChildOperationID operation.ID        `json:"child_operation_id,omitempty"`
+	ChildSessionID   operation.SessionID `json:"child_session_id,omitempty"`
+}
+
+func (f ExecuteFrame) Validate() error {
+	if f.ProtocolVersion != ProtocolVersion || f.Kind != KindExecute {
+		return fmt.Errorf("invalid context helper execute frame")
+	}
+	if !f.Authorized {
+		if f.ChildOperationID != "" || f.ChildSessionID != "" {
+			return fmt.Errorf("denied context helper execute frame carries child identity")
+		}
+		return nil
+	}
+	if _, err := operation.ParseID(string(f.ChildOperationID)); err != nil {
+		return fmt.Errorf("invalid context helper child operation: %w", err)
+	}
+	if _, err := operation.ParseSessionID(string(f.ChildSessionID)); err != nil {
+		return fmt.Errorf("invalid context helper child session: %w", err)
+	}
+	return nil
+}
+
+type SpawnFrame struct {
+	ProtocolVersion    int                   `json:"protocol_version"`
+	Kind               MessageKind           `json:"kind"`
+	ChildOperationID   operation.ID          `json:"child_operation_id"`
+	ChildSessionID     operation.SessionID   `json:"child_session_id"`
+	ResolvedExecutable string                `json:"resolved_executable"`
+	Spawn              receipt.SpawnEvidence `json:"spawn"`
+}
+
+func (f SpawnFrame) Validate() error {
+	if f.ProtocolVersion != ProtocolVersion || f.Kind != KindSpawn || !f.Spawn.Attempted {
+		return fmt.Errorf("invalid context helper spawn frame")
+	}
+	if _, err := operation.ParseID(string(f.ChildOperationID)); err != nil {
+		return fmt.Errorf("invalid context helper spawn operation: %w", err)
+	}
+	if _, err := operation.ParseSessionID(string(f.ChildSessionID)); err != nil {
+		return fmt.Errorf("invalid context helper spawn session: %w", err)
+	}
+	if f.ResolvedExecutable == "" || len(f.ResolvedExecutable) > core.MaxPathBytes || !filepath.IsAbs(f.ResolvedExecutable) {
+		return fmt.Errorf("invalid context helper spawn executable")
+	}
+	if f.Spawn.Succeeded {
+		if f.Spawn.ErrorCode != "" {
+			return fmt.Errorf("successful context helper spawn carries failure code")
+		}
+	} else if !validOpaque(f.Spawn.ErrorCode, core.MaxOpaqueRefBytes) {
+		return fmt.Errorf("failed context helper spawn lacks stable error code")
 	}
 	return nil
 }
@@ -199,7 +306,7 @@ func frameKind(raw []byte) (MessageKind, error) {
 		return "", fmt.Errorf("invalid context helper frame envelope")
 	}
 	switch base.Kind {
-	case KindOutput, KindTerminal:
+	case KindPrepared, KindSpawn, KindOutput, KindTerminal:
 		return base.Kind, nil
 	default:
 		return "", fmt.Errorf("unexpected context helper result frame")
@@ -217,8 +324,24 @@ func readProofFrame(r io.Reader) (ProofFrame, error) {
 	var v ProofFrame
 	return v, readTypedFrame(r, &v)
 }
+func readContextFrame(r io.Reader) (ContextFrame, error) {
+	var v ContextFrame
+	return v, readTypedFrame(r, &v)
+}
 func readRequestFrame(r io.Reader) (RequestFrame, error) {
 	var v RequestFrame
+	return v, readTypedFrame(r, &v)
+}
+func readPreparedFrame(r io.Reader) (PreparedFrame, error) {
+	var v PreparedFrame
+	return v, readTypedFrame(r, &v)
+}
+func readExecuteFrame(r io.Reader) (ExecuteFrame, error) {
+	var v ExecuteFrame
+	return v, readTypedFrame(r, &v)
+}
+func readSpawnFrame(r io.Reader) (SpawnFrame, error) {
+	var v SpawnFrame
 	return v, readTypedFrame(r, &v)
 }
 func readOutputFrame(r io.Reader) (OutputFrame, error) {

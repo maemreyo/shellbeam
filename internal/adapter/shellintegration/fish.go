@@ -36,9 +36,13 @@ func fishScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) 
 	return install, cleanup
 }
 
-func (a *FishAdapter) LaunchContextHelper(ctx context.Context, launch app.ContextHelperLaunch) error {
+func (a *FishAdapter) ArmContextHelper(ctx context.Context, arm app.ContextHelperArmSpec) error {
 	if a == nil {
-		return fmt.Errorf("fish context helper launcher unavailable")
+		return fmt.Errorf("fish context helper armer unavailable")
 	}
-	return launchContextHelper(ctx, a.deps, core.ShellFish, launch)
+	return armContextHelper(ctx, a.deps, core.ShellFish, arm, fishContextHelperArmScript)
+}
+
+func fishContextHelperArmScript(name, invocation string) string {
+	return fmt.Sprintf("function %s --on-event fish_prompt\n  functions --erase %s\n  %s\nend", name, name, invocation)
 }

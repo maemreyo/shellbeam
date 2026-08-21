@@ -27,3 +27,7 @@ func peerCredentials(conn net.Conn) (int, uint32, error) {
 	}
 	return int(cred.Pid), cred.Uid, nil
 }
+
+func platformForegroundVerifier(int, string) error {
+	return fmt.Errorf("context helper foreground verification unavailable")
+}

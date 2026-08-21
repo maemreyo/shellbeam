@@ -38,14 +38,13 @@ type darwinExecutableIdentity struct {
 }
 
 type darwinPlatformLauncher struct {
-	afterOpen              func(string) error
 	verifyMappedExecutable func(int, darwinExecutableIdentity) error
 }
 
 func NewPlatformLauncher(_ ...string) ChildLauncher { return darwinPlatformLauncher{} }
 func (darwinPlatformLauncher) Qualified() bool      { return true }
 
-func (l darwinPlatformLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
+func (l darwinPlatformLauncher) Prepare(spec ChildSpec) (PreparedExecution, error) {
 	targetPath, err := resolveChildExecutable(spec)
 	if err != nil {
 		return nil, err
@@ -54,61 +53,101 @@ func (l darwinPlatformLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer target.Close()
 	identity, err := openedDarwinExecutableIdentity(target)
 	if err != nil {
+		_ = target.Close()
 		return nil, err
 	}
-	if l.afterOpen != nil {
-		if err := l.afterOpen(targetPath); err != nil {
-			return nil, err
-		}
-	}
+	return &darwinPreparedExecution{launcher: l, spec: spec, targetPath: targetPath, target: target, identity: identity}, nil
+}
 
+type darwinPreparedExecution struct {
+	launcher   darwinPlatformLauncher
+	spec       ChildSpec
+	targetPath string
+	target     *os.File
+	identity   darwinExecutableIdentity
+	mu         sync.Mutex
+	started    bool
+	closed     bool
+}
+
+func (p *darwinPreparedExecution) ResolvedExecutable() string {
+	if p == nil {
+		return ""
+	}
+	return p.targetPath
+}
+
+func (p *darwinPreparedExecution) Start() (*ChildProcess, error) {
+	if p == nil {
+		return nil, fmt.Errorf("prepared context executable unavailable")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed || p.started || p.target == nil {
+		return nil, fmt.Errorf("prepared context executable is not startable")
+	}
+	p.started = true
 	cmd := &exec.Cmd{
-		Path: targetPath,
-		Args: append([]string(nil), spec.Argv...),
-		Dir:  spec.CWD,
-		Env:  append([]string(nil), spec.Env...),
+		Path: p.targetPath,
+		Args: append([]string(nil), p.spec.Argv...),
+		Dir:  p.spec.CWD,
+		Env:  append([]string(nil), p.spec.Env...),
 		SysProcAttr: &syscall.SysProcAttr{
 			Ptrace:  true,
 			Setpgid: true,
 		},
 	}
-	stdout, err := cmd.StdoutPipe()
+	pipes, err := attachChildOutputPipes(cmd)
 	if err != nil {
-		return nil, err
-	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		_ = stdout.Close()
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		_ = stdout.Close()
-		_ = stderr.Close()
+		_ = pipes.closeAll()
 		return nil, err
+	}
+	if err := pipes.closeParentWriters(); err != nil {
+		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
+		return nil, fmt.Errorf("close parent context child output writers: %w", err)
 	}
 	if err := waitForDarwinExecStop(cmd.Process.Pid); err != nil {
-		failClosedDarwinChild(cmd, stdout, stderr)
+		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
 		return nil, err
 	}
-	verify := l.verifyMappedExecutable
+	verify := p.launcher.verifyMappedExecutable
 	if verify == nil {
 		verify = verifyDarwinMappedExecutable
 	}
-	if err := verify(cmd.Process.Pid, identity); err != nil {
-		failClosedDarwinChild(cmd, stdout, stderr)
+	if err := verify(cmd.Process.Pid, p.identity); err != nil {
+		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
 		return nil, err
 	}
 	if err := syscall.PtraceDetach(cmd.Process.Pid); err != nil {
-		failClosedDarwinChild(cmd, stdout, stderr)
+		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
 		return nil, fmt.Errorf("detach qualified context child: %w", err)
 	}
-
 	wait := darwinChildWaiter(cmd)
 	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	return &ChildProcess{ResolvedExecutable: targetPath, Stdout: stdout, Stderr: stderr, Wait: wait, KillGroup: kill}, nil
+	return &ChildProcess{ResolvedExecutable: p.targetPath, Stdout: pipes.stdoutR, Stderr: pipes.stderrR, Wait: wait, KillGroup: kill}, nil
+}
+
+func (p *darwinPreparedExecution) Close() error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return nil
+	}
+	p.closed = true
+	if p.target == nil {
+		return nil
+	}
+	err := p.target.Close()
+	p.target = nil
+	return err
 }
 
 func openedDarwinExecutableIdentity(target *os.File) (darwinExecutableIdentity, error) {

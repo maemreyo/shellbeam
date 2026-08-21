@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 )
 
 type Client struct {
 	Conn           net.Conn
 	OpaqueLaunchID string
+	Getwd          func() (string, error)
 }
 
 func (c *Client) Authenticate(ctx context.Context) (RequestFrame, error) {
@@ -40,6 +42,17 @@ func (c *Client) Authenticate(ctx context.Context) (RequestFrame, error) {
 	if err := writeFrame(c.Conn, ProofFrame{ProtocolVersion: ProtocolVersion, Kind: KindProof, Proof: proof}); err != nil {
 		return RequestFrame{}, err
 	}
+	getwd := c.Getwd
+	if getwd == nil {
+		getwd = os.Getwd
+	}
+	cwd, err := getwd()
+	if err != nil {
+		return RequestFrame{}, err
+	}
+	if err := writeFrame(c.Conn, ContextFrame{ProtocolVersion: ProtocolVersion, Kind: KindContext, CWD: cwd}); err != nil {
+		return RequestFrame{}, err
+	}
 	request, err := readRequestFrame(c.Conn)
 	if err != nil {
 		return RequestFrame{}, err
@@ -52,6 +65,26 @@ func (c *Client) Authenticate(ctx context.Context) (RequestFrame, error) {
 		return RequestFrame{}, fmt.Errorf("context helper request identity mismatch")
 	}
 	return request, nil
+}
+
+func (c *Client) AuthorizePrepared(ctx context.Context, frame PreparedFrame) (ExecuteFrame, error) {
+	if c.Conn == nil {
+		return ExecuteFrame{}, fmt.Errorf("context helper connection missing")
+	}
+	if err := ctx.Err(); err != nil {
+		return ExecuteFrame{}, err
+	}
+	if err := writeFrame(c.Conn, frame); err != nil {
+		return ExecuteFrame{}, err
+	}
+	return readExecuteFrame(c.Conn)
+}
+
+func (c *Client) SendSpawn(frame SpawnFrame) error {
+	if c.Conn == nil {
+		return fmt.Errorf("context helper connection missing")
+	}
+	return writeFrame(c.Conn, frame)
 }
 
 func (c *Client) SendOutput(frame OutputFrame) error {

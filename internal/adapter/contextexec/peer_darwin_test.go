@@ -6,10 +6,13 @@ import (
 	"context"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/creack/pty"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
 )
 
@@ -81,5 +84,32 @@ func TestDarwinPeerCredentialsExposeExactPeerPIDAndUIDOnUnixSocket(t *testing.T)
 	}
 	if err := VerifyDaemonPeer(context.Background(), client, executable, processadapter.NewHostInspector().Observe); err != nil {
 		t.Fatalf("daemon peer verification failed: %v", err)
+	}
+}
+
+func TestDarwinForegroundVerifierRequiresPeerProcessGroupToOwnPaneTTY(t *testing.T) {
+	master, tty, err := pty.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer master.Close()
+	ttyName := tty.Name()
+	cmd := exec.Command("/bin/sh", "-c", "sleep 5")
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = tty, tty, tty
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true}
+	if err := cmd.Start(); err != nil {
+		_ = tty.Close()
+		t.Fatal(err)
+	}
+	_ = tty.Close()
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	if err := foregroundDarwin(cmd.Process.Pid, ttyName); err != nil {
+		t.Fatalf("foreground child rejected: %v", err)
+	}
+	if err := foregroundDarwin(os.Getpid(), ttyName); err == nil {
+		t.Fatal("non-foreground process accepted")
 	}
 }

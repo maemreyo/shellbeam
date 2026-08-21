@@ -3,26 +3,39 @@ package shellintegration
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	core "github.com/maemreyo/shellbeam/internal/core/shellintegration"
 )
 
-type ContextHelperLaunchRequest struct {
+type ContextHelperArmRequest struct {
 	ContextExecID  string
-	HandoffID      string
+	SessionID      string
 	Authority      delegated.EffectiveAuthority
 	Facts          ProviderProcessFacts
 	ExpectedShell  core.ShellIdentity
-	Boundary       core.BoundaryProof
 	OpaqueLaunchID string
 }
 
-func (v ContextHelperLaunchRequest) validate() error {
-	if !validFactID(v.ContextExecID, 128) || !validFactID(v.HandoffID, 128) {
-		return fmt.Errorf("invalid context helper launch identity")
+type ContextHelperArm struct {
+	ContextExecID      string
+	SessionID          string
+	AuthorityEpoch     delegated.AuthorityEpoch
+	ProviderGeneration string
+	Shell              core.ShellIdentity
+	PaneShellPID       int
+	PaneTTY            string
+	OpaqueLaunchID     string
+	ArmedAt            time.Time
+}
+
+func (v ContextHelperArmRequest) validate() error {
+	if !validFactID(v.ContextExecID, 128) || !validFactID(v.SessionID, 128) || v.SessionID != v.Facts.SessionID {
+		return fmt.Errorf("invalid context helper arm identity")
 	}
 	if err := v.Authority.Epoch.Validate(); err != nil {
 		return err
@@ -37,10 +50,7 @@ func (v ContextHelperLaunchRequest) validate() error {
 		return err
 	}
 	if v.ExpectedShell.Family == core.ShellUnknown {
-		return fmt.Errorf("context helper launch requires exact shell")
-	}
-	if err := v.Boundary.Validate(); err != nil {
-		return err
+		return fmt.Errorf("context helper arm requires exact shell")
 	}
 	if !validFactID(v.OpaqueLaunchID, 128) {
 		return fmt.Errorf("invalid context helper opaque launch identity")
@@ -48,53 +58,57 @@ func (v ContextHelperLaunchRequest) validate() error {
 	return nil
 }
 
-func (s *Service) LaunchContextHelper(ctx context.Context, req ContextHelperLaunchRequest) error {
+func (s *Service) ArmContextHelper(ctx context.Context, req ContextHelperArmRequest) (ContextHelperArm, error) {
+	var out ContextHelperArm
 	if s == nil || s.probe == nil {
-		return contextHelperLaunchFailure(req, failure.ContextExecUnavailable, "shell_integration_unavailable", nil)
+		return out, contextHelperArmFailure(req, failure.ContextExecUnavailable, "shell_integration_unavailable", nil)
 	}
 	if err := req.validate(); err != nil {
-		return contextHelperLaunchFailure(req, failure.ContextExecUnavailable, "invalid_helper_launch_request", err)
+		return out, contextHelperArmFailure(req, failure.ContextExecUnavailable, "invalid_helper_arm_request", err)
 	}
 	if err := ctx.Err(); err != nil {
-		return err
+		return out, err
 	}
 	if req.Authority.Owner != delegated.OwnerAgent || req.Authority.Fenced {
-		return contextHelperLaunchFailure(req, failure.ContextExecNotAgentOwned, "agent_authority_unproven", nil)
+		return out, contextHelperArmFailure(req, failure.ContextExecNotAgentOwned, "agent_authority_unproven", nil)
 	}
-	if req.Authority.Epoch != req.Boundary.AuthorityEpoch {
-		return contextHelperLaunchFailure(req, failure.ContextExecStaleGeneration, "boundary_epoch_mismatch", nil)
-	}
-	if req.Boundary.Quality != core.BoundaryQualityShellPrompt ||
-		!req.Boundary.CurrentFor(req.HandoffID, req.Authority.Epoch, req.ExpectedShell) {
-		return contextHelperLaunchFailure(req, failure.ContextExecBoundaryUnproven, "prompt_boundary_unproven", nil)
+	if req.Facts.PaneTTY == "" || !filepath.IsAbs(req.Facts.PaneTTY) || req.Facts.CWD == "" || !filepath.IsAbs(req.Facts.CWD) {
+		return out, contextHelperArmFailure(req, failure.ContextExecBoundaryUnproven, "context_facts_unproven", nil)
 	}
 
 	observation, err := s.probe.Probe(ctx, ProbeRequest{Facts: req.Facts, Expected: &req.ExpectedShell})
 	if err != nil {
-		return contextHelperLaunchFailure(req, failure.ContextExecBoundaryUnproven, "shell_reprobe_failed", err)
+		return out, contextHelperArmFailure(req, failure.ContextExecBoundaryUnproven, "shell_reprobe_failed", err)
 	}
 	if err := observation.Validate(); err != nil {
-		return contextHelperLaunchFailure(req, failure.ContextExecBoundaryUnproven, "shell_reprobe_invalid", err)
+		return out, contextHelperArmFailure(req, failure.ContextExecBoundaryUnproven, "shell_reprobe_invalid", err)
 	}
 	if !observation.AdapterEligible() || observation.Identity != req.ExpectedShell {
-		return contextHelperLaunchFailure(req, failure.ContextExecBoundaryUnproven, "shell_identity_changed", nil)
+		return out, contextHelperArmFailure(req, failure.ContextExecBoundaryUnproven, "shell_identity_changed", nil)
 	}
 	adapter := s.adapters[observation.Identity.Family]
-	launcher, ok := adapter.(ContextHelperLauncher)
+	armer, ok := adapter.(ContextHelperArmer)
 	if adapter == nil || !ok {
-		return contextHelperLaunchFailure(req, failure.ContextExecUnavailable, "shell_adapter_unavailable", nil)
+		return out, contextHelperArmFailure(req, failure.ContextExecUnavailable, "shell_adapter_unavailable", nil)
 	}
-	launch := ContextHelperLaunch{Shell: observation.Identity, OpaqueLaunchID: req.OpaqueLaunchID}
-	if err := launch.Validate(); err != nil {
-		return contextHelperLaunchFailure(req, failure.ContextExecUnavailable, "invalid_helper_launch", err)
+	spec := ContextHelperArmSpec{Shell: observation.Identity, OpaqueLaunchID: req.OpaqueLaunchID}
+	if err := spec.Validate(); err != nil {
+		return out, contextHelperArmFailure(req, failure.ContextExecUnavailable, "invalid_helper_arm", err)
 	}
-	return launcher.LaunchContextHelper(ctx, launch)
+	if err := armer.ArmContextHelper(ctx, spec); err != nil {
+		return out, err
+	}
+	return ContextHelperArm{
+		ContextExecID: req.ContextExecID, SessionID: req.SessionID, AuthorityEpoch: req.Authority.Epoch,
+		ProviderGeneration: req.Facts.ProviderGeneration, Shell: observation.Identity, PaneShellPID: req.Facts.PanePID,
+		PaneTTY: filepath.Clean(req.Facts.PaneTTY), OpaqueLaunchID: req.OpaqueLaunchID, ArmedAt: time.Now().UTC(),
+	}, nil
 }
 
-func contextHelperLaunchFailure(req ContextHelperLaunchRequest, code failure.Code, reason string, cause error) error {
+func contextHelperArmFailure(req ContextHelperArmRequest, code failure.Code, reason string, cause error) error {
 	details := map[string]string{
 		"context_exec_id": req.ContextExecID,
-		"session_id":      req.Facts.SessionID,
+		"session_id":      req.SessionID,
 		"reason":          reason,
 	}
 	switch code {

@@ -34,9 +34,21 @@ type ChildProcess struct {
 	KillGroup          func() error
 }
 
+type PreparedExecution interface {
+	ResolvedExecutable() string
+	Start() (*ChildProcess, error)
+	Close() error
+}
+
 type ChildLauncher interface {
 	Qualified() bool
-	Launch(ChildSpec) (*ChildProcess, error)
+	Prepare(ChildSpec) (PreparedExecution, error)
+}
+
+type ExecutionProtocol interface {
+	AuthorizePrepared(context.Context, PreparedFrame) (ExecuteFrame, error)
+	SendSpawn(SpawnFrame) error
+	SendOutput(OutputFrame) error
 }
 
 type Runtime struct {
@@ -46,9 +58,12 @@ type Runtime struct {
 	Getwd            func() (string, error)
 }
 
-func (r Runtime) Execute(ctx context.Context, request RequestFrame, emit func(OutputFrame) error) (TerminalFrame, error) {
+func (r Runtime) Execute(ctx context.Context, request RequestFrame, protocol ExecutionProtocol) (TerminalFrame, error) {
 	if err := request.Validate(); err != nil {
 		return TerminalFrame{}, err
+	}
+	if protocol == nil {
+		return TerminalFrame{}, contextRuntimeFailure(request, failure.ContextExecUnavailable, "execution_protocol_unavailable")
 	}
 	if r.Launcher == nil || !r.Launcher.Qualified() {
 		return TerminalFrame{}, contextRuntimeFailure(request, failure.ContextExecUnavailable, "strong_executor_unavailable")
@@ -57,26 +72,86 @@ func (r Runtime) Execute(ctx context.Context, request RequestFrame, emit func(Ou
 	if err != nil {
 		return TerminalFrame{}, err
 	}
-	child, err := r.Launcher.Launch(spec)
+	prepared, execute, resolved, err := r.prepareAuthorizedExecution(ctx, request, protocol, spec)
 	if err != nil {
-		return TerminalFrame{}, contextRuntimeFailure(request, failure.ContextExecUnavailable, "spawn_failed")
+		return TerminalFrame{}, err
 	}
-	if child == nil || child.Stdout == nil || child.Stderr == nil || child.Wait == nil || child.KillGroup == nil || child.ResolvedExecutable == "" || !filepath.IsAbs(child.ResolvedExecutable) {
-		if child != nil && child.KillGroup != nil {
-			_ = child.KillGroup()
-		}
-		if child != nil && child.Wait != nil {
-			_, _ = child.Wait()
-		}
-		return TerminalFrame{}, contextRuntimeFailure(request, failure.ContextExecUnavailable, "executor_identity_unproven")
+	child, err := startAuthorizedExecution(request, protocol, prepared, execute, resolved)
+	if err != nil {
+		return TerminalFrame{}, err
 	}
+	return collectChildTerminal(ctx, request, protocol, child)
+}
 
+func (r Runtime) prepareAuthorizedExecution(ctx context.Context, request RequestFrame, protocol ExecutionProtocol, spec ChildSpec) (PreparedExecution, ExecuteFrame, string, error) {
+	prepared, err := r.Launcher.Prepare(spec)
+	if err != nil {
+		_, ackErr := protocol.AuthorizePrepared(ctx, PreparedFrame{ProtocolVersion: ProtocolVersion, Kind: KindPrepared, FailureCode: string(failure.ContextExecUnavailable)})
+		if ackErr != nil {
+			return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextHelperLost, "prepare_failure_ack_lost")
+		}
+		return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextExecUnavailable, "prepare_failed")
+	}
+	if prepared == nil {
+		return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextExecUnavailable, "prepared_executor_unavailable")
+	}
+	resolved := prepared.ResolvedExecutable()
+	if resolved == "" || !filepath.IsAbs(resolved) {
+		_ = prepared.Close()
+		return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextExecUnavailable, "prepared_executable_unproven")
+	}
+	execute, err := protocol.AuthorizePrepared(ctx, PreparedFrame{ProtocolVersion: ProtocolVersion, Kind: KindPrepared, ResolvedExecutable: resolved})
+	if err != nil {
+		_ = prepared.Close()
+		return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextHelperLost, "execute_ack_lost")
+	}
+	if err := execute.Validate(); err != nil || !execute.Authorized {
+		_ = prepared.Close()
+		return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextExecUnavailable, "execute_not_authorized")
+	}
+	return prepared, execute, resolved, nil
+}
+
+func startAuthorizedExecution(request RequestFrame, protocol ExecutionProtocol, prepared PreparedExecution, execute ExecuteFrame, resolved string) (*ChildProcess, error) {
+	child, startErr := prepared.Start()
+	closeErr := prepared.Close()
+	if startErr != nil {
+		spawn := SpawnFrame{
+			ProtocolVersion:    ProtocolVersion,
+			Kind:               KindSpawn,
+			ChildOperationID:   execute.ChildOperationID,
+			ChildSessionID:     execute.ChildSessionID,
+			ResolvedExecutable: resolved,
+			Spawn:              receipt.SpawnEvidence{Attempted: true, Succeeded: false, ErrorCode: string(failure.ContextExecUnavailable)},
+		}
+		if err := protocol.SendSpawn(spawn); err != nil {
+			return nil, contextRuntimeFailure(request, failure.ContextHelperLost, "spawn_failure_report_lost")
+		}
+		return nil, contextRuntimeFailure(request, failure.ContextExecUnavailable, "spawn_failed")
+	}
+	if child == nil || child.Stdout == nil || child.Stderr == nil || child.Wait == nil || child.KillGroup == nil || child.ResolvedExecutable == "" || !filepath.IsAbs(child.ResolvedExecutable) || !ExecutableMatches(child.ResolvedExecutable, resolved) {
+		killAndReapChild(child)
+		return nil, contextRuntimeFailure(request, failure.ContextExecUnavailable, "executor_identity_unproven")
+	}
+	if closeErr != nil {
+		killAndReapChild(child)
+		return nil, contextRuntimeFailure(request, failure.ContextHelperLost, "prepared_close_failed")
+	}
+	spawn := SpawnFrame{ProtocolVersion: ProtocolVersion, Kind: KindSpawn, ChildOperationID: execute.ChildOperationID, ChildSessionID: execute.ChildSessionID, ResolvedExecutable: resolved, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}}
+	if err := protocol.SendSpawn(spawn); err != nil {
+		killAndReapChild(child)
+		return nil, contextRuntimeFailure(request, failure.ContextHelperLost, "spawn_report_lost")
+	}
+	return child, nil
+}
+
+func collectChildTerminal(ctx context.Context, request RequestFrame, protocol ExecutionProtocol, child *ChildProcess) (TerminalFrame, error) {
 	outputCh := make(chan struct {
 		value CanonicalOutput
 		err   error
 	}, 1)
 	go func() {
-		value, err := CaptureOutput(child.Stdout, child.Stderr, request.Request.MaxOutputBytes, emit)
+		value, err := CaptureOutput(child.Stdout, child.Stderr, request.Request.MaxOutputBytes, protocol.SendOutput)
 		outputCh <- struct {
 			value CanonicalOutput
 			err   error
@@ -93,7 +168,6 @@ func (r Runtime) Execute(ctx context.Context, request RequestFrame, emit func(Ou
 			err  error
 		}{exit, err}
 	}()
-
 	waited, timedOut, signal := waitForChild(ctx, request.Request.TimeoutMS, child, waitCh)
 	captured := <-outputCh
 	if waited.err != nil {
@@ -105,23 +179,34 @@ func (r Runtime) Execute(ctx context.Context, request RequestFrame, emit func(Ou
 	if !waited.exit.Reaped {
 		return TerminalFrame{}, contextRuntimeFailure(request, failure.ContextHelperLost, "reap_unproven")
 	}
-
 	quality := core.EvidenceQualityComplete
 	if !captured.value.Complete {
 		quality = core.EvidenceQualityIncomplete
 	}
 	result := core.Result{
-		SchemaVersion: core.SchemaVersion, ContextExecID: request.Request.ContextExecID, RequestFingerprint: request.Helper.RequestFingerprint, Lifecycle: core.LifecycleCanonicalized,
+		SchemaVersion: core.SchemaVersion, ContextExecID: request.Request.ContextExecID, RequestFingerprint: request.Helper.RequestFingerprint, Lifecycle: core.LifecycleChildTerminal,
 		Context: request.Context, Helper: &request.Helper, Executable: core.ExecutableIdentity{Requested: request.Request.Argv[0], ResolvedPath: child.ResolvedExecutable},
 		Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: waited.exit.Code, Signal: waited.exit.Signal}, Signal: signal, TimedOut: timedOut,
 		Output:          core.OutputEvidence{StdoutBytes: captured.value.StdoutBytes, StderrBytes: captured.value.StderrBytes, OutputComplete: captured.value.Complete, Truncated: captured.value.Truncated, Attribution: core.OutputAttributionHelperOwnedChildPipes},
-		EvidenceQuality: quality, EvidenceAuthority: core.EvidenceAuthorityContextExecChildOwnedV1,
+		EvidenceQuality: quality, EvidenceAuthority: "",
 	}
 	terminal := TerminalFrame{ProtocolVersion: ProtocolVersion, Kind: KindTerminal, Result: result}
 	if err := terminal.Validate(); err != nil {
-		return TerminalFrame{}, fmt.Errorf("invalid canonical context child result: %w", err)
+		return TerminalFrame{}, fmt.Errorf("invalid context child terminal result: %w", err)
 	}
 	return terminal, nil
+}
+
+func killAndReapChild(child *ChildProcess) {
+	if child == nil {
+		return
+	}
+	if child.KillGroup != nil {
+		_ = child.KillGroup()
+	}
+	if child.Wait != nil {
+		_, _ = child.Wait()
+	}
 }
 
 func (r Runtime) childSpec(request RequestFrame) (ChildSpec, error) {
@@ -141,9 +226,10 @@ func (r Runtime) childSpec(request RequestFrame) (ChildSpec, error) {
 		environ = os.Environ
 	}
 	return ChildSpec{
-		Argv: append([]string(nil), request.Request.Argv...),
-		CWD:  request.Context.CWDObserved,
-		Env:  SanitizeChildEnvironment(environ()),
+		Argv:             append([]string(nil), request.Request.Argv...),
+		HelperExecutable: r.HelperExecutable,
+		CWD:              request.Context.CWDObserved,
+		Env:              SanitizeChildEnvironment(environ()),
 	}, nil
 }
 

@@ -224,7 +224,7 @@ func validateCreateRequest(req app.CreateRequest) error {
 }
 
 func (p *Provider) queryFacts(ctx context.Context, c *controlClient, target string) (tmuxFacts, error) {
-	line, err := tmuxCommandLine("display-message", "-p", "-t", target, "#{session_id}|#{window_id}|#{pane_id}|#{pane_pid}|#{pane_current_command}|#{pane_dead}|#{pane_dead_status}|#{socket_path}|#{pid}|#{version}")
+	line, err := tmuxCommandLine("display-message", "-p", "-t", target, "#{session_id}|#{window_id}|#{pane_id}|#{pane_pid}|#{q:pane_current_command}|#{q:pane_tty}|#{q:pane_current_path}|#{pane_dead}|#{pane_dead_status}|#{q:socket_path}|#{pid}|#{q:version}")
 	if err != nil {
 		return tmuxFacts{}, err
 	}
@@ -232,15 +232,19 @@ func (p *Provider) queryFacts(ctx context.Context, c *controlClient, target stri
 	if err != nil {
 		return tmuxFacts{}, err
 	}
-	parts := strings.Split(result.Data, "|")
-	if len(parts) != 10 {
+	return parseTmuxFacts(result.Data)
+}
+
+func parseTmuxFacts(data string) (tmuxFacts, error) {
+	parts, err := splitEscapedTmuxFacts(data)
+	if err != nil || len(parts) != 12 {
 		return tmuxFacts{}, fmt.Errorf("unexpected tmux facts")
 	}
 	panePID, err := strconv.Atoi(parts[3])
 	if err != nil || panePID <= 0 {
 		return tmuxFacts{}, fmt.Errorf("invalid pane pid")
 	}
-	serverPID, err := strconv.Atoi(parts[8])
+	serverPID, err := strconv.Atoi(parts[10])
 	if err != nil || serverPID <= 0 {
 		return tmuxFacts{}, fmt.Errorf("invalid server pid")
 	}
@@ -248,17 +252,73 @@ func (p *Provider) queryFacts(ctx context.Context, c *controlClient, target stri
 	if currentCommand == "" || strings.ContainsAny(currentCommand, "\x00\r\n") {
 		return tmuxFacts{}, fmt.Errorf("invalid pane current command")
 	}
-	terminal := parts[5] == "1"
+	terminal := parts[7] == "1"
 	var code *int
-	if terminal && parts[6] != "" {
-		v, err := strconv.Atoi(parts[6])
+	if terminal && parts[8] != "" {
+		v, err := strconv.Atoi(parts[8])
 		if err != nil {
 			return tmuxFacts{}, fmt.Errorf("invalid pane exit status")
 		}
 		code = &v
 	}
-	return tmuxFacts{SessionInternalID: parts[0], WindowID: parts[1], PaneID: parts[2], PanePID: panePID, ServerPID: serverPID, Terminal: terminal, ExitCode: code, CurrentCommand: currentCommand, SocketPath: parts[7], Version: "tmux " + strings.TrimPrefix(parts[9], "tmux ")}, nil
+	paneTTY := contextExecPaneTTY(parts[5])
+	cwd := contextExecCWD(parts[6])
+	return tmuxFacts{
+		SessionInternalID: parts[0], WindowID: parts[1], PaneID: parts[2],
+		PanePID: panePID, ServerPID: serverPID, Terminal: terminal, ExitCode: code,
+		CurrentCommand: currentCommand, PaneTTY: paneTTY, CWD: cwd,
+		SocketPath: parts[9], Version: "tmux " + strings.TrimPrefix(parts[11], "tmux "),
+	}, nil
 }
+
+func splitEscapedTmuxFacts(data string) ([]string, error) {
+	parts := make([]string, 0, 12)
+	var field strings.Builder
+	escaped := false
+	for i := 0; i < len(data); i++ {
+		c := data[i]
+		if escaped {
+			field.WriteByte(c)
+			escaped = false
+			continue
+		}
+		switch c {
+		case '\\':
+			escaped = true
+		case '|':
+			parts = append(parts, field.String())
+			field.Reset()
+		case '\x00', '\r', '\n':
+			return nil, fmt.Errorf("invalid tmux facts")
+		default:
+			field.WriteByte(c)
+		}
+	}
+	if escaped {
+		return nil, fmt.Errorf("invalid tmux facts escape")
+	}
+	parts = append(parts, field.String())
+	return parts, nil
+}
+
+func contextExecPaneTTY(value string) string {
+	if value == "" || strings.ContainsAny(value, "\x00\r\n") || !filepath.IsAbs(value) {
+		return ""
+	}
+	clean := filepath.Clean(value)
+	if !strings.HasPrefix(clean, "/dev/") {
+		return ""
+	}
+	return clean
+}
+
+func contextExecCWD(value string) string {
+	if value == "" || strings.ContainsAny(value, "\x00\r\n") || !filepath.IsAbs(value) {
+		return ""
+	}
+	return filepath.Clean(value)
+}
+
 func (p *Provider) queryGeneration(ctx context.Context, c *controlClient) (string, error) {
 	line, _ := tmuxCommandLine("show-environment", "-g", "SHELLBEAM_PROVIDER_GENERATION")
 	result, err := c.command(ctx, line)
@@ -286,7 +346,7 @@ func (p *Provider) observationFromFacts(c *controlClient, state privateState, fa
 	if facts.Terminal {
 		owner = core.OwnerNone
 	}
-	return app.Observation{Provider: p.Identity(), ProviderCurrent: true, ProviderGeneration: state.ProviderGeneration, Owner: owner, Terminal: facts.Terminal, ExitCode: facts.ExitCode, PanePID: facts.PanePID, CurrentCommand: facts.CurrentCommand, OutputBytes: c.outputByteCount()}
+	return app.Observation{Provider: p.Identity(), ProviderCurrent: true, ProviderGeneration: state.ProviderGeneration, Owner: owner, Terminal: facts.Terminal, ExitCode: facts.ExitCode, PanePID: facts.PanePID, CurrentCommand: facts.CurrentCommand, PaneTTY: facts.PaneTTY, CWD: facts.CWD, OutputBytes: c.outputByteCount()}
 }
 func (p *Provider) currentControl(ctx context.Context, ref core.ProviderRef) (*controlClient, privateState, app.Observation, error) {
 	state, err := p.state.load(ref.Ref)

@@ -99,13 +99,8 @@ func (r Result) Validate() error {
 	if err := r.Context.Validate(); err != nil {
 		return err
 	}
-	if r.Helper != nil {
-		if err := r.Helper.Validate(); err != nil {
-			return err
-		}
-		if r.Helper.RequestFingerprint != r.RequestFingerprint {
-			return fmt.Errorf("context helper request fingerprint mismatch")
-		}
+	if err := r.validateHelperBinding(); err != nil {
+		return err
 	}
 	if err := r.EvidenceQuality.Validate(); err != nil {
 		return err
@@ -113,48 +108,86 @@ func (r Result) Validate() error {
 	if r.EvidenceAuthority != "" && r.EvidenceAuthority != EvidenceAuthorityContextExecChildOwnedV1 {
 		return fmt.Errorf("invalid context exec evidence authority")
 	}
-
 	switch r.Lifecycle {
+	case LifecycleChildTerminal:
+		return r.validateChildTerminal(false)
 	case LifecycleCanonicalized:
-		if r.Helper == nil {
-			return fmt.Errorf("canonical context exec result lacks helper binding")
-		}
-		if err := r.Executable.Validate(); err != nil {
-			return err
-		}
-		if !r.Spawn.Attempted || !r.Spawn.Succeeded || !r.Exit.Reaped {
-			return fmt.Errorf("canonical context exec result lacks literal terminal evidence")
-		}
-		if err := r.Output.Validate(); err != nil {
-			return err
-		}
-		if r.EvidenceAuthority != EvidenceAuthorityContextExecChildOwnedV1 {
-			return fmt.Errorf("canonical context exec result lacks child-owned evidence authority")
-		}
-		if r.Output.OutputComplete {
-			if r.Output.Truncated || r.EvidenceQuality != EvidenceQualityComplete {
-				return fmt.Errorf("complete context exec output has inconsistent evidence quality")
-			}
-		} else if r.EvidenceQuality != EvidenceQualityIncomplete {
-			return fmt.Errorf("incomplete context exec output has inconsistent evidence quality")
-		}
+		return r.validateChildTerminal(true)
 	case LifecycleHelperLost, LifecycleAmbiguous:
-		if r.EvidenceQuality != EvidenceQualityAmbiguous || r.EvidenceAuthority != "" {
-			return fmt.Errorf("ambiguous context exec result cannot claim evidence authority")
-		}
-		if r.Executable.Requested != "" || r.Executable.ResolvedPath != "" {
-			if err := r.Executable.Validate(); err != nil {
-				return err
-			}
-		}
-		if r.Output.Attribution != "" || r.Output.StdoutBytes != 0 || r.Output.StderrBytes != 0 || r.Output.OutputComplete || r.Output.Truncated {
-			if err := r.Output.Validate(); err != nil {
-				return err
-			}
-		}
+		return r.validateAmbiguousResult()
 	default:
 		if r.EvidenceAuthority != "" {
 			return fmt.Errorf("nonterminal context exec result cannot claim evidence authority")
+		}
+		return nil
+	}
+}
+
+func (r Result) validateHelperBinding() error {
+	if r.Helper == nil {
+		return nil
+	}
+	if err := r.Helper.Validate(); err != nil {
+		return err
+	}
+	if r.Helper.RequestFingerprint != r.RequestFingerprint {
+		return fmt.Errorf("context helper request fingerprint mismatch")
+	}
+	return nil
+}
+
+func (r Result) validateChildTerminal(canonical bool) error {
+	label := "child terminal"
+	if canonical {
+		label = "canonical"
+	}
+	if r.Helper == nil {
+		return fmt.Errorf("%s context exec result lacks helper binding", label)
+	}
+	if err := r.Executable.Validate(); err != nil {
+		return err
+	}
+	if !r.Spawn.Attempted || !r.Spawn.Succeeded || !r.Exit.Reaped {
+		return fmt.Errorf("%s context exec result lacks literal terminal evidence", label)
+	}
+	if err := r.Output.Validate(); err != nil {
+		return err
+	}
+	if canonical {
+		if r.EvidenceAuthority != EvidenceAuthorityContextExecChildOwnedV1 {
+			return fmt.Errorf("canonical context exec result lacks child-owned evidence authority")
+		}
+	} else if r.EvidenceAuthority != "" {
+		return fmt.Errorf("child terminal context exec result cannot claim evidence authority")
+	}
+	return r.validateOutputQuality(label)
+}
+
+func (r Result) validateOutputQuality(label string) error {
+	if r.Output.OutputComplete {
+		if r.Output.Truncated || r.EvidenceQuality != EvidenceQualityComplete {
+			return fmt.Errorf("complete %s output has inconsistent evidence quality", label)
+		}
+		return nil
+	}
+	if r.EvidenceQuality != EvidenceQualityIncomplete {
+		return fmt.Errorf("incomplete %s output has inconsistent evidence quality", label)
+	}
+	return nil
+}
+
+func (r Result) validateAmbiguousResult() error {
+	if r.EvidenceQuality != EvidenceQualityAmbiguous || r.EvidenceAuthority != "" {
+		return fmt.Errorf("ambiguous context exec result cannot claim evidence authority")
+	}
+	if r.Executable.Requested != "" || r.Executable.ResolvedPath != "" {
+		if err := r.Executable.Validate(); err != nil {
+			return err
+		}
+	}
+	if r.Output.Attribution != "" || r.Output.StdoutBytes != 0 || r.Output.StderrBytes != 0 || r.Output.OutputComplete || r.Output.Truncated {
+		if err := r.Output.Validate(); err != nil {
+			return err
 		}
 	}
 	return nil

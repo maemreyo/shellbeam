@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	contextexec "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -77,16 +78,16 @@ func TestContextExecHelperGenerationIsOneShotPrivateAndChildSpawnRequiresV6Reser
 	claimMaterial := "never-persist-this-capability"
 	sum := sha256.Sum256([]byte(claimMaterial))
 	verifier := hex.EncodeToString(sum[:])
-	stored, result = r.BindHelperGeneration(context.Background(), want.Request.ContextExecID, helper, verifier)
+	stored, result = bindContextExecHelper(t, r, want.Request.ContextExecID, helper, verifier)
 	if result.Err != nil || stored.Lifecycle != contextexec.LifecycleHelperAuthenticated || stored.Helper == nil || stored.Helper.Generation != helper.Generation {
 		t.Fatalf("authenticated stored=%#v result=%#v", stored, result)
 	}
-	if replay, got := r.BindHelperGeneration(context.Background(), want.Request.ContextExecID, helper, verifier); got.Err != nil || replay.Lifecycle != contextexec.LifecycleHelperAuthenticated {
+	if replay, got := bindContextExecHelper(t, r, want.Request.ContextExecID, helper, verifier); got.Err != nil || replay.Lifecycle != contextexec.LifecycleHelperAuthenticated {
 		t.Fatalf("auth replay=%#v result=%#v", replay, got)
 	}
 	other := helper
 	other.Generation = "helper_gen_02"
-	if _, got := r.BindHelperGeneration(context.Background(), want.Request.ContextExecID, other, verifier); !errors.Is(got.Err, failure.OperationConflict) {
+	if _, got := bindContextExecHelper(t, r, want.Request.ContextExecID, other, verifier); !errors.Is(got.Err, failure.OperationConflict) {
 		t.Fatalf("second generation result=%#v", got)
 	}
 
@@ -103,18 +104,32 @@ func TestContextExecHelperGenerationIsOneShotPrivateAndChildSpawnRequiresV6Reser
 	}
 
 	child := validContextChildReservation(t, stored, "context_child_op_01", "context_child_session_01")
-	transition := operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildSpawned, ChildOperationID: child.OperationID, ChildSessionID: child.SessionID}
-	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, transition); got.Err == nil {
-		t.Fatal("child_spawned accepted before v6 reservation")
+	reserveChild := operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildReserved, ChildOperationID: child.OperationID, ChildSessionID: child.SessionID}
+	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, reserveChild); got.Err == nil {
+		t.Fatal("child_reserved accepted before v6 reservation")
 	}
 	if _, created, got := r.ReserveOperation(context.Background(), child); got.Err != nil || !created {
 		t.Fatalf("child reservation created=%v result=%#v", created, got)
 	}
-	stored, result = r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, transition)
+	stored, result = r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, reserveChild)
+	if result.Err != nil || stored.Lifecycle != contextexec.LifecycleChildReserved || stored.ExecutionAuthorized {
+		t.Fatalf("child reserve stored=%#v result=%#v", stored, result)
+	}
+	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildSpawned}); got.Err == nil {
+		t.Fatal("child_spawned accepted before execute authorization")
+	}
+	authorize := reserveChild
+	authorize.ExecutionAuthorized = true
+	stored, result = r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, authorize)
+	if result.Err != nil || !stored.ExecutionAuthorized {
+		t.Fatalf("authorize stored=%#v result=%#v", stored, result)
+	}
+	spawn := operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildSpawned}
+	stored, result = r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, spawn)
 	if result.Err != nil || stored.Lifecycle != contextexec.LifecycleChildSpawned || stored.ChildOperationID != child.OperationID || stored.ChildSessionID != child.SessionID {
 		t.Fatalf("spawn stored=%#v result=%#v", stored, result)
 	}
-	if replay, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, transition); got.Err != nil || replay.Lifecycle != contextexec.LifecycleChildSpawned {
+	if replay, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, spawn); got.Err != nil || replay.Lifecycle != contextexec.LifecycleChildSpawned {
 		t.Fatalf("spawn replay=%#v result=%#v", replay, got)
 	}
 }
@@ -156,17 +171,28 @@ func validContextExecState(t *testing.T, id string) operation.ContextExecState {
 		t.Fatal(err)
 	}
 	at := time.Date(2026, 8, 21, 2, 30, 0, 0, time.UTC)
-	return operation.ContextExecState{SchemaVersion: operation.ContextExecStateSchemaVersion, Request: req, RequestFingerprint: fp, Context: contextexec.ContextBinding{SessionID: req.SessionID, AuthorityEpoch: req.AuthorityEpoch, ShellIdentity: "fish:runtime_01", BoundaryQuality: "shell_prompt", CWDObserved: "/tmp/project", PrivacyState: "standard"}, Lifecycle: contextexec.LifecycleReserved, CreatedAt: at, UpdatedAt: at}
+	return operation.ContextExecState{SchemaVersion: operation.ContextExecStateSchemaVersion, Request: req, RequestFingerprint: fp, Expectation: contextexec.ContextExpectation{SessionID: req.SessionID, AuthorityEpoch: req.AuthorityEpoch, ProviderGeneration: "gen_store_01", ShellIdentity: "fish:runtime_01", CWDObserved: "/tmp/project", PrivacyState: "standard"}, Lifecycle: contextexec.LifecycleReserved, CreatedAt: at, UpdatedAt: at}
+}
+
+func bindContextExecHelper(t *testing.T, r *Repository, id string, helper contextexec.HelperBinding, verifier string) (operation.ContextExecState, app.StoreResult) {
+	t.Helper()
+	state, found, err := r.LookupContextExec(context.Background(), id)
+	if err != nil || !found {
+		t.Fatalf("lookup before helper bind found=%v err=%v", found, err)
+	}
+	final := contextexec.ContextBinding{SessionID: state.Expectation.SessionID, AuthorityEpoch: state.Expectation.AuthorityEpoch, ShellIdentity: state.Expectation.ShellIdentity, BoundaryQuality: "shell_prompt", CWDObserved: state.Expectation.CWDObserved, PrivacyState: state.Expectation.PrivacyState}
+	boundary := time.Date(2026, 8, 21, 2, 31, 0, 0, time.UTC)
+	return r.BindHelperGeneration(context.Background(), id, helper, final, boundary, verifier)
 }
 
 func validContextChildReservation(t *testing.T, state operation.ContextExecState, opID operation.ID, sessionID operation.SessionID) operation.Reservation {
 	t.Helper()
 	binding := &operation.ContextExecBinding{ContextExecID: state.Request.ContextExecID, ParentSessionID: operation.SessionID(state.Request.SessionID), AuthorityEpoch: state.Request.AuthorityEpoch, RequestFingerprint: state.RequestFingerprint}
-	execFP, err := binding.ExecutionFingerprint(state.Context.CWDObserved, "/usr/bin/go")
+	execFP, err := binding.ExecutionFingerprint(state.Expectation.CWDObserved, "/usr/bin/go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return operation.Reservation{SchemaVersion: operation.ContextExecReservationSchemaVersion, OperationID: opID, SessionID: sessionID, RequestFingerprint: state.RequestFingerprint, ExecutionFingerprint: execFP, ExecutionMode: operation.ExecutionModeArgv, Executable: "/usr/bin/go", Argv: append([]string(nil), state.Request.Argv...), CWD: state.Context.CWDObserved, TimeoutMS: state.Request.TimeoutMS, DaemonIncarnation: "daemon", ContextExec: binding}
+	return operation.Reservation{SchemaVersion: operation.ContextExecReservationSchemaVersion, OperationID: opID, SessionID: sessionID, RequestFingerprint: state.RequestFingerprint, ExecutionFingerprint: execFP, ExecutionMode: operation.ExecutionModeArgv, Executable: "/usr/bin/go", Argv: append([]string(nil), state.Request.Argv...), CWD: state.Expectation.CWDObserved, TimeoutMS: state.Request.TimeoutMS, DaemonIncarnation: "daemon", ContextExec: binding}
 }
 
 func mustContextExecJSON(t *testing.T, v any) []byte {
@@ -187,14 +213,14 @@ func TestReserveContextExecExactRequestReplayReturnsFrozenFirstContext(t *testin
 	}
 
 	replay := want.Clone()
-	replay.Context.ShellIdentity = "zsh:runtime_after_response_loss"
-	replay.Context.CWDObserved = "/tmp/changed-after-reserve"
+	replay.Expectation.ShellIdentity = "zsh:runtime_after_response_loss"
+	replay.Expectation.CWDObserved = "/tmp/changed-after-reserve"
 	stored, created, got = r.ReserveContextExec(context.Background(), replay)
 	if got.Err != nil || created {
 		t.Fatalf("exact public request replay rejected after context drift: stored=%#v created=%v result=%#v", stored, created, got)
 	}
-	if stored.Context != want.Context {
-		t.Fatalf("replay replaced frozen context: got=%#v want=%#v", stored.Context, want.Context)
+	if stored.Expectation != want.Expectation {
+		t.Fatalf("replay replaced frozen expectation: got=%#v want=%#v", stored.Expectation, want.Expectation)
 	}
 }
 
@@ -261,17 +287,17 @@ func TestContextExecAuthAndSpawnAckLossReplaySameGenerationAndChild(t *testing.T
 				verifier := strings.Repeat("a", 64)
 				if stage == "auth" {
 					r.writer = failAtomicWriter(point)
-					if _, first := r.BindHelperGeneration(context.Background(), want.Request.ContextExecID, helper, verifier); first.Err == nil {
+					if _, first := bindContextExecHelper(t, r, want.Request.ContextExecID, helper, verifier); first.Err == nil {
 						t.Fatal("fault did not interrupt auth persistence")
 					}
 					r = openRecoveryRepository(t, root)
-					stored, retry := r.BindHelperGeneration(context.Background(), want.Request.ContextExecID, helper, verifier)
+					stored, retry := bindContextExecHelper(t, r, want.Request.ContextExecID, helper, verifier)
 					if retry.Err != nil || stored.Lifecycle != contextexec.LifecycleHelperAuthenticated || stored.Helper == nil || stored.Helper.Generation != helper.Generation {
 						t.Fatalf("auth retry stored=%#v result=%#v", stored, retry)
 					}
 					return
 				}
-				if _, got := r.BindHelperGeneration(context.Background(), want.Request.ContextExecID, helper, verifier); got.Err != nil {
+				if _, got := bindContextExecHelper(t, r, want.Request.ContextExecID, helper, verifier); got.Err != nil {
 					t.Fatal(got.Err)
 				}
 				state, found, err := r.LookupContextExec(context.Background(), want.Request.ContextExecID)
@@ -282,7 +308,16 @@ func TestContextExecAuthAndSpawnAckLossReplaySameGenerationAndChild(t *testing.T
 				if _, created, got := r.ReserveOperation(context.Background(), child); got.Err != nil || !created {
 					t.Fatalf("child reserve created=%v result=%#v", created, got)
 				}
-				transition := operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildSpawned, ChildOperationID: child.OperationID, ChildSessionID: child.SessionID}
+				reserveChild := operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildReserved, ChildOperationID: child.OperationID, ChildSessionID: child.SessionID}
+				if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, reserveChild); got.Err != nil {
+					t.Fatal(got.Err)
+				}
+				authorize := reserveChild
+				authorize.ExecutionAuthorized = true
+				if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, authorize); got.Err != nil {
+					t.Fatal(got.Err)
+				}
+				transition := operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildSpawned}
 				r.writer = failAtomicWriter(point)
 				if _, first := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, transition); first.Err == nil {
 					t.Fatal("fault did not interrupt child-spawned persistence")
@@ -308,7 +343,7 @@ func TestContextExecTerminalAndCanonicalAckLossReplayWithoutInventingSecondChild
 	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, operation.ContextExecTransition{Lifecycle: contextexec.LifecycleHelperRequested, Helper: &helper}); got.Err != nil {
 		t.Fatal(got.Err)
 	}
-	if _, got := r.BindHelperGeneration(context.Background(), want.Request.ContextExecID, helper, strings.Repeat("b", 64)); got.Err != nil {
+	if _, got := bindContextExecHelper(t, r, want.Request.ContextExecID, helper, strings.Repeat("b", 64)); got.Err != nil {
 		t.Fatal(got.Err)
 	}
 	state, found, err := r.LookupContextExec(context.Background(), want.Request.ContextExecID)
@@ -319,7 +354,16 @@ func TestContextExecTerminalAndCanonicalAckLossReplayWithoutInventingSecondChild
 	if _, created, got := r.ReserveOperation(context.Background(), child); got.Err != nil || !created {
 		t.Fatalf("child reserve created=%v result=%#v", created, got)
 	}
-	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildSpawned, ChildOperationID: child.OperationID, ChildSessionID: child.SessionID}); got.Err != nil {
+	reserveChild := operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildReserved, ChildOperationID: child.OperationID, ChildSessionID: child.SessionID}
+	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, reserveChild); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	authorize := reserveChild
+	authorize.ExecutionAuthorized = true
+	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, authorize); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+	if _, got := r.AdvanceContextExec(context.Background(), want.Request.ContextExecID, operation.ContextExecTransition{Lifecycle: contextexec.LifecycleChildSpawned}); got.Err != nil {
 		t.Fatal(got.Err)
 	}
 
@@ -350,7 +394,7 @@ func validStoredContextExecResult(state operation.ContextExecState, helper conte
 	zero := 0
 	result := contextexec.Result{
 		SchemaVersion: contextexec.SchemaVersion, ContextExecID: state.Request.ContextExecID, RequestFingerprint: state.RequestFingerprint,
-		Lifecycle: lifecycle, Context: state.Context, Helper: &helper,
+		Lifecycle: lifecycle, Context: *state.Context, Helper: &helper,
 		Executable: contextexec.ExecutableIdentity{Requested: state.Request.Argv[0], ResolvedPath: "/usr/bin/go"},
 		Spawn:      receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: &zero},
 		Output:          contextexec.OutputEvidence{StdoutBytes: 8, OutputComplete: true, Attribution: contextexec.OutputAttributionHelperOwnedChildPipes},

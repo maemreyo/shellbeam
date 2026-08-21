@@ -73,6 +73,37 @@ func (r Request) Validate() error {
 	return nil
 }
 
+type ContextExpectation struct {
+	SessionID          string                   `json:"session_id"`
+	AuthorityEpoch     delegated.AuthorityEpoch `json:"authority_epoch"`
+	ProviderGeneration string                   `json:"provider_generation"`
+	ShellIdentity      string                   `json:"shell_identity"`
+	CWDObserved        string                   `json:"cwd_observed"`
+	PrivacyState       string                   `json:"privacy_state"`
+}
+
+func (e ContextExpectation) Validate() error {
+	if !validOpaque(e.SessionID, MaxSessionIDBytes) {
+		return fmt.Errorf("invalid context expectation session identity")
+	}
+	if err := e.AuthorityEpoch.Validate(); err != nil {
+		return err
+	}
+	if !validOpaque(e.ProviderGeneration, MaxOpaqueRefBytes) {
+		return fmt.Errorf("invalid context expectation provider generation")
+	}
+	if !validOpaque(e.ShellIdentity, MaxIdentityBytes) {
+		return fmt.Errorf("invalid context expectation shell identity")
+	}
+	if e.CWDObserved == "" || len(e.CWDObserved) > MaxPathBytes || !filepath.IsAbs(e.CWDObserved) {
+		return fmt.Errorf("invalid expected context cwd")
+	}
+	if e.PrivacyState != "standard" {
+		return fmt.Errorf("context exec requires public privacy state")
+	}
+	return nil
+}
+
 type ContextBinding struct {
 	SessionID       string                   `json:"session_id"`
 	AuthorityEpoch  delegated.AuthorityEpoch `json:"authority_epoch"`

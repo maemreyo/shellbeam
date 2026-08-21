@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	ContextExecStateSchemaVersion       = 1
+	ContextExecStateSchemaVersion       = 2
 	ContextExecReservationSchemaVersion = 6
 )
 
@@ -86,35 +86,31 @@ func (b ContextExecBinding) ExecutionFingerprint(cwd, actualExecutable string) (
 }
 
 type ContextExecState struct {
-	SchemaVersion      int                        `json:"schema_version"`
-	Request            contextexec.Request        `json:"request"`
-	RequestFingerprint string                     `json:"request_fingerprint"`
-	Context            contextexec.ContextBinding `json:"context"`
-	Lifecycle          contextexec.Lifecycle      `json:"lifecycle"`
-	Helper             *contextexec.HelperBinding `json:"helper,omitempty"`
-	ChildOperationID   ID                         `json:"child_operation_id,omitempty"`
-	ChildSessionID     SessionID                  `json:"child_session_id,omitempty"`
-	Result             *contextexec.Result        `json:"result,omitempty"`
-	CreatedAt          time.Time                  `json:"created_at"`
-	UpdatedAt          time.Time                  `json:"updated_at"`
+	SchemaVersion       int                            `json:"schema_version"`
+	Request             contextexec.Request            `json:"request"`
+	RequestFingerprint  string                         `json:"request_fingerprint"`
+	Expectation         contextexec.ContextExpectation `json:"expectation"`
+	Context             *contextexec.ContextBinding    `json:"context,omitempty"`
+	BoundaryObservedAt  time.Time                      `json:"boundary_observed_at,omitempty"`
+	Lifecycle           contextexec.Lifecycle          `json:"lifecycle"`
+	Helper              *contextexec.HelperBinding     `json:"helper,omitempty"`
+	ChildOperationID    ID                             `json:"child_operation_id,omitempty"`
+	ChildSessionID      SessionID                      `json:"child_session_id,omitempty"`
+	ExecutionAuthorized bool                           `json:"execution_authorized,omitempty"`
+	Result              *contextexec.Result            `json:"result,omitempty"`
+	CreatedAt           time.Time                      `json:"created_at"`
+	UpdatedAt           time.Time                      `json:"updated_at"`
 }
 
 func (s ContextExecState) Validate() error {
 	if s.SchemaVersion != ContextExecStateSchemaVersion {
 		return fmt.Errorf("invalid context exec state schema")
 	}
-	if err := s.Request.Validate(); err != nil {
+	if err := s.validateRequestExpectation(); err != nil {
 		return err
 	}
-	fingerprint, err := s.Request.Fingerprint()
-	if err != nil || fingerprint != s.RequestFingerprint {
-		return fmt.Errorf("context exec request fingerprint mismatch")
-	}
-	if err := s.Context.Validate(); err != nil {
+	if err := s.validateRuntimeBindings(); err != nil {
 		return err
-	}
-	if s.Context.SessionID != s.Request.SessionID || s.Context.AuthorityEpoch != s.Request.AuthorityEpoch {
-		return fmt.Errorf("context exec context authority mismatch")
 	}
 	if err := s.Lifecycle.Validate(); err != nil {
 		return err
@@ -122,6 +118,42 @@ func (s ContextExecState) Validate() error {
 	if s.CreatedAt.IsZero() || s.UpdatedAt.IsZero() || s.UpdatedAt.Before(s.CreatedAt) {
 		return fmt.Errorf("invalid context exec timestamps")
 	}
+	return s.validateLifecycleState()
+}
+
+func (s ContextExecState) validateRequestExpectation() error {
+	if err := s.Request.Validate(); err != nil {
+		return err
+	}
+	fingerprint, err := s.Request.Fingerprint()
+	if err != nil || fingerprint != s.RequestFingerprint {
+		return fmt.Errorf("context exec request fingerprint mismatch")
+	}
+	if err := s.Expectation.Validate(); err != nil {
+		return err
+	}
+	if s.Expectation.SessionID != s.Request.SessionID || s.Expectation.AuthorityEpoch != s.Request.AuthorityEpoch {
+		return fmt.Errorf("context exec expectation authority mismatch")
+	}
+	if s.Context == nil {
+		if !s.BoundaryObservedAt.IsZero() {
+			return fmt.Errorf("context exec boundary time without final context")
+		}
+		return nil
+	}
+	if err := s.Context.Validate(); err != nil {
+		return err
+	}
+	if !contextExecContextMatchesExpectation(*s.Context, s.Expectation) {
+		return fmt.Errorf("context exec final context expectation mismatch")
+	}
+	if s.BoundaryObservedAt.IsZero() {
+		return fmt.Errorf("context exec final context lacks boundary time")
+	}
+	return nil
+}
+
+func (s ContextExecState) validateRuntimeBindings() error {
 	if s.Helper != nil {
 		if err := s.Helper.Validate(); err != nil {
 			return err
@@ -141,33 +173,49 @@ func (s ContextExecState) Validate() error {
 			return err
 		}
 	}
-	if s.Result != nil {
-		if err := s.Result.Validate(); err != nil {
-			return err
-		}
-		if s.Result.ContextExecID != s.Request.ContextExecID || s.Result.RequestFingerprint != s.RequestFingerprint || !reflect.DeepEqual(s.Result.Context, s.Context) {
-			return fmt.Errorf("context exec result identity mismatch")
-		}
+	if s.ExecutionAuthorized && s.ChildOperationID == "" {
+		return fmt.Errorf("context exec execution authorization lacks child identity")
 	}
+	if s.Result == nil {
+		return nil
+	}
+	if err := s.Result.Validate(); err != nil {
+		return err
+	}
+	if s.Context == nil || s.Result.ContextExecID != s.Request.ContextExecID || s.Result.RequestFingerprint != s.RequestFingerprint || !reflect.DeepEqual(s.Result.Context, *s.Context) {
+		return fmt.Errorf("context exec result identity mismatch")
+	}
+	return nil
+}
+
+func (s ContextExecState) validateLifecycleState() error {
 	switch s.Lifecycle {
 	case contextexec.LifecycleReserved:
-		if s.Helper != nil || s.ChildOperationID != "" || s.Result != nil {
+		if s.Helper != nil || s.Context != nil || s.ChildOperationID != "" || s.Result != nil || s.ExecutionAuthorized {
 			return fmt.Errorf("reserved context exec contains runtime binding")
 		}
-	case contextexec.LifecycleHelperRequested, contextexec.LifecycleHelperAuthenticated:
-		if s.Helper == nil || s.ChildOperationID != "" || s.Result != nil {
-			return fmt.Errorf("helper context exec state is incomplete")
+	case contextexec.LifecycleHelperRequested:
+		if s.Helper == nil || s.Context != nil || s.ChildOperationID != "" || s.Result != nil || s.ExecutionAuthorized {
+			return fmt.Errorf("helper requested context exec state is incomplete")
+		}
+	case contextexec.LifecycleHelperAuthenticated:
+		if s.Helper == nil || s.Context == nil || s.ChildOperationID != "" || s.Result != nil || s.ExecutionAuthorized {
+			return fmt.Errorf("authenticated context exec state is incomplete")
+		}
+	case contextexec.LifecycleChildReserved:
+		if s.Helper == nil || s.Context == nil || s.ChildOperationID == "" || s.Result != nil {
+			return fmt.Errorf("child reserved context exec state is incomplete")
 		}
 	case contextexec.LifecycleChildSpawned:
-		if s.Helper == nil || s.ChildOperationID == "" || s.Result != nil {
+		if s.Helper == nil || s.Context == nil || s.ChildOperationID == "" || s.Result != nil || !s.ExecutionAuthorized {
 			return fmt.Errorf("spawned context exec state is incomplete")
 		}
 	case contextexec.LifecycleChildTerminal:
-		if s.Helper == nil || s.ChildOperationID == "" || s.Result == nil || s.Result.Lifecycle != contextexec.LifecycleChildTerminal {
+		if s.Helper == nil || s.Context == nil || s.ChildOperationID == "" || s.Result == nil || s.Result.Lifecycle != contextexec.LifecycleChildTerminal || !s.ExecutionAuthorized {
 			return fmt.Errorf("terminal context exec state is incomplete")
 		}
 	case contextexec.LifecycleCanonicalized:
-		if s.Helper == nil || s.ChildOperationID == "" || s.Result == nil || s.Result.Lifecycle != contextexec.LifecycleCanonicalized {
+		if s.Helper == nil || s.Context == nil || s.ChildOperationID == "" || s.Result == nil || s.Result.Lifecycle != contextexec.LifecycleCanonicalized || !s.ExecutionAuthorized {
 			return fmt.Errorf("canonical context exec state is incomplete")
 		}
 	case contextexec.LifecycleHelperLost, contextexec.LifecycleAmbiguous:
@@ -178,9 +226,17 @@ func (s ContextExecState) Validate() error {
 	return nil
 }
 
+func contextExecContextMatchesExpectation(v contextexec.ContextBinding, e contextexec.ContextExpectation) bool {
+	return v.SessionID == e.SessionID && v.AuthorityEpoch == e.AuthorityEpoch && v.ShellIdentity == e.ShellIdentity && v.BoundaryQuality == "shell_prompt" && v.CWDObserved == e.CWDObserved && v.PrivacyState == e.PrivacyState
+}
+
 func (s ContextExecState) Clone() ContextExecState {
 	out := s
 	out.Request = s.Request.Clone()
+	if s.Context != nil {
+		context := *s.Context
+		out.Context = &context
+	}
 	if s.Helper != nil {
 		helper := *s.Helper
 		out.Helper = &helper
@@ -201,11 +257,12 @@ func (s ContextExecState) Clone() ContextExecState {
 }
 
 type ContextExecTransition struct {
-	Lifecycle        contextexec.Lifecycle      `json:"lifecycle"`
-	Helper           *contextexec.HelperBinding `json:"helper,omitempty"`
-	ChildOperationID ID                         `json:"child_operation_id,omitempty"`
-	ChildSessionID   SessionID                  `json:"child_session_id,omitempty"`
-	Result           *contextexec.Result        `json:"result,omitempty"`
+	Lifecycle           contextexec.Lifecycle      `json:"lifecycle"`
+	Helper              *contextexec.HelperBinding `json:"helper,omitempty"`
+	ChildOperationID    ID                         `json:"child_operation_id,omitempty"`
+	ChildSessionID      SessionID                  `json:"child_session_id,omitempty"`
+	ExecutionAuthorized bool                       `json:"execution_authorized,omitempty"`
+	Result              *contextexec.Result        `json:"result,omitempty"`
 }
 
 func validContextExecID(value string) bool {

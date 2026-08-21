@@ -153,5 +153,29 @@ func validTerminalResultForState(t *testing.T, state operation.ContextExecState,
 	if !complete {
 		quality = core.EvidenceQualityIncomplete
 	}
-	return core.Result{SchemaVersion: core.SchemaVersion, ContextExecID: state.Request.ContextExecID, RequestFingerprint: state.RequestFingerprint, Lifecycle: core.LifecycleCanonicalized, Context: state.Context, Helper: state.Helper, Executable: core.ExecutableIdentity{Requested: state.Request.Argv[0], ResolvedPath: "/usr/bin/printf"}, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: &zero}, Output: core.OutputEvidence{StdoutBytes: stdout, StderrBytes: stderr, OutputComplete: complete, Truncated: !complete, Attribution: core.OutputAttributionHelperOwnedChildPipes}, EvidenceQuality: quality, EvidenceAuthority: core.EvidenceAuthorityContextExecChildOwnedV1}
+	return core.Result{SchemaVersion: core.SchemaVersion, ContextExecID: state.Request.ContextExecID, RequestFingerprint: state.RequestFingerprint, Lifecycle: core.LifecycleChildTerminal, Context: *state.Context, Helper: state.Helper, Executable: core.ExecutableIdentity{Requested: state.Request.Argv[0], ResolvedPath: "/usr/bin/printf"}, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, Exit: receipt.ExitEvidence{Reaped: true, Code: &zero}, Output: core.OutputEvidence{StdoutBytes: stdout, StderrBytes: stderr, OutputComplete: complete, Truncated: !complete, Attribution: core.OutputAttributionHelperOwnedChildPipes}, EvidenceQuality: quality, EvidenceAuthority: ""}
+}
+
+func TestServerRejectsHelperTerminalThatClaimsCanonicalAuthority(t *testing.T) {
+	expectation := validClaimExpectation(t)
+	state := validBoundState(t, expectation)
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	server := &Server{Expectation: expectation}
+	done := make(chan error, 1)
+	go func() { _, err := server.ReceiveResult(context.Background(), left, state); done <- err }()
+	client := &Client{Conn: right}
+	canonical := validTerminalResultForState(t, state, 0, 0, true)
+	canonical.Lifecycle = core.LifecycleCanonicalized
+	canonical.EvidenceAuthority = core.EvidenceAuthorityContextExecChildOwnedV1
+	if canonical.Lifecycle != core.LifecycleCanonicalized || canonical.EvidenceAuthority != core.EvidenceAuthorityContextExecChildOwnedV1 {
+		t.Fatalf("fixture=%#v", canonical)
+	}
+	if err := client.SendTerminal(TerminalFrame{ProtocolVersion: ProtocolVersion, Kind: KindTerminal, Result: canonical}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err == nil {
+		t.Fatal("server accepted helper canonical authority claim")
+	}
 }

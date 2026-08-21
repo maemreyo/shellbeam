@@ -1,76 +1,12 @@
 package shellintegration
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	app "github.com/maemreyo/shellbeam/internal/app/shellintegration"
-	core "github.com/maemreyo/shellbeam/internal/core/shellintegration"
 )
-
-func TestContextHelperLaunchEmitsOnlyFixedQuotedHelperInvocation(t *testing.T) {
-	for _, family := range []core.ShellFamily{core.ShellFish, core.ShellZsh, core.ShellBash} {
-		t.Run(string(family), func(t *testing.T) {
-			port := &recordingCommandPort{}
-			deps := task5LaunchDeps(t, port, "/tmp/Shell Beam's/bin/shellbeam")
-			adapter := task5Adapter(t, family, deps)
-			launch := app.ContextHelperLaunch{
-				Shell:          core.ShellIdentity{Family: family, RuntimeID: "runtime_task5"},
-				OpaqueLaunchID: "launch_task5_01",
-			}
-			if err := adapter.LaunchContextHelper(context.Background(), launch); err != nil {
-				t.Fatal(err)
-			}
-			scripts := port.snapshot()
-			if len(scripts) != 1 {
-				t.Fatalf("scripts=%#v", scripts)
-			}
-			want := contextHelperInvocation(deps.Executable, launch.OpaqueLaunchID)
-			if scripts[0] != want {
-				t.Fatalf("script=%q want=%q", scripts[0], want)
-			}
-			for _, forbidden := range []string{"ctxexec_", " argv", " --command", " -c "} {
-				if strings.Contains(scripts[0], forbidden) {
-					t.Fatalf("fixed helper invocation contains command surface %q: %s", forbidden, scripts[0])
-				}
-			}
-		})
-	}
-}
-
-func TestContextHelperLaunchRejectsUnsafeOpaqueIDBeforeShellWrite(t *testing.T) {
-	port := &recordingCommandPort{}
-	adapter := task5Adapter(t, core.ShellFish, task5LaunchDeps(t, port, "/opt/shellbeam/bin/shellbeam"))
-	err := adapter.LaunchContextHelper(context.Background(), app.ContextHelperLaunch{
-		Shell:          core.ShellIdentity{Family: core.ShellFish, RuntimeID: "runtime_task5"},
-		OpaqueLaunchID: "launch_safe; touch /tmp/pwned",
-	})
-	if err == nil {
-		t.Fatal("unsafe launch id accepted")
-	}
-	if len(port.snapshot()) != 0 {
-		t.Fatalf("unsafe launch mutated shell: %#v", port.snapshot())
-	}
-}
-
-func TestContextHelperLaunchRejectsShellFamilyMismatchBeforeShellWrite(t *testing.T) {
-	port := &recordingCommandPort{}
-	adapter := task5Adapter(t, core.ShellFish, task5LaunchDeps(t, port, "/opt/shellbeam/bin/shellbeam"))
-	err := adapter.LaunchContextHelper(context.Background(), app.ContextHelperLaunch{
-		Shell:          core.ShellIdentity{Family: core.ShellZsh, RuntimeID: "runtime_task5"},
-		OpaqueLaunchID: "launch_task5_01",
-	})
-	if err == nil {
-		t.Fatal("shell-family mismatch accepted")
-	}
-	if len(port.snapshot()) != 0 {
-		t.Fatalf("mismatched shell mutated: %#v", port.snapshot())
-	}
-}
 
 func TestNativeContextHelperInvocationPreservesOnlyExportedProcessContext(t *testing.T) {
 	for _, tc := range task5NativeShellCases() {
@@ -118,33 +54,6 @@ func task5LaunchDeps(t *testing.T, port *recordingCommandPort, executable string
 	t.Helper()
 	root := t.TempDir()
 	return Dependencies{Executable: executable, RuntimeDir: root, Command: port}
-}
-
-func task5Adapter(t *testing.T, family core.ShellFamily, deps Dependencies) app.ContextHelperLauncher {
-	t.Helper()
-	switch family {
-	case core.ShellFish:
-		adapter, err := NewFishAdapter(deps)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return adapter
-	case core.ShellZsh:
-		adapter, err := NewZshAdapter(deps)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return adapter
-	case core.ShellBash:
-		adapter, err := NewBashAdapter(deps)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return adapter
-	default:
-		t.Fatalf("unsupported family %q", family)
-		return nil
-	}
 }
 
 func assertTask5File(t *testing.T, path, want string) {

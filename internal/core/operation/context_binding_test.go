@@ -55,7 +55,7 @@ func TestContextExecBindingBindsParentAuthorityAndActualExecutionIdentity(t *tes
 	}
 }
 
-func TestContextExecStateKeepsExactRequestAndContextProofImmutable(t *testing.T) {
+func TestContextExecStateKeepsExactRequestAndExpectationImmutable(t *testing.T) {
 	req := contextexec.Request{ContextExecID: "ctxexec_state_01", SessionID: "parent_session_01", AuthorityEpoch: 4, Argv: []string{"go", "test", "./..."}, TimeoutMS: 30_000, MaxOutputBytes: 1 << 20}
 	fp, err := req.Fingerprint()
 	if err != nil {
@@ -65,7 +65,7 @@ func TestContextExecStateKeepsExactRequestAndContextProofImmutable(t *testing.T)
 		SchemaVersion:      ContextExecStateSchemaVersion,
 		Request:            req,
 		RequestFingerprint: fp,
-		Context:            contextexec.ContextBinding{SessionID: req.SessionID, AuthorityEpoch: req.AuthorityEpoch, ShellIdentity: "fish:runtime_01", BoundaryQuality: "shell_prompt", CWDObserved: "/tmp/project", PrivacyState: "standard"},
+		Expectation:        contextexec.ContextExpectation{SessionID: req.SessionID, AuthorityEpoch: req.AuthorityEpoch, ProviderGeneration: "gen_state_01", ShellIdentity: "fish:runtime_01", CWDObserved: "/tmp/project", PrivacyState: "standard"},
 		Lifecycle:          contextexec.LifecycleReserved,
 		CreatedAt:          time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
 		UpdatedAt:          time.Date(2026, 8, 21, 2, 0, 0, 0, time.UTC),
@@ -80,12 +80,12 @@ func TestContextExecStateKeepsExactRequestAndContextProofImmutable(t *testing.T)
 	}
 
 	bad := state
-	bad.Context.SessionID = "other_parent"
+	bad.Expectation.SessionID = "other_parent"
 	if err := bad.Validate(); err == nil {
 		t.Fatal("context state accepted mismatched parent session")
 	}
 	bad = state
-	bad.Context.AuthorityEpoch++
+	bad.Expectation.AuthorityEpoch++
 	if err := bad.Validate(); err == nil {
 		t.Fatal("context state accepted mismatched epoch")
 	}

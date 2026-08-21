@@ -36,7 +36,7 @@ func (l linuxPlatformLauncher) Qualified() bool {
 	info, err := os.Stat("/proc/self/fd")
 	return err == nil && info.IsDir()
 }
-func (l linuxPlatformLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
+func (l linuxPlatformLauncher) Prepare(spec ChildSpec) (PreparedExecution, error) {
 	if !l.Qualified() {
 		return nil, fmt.Errorf("descriptor-bound context execution unavailable on unqualified linux")
 	}
@@ -54,41 +54,77 @@ func (l linuxPlatformLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer target.Close()
 	targetInfo, err := target.Stat()
 	if err != nil || !targetInfo.Mode().IsRegular() || targetInfo.Mode().Perm()&0111 == 0 {
+		_ = target.Close()
 		return nil, fmt.Errorf("invalid opened context executable")
 	}
 	observed, err := os.Readlink("/proc/self/fd/" + strconv.Itoa(int(target.Fd())))
 	if err != nil || !filepath.IsAbs(observed) {
+		_ = target.Close()
 		return nil, fmt.Errorf("context executable object identity unavailable")
 	}
 	helper, err := os.Open(spec.HelperExecutable)
 	if err != nil {
+		_ = target.Close()
 		return nil, err
 	}
-	defer helper.Close()
 	helperInfo, err := helper.Stat()
 	if err != nil || !helperInfo.Mode().IsRegular() || helperInfo.Mode().Perm()&0111 == 0 {
+		_ = helper.Close()
+		_ = target.Close()
 		return nil, fmt.Errorf("invalid context helper executable")
 	}
-	args := append([]string{"__context_exec_fdexec"}, spec.Argv...)
-	cmd := exec.Command("/proc/self/fd/3", args...)
-	cmd.Dir = spec.CWD
-	cmd.Env = append([]string(nil), spec.Env...)
-	cmd.Stdin = nil
-	cmd.ExtraFiles = []*os.File{helper, target}
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, err
+	return &linuxPreparedExecution{spec: spec, target: target, helper: helper, resolved: observed}, nil
+}
+
+type linuxPreparedExecution struct {
+	spec     ChildSpec
+	target   *os.File
+	helper   *os.File
+	resolved string
+	mu       sync.Mutex
+	started  bool
+	closed   bool
+}
+
+func (p *linuxPreparedExecution) ResolvedExecutable() string {
+	if p == nil {
+		return ""
 	}
-	stderr, err := cmd.StderrPipe()
+	return p.resolved
+}
+
+func (p *linuxPreparedExecution) Start() (*ChildProcess, error) {
+	if p == nil {
+		return nil, fmt.Errorf("prepared context executable unavailable")
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed || p.started || p.target == nil || p.helper == nil {
+		return nil, fmt.Errorf("prepared context executable is not startable")
+	}
+	p.started = true
+	args := append([]string{"__context_exec_fdexec"}, p.spec.Argv...)
+	cmd := exec.Command("/proc/self/fd/3", args...)
+	cmd.Dir = p.spec.CWD
+	cmd.Env = append([]string(nil), p.spec.Env...)
+	cmd.Stdin = nil
+	cmd.ExtraFiles = []*os.File{p.helper, p.target}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	pipes, err := attachChildOutputPipes(cmd)
 	if err != nil {
 		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
+		_ = pipes.closeAll()
 		return nil, err
+	}
+	if err := pipes.closeParentWriters(); err != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_, _ = cmd.Process.Wait()
+		_ = pipes.closeAll()
+		return nil, fmt.Errorf("close parent context child output writers: %w", err)
 	}
 	var once sync.Once
 	var exit ChildExit
@@ -114,7 +150,29 @@ func (l linuxPlatformLauncher) Launch(spec ChildSpec) (*ChildProcess, error) {
 		return exit, waitErr
 	}
 	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	return &ChildProcess{ResolvedExecutable: observed, Stdout: stdout, Stderr: stderr, Wait: wait, KillGroup: kill}, nil
+	return &ChildProcess{ResolvedExecutable: p.resolved, Stdout: pipes.stdoutR, Stderr: pipes.stderrR, Wait: wait, KillGroup: kill}, nil
+}
+
+func (p *linuxPreparedExecution) Close() error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.closed {
+		return nil
+	}
+	p.closed = true
+	var err error
+	if p.helper != nil {
+		err = errors.Join(err, p.helper.Close())
+		p.helper = nil
+	}
+	if p.target != nil {
+		err = errors.Join(err, p.target.Close())
+		p.target = nil
+	}
+	return err
 }
 
 func ExecveatFD(fd int, argv, env []string) error {

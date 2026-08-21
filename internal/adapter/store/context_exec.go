@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	contextExecStoreSchemaVersion       = 1
+	contextExecStoreSchemaVersion       = 2
 	maxContextExecRecordBytes     int64 = 512 << 10
 )
 
@@ -38,7 +38,7 @@ func (v contextExecRecord) validate() error {
 		return fmt.Errorf("invalid context exec claim verifier")
 	}
 	switch v.State.Lifecycle {
-	case contextexec.LifecycleHelperAuthenticated, contextexec.LifecycleChildSpawned, contextexec.LifecycleChildTerminal, contextexec.LifecycleCanonicalized:
+	case contextexec.LifecycleHelperAuthenticated, contextexec.LifecycleChildReserved, contextexec.LifecycleChildSpawned, contextexec.LifecycleChildTerminal, contextexec.LifecycleCanonicalized:
 		if v.ClaimVerifierDigest == "" {
 			return fmt.Errorf("authenticated context exec lacks claim verifier")
 		}
@@ -70,6 +70,11 @@ func (r *Repository) ReserveContextExec(ctx context.Context, want operation.Cont
 
 	path := r.contextExecPath(want.Request.ContextExecID)
 	var existing contextExecRecord
+	if _, err := os.Stat(r.legacyContextExecPath(want.Request.ContextExecID)); err == nil {
+		return operation.ContextExecState{}, false, app.StoreResult{Durability: app.DurableChange, Err: legacyContextExecError(want.Request.ContextExecID, want.Request.SessionID)}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return operation.ContextExecState{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
 	if err := readPrivateJSON(path, maxContextExecRecordBytes, &existing); err == nil {
 		return replayContextExecReserve(want, existing)
 	} else if !errors.Is(err, ErrNotFound) {
@@ -121,6 +126,11 @@ func (r *Repository) LookupContextExec(ctx context.Context, id string) (operatio
 		return operation.ContextExecState{}, false, fmt.Errorf("invalid context exec id")
 	}
 	var record contextExecRecord
+	if _, err := os.Stat(r.legacyContextExecPath(id)); err == nil {
+		return operation.ContextExecState{}, false, legacyContextExecError(id, "unknown")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return operation.ContextExecState{}, false, err
+	}
 	if err := readPrivateJSON(r.contextExecPath(id), maxContextExecRecordBytes, &record); errors.Is(err, ErrNotFound) {
 		return operation.ContextExecState{}, false, nil
 	} else if err != nil {
@@ -155,7 +165,7 @@ func (r *Repository) AdvanceContextExec(ctx context.Context, id string, transiti
 	if reflect.DeepEqual(next, record.State) {
 		return record.State.Clone(), app.StoreResult{Durability: app.DurableChange}
 	}
-	if next.Lifecycle == contextexec.LifecycleChildSpawned {
+	if next.Lifecycle == contextexec.LifecycleChildReserved {
 		if err := r.validateContextExecChildReservation(ctx, next); err != nil {
 			return record.State.Clone(), app.StoreResult{Durability: app.DurableChange, Err: err}
 		}
@@ -188,13 +198,40 @@ func applyContextExecTransition(current operation.ContextExecState, transition o
 		next.Result = &result
 	}
 	if current.Lifecycle == transition.Lifecycle {
+		if current.Lifecycle == contextexec.LifecycleChildReserved {
+			if transition.ExecutionAuthorized {
+				next.ExecutionAuthorized = true
+				if current.ExecutionAuthorized && reflect.DeepEqual(next, current) {
+					return current, nil
+				}
+				if current.ExecutionAuthorized {
+					return current, contextExecConflict(current.Request.ContextExecID)
+				}
+				next.UpdatedAt = now
+				if err := next.Validate(); err != nil {
+					return current, err
+				}
+				return next, nil
+			}
+			if current.ExecutionAuthorized {
+				return current, contextExecConflict(current.Request.ContextExecID)
+			}
+		} else if transition.ExecutionAuthorized {
+			return current, contextExecConflict(current.Request.ContextExecID)
+		}
 		next.UpdatedAt = current.UpdatedAt
 		if reflect.DeepEqual(next, current) {
 			return current, nil
 		}
 		return current, contextExecConflict(current.Request.ContextExecID)
 	}
+	if transition.ExecutionAuthorized {
+		return current, contextExecConflict(current.Request.ContextExecID)
+	}
 	if !current.Lifecycle.CanAdvanceTo(transition.Lifecycle) {
+		return current, contextExecConflict(current.Request.ContextExecID)
+	}
+	if transition.Lifecycle == contextexec.LifecycleChildSpawned && !current.ExecutionAuthorized {
 		return current, contextExecConflict(current.Request.ContextExecID)
 	}
 	next.Lifecycle = transition.Lifecycle
@@ -205,13 +242,13 @@ func applyContextExecTransition(current operation.ContextExecState, transition o
 	return next, nil
 }
 
-func (r *Repository) BindHelperGeneration(ctx context.Context, id string, helper contextexec.HelperBinding, verifierDigest string) (operation.ContextExecState, app.StoreResult) {
+func (r *Repository) BindHelperGeneration(ctx context.Context, id string, helper contextexec.HelperBinding, finalContext contextexec.ContextBinding, boundaryObservedAt time.Time, verifierDigest string) (operation.ContextExecState, app.StoreResult) {
 	if err := ctx.Err(); err != nil {
 		return operation.ContextExecState{}, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	if err := helper.Validate(); err != nil || !validContextExecVerifier(verifierDigest) {
+	if err := helper.Validate(); err != nil || finalContext.Validate() != nil || boundaryObservedAt.IsZero() || !validContextExecVerifier(verifierDigest) {
 		if err == nil {
-			err = fmt.Errorf("invalid context exec claim verifier")
+			err = fmt.Errorf("invalid context exec helper binding")
 		}
 		return operation.ContextExecState{}, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
@@ -221,19 +258,22 @@ func (r *Repository) BindHelperGeneration(ctx context.Context, id string, helper
 	if err != nil {
 		return operation.ContextExecState{}, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
-	if record.State.Helper == nil || *record.State.Helper != helper || helper.RequestFingerprint != record.State.RequestFingerprint {
+	if record.State.Helper == nil || *record.State.Helper != helper || helper.RequestFingerprint != record.State.RequestFingerprint || !contextBindingMatchesExpectation(finalContext, record.State.Expectation) {
 		return record.State.Clone(), app.StoreResult{Durability: app.DurableChange, Err: contextExecConflict(id)}
 	}
 	if record.ClaimVerifierDigest != "" {
-		if record.ClaimVerifierDigest == verifierDigest && record.State.Lifecycle != contextexec.LifecycleHelperRequested {
+		if record.ClaimVerifierDigest == verifierDigest && record.State.Lifecycle != contextexec.LifecycleHelperRequested && record.State.Context != nil && *record.State.Context == finalContext && record.State.BoundaryObservedAt.Equal(boundaryObservedAt) {
 			return record.State.Clone(), app.StoreResult{Durability: app.DurableChange}
 		}
 		return record.State.Clone(), app.StoreResult{Durability: app.DurableChange, Err: contextExecConflict(id)}
 	}
-	if record.State.Lifecycle != contextexec.LifecycleHelperRequested {
+	if record.State.Lifecycle != contextexec.LifecycleHelperRequested || record.State.Context != nil || !record.State.BoundaryObservedAt.IsZero() {
 		return record.State.Clone(), app.StoreResult{Durability: app.DurableChange, Err: contextExecConflict(id)}
 	}
 	next := record.State.Clone()
+	contextCopy := finalContext
+	next.Context = &contextCopy
+	next.BoundaryObservedAt = boundaryObservedAt.UTC()
 	next.Lifecycle = contextexec.LifecycleHelperAuthenticated
 	next.UpdatedAt = r.now().UTC()
 	if err := next.Validate(); err != nil {
@@ -250,6 +290,10 @@ func (r *Repository) BindHelperGeneration(ctx context.Context, id string, helper
 	return next.Clone(), result
 }
 
+func contextBindingMatchesExpectation(v contextexec.ContextBinding, e contextexec.ContextExpectation) bool {
+	return v.SessionID == e.SessionID && v.AuthorityEpoch == e.AuthorityEpoch && v.ShellIdentity == e.ShellIdentity && v.BoundaryQuality == "shell_prompt" && v.CWDObserved == e.CWDObserved && v.PrivacyState == e.PrivacyState
+}
+
 func (r *Repository) validateContextExecChildReservation(ctx context.Context, state operation.ContextExecState) error {
 	reservation, err := r.LoadOperation(ctx, state.ChildOperationID)
 	if err != nil {
@@ -259,7 +303,11 @@ func (r *Repository) validateContextExecChildReservation(ctx context.Context, st
 		return fmt.Errorf("invalid context exec child reservation")
 	}
 	binding := reservation.ContextExec
-	if binding.ContextExecID != state.Request.ContextExecID || binding.ParentSessionID != operation.SessionID(state.Request.SessionID) || binding.AuthorityEpoch != state.Request.AuthorityEpoch || binding.RequestFingerprint != state.RequestFingerprint || reservation.RequestFingerprint != state.RequestFingerprint {
+	if state.Context == nil || binding.ContextExecID != state.Request.ContextExecID || binding.ParentSessionID != operation.SessionID(state.Request.SessionID) || binding.AuthorityEpoch != state.Request.AuthorityEpoch || binding.RequestFingerprint != state.RequestFingerprint || reservation.RequestFingerprint != state.RequestFingerprint || reservation.CWD != state.Context.CWDObserved || reservation.TimeoutMS != state.Request.TimeoutMS || !reflect.DeepEqual(reservation.Argv, state.Request.Argv) {
+		return contextExecConflict(state.Request.ContextExecID)
+	}
+	wantExecution, err := binding.ExecutionFingerprint(state.Context.CWDObserved, reservation.Executable)
+	if err != nil || wantExecution != reservation.ExecutionFingerprint {
 		return contextExecConflict(state.Request.ContextExecID)
 	}
 	return nil
@@ -271,6 +319,13 @@ func (r *Repository) loadContextExecRecordUnlocked(id string) (contextExecRecord
 	}
 	var record contextExecRecord
 	if err := readPrivateJSON(r.contextExecPath(id), maxContextExecRecordBytes, &record); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			if _, legacyErr := os.Stat(r.legacyContextExecPath(id)); legacyErr == nil {
+				return record, legacyContextExecError(id, "unknown")
+			} else if !errors.Is(legacyErr, os.ErrNotExist) {
+				return record, legacyErr
+			}
+		}
 		return record, err
 	}
 	if err := record.validate(); err != nil || record.State.Request.ContextExecID != id {
@@ -282,8 +337,9 @@ func (r *Repository) loadContextExecRecordUnlocked(id string) (contextExecRecord
 	return record, nil
 }
 
-func (r *Repository) contextExecRoot() string { return filepath.Join(r.root, "context-exec") }
-func (r *Repository) contextExecDir() string  { return filepath.Join(r.contextExecRoot(), "v1") }
+func (r *Repository) contextExecRoot() string      { return filepath.Join(r.root, "context-exec") }
+func (r *Repository) contextExecDir() string       { return filepath.Join(r.contextExecRoot(), "v2") }
+func (r *Repository) legacyContextExecDir() string { return filepath.Join(r.contextExecRoot(), "v1") }
 
 func (r *Repository) ensureContextExecStore() error {
 	if err := ensurePrivateDir(r.contextExecRoot()); err != nil {
@@ -296,6 +352,9 @@ func (r *Repository) ensureContextExecStore() error {
 }
 func (r *Repository) contextExecPath(id string) string {
 	return filepath.Join(r.contextExecDir(), id+".json")
+}
+func (r *Repository) legacyContextExecPath(id string) string {
+	return filepath.Join(r.legacyContextExecDir(), id+".json")
 }
 
 func validContextExecStoreID(value string) bool {
@@ -322,6 +381,10 @@ func validContextExecVerifier(value string) bool {
 		}
 	}
 	return true
+}
+
+func legacyContextExecError(id, sessionID string) error {
+	return failure.New(failure.ContextExecAmbiguous, map[string]string{"context_exec_id": id, "session_id": sessionID, "reason": "legacy_v1_record"}, nil)
 }
 
 func contextExecConflict(id string) error {

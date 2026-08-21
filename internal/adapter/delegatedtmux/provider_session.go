@@ -453,9 +453,9 @@ func (p *Provider) Close(ctx context.Context, ref core.ProviderRef) error {
 }
 
 type tmuxFacts struct {
-	SessionInternalID, WindowID, PaneID string
-	PanePID, ServerPID                  int
-	Terminal                            bool
-	ExitCode                            *int
-	CurrentCommand, SocketPath, Version string
+	SessionInternalID, WindowID, PaneID               string
+	PanePID, ServerPID                                int
+	Terminal                                          bool
+	ExitCode                                          *int
+	CurrentCommand, PaneTTY, CWD, SocketPath, Version string
 }

@@ -86,27 +86,27 @@ type Adapter interface {
 	Install(context.Context, WatchRequest) (RequirementWatcher, error)
 }
 
-// ContextHelperLaunch is the complete shell-visible context-exec launch surface.
-// Target command argv and helper claim authority are intentionally absent.
-type ContextHelperLaunch struct {
+// ContextHelperArmSpec is the complete shell-visible context-exec arm surface.
+// Target command argv, environment values, prompt proofs, and helper claim authority are intentionally absent.
+type ContextHelperArmSpec struct {
 	Shell          core.ShellIdentity
 	OpaqueLaunchID string
 }
 
-func (v ContextHelperLaunch) Validate() error {
+func (v ContextHelperArmSpec) Validate() error {
 	if err := v.Shell.Validate(); err != nil {
 		return err
 	}
 	if v.Shell.Family == core.ShellUnknown {
-		return fmt.Errorf("context helper launch requires exact shell")
+		return fmt.Errorf("context helper arm requires exact shell")
 	}
 	if !validFactID(v.OpaqueLaunchID, 128) {
-		return fmt.Errorf("invalid context helper launch identity")
+		return fmt.Errorf("invalid context helper arm identity")
 	}
 	return nil
 }
 
-type ContextHelperLauncher interface {
+type ContextHelperArmer interface {
 	Family() core.ShellFamily
-	LaunchContextHelper(context.Context, ContextHelperLaunch) error
+	ArmContextHelper(context.Context, ContextHelperArmSpec) error
 }

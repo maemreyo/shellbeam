@@ -73,6 +73,7 @@ func (r *delegatedHandoffReadiness) Prepare(ctx context.Context, req handoffapp.
 	facts := shellapp.ProviderProcessFacts{
 		SessionID: req.SessionID, ProviderID: identity.ID, ProviderVersion: identity.Version,
 		ProviderGeneration: obs.ProviderGeneration, PanePID: obs.PanePID, CurrentCommand: obs.CurrentCommand,
+		PaneTTY: obs.PaneTTY, CWD: obs.CWD,
 	}
 	shellObs, err := shelladapter.NewUnixProbe().Probe(ctx, shellapp.ProbeRequest{Facts: facts})
 	if err != nil {

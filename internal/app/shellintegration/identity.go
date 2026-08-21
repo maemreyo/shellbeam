@@ -2,6 +2,7 @@ package shellintegration
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -32,6 +33,8 @@ type ProviderProcessFacts struct {
 	ProviderGeneration string
 	PanePID            int
 	CurrentCommand     string
+	PaneTTY            string
+	CWD                string
 	LoginShell         string
 }
 
@@ -41,6 +44,12 @@ func (v ProviderProcessFacts) Validate() error {
 	}
 	if !validProcessFact(v.CurrentCommand, 256) {
 		return fmt.Errorf("invalid current shell process fact")
+	}
+	if v.PaneTTY != "" && (!filepath.IsAbs(v.PaneTTY) || !strings.HasPrefix(filepath.Clean(v.PaneTTY), "/dev/") || !validProcessFact(v.PaneTTY, 1024)) {
+		return fmt.Errorf("invalid pane tty fact")
+	}
+	if v.CWD != "" && (!filepath.IsAbs(v.CWD) || !validProcessFact(v.CWD, 4096)) {
+		return fmt.Errorf("invalid cwd fact")
 	}
 	if v.LoginShell != "" && !validProcessFact(v.LoginShell, 1024) {
 		return fmt.Errorf("invalid login shell fact")

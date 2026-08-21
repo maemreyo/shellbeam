@@ -39,6 +39,8 @@ type Observation struct {
 	ExitCode           *int
 	PanePID            int
 	CurrentCommand     string
+	PaneTTY            string
+	CWD                string
 	OutputBytes        int64
 }
 

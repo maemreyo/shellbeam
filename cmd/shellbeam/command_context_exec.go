@@ -42,7 +42,7 @@ func runContextExecHelper(ctx context.Context, args []string) error {
 		return fmt.Errorf("context helper executable binding mismatch")
 	}
 	runtime := contextadapter.Runtime{Launcher: contextadapter.NewPlatformLauncher(executable), HelperExecutable: executable}
-	terminal, err := runtime.Execute(ctx, request, func(frame contextadapter.OutputFrame) error { return client.SendOutput(frame) })
+	terminal, err := runtime.Execute(ctx, request, &client)
 	if err != nil {
 		return err
 	}

@@ -36,9 +36,13 @@ func bashScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) 
 	return install, cleanup
 }
 
-func (a *BashAdapter) LaunchContextHelper(ctx context.Context, launch app.ContextHelperLaunch) error {
+func (a *BashAdapter) ArmContextHelper(ctx context.Context, arm app.ContextHelperArmSpec) error {
 	if a == nil {
-		return fmt.Errorf("bash context helper launcher unavailable")
+		return fmt.Errorf("bash context helper armer unavailable")
 	}
-	return launchContextHelper(ctx, a.deps, core.ShellBash, launch)
+	return armContextHelper(ctx, a.deps, core.ShellBash, arm, bashContextHelperArmScript)
+}
+
+func bashContextHelperArmScript(name, invocation string) string {
+	return fmt.Sprintf("%s() {\n  if [ \"$PROMPT_COMMAND\" = %s ]; then PROMPT_COMMAND=; else PROMPT_COMMAND=\"${PROMPT_COMMAND%%;%s}\"; fi\n  unset -f %s\n  %s\n}\nPROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND;}%s\"", name, shellQuote(name), name, name, invocation, name)
 }

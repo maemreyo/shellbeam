@@ -4,6 +4,7 @@ package contextexec
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,11 +18,16 @@ func TestDarwinPlatformLauncherExecutesOnlyAfterMappedExecutableIdentityMatches(
 	}
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran")
-	child, err := launcher.Launch(ChildSpec{
+	prepared, err := launcher.Prepare(ChildSpec{
 		Argv: []string{"/bin/sh", "-c", "printf qualified > " + marker},
 		CWD:  dir,
 		Env:  os.Environ(),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	child, err := prepared.Start()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,12 +45,39 @@ func TestDarwinPlatformLauncherExecutesOnlyAfterMappedExecutableIdentityMatches(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ExecutableMatches(child.ResolvedExecutable, resolved) {
-		t.Fatalf("resolved executable=%q want %q", child.ResolvedExecutable, resolved)
+	if !ExecutableMatches(prepared.ResolvedExecutable(), resolved) || !ExecutableMatches(child.ResolvedExecutable, resolved) {
+		t.Fatalf("resolved prepared=%q child=%q want=%q", prepared.ResolvedExecutable(), child.ResolvedExecutable, resolved)
 	}
 }
 
-func TestDarwinPlatformLauncherRejectsPathReplacementBeforeMaliciousFirstInstruction(t *testing.T) {
+func TestDarwinPlatformLauncherOutputRemainsReadableAfterWait(t *testing.T) {
+	launcher := NewPlatformLauncher()
+	prepared, err := launcher.Prepare(ChildSpec{Argv: []string{"/bin/echo", "owned-output"}, CWD: t.TempDir(), Env: os.Environ()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	child, err := prepared.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit, err := child.Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !exit.Reaped {
+		t.Fatalf("exit=%#v", exit)
+	}
+	data, err := io.ReadAll(child.Stdout)
+	if err != nil {
+		t.Fatalf("stdout after wait: %v", err)
+	}
+	if string(data) != "owned-output\n" {
+		t.Fatalf("stdout=%q", data)
+	}
+}
+
+func TestDarwinPlatformLauncherRejectsPathReplacementAfterPrepareBeforeMaliciousFirstInstruction(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
 	replacement := filepath.Join(dir, "replacement")
@@ -52,16 +85,20 @@ func TestDarwinPlatformLauncherRejectsPathReplacementBeforeMaliciousFirstInstruc
 	copyDarwinExecutable(t, "/bin/sh", replacement)
 	marker := filepath.Join(dir, "malicious-ran")
 
-	launcher := darwinPlatformLauncher{
-		afterOpen: func(string) error {
-			return os.Rename(replacement, target)
-		},
-	}
-	child, err := launcher.Launch(ChildSpec{
+	launcher := NewPlatformLauncher()
+	prepared, err := launcher.Prepare(ChildSpec{
 		Argv: []string{target, "-c", "printf pwned > " + marker},
 		CWD:  dir,
 		Env:  os.Environ(),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	if err := os.Rename(replacement, target); err != nil {
+		t.Fatal(err)
+	}
+	child, err := prepared.Start()
 	if err == nil {
 		if child != nil && child.KillGroup != nil {
 			_ = child.KillGroup()
@@ -69,7 +106,7 @@ func TestDarwinPlatformLauncherRejectsPathReplacementBeforeMaliciousFirstInstruc
 		if child != nil && child.Wait != nil {
 			_, _ = child.Wait()
 		}
-		t.Fatal("path replacement was accepted")
+		t.Fatal("path replacement after Prepare was accepted")
 	}
 	time.Sleep(50 * time.Millisecond)
 	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {
@@ -90,9 +127,6 @@ func TestDarwinPlatformLauncherRejectsReplacementEvenWhenPathIsRestoredBeforeVer
 	marker := filepath.Join(dir, "malicious-ran")
 
 	launcher := darwinPlatformLauncher{
-		afterOpen: func(string) error {
-			return os.Rename(replacement, target)
-		},
 		verifyMappedExecutable: func(pid int, expected darwinExecutableIdentity) error {
 			if err := os.Rename(originalLink, target); err != nil {
 				return err
@@ -100,11 +134,19 @@ func TestDarwinPlatformLauncherRejectsReplacementEvenWhenPathIsRestoredBeforeVer
 			return verifyDarwinMappedExecutable(pid, expected)
 		},
 	}
-	child, err := launcher.Launch(ChildSpec{
+	prepared, err := launcher.Prepare(ChildSpec{
 		Argv: []string{target, "-c", "printf pwned > " + marker},
 		CWD:  dir,
 		Env:  os.Environ(),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	if err := os.Rename(replacement, target); err != nil {
+		t.Fatal(err)
+	}
+	child, err := prepared.Start()
 	if err == nil {
 		if child != nil && child.KillGroup != nil {
 			_ = child.KillGroup()
@@ -128,11 +170,16 @@ func TestDarwinPlatformLauncherFailsClosedWhenMappedIdentityCannotBeObserved(t *
 			return errors.New("proc info unavailable")
 		},
 	}
-	child, err := launcher.Launch(ChildSpec{
+	prepared, err := launcher.Prepare(ChildSpec{
 		Argv: []string{"/bin/sh", "-c", "printf unsafe > " + marker},
 		CWD:  dir,
 		Env:  os.Environ(),
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer prepared.Close()
+	child, err := prepared.Start()
 	if err == nil {
 		if child != nil && child.KillGroup != nil {
 			_ = child.KillGroup()
@@ -156,7 +203,7 @@ func TestDarwinPlatformLauncherRejectsShebangUntilInterpreterChainIsQualified(t 
 		t.Fatal(err)
 	}
 	launcher := NewPlatformLauncher()
-	if _, err := launcher.Launch(ChildSpec{Argv: []string{script}, CWD: dir, Env: os.Environ()}); err == nil {
+	if _, err := launcher.Prepare(ChildSpec{Argv: []string{script}, CWD: dir, Env: os.Environ()}); err == nil {
 		t.Fatal("unqualified interpreter chain accepted")
 	}
 	if _, statErr := os.Stat(marker); !errors.Is(statErr, os.ErrNotExist) {

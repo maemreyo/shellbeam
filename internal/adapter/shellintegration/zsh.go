@@ -36,9 +36,13 @@ func zshScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) (
 	return install, cleanup
 }
 
-func (a *ZshAdapter) LaunchContextHelper(ctx context.Context, launch app.ContextHelperLaunch) error {
+func (a *ZshAdapter) ArmContextHelper(ctx context.Context, arm app.ContextHelperArmSpec) error {
 	if a == nil {
-		return fmt.Errorf("zsh context helper launcher unavailable")
+		return fmt.Errorf("zsh context helper armer unavailable")
 	}
-	return launchContextHelper(ctx, a.deps, core.ShellZsh, launch)
+	return armContextHelper(ctx, a.deps, core.ShellZsh, arm, zshContextHelperArmScript)
+}
+
+func zshContextHelperArmScript(name, invocation string) string {
+	return fmt.Sprintf("typeset -ga precmd_functions\nfunction %s() {\n  precmd_functions=(${precmd_functions:#%s})\n  unfunction %s\n  %s\n}\nprecmd_functions+=(%s)", name, name, name, invocation, name)
 }

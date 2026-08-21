@@ -8,6 +8,7 @@ const (
 	LifecycleReserved            Lifecycle = "reserved"
 	LifecycleHelperRequested     Lifecycle = "helper_requested"
 	LifecycleHelperAuthenticated Lifecycle = "helper_authenticated"
+	LifecycleChildReserved       Lifecycle = "child_reserved"
 	LifecycleChildSpawned        Lifecycle = "child_spawned"
 	LifecycleChildTerminal       Lifecycle = "child_terminal"
 	LifecycleCanonicalized       Lifecycle = "canonicalized"
@@ -17,7 +18,7 @@ const (
 
 func (v Lifecycle) Validate() error {
 	switch v {
-	case LifecycleReserved, LifecycleHelperRequested, LifecycleHelperAuthenticated, LifecycleChildSpawned, LifecycleChildTerminal, LifecycleCanonicalized, LifecycleHelperLost, LifecycleAmbiguous:
+	case LifecycleReserved, LifecycleHelperRequested, LifecycleHelperAuthenticated, LifecycleChildReserved, LifecycleChildSpawned, LifecycleChildTerminal, LifecycleCanonicalized, LifecycleHelperLost, LifecycleAmbiguous:
 		return nil
 	default:
 		return fmt.Errorf("invalid context exec lifecycle")
@@ -41,6 +42,8 @@ func (v Lifecycle) CanAdvanceTo(next Lifecycle) bool {
 	case LifecycleHelperRequested:
 		return next == LifecycleHelperAuthenticated
 	case LifecycleHelperAuthenticated:
+		return next == LifecycleChildReserved
+	case LifecycleChildReserved:
 		return next == LifecycleChildSpawned
 	case LifecycleChildSpawned:
 		return next == LifecycleChildTerminal

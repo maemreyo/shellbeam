@@ -27,7 +27,7 @@ func TestShellIdentityObservationRejectsChangedIdentityAsAdapterAuthority(t *tes
 }
 
 func TestProviderProcessFactsRequirePaneScopedCurrentProcessIdentity(t *testing.T) {
-	facts := ProviderProcessFacts{SessionID: "session-1", ProviderID: "tmux_control_mode", ProviderVersion: 1, ProviderGeneration: "gen_1", PanePID: 42, CurrentCommand: "fish", LoginShell: "/bin/zsh"}
+	facts := ProviderProcessFacts{SessionID: "session-1", ProviderID: "tmux_control_mode", ProviderVersion: 1, ProviderGeneration: "gen_1", PanePID: 42, CurrentCommand: "fish", PaneTTY: "/dev/ttys042", CWD: "/tmp/project", LoginShell: "/bin/zsh"}
 	if err := facts.Validate(); err != nil {
 		t.Fatalf("valid provider facts rejected: %v", err)
 	}
