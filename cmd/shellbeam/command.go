@@ -31,6 +31,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runSupervisor(ctx, args[1:])
 	case "__handoff_notify":
 		err = runHandoffNotify(ctx, args[1:])
+	case "__context_exec_helper":
+		err = runContextExecHelper(ctx, args[1:])
+	case "__context_exec_fdexec":
+		err = runContextExecFDExec(args[1:])
 	case "daemon":
 		err = runDaemon(ctx, args[1:])
 	case "mcp":
