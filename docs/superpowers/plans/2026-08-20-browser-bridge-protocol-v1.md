@@ -298,7 +298,7 @@ type Response struct {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `go test ./internal/core/browserbridge/ -run TestRequest -v`
-Expected: PASS, four tests.
+Expected: PASS, five tests.
 
 - [ ] **Step 5: Commit**
 

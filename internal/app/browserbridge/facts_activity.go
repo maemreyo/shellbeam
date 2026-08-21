@@ -6,6 +6,7 @@ import (
 	ipc "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
+	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -65,6 +66,50 @@ func (p *Planner) ActivityFacts(ctx context.Context, correlationID string) proto
 	out := base(protocol.VerbActivityFacts, protocol.StatusOK)
 	out.Activity = &facts
 	out.Coverage = coverageFor(act.CompactedOperations)
+	return out
+}
+
+// ActivityEvents runs the activity_events read plan: one activity-scoped
+// journal read with one cursor. The cursor is opaque to the host and is
+// stored by the extension, because the host holds no state.
+func (p *Planner) ActivityEvents(ctx context.Context, correlationID, cursor string) protocol.Response {
+	req := ipc.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: "bb-events", Action: "inspect.events",
+		Target:    &observationcore.Target{Kind: observationcore.TargetActivity, ActivityID: correlationID},
+		MaxEvents: protocol.MaxActivityEvents,
+	}
+	if cursor != "" {
+		req.AfterEventCursor = cursor
+	}
+	resp, err := p.reader.Read(ctx, req)
+	if err != nil {
+		return unreachable(protocol.VerbActivityEvents)
+	}
+	if !resp.OK || resp.Events == nil {
+		return unavailable(protocol.VerbActivityEvents, "events_unavailable")
+	}
+	facts := protocol.EventFacts{Returned: len(resp.Events.Events), Cursor: resp.Events.NextEventCursor}
+	seen := map[string]bool{}
+	for _, event := range resp.Events.Events {
+		kind := string(event.Kind)
+		if !seen[kind] {
+			seen[kind] = true
+			facts.Kinds = append(facts.Kinds, kind)
+		}
+	}
+	if n := len(resp.Events.Events); n > 0 {
+		at := resp.Events.Events[n-1].RecordedAt
+		facts.LatestAt = &at
+	}
+	out := base(protocol.VerbActivityEvents, protocol.StatusOK)
+	out.Events = &facts
+	out.Coverage.Truncated = resp.Events.Truncated
+	if out.Coverage.Truncated {
+		out.Coverage.TruncationReason = "more_events_available"
+	}
+	if resp.Events.CompactedBefore > 0 {
+		out.Coverage.HistoricalOperations = "partial"
+	}
 	return out
 }
 
