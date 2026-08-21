@@ -7,6 +7,7 @@ import (
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	dp "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type DecisionCandidateInput = bridge.DecisionCandidateInput
@@ -17,6 +18,11 @@ type DecisionPolicySnapshotInput = bridge.DecisionPolicySnapshotInput
 type DecisionRequest = bridge.DecisionRequest
 
 func validateDecisionMCPInput(v input, raw []byte) error {
+	if v.WorkspaceID != "" {
+		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
+			return decisionMCPInputError("workspace_id", "invalid workspace selector")
+		}
+	}
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return err

@@ -92,6 +92,25 @@ func TestDecisionProtocolTransportSchemasAcceptExactActionMatrix(t *testing.T) {
 	}
 }
 
+func TestDecisionProtocolTransportSchemasAcceptOptionalOuterWorkspaceSelector(t *testing.T) {
+	workspaceID := "ws_01K00000000000000000000000"
+	for _, schemaName := range []Name{MCPInputV2, IPCV2} {
+		schemaName := schemaName
+		t.Run(string(schemaName), func(t *testing.T) {
+			schema := resolvedSchema(t, schemaName)
+			payload := decisionSchemaPayload(schemaName, "decision.inspect", cloneAnyMap(decisionTransportCases()["decision.inspect"].required))
+			payload["workspace_id"] = workspaceID
+			if err := schema.Validate(payload); err != nil {
+				t.Fatalf("valid outer workspace selector rejected: %v", err)
+			}
+			payload["workspace_id"] = "not-a-workspace-id"
+			if err := schema.Validate(payload); err == nil {
+				t.Fatal("invalid outer workspace selector accepted")
+			}
+		})
+	}
+}
+
 func TestDecisionProtocolTransportSchemasRejectRequiredOmissionsAndServerOwnedFields(t *testing.T) {
 	for _, schemaName := range []Name{MCPInputV2, IPCV2} {
 		schemaName := schemaName
@@ -116,6 +135,8 @@ func TestDecisionProtocolTransportSchemasRejectRequiredOmissionsAndServerOwnedFi
 				{"decision.authority.materialize", "actor_ref", "forged"},
 				{"decision.override.create", "actor_ref", "forged"},
 				{"decision.experiment.close", "prediction_results", []any{}},
+				{"decision.inspect", "workspace_id", "ws_01K00000000000000000000000"},
+				{"decision.inspect", "repository_id", "repo_01K00000000000000000000000"},
 				{"decision.assessment.record", "qualified_context_class", "HUMAN"},
 			}
 			for _, tc := range bad {

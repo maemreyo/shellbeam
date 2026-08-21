@@ -10,8 +10,10 @@ import (
 	"strings"
 	"testing"
 
+	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	dp "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 )
 
 func decisionMinimumPayloads(t *testing.T) map[string]map[string]any {
@@ -47,6 +49,82 @@ func decodeDecisionPayload(t *testing.T, action string, decision map[string]any)
 		t.Fatal(err)
 	}
 	return decodeRequestV2(bytes.NewReader(b))
+}
+
+func TestDecisionProtocolBridgeRequestPreservesOuterWorkspaceSelector(t *testing.T) {
+	workspaceID := "ws_01K00000000000000000000000"
+	decision := &bridge.DecisionRequest{EpisodeID: "episode-transport"}
+	got := requestV2FromBridge(bridge.Request{Action: "decision.inspect", WorkspaceID: workspaceID, Decision: decision})
+	if got.WorkspaceID != workspaceID {
+		t.Fatalf("workspace selector lost: got=%q want=%q request=%#v", got.WorkspaceID, workspaceID, got)
+	}
+	if got.Decision == nil || got.Decision.EpisodeID != "episode-transport" {
+		t.Fatalf("decision payload lost: %#v", got.Decision)
+	}
+}
+
+func TestDecisionProtocolIPCAcceptsOuterWorkspaceSelector(t *testing.T) {
+	workspaceID := "ws_01K00000000000000000000000"
+	wire := map[string]any{
+		"ipc_version":  2,
+		"kind":         "request",
+		"request_id":   "decision-workspace",
+		"action":       "decision.inspect",
+		"workspace_id": workspaceID,
+		"decision":     decisionMinimumPayloads(t)["decision.inspect"],
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeRequestV2(bytes.NewReader(encoded))
+	if err != nil {
+		t.Fatalf("outer workspace selector rejected: %v", err)
+	}
+	if got.WorkspaceID != workspaceID {
+		t.Fatalf("workspace selector lost after decode: got=%q want=%q", got.WorkspaceID, workspaceID)
+	}
+}
+
+func TestDecisionProtocolIPCRejectsInvalidOuterWorkspaceSelector(t *testing.T) {
+	wire := map[string]any{
+		"ipc_version":  2,
+		"kind":         "request",
+		"request_id":   "decision-workspace-invalid",
+		"action":       "decision.inspect",
+		"workspace_id": "not-a-workspace-id",
+		"decision":     decisionMinimumPayloads(t)["decision.inspect"],
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = decodeRequestV2(bytes.NewReader(encoded))
+	if err == nil {
+		t.Fatal("invalid outer workspace selector accepted")
+	}
+	public := failure.Public(err)
+	if public.Code != failure.InvalidInput || public.Details["field"] != "workspace_id" {
+		t.Fatalf("public failure=%#v", public)
+	}
+}
+
+func TestDecisionProtocolIPCKeepsOuterFieldSetClosed(t *testing.T) {
+	wire := map[string]any{
+		"ipc_version": 2,
+		"kind":        "request",
+		"request_id":  "decision-unrelated-field",
+		"action":      "decision.inspect",
+		"decision":    decisionMinimumPayloads(t)["decision.inspect"],
+		"cwd":         "/tmp",
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeRequestV2(bytes.NewReader(encoded)); err == nil {
+		t.Fatal("unrelated outer field accepted")
+	}
 }
 
 func TestDecisionActionsStrictMinimumPayloads(t *testing.T) {
@@ -88,7 +166,7 @@ func TestDecisionActionRejectsCrossActionFieldsByPresence(t *testing.T) {
 	cases := []struct {
 		action, field string
 		value         any
-	}{{"decision.inspect", "actor_ref", ""}, {"decision.override.create", "actor_ref", "forged"}, {"decision.authority.materialize", "actor_ref", "forged"}, {"decision.evaluate", "reason", "x"}}
+	}{{"decision.inspect", "actor_ref", ""}, {"decision.inspect", "workspace_id", "ws_01K00000000000000000000000"}, {"decision.inspect", "repository_id", "repo_01K00000000000000000000000"}, {"decision.override.create", "actor_ref", "forged"}, {"decision.authority.materialize", "actor_ref", "forged"}, {"decision.evaluate", "reason", "x"}}
 	payloads := decisionMinimumPayloads(t)
 	for _, tc := range cases {
 		t.Run(tc.action+"_"+tc.field, func(t *testing.T) {

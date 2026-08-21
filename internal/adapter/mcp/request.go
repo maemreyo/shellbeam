@@ -33,6 +33,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 
 func populateRequestFromInput(request *bridge.Request, in input) {
 	if isDecisionProtocolMCPAction(in.Action) {
+		request.WorkspaceID = in.WorkspaceID
 		request.Decision = cloneDecisionMCPRequest(in.Decision)
 		return
 	}

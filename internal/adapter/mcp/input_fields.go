@@ -2,7 +2,7 @@ package mcp
 
 func v2ActionFields(action string) []string {
 	if isDecisionProtocolMCPAction(action) {
-		return []string{"decision"}
+		return []string{"decision", "workspace_id"}
 	}
 	switch action {
 	case "start":
