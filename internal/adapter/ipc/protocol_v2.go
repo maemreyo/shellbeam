@@ -246,7 +246,7 @@ func validateRequestV2(v RequestV2) error {
 		return validateVerificationRequestV2(v)
 	}
 	if isDecisionProtocolActionV2(v.Action) {
-		return validateDecisionRequestV2(v.Action, v.Decision)
+		return validateDecisionEnvelopeV2(v)
 	}
 	if v.Action == "capabilities.negotiate" || v.Action == "read_media" {
 		return validateMediaRequestV2(v)

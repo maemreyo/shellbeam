@@ -66,7 +66,7 @@ func (s *Service) CommitSelection(ctx context.Context, req CommitSelectionReques
 		return core.SelectionCommit{}, err
 	}
 	if !found {
-		return core.SelectionCommit{}, fmt.Errorf("decision episode unavailable")
+		return core.SelectionCommit{}, ErrEpisodeNotFound
 	}
 	if req.ExpectedPolicyDigest != episode.PolicyBinding.PolicyDigest {
 		return core.SelectionCommit{}, core.NewReasonError(core.ReasonPolicyConflict, "expected policy digest does not match episode binding")
@@ -140,7 +140,7 @@ func (s *Service) CloseUnresolved(ctx context.Context, req CloseUnresolvedReques
 		return core.DecisionClosure{}, err
 	}
 	if !found {
-		return core.DecisionClosure{}, fmt.Errorf("decision episode unavailable")
+		return core.DecisionClosure{}, ErrEpisodeNotFound
 	}
 	projection, err := s.Project(ctx, req.EpisodeID, "")
 	if err != nil {

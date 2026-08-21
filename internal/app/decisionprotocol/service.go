@@ -131,7 +131,7 @@ func (s *Service) BindPredictionInput(ctx context.Context, req BindPredictionInp
 		return core.DecisionProjection{}, err
 	}
 	if !found {
-		return core.DecisionProjection{}, fmt.Errorf("prediction episode unavailable")
+		return core.DecisionProjection{}, ErrEpisodeNotFound
 	}
 	prediction := core.PredictionBinding{PredictionID: req.PredictionID, EpisodeID: req.EpisodeID, ExperimentID: req.ExperimentID, CandidateID: req.CandidateID, Role: req.Role, Predicate: req.Predicate, SourceGeneration: episode.Baseline.SourceGeneration, CommittedAt: s.now().UTC()}
 	return s.BindPrediction(ctx, prediction)

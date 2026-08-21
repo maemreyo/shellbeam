@@ -65,7 +65,7 @@ func actionFieldsV2(action string) []string {
 	case "inspect.code":
 		return []string{"workspace_id", "activity_id", "code_query"}
 	case "decision.policy.snapshot", "decision.policy.activate", "decision.create", "decision.inspect", "decision.evaluate", "decision.close_unresolved", "decision.candidate.create", "decision.candidate.revise", "decision.experiment.define", "decision.prediction.bind", "decision.experiment.seal", "decision.experiment.close", "decision.experiment.abort", "decision.assessment.record", "decision.selection.propose", "decision.override.create", "decision.selection.commit", "decision.authority.materialize":
-		return []string{"decision"}
+		return []string{"decision", "workspace_id"}
 	default:
 		return nil
 	}

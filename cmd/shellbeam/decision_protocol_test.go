@@ -44,14 +44,14 @@ func (f decisionWorkspaceListFake) Inspect(_ context.Context, id string) (worksp
 
 func TestDecisionProtocolRuntimeRequiresSingleWorkspaceContext(t *testing.T) {
 	ws := workspacecore.Workspace{SchemaVersion: workspacecore.SchemaVersion, ID: "ws_01K00000000000000000000001", RepositoryID: "repo_01K00000000000000000000001", Label: "one", Root: "/repo", GitDir: "/repo/.git", CreatedAt: time.Unix(1, 0).UTC(), LastSeenAt: time.Unix(1, 0).UTC()}
-	got, err := resolveDecisionWorkspace(context.Background(), decisionWorkspaceListFake{workspaces: []workspacecore.Workspace{ws}})
+	got, err := resolveDecisionWorkspace(context.Background(), "", decisionWorkspaceListFake{workspaces: []workspacecore.Workspace{ws}})
 	if err != nil || got.ID != ws.ID {
 		t.Fatalf("single workspace resolution got=%#v err=%v", got, err)
 	}
-	if _, err := resolveDecisionWorkspace(context.Background(), decisionWorkspaceListFake{}); err == nil {
+	if _, err := resolveDecisionWorkspace(context.Background(), "", decisionWorkspaceListFake{}); err == nil {
 		t.Fatal("zero-workspace context was guessed")
 	}
-	if _, err := resolveDecisionWorkspace(context.Background(), decisionWorkspaceListFake{workspaces: []workspacecore.Workspace{ws, ws}}); err == nil {
+	if _, err := resolveDecisionWorkspace(context.Background(), "", decisionWorkspaceListFake{workspaces: []workspacecore.Workspace{ws, ws}}); err == nil {
 		t.Fatal("ambiguous workspace context was guessed")
 	}
 }
@@ -93,7 +93,7 @@ func TestDecisionProtocolDispatchDerivesRepositoryAndTrustedAuthorityActor(t *te
 	ops := &decisionOperationsCapture{}
 	runtime := &decisionProtocolRuntime{service: ops, workspaces: decisionWorkspaceListFake{workspaces: []workspacecore.Workspace{ws}}, trustedPeerUID: func(context.Context) (uint32, bool) { return 501, true }}
 	content := decisioncore.PolicyContent{PolicyID: "policy-runtime", EpisodeKinds: []decisioncore.EpisodeKind{decisioncore.EpisodeDiagnosis}, OverridePolicy: decisioncore.OverridePolicy{Allowed: false}}
-	if _, err := runtime.DecisionProtocol(context.Background(), "decision.policy.snapshot", ipcadapter.DecisionRequestV1{Policy: &ipcadapter.DecisionPolicySnapshotInputV1{Content: content}}); err != nil {
+	if _, err := runtime.DecisionProtocol(context.Background(), "decision.policy.snapshot", "", ipcadapter.DecisionRequestV1{Policy: &ipcadapter.DecisionPolicySnapshotInputV1{Content: content}}); err != nil {
 		t.Fatal(err)
 	}
 	if ops.policyReq.RepositoryID != string(ws.RepositoryID) || ops.policyReq.Content.PolicyID != content.PolicyID {
@@ -101,7 +101,7 @@ func TestDecisionProtocolDispatchDerivesRepositoryAndTrustedAuthorityActor(t *te
 	}
 	class := decisioncore.AuthorityClass{Domain: "shellbeam", ClassID: "explicit_caller", Version: 1}
 	scope := decisioncore.AuthorityScope{RepositoryID: string(ws.RepositoryID), EpisodeID: "ep-runtime", ActionKind: decisioncore.AuthorityActionCommitSelectionOverride}
-	if _, err := runtime.DecisionProtocol(context.Background(), "decision.authority.materialize", ipcadapter.DecisionRequestV1{AuthorityRequest: &ipcadapter.DecisionAuthorityMaterializeInputV1{RequiredAuthorityClass: class, RequiredScope: scope}}); err != nil {
+	if _, err := runtime.DecisionProtocol(context.Background(), "decision.authority.materialize", "", ipcadapter.DecisionRequestV1{AuthorityRequest: &ipcadapter.DecisionAuthorityMaterializeInputV1{RequiredAuthorityClass: class, RequiredScope: scope}}); err != nil {
 		t.Fatal(err)
 	}
 	if ops.materializeReq.ActorRef != "shellbeam:explicit_caller:uid:501" || !ops.materializeReq.RequiredAuthorityClass.Equal(class) || ops.materializeReq.RequiredScope != scope {
@@ -288,7 +288,7 @@ func TestComposeDecisionProtocolRuntimeUsesCanonicalStoreAndExistingReadSides(t 
 		t.Fatal(err)
 	}
 	content := decisioncore.PolicyContent{PolicyID: "policy-runtime-compose", EpisodeKinds: []decisioncore.EpisodeKind{decisioncore.EpisodeDiagnosis}, OverridePolicy: decisioncore.OverridePolicy{Allowed: false}}
-	response, err := runtime.DecisionProtocol(context.Background(), "decision.policy.snapshot", ipcadapter.DecisionRequestV1{Policy: &ipcadapter.DecisionPolicySnapshotInputV1{Content: content}})
+	response, err := runtime.DecisionProtocol(context.Background(), "decision.policy.snapshot", "", ipcadapter.DecisionRequestV1{Policy: &ipcadapter.DecisionPolicySnapshotInputV1{Content: content}})
 	if err != nil || response.Policy == nil {
 		t.Fatalf("policy response=%#v err=%v", response, err)
 	}
@@ -379,21 +379,21 @@ func TestCandidateCommitRemainsUpstreamOfVerificationCompletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := decisioncore.PolicyContent{PolicyID: "policy-clear", EpisodeKinds: []decisioncore.EpisodeKind{decisioncore.EpisodeDiagnosis}, OverridePolicy: decisioncore.OverridePolicy{Allowed: false}}
-	policyResponse, err := runtime.DecisionProtocol(context.Background(), "decision.policy.snapshot", ipcadapter.DecisionRequestV1{Policy: &ipcadapter.DecisionPolicySnapshotInputV1{Content: content}})
+	policyResponse, err := runtime.DecisionProtocol(context.Background(), "decision.policy.snapshot", "", ipcadapter.DecisionRequestV1{Policy: &ipcadapter.DecisionPolicySnapshotInputV1{Content: content}})
 	if err != nil || policyResponse.Policy == nil {
 		t.Fatalf("policy=%#v err=%v", policyResponse, err)
 	}
 	proposalGeneration := "gen_cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	if _, err := runtime.DecisionProtocol(context.Background(), "decision.policy.activate", ipcadapter.DecisionRequestV1{ActivationID: "activation-clear", PolicyDigest: policyResponse.Policy.PolicyDigest, ProposalGeneration: proposalGeneration, ExpectedPreviousPolicyDigest: "absent", ActorRef: "actor"}); err != nil {
+	if _, err := runtime.DecisionProtocol(context.Background(), "decision.policy.activate", "", ipcadapter.DecisionRequestV1{ActivationID: "activation-clear", PolicyDigest: policyResponse.Policy.PolicyDigest, ProposalGeneration: proposalGeneration, ExpectedPreviousPolicyDigest: "absent", ActorRef: "actor"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.DecisionProtocol(context.Background(), "decision.create", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", EpisodeKind: decisioncore.EpisodeDiagnosis, ActorRef: "actor"}); err != nil {
+	if _, err := runtime.DecisionProtocol(context.Background(), "decision.create", "", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", EpisodeKind: decisioncore.EpisodeDiagnosis, ActorRef: "actor"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.DecisionProtocol(context.Background(), "decision.candidate.create", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", ActorRef: "actor", Candidate: &ipcadapter.DecisionCandidateInputV1{CandidateID: "candidate-clear", SemanticClaim: "candidate A"}}); err != nil {
+	if _, err := runtime.DecisionProtocol(context.Background(), "decision.candidate.create", "", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", ActorRef: "actor", Candidate: &ipcadapter.DecisionCandidateInputV1{CandidateID: "candidate-clear", SemanticClaim: "candidate A"}}); err != nil {
 		t.Fatal(err)
 	}
-	projectionResponse, err := runtime.DecisionProtocol(context.Background(), "decision.inspect", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", CandidateID: "candidate-clear"})
+	projectionResponse, err := runtime.DecisionProtocol(context.Background(), "decision.inspect", "", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", CandidateID: "candidate-clear"})
 	if err != nil || projectionResponse.Projection == nil || projectionResponse.Projection.Protocol.Gate != decisioncore.GateClear {
 		t.Fatalf("projection=%#v err=%v", projectionResponse.Projection, err)
 	}
@@ -401,7 +401,7 @@ func TestCandidateCommitRemainsUpstreamOfVerificationCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runtime.DecisionProtocol(context.Background(), "decision.selection.commit", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", CandidateID: "candidate-clear", ActorRef: "actor", ExpectedPolicyDigest: policyResponse.Policy.PolicyDigest, ExpectedProjectionDigest: projectionResponse.Projection.ProjectionDigest, IdempotencyKey: "candidate-clear-commit"}); err != nil {
+	if _, err := runtime.DecisionProtocol(context.Background(), "decision.selection.commit", "", ipcadapter.DecisionRequestV1{EpisodeID: "episode-clear", CandidateID: "candidate-clear", ActorRef: "actor", ExpectedPolicyDigest: policyResponse.Policy.PolicyDigest, ExpectedProjectionDigest: projectionResponse.Projection.ProjectionDigest, IdempotencyKey: "candidate-clear-commit"}); err != nil {
 		t.Fatal(err)
 	}
 	afterObservation, err := repository.ObservationHighWatermark(context.Background())
@@ -436,7 +436,7 @@ func (f *decisionInspectProjectionCapture) Project(context.Context, decisioncore
 func TestDecisionInspectReturnsCommitEligibleEvaluatedProjection(t *testing.T) {
 	ops := &decisionInspectProjectionCapture{}
 	runtime := &decisionProtocolRuntime{service: ops}
-	response, err := runtime.DecisionProtocol(context.Background(), "decision.inspect", ipcadapter.DecisionRequestV1{EpisodeID: "episode-inspect", CandidateID: "candidate-inspect"})
+	response, err := runtime.DecisionProtocol(context.Background(), "decision.inspect", "", ipcadapter.DecisionRequestV1{EpisodeID: "episode-inspect", CandidateID: "candidate-inspect"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -25,7 +25,7 @@ func (s *Service) RecordAssessment(ctx context.Context, req RecordAssessmentRequ
 	if _, found, err := s.mutations.FindEpisode(ctx, req.EpisodeID); err != nil {
 		return core.VerifierAssessment{}, err
 	} else if !found {
-		return core.VerifierAssessment{}, fmt.Errorf("assessment episode unavailable")
+		return core.VerifierAssessment{}, ErrEpisodeNotFound
 	}
 	if err := s.requireAssessmentCandidates(ctx, req); err != nil {
 		return core.VerifierAssessment{}, err
@@ -68,7 +68,7 @@ func (s *Service) requireAssessmentCandidates(ctx context.Context, req RecordAss
 			return err
 		}
 		if !found || candidate.EpisodeID != req.EpisodeID {
-			return fmt.Errorf("assessment candidate unavailable in episode")
+			return ErrCandidateNotFound
 		}
 	}
 	return nil

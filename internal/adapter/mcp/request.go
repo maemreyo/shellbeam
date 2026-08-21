@@ -33,6 +33,7 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 
 func populateRequestFromInput(request *bridge.Request, in input) {
 	if isDecisionProtocolMCPAction(in.Action) {
+		request.WorkspaceID = in.WorkspaceID
 		request.Decision = cloneDecisionMCPRequest(in.Decision)
 		return
 	}
@@ -104,12 +105,16 @@ func populateRequestFromInput(request *bridge.Request, in input) {
 	case "inspect.repro":
 		request.ReproID = in.ReproID
 	case "kill":
-		signal := in.Signal
-		if signal == "" {
-			signal = "TERM"
-		}
-		request.Kill = app.KillRequest{SessionID: in.SessionID, KillID: in.KillID, Signal: signal}
+		applyKillInput(request, in)
 	}
+}
+
+func applyKillInput(request *bridge.Request, in input) {
+	signal := in.Signal
+	if signal == "" {
+		signal = "TERM"
+	}
+	request.Kill = app.KillRequest{SessionID: in.SessionID, KillID: in.KillID, Signal: signal}
 }
 func cloneMCPVerificationAttempt(value *coreevidence.VerificationAttemptIntent) *coreevidence.VerificationAttemptIntent {
 	if value == nil {

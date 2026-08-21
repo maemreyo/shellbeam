@@ -17,6 +17,7 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	switch in.Action {
 	case "decision.policy.snapshot", "decision.policy.activate", "decision.create", "decision.inspect", "decision.evaluate", "decision.close_unresolved", "decision.candidate.create", "decision.candidate.revise", "decision.experiment.define", "decision.prediction.bind", "decision.experiment.seal", "decision.experiment.close", "decision.experiment.abort", "decision.assessment.record", "decision.selection.propose", "decision.override.create", "decision.selection.commit", "decision.authority.materialize":
+		req.WorkspaceID = in.WorkspaceID
 		req.Decision = decisionRequestV2FromBridge(in.Decision)
 	case "start":
 		applyStartV2(req, in)

@@ -9,6 +9,7 @@ import (
 
 	dp "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	"github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 var decisionProtocolActionsV1 = []string{
@@ -133,6 +134,15 @@ func validateDecisionRawFieldsV2(raw json.RawMessage, action string) error {
 		}
 	}
 	return nil
+}
+
+func validateDecisionEnvelopeV2(req RequestV2) error {
+	if req.WorkspaceID != "" {
+		if _, err := workspace.ParseWorkspaceID(req.WorkspaceID); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, err)
+		}
+	}
+	return validateDecisionRequestV2(req.Action, req.Decision)
 }
 
 func validateDecisionRequestV2(action string, req *DecisionRequestV1) error {
@@ -287,7 +297,7 @@ type DecisionResponseV1 struct {
 }
 
 type DecisionProtocolActions interface {
-	DecisionProtocol(context.Context, string, DecisionRequestV1) (DecisionResponseV1, error)
+	DecisionProtocol(context.Context, string, string, DecisionRequestV1) (DecisionResponseV1, error)
 }
 
 func (s *Server) decisionProtocolV2(ctx context.Context, req RequestV2, resp *ResponseV2) error {
@@ -298,7 +308,7 @@ func (s *Server) decisionProtocolV2(ctx context.Context, req RequestV2, resp *Re
 	if req.Decision == nil {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "decision"}, fmt.Errorf("missing decision payload"))
 	}
-	out, err := actions.DecisionProtocol(ctx, req.Action, *req.Decision)
+	out, err := actions.DecisionProtocol(ctx, req.Action, req.WorkspaceID, *req.Decision)
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
@@ -12,21 +13,13 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	decisioncore "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	verificationcore "github.com/maemreyo/shellbeam/internal/core/verification"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
-
-type decisionWorkspaceList interface {
-	List(context.Context) ([]workspacecore.Workspace, error)
-}
-
-type decisionWorkspaceRuntime interface {
-	decisionWorkspaceList
-	decisionapp.WorkspaceInspector
-}
 
 type decisionProtocolOperations interface {
 	PutPolicySnapshot(context.Context, decisionapp.PutPolicySnapshotRequest) (decisioncore.PolicySnapshot, error)
@@ -156,7 +149,7 @@ func (s decisionActivationGenerationSource) CurrentActivationGeneration(ctx cont
 
 type decisionProtocolRuntime struct {
 	service        decisionProtocolOperations
-	workspaces     decisionWorkspaceList
+	workspaces     decisionWorkspaceRuntime
 	trustedPeerUID func(context.Context) (uint32, bool)
 }
 type decisionObservationStore interface {
@@ -246,13 +239,14 @@ func (s decisionVerificationSource) requireEvidenceCut(ctx context.Context, cut 
 	return nil
 }
 
-func (r *decisionProtocolRuntime) DecisionProtocol(ctx context.Context, action string, req ipcadapter.DecisionRequestV1) (ipcadapter.DecisionResponseV1, error) {
+func (r *decisionProtocolRuntime) DecisionProtocol(ctx context.Context, action, workspaceSelector string, req ipcadapter.DecisionRequestV1) (response ipcadapter.DecisionResponseV1, err error) {
+	defer func() { err = projectDecisionProtocolError(err) }()
 	if r == nil || r.service == nil {
 		return ipcadapter.DecisionResponseV1{}, fmt.Errorf("decision protocol runtime unavailable")
 	}
 	switch action {
 	case "decision.policy.snapshot", "decision.policy.activate", "decision.create":
-		return r.dispatchDecisionContextAction(ctx, action, req)
+		return r.dispatchDecisionContextAction(ctx, action, workspaceSelector, req)
 	case "decision.inspect", "decision.evaluate", "decision.close_unresolved":
 		return r.dispatchDecisionEpisodeAction(ctx, action, req)
 	case "decision.candidate.create", "decision.candidate.revise":
@@ -266,8 +260,30 @@ func (r *decisionProtocolRuntime) DecisionProtocol(ctx context.Context, action s
 	}
 }
 
-func (r *decisionProtocolRuntime) dispatchDecisionContextAction(ctx context.Context, action string, req ipcadapter.DecisionRequestV1) (ipcadapter.DecisionResponseV1, error) {
-	workspace, err := resolveDecisionWorkspace(ctx, r.workspaces)
+func projectDecisionProtocolError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var public *failure.Failure
+	if errors.As(err, &public) {
+		return err
+	}
+	switch {
+	case errors.Is(err, decisionapp.ErrEpisodeNotFound):
+		return failure.New(failure.DecisionEpisodeNotFound, nil, err)
+	case errors.Is(err, decisionapp.ErrCandidateNotFound):
+		return failure.New(failure.DecisionCandidateNotFound, nil, err)
+	case errors.Is(err, decisionapp.ErrExperimentNotFound):
+		return failure.New(failure.DecisionExperimentNotFound, nil, err)
+	}
+	if reason, ok := decisioncore.ReasonOf(err); ok {
+		return failure.New(failure.DecisionProtocolRejected, map[string]string{"reason": string(reason)}, err)
+	}
+	return err
+}
+
+func (r *decisionProtocolRuntime) dispatchDecisionContextAction(ctx context.Context, action, workspaceSelector string, req ipcadapter.DecisionRequestV1) (ipcadapter.DecisionResponseV1, error) {
+	workspace, err := resolveDecisionWorkspace(ctx, workspaceSelector, r.workspaces)
 	if err != nil {
 		return ipcadapter.DecisionResponseV1{}, err
 	}
@@ -439,23 +455,6 @@ func decisionResponseProjection(value decisioncore.DecisionProjection) ipcadapte
 	return ipcadapter.DecisionResponseV1{Projection: &value}
 }
 
-func resolveDecisionWorkspace(ctx context.Context, workspaces decisionWorkspaceList) (workspacecore.Workspace, error) {
-	if workspaces == nil {
-		return workspacecore.Workspace{}, fmt.Errorf("decision workspace context unavailable")
-	}
-	values, err := workspaces.List(ctx)
-	if err != nil {
-		return workspacecore.Workspace{}, err
-	}
-	if len(values) != 1 {
-		return workspacecore.Workspace{}, fmt.Errorf("decision workspace context requires exactly one registered workspace")
-	}
-	if err := values[0].Validate(); err != nil {
-		return workspacecore.Workspace{}, fmt.Errorf("invalid decision workspace context: %w", err)
-	}
-	return values[0], nil
-}
-
 func decisionProtocolSupport() capability.DecisionProtocolSupport {
 	return capability.DecisionProtocolSupport{SchemaVersion: 1, ProtocolVersion: 1, PredicateKinds: []string{"OPERATION_OUTCOME", "STRUCTURED_TEST_STATUS", "STRUCTURED_DIAGNOSTIC_PRESENCE", "VERIFICATION_RESULT"}, AuthorityProviders: []string{decisionapp.ExplicitCallerAuthorityProviderID + ".v1"}, OneExecutionPerExperiment: true}
 }
@@ -464,11 +463,11 @@ func trustedDecisionActorRef(uid uint32) string {
 	return decisionapp.ExplicitCallerActorRef(uid)
 }
 
-func (a *daemonActions) DecisionProtocol(ctx context.Context, action string, req ipcadapter.DecisionRequestV1) (ipcadapter.DecisionResponseV1, error) {
+func (a *daemonActions) DecisionProtocol(ctx context.Context, action, workspaceSelector string, req ipcadapter.DecisionRequestV1) (ipcadapter.DecisionResponseV1, error) {
 	if a == nil || a.decision == nil {
 		return ipcadapter.DecisionResponseV1{}, fmt.Errorf("decision protocol runtime unavailable")
 	}
-	return a.decision.DecisionProtocol(ctx, action, req)
+	return a.decision.DecisionProtocol(ctx, action, workspaceSelector, req)
 }
 
 func (a *daemonActions) InspectServer(ctx context.Context) (daemonapp.ServerInfo, error) {

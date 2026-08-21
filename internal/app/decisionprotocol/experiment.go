@@ -44,14 +44,14 @@ func (s *Service) SealExperiment(ctx context.Context, experimentID core.Experime
 		return core.ExperimentSeal{}, core.DecisionProjection{}, err
 	}
 	if !ok {
-		return core.ExperimentSeal{}, core.DecisionProjection{}, fmt.Errorf("experiment unavailable")
+		return core.ExperimentSeal{}, core.DecisionProjection{}, ErrExperimentNotFound
 	}
 	episode, ok, err := s.mutations.FindEpisode(ctx, experiment.EpisodeID)
 	if err != nil {
 		return core.ExperimentSeal{}, core.DecisionProjection{}, err
 	}
 	if !ok {
-		return core.ExperimentSeal{}, core.DecisionProjection{}, fmt.Errorf("experiment episode unavailable")
+		return core.ExperimentSeal{}, core.DecisionProjection{}, ErrEpisodeNotFound
 	}
 	cut, err := s.ledger.CurrentHighWater(ctx)
 	if err != nil {
@@ -109,7 +109,7 @@ func (s *Service) CloseExperiment(ctx context.Context, experimentID core.Experim
 		return core.DecisionProjection{}, err
 	}
 	if !ok {
-		return core.DecisionProjection{}, fmt.Errorf("experiment unavailable")
+		return core.DecisionProjection{}, ErrExperimentNotFound
 	}
 	hw, err := s.ledger.CurrentHighWater(ctx)
 	if err != nil {
@@ -150,7 +150,7 @@ func (s *Service) AbortExperiment(ctx context.Context, experimentID core.Experim
 		return core.DecisionProjection{}, err
 	}
 	if !ok {
-		return core.DecisionProjection{}, fmt.Errorf("experiment unavailable")
+		return core.DecisionProjection{}, ErrExperimentNotFound
 	}
 	hw, err := s.ledger.CurrentHighWater(ctx)
 	if err != nil {

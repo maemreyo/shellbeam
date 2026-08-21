@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "spec_path": "docs/superpowers/specs/2026-08-21-decision-protocol-multi-workspace-routing-amendment.md",
+  "spec_sha256": "8c79f38bf53cf76b71e83a60a78255e76ed0faf2443a8af2329963d2786be898",
+  "plan_path": "docs/superpowers/plans/2026-08-21-decision-protocol-multi-workspace-routing-amendment.md",
+  "plan_authoring_base": "a39447c",
+  "tasks": [
+    {"task": 0, "title": "Bind amendment traceability and prove the baseline"},
+    {"task": 1, "title": "Carry the outer workspace selector through MCP, bridge, IPC, and schemas"},
+    {"task": 2, "title": "Resolve Decision workspace authoritatively and derive repository identity server-side"},
+    {"task": 3, "title": "Project stable Decision lookup and protocol-rejection failures"},
+    {"task": 4, "title": "Prove multi-workspace routing end to end without touching the production daemon"}
+  ],
+  "sections": [
+    {"section": 1, "tasks": [0, 2]},
+    {"section": 2, "tasks": [1, 2]},
+    {"section": 3, "tasks": [2]},
+    {"section": 4, "tasks": [2, 3]},
+    {"section": 5, "tasks": [2, 3]},
+    {"section": 6, "tasks": [1, 2]},
+    {"section": 7, "tasks": [1, 2, 3]},
+    {"section": 8, "tasks": [4]},
+    {"section": 9, "tasks": [1, 2, 3, 4]},
+    {"section": 10, "tasks": [0, 1, 2, 3, 4]}
+  ],
+  "required_anchors": [
+    "outer_workspace_selector",
+    "singleton_fallback",
+    "decision_context_unavailable",
+    "workspace_not_found",
+    "nested_workspace_rejected",
+    "nested_repository_rejected",
+    "decision_episode_not_found",
+    "decision_candidate_not_found",
+    "decision_experiment_not_found",
+    "decision_protocol_rejected",
+    "isolated_multi_workspace_probe"
+  ],
+  "original_traceability_checker": "scripts/check-decision-protocol-v1-plan-traceability.py"
+}

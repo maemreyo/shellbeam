@@ -69,6 +69,82 @@ func callDecisionMCP(t *testing.T, session *mcpgo.ClientSession, action string, 
 	return res
 }
 
+func TestDecisionProtocolMCPAcceptsAndForwardsOuterWorkspaceSelector(t *testing.T) {
+	client := &decisionMCPClient{}
+	session, closeSession := currentSession(t, New(bridge.New(client), capability.Baseline(capability.Limits{})))
+	defer closeSession()
+	workspaceID := "ws_01K00000000000000000000000"
+	payload, err := json.Marshal(map[string]any{
+		"action":       "decision.policy.snapshot",
+		"workspace_id": workspaceID,
+		"decision":     decisionMCPMinimumPayloads()["decision.policy.snapshot"],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(payload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.IsError {
+		t.Fatalf("outer workspace selector rejected: %#v", res)
+	}
+	if client.last.WorkspaceID != workspaceID {
+		t.Fatalf("workspace selector lost: got=%q want=%q request=%#v", client.last.WorkspaceID, workspaceID, client.last)
+	}
+	if client.last.Decision == nil {
+		t.Fatal("decision payload was not forwarded")
+	}
+}
+
+func TestDecisionProtocolMCPRejectsInvalidOuterWorkspaceSelector(t *testing.T) {
+	client := &decisionMCPClient{}
+	session, closeSession := currentSession(t, New(bridge.New(client), capability.Baseline(capability.Limits{})))
+	defer closeSession()
+	payload, err := json.Marshal(map[string]any{
+		"action":       "decision.inspect",
+		"workspace_id": "not-a-workspace-id",
+		"decision":     decisionMCPMinimumPayloads()["decision.inspect"],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(payload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("invalid outer workspace selector accepted: %#v", res)
+	}
+	if client.last.Action != "" {
+		t.Fatalf("invalid selector reached bridge: %#v", client.last)
+	}
+}
+
+func TestDecisionProtocolMCPKeepsOuterFieldSetClosed(t *testing.T) {
+	client := &decisionMCPClient{}
+	session, closeSession := currentSession(t, New(bridge.New(client), capability.Baseline(capability.Limits{})))
+	defer closeSession()
+	payload, err := json.Marshal(map[string]any{
+		"action":   "decision.inspect",
+		"decision": decisionMCPMinimumPayloads()["decision.inspect"],
+		"cwd":      "/tmp",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(payload)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.IsError {
+		t.Fatalf("unrelated outer field accepted: %#v", res)
+	}
+	if client.last.Action != "" {
+		t.Fatalf("invalid outer field reached bridge: %#v", client.last)
+	}
+}
+
 func TestDecisionProtocolMCPForwardsAllActionsWithoutStart(t *testing.T) {
 	client := &decisionMCPClient{}
 	session, closeSession := currentSession(t, New(bridge.New(client), capability.Baseline(capability.Limits{})))
@@ -102,6 +178,8 @@ func TestDecisionProtocolMCPRejectsCrossActionAndServerOwnedFields(t *testing.T)
 		{"authority actor", "decision.authority.materialize", "actor_ref", "forged"},
 		{"override actor", "decision.override.create", "actor_ref", "forged"},
 		{"observation result", "decision.experiment.close", "prediction_results", []any{}},
+		{"nested workspace", "decision.inspect", "workspace_id", "ws_01K00000000000000000000000"},
+		{"nested repository", "decision.inspect", "repository_id", "repo_01K00000000000000000000000"},
 		{"inspect reason", "decision.inspect", "reason", "forged"},
 	}
 	payloads := decisionMCPMinimumPayloads()

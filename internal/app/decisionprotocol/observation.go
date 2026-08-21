@@ -66,7 +66,7 @@ func (s *Service) loadObservationMaterializationPlan(ctx context.Context, experi
 		return observationMaterializationPlan{}, err
 	}
 	if !ok {
-		return observationMaterializationPlan{}, fmt.Errorf("experiment unavailable")
+		return observationMaterializationPlan{}, ErrExperimentNotFound
 	}
 	hw, err := s.ledger.CurrentHighWater(ctx)
 	if err != nil {
