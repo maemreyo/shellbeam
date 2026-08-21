@@ -6,12 +6,15 @@ import (
 	"fmt"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	bridgeapp "github.com/maemreyo/shellbeam/internal/app/browserbridge"
 	control "github.com/maemreyo/shellbeam/internal/app/control"
+	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
 	"github.com/maemreyo/shellbeam/internal/ownership"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -88,6 +91,9 @@ func doctorReport(args []string) (control.Report, error) {
 		report.Checks = append(report.Checks, control.Check{ID: "tunnel_client", Status: control.Warn, Message: "tunnel-client not found", Hint: "install OpenAI Secure MCP Tunnel client separately"})
 	}
 	report.Checks = append(report.Checks, doctorFreeSpaceCheck(paths.StateDir, cfg.MinFreeSpaceBytes))
+	if home, homeErr := os.UserHomeDir(); homeErr == nil {
+		report.Checks = append(report.Checks, browserBridgeCheck(runtime.GOOS, home))
+	}
 	return report, nil
 }
 
@@ -156,4 +162,32 @@ func doctorSocketCheck(socket string) control.Check {
 		return control.Check{ID: "socket", Status: control.Warn, Message: "daemon IPC unavailable", Hint: "start or restart the ShellBeam daemon"}
 	}
 	return control.Check{ID: "socket", Status: control.Pass, Message: "daemon IPC responsive"}
+}
+
+// browserBridgeCheck reports the bootstrap facts the extension cannot see.
+//
+// Firefox cannot spawn a host whose manifest is missing, so host absence can
+// never arrive as a protocol reply. The bridge is optional, so all bootstrap
+// problems remain warnings rather than unsafe-boundary failures.
+func browserBridgeCheck(goos, home string) control.Check {
+	dir, err := bridgeapp.ManifestDir(goos, home)
+	if err != nil {
+		return control.Check{ID: "browser_bridge", Status: control.Warn, Message: "browser bridge unsupported on this platform", Hint: err.Error()}
+	}
+	path := filepath.Join(dir, bridgeapp.HostName+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return control.Check{ID: "browser_bridge", Status: control.Warn, Message: "browser bridge manifest not installed", Hint: "run: shellbeam browser-host install --extension-id=ID --host-path=PATH"}
+	}
+	var manifest struct {
+		Path              string   `json:"path"`
+		AllowedExtensions []string `json:"allowed_extensions"`
+	}
+	if json.Unmarshal(raw, &manifest) != nil || len(manifest.AllowedExtensions) != 1 {
+		return control.Check{ID: "browser_bridge", Status: control.Warn, Message: "browser bridge manifest unreadable or not pinned to one extension", Hint: "reinstall with: shellbeam browser-host install"}
+	}
+	if _, err := os.Stat(manifest.Path); err != nil {
+		return control.Check{ID: "browser_bridge", Status: control.Warn, Message: "browser bridge host binary missing", Hint: manifest.Path}
+	}
+	return control.Check{ID: "browser_bridge", Status: control.Pass, Message: fmt.Sprintf("browser bridge manifest pinned to %s, protocol %d", manifest.AllowedExtensions[0], protocol.ProtocolVersion)}
 }

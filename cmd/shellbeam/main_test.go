@@ -30,7 +30,7 @@ func TestTopLevelHelpFlagsPrintUsageAndSucceed(t *testing.T) {
 			if code := run([]string{arg}, &stdout, &stderr); code != 0 {
 				t.Fatalf("code=%d stderr=%q", code, stderr.String())
 			}
-			if !strings.Contains(stdout.String(), "usage: shellbeam <daemon|mcp|workspace|project|install|uninstall|status|doctor|version>") || stderr.Len() != 0 {
+			if !strings.Contains(stdout.String(), "usage: shellbeam <daemon|mcp|workspace|project|browser-host|install|uninstall|status|doctor|version>") || stderr.Len() != 0 {
 				t.Fatalf("stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 		})
@@ -59,5 +59,15 @@ func TestRunContract(t *testing.T) {
 				t.Fatalf("output=%q stderr=%q", out.String(), err.String())
 			}
 		})
+	}
+}
+
+func TestBrowserHostCommandIsRecognizedAndRequiresSubcommand(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"browser-host"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "usage: shellbeam browser-host") {
+		t.Fatalf("browser-host did not reach its command handler: %q", stderr.String())
 	}
 }
