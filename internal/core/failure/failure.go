@@ -111,6 +111,14 @@ const (
 	RequirementUnsupported            Code = "requirement_unsupported"
 	RequirementNotSatisfied           Code = "requirement_not_satisfied"
 	ShellIdentityChanged              Code = "shell_identity_changed"
+	ContextExecUnavailable            Code = "context_exec_unavailable"
+	ContextExecStaleGeneration        Code = "context_exec_stale_generation"
+	ContextExecNotAgentOwned          Code = "context_exec_not_agent_owned"
+	ContextExecPrivacyBlocked         Code = "context_exec_privacy_blocked"
+	ContextExecBoundaryUnproven       Code = "context_exec_boundary_unproven"
+	ContextHelperAuthFailed           Code = "context_helper_auth_failed"
+	ContextHelperLost                 Code = "context_helper_lost"
+	ContextExecAmbiguous              Code = "context_exec_ambiguous"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
 	MediaPathNotFound                 Code = "media_path_not_found"
 	MediaPathUnsafe                   Code = "media_path_unsafe"
@@ -269,6 +277,14 @@ var publicSpecs = map[Code]publicSpec{
 	RequirementUnsupported:            {message: "shell requirement unsupported", details: keys("handoff_id", "kind", "shell", "reason")},
 	RequirementNotSatisfied:           {message: "shell requirement not satisfied", details: keys("handoff_id", "kind", "shell", "reason")},
 	ShellIdentityChanged:              {message: "shell identity changed", retryable: true, details: keys("handoff_id", "shell", "reason")},
+	ContextExecUnavailable:            {message: "context execution unavailable", details: keys("context_exec_id", "session_id", "reason")},
+	ContextExecStaleGeneration:        {message: "context execution generation is stale", retryable: true, details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextExecNotAgentOwned:          {message: "context execution requires agent ownership", details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextExecPrivacyBlocked:         {message: "context execution blocked by privacy state", retryable: true, details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextExecBoundaryUnproven:       {message: "context execution boundary unproven", retryable: true, details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextHelperAuthFailed:           {message: "context helper authentication failed", details: keys("context_exec_id", "session_id", "reason")},
+	ContextHelperLost:                 {message: "context helper lost", retryable: true, details: keys("context_exec_id", "session_id", "reason")},
+	ContextExecAmbiguous:              {message: "context execution outcome ambiguous", details: keys("context_exec_id", "session_id", "reason")},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
 	MediaPathNotFound:                 {message: "media path not found"},
 	MediaPathUnsafe:                   {message: "media path is unsafe"},
