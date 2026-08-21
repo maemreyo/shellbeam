@@ -159,9 +159,15 @@ func (r *Repository) collectSession(ctx context.Context, sessionID string, cutof
 	// behind would resurrect everything retention had just collected, each one
 	// holding a capacity slot. Losing the record and keeping the directory is
 	// harmless by comparison: the next sweep collects it.
-	if err := removeIfPresent(r.operationPath(operation.ID(snapshot.OperationID))); err != nil {
+	r.activityOperationMu.Lock()
+	removeOperationErr := removeIfPresent(r.operationPath(operation.ID(snapshot.OperationID)))
+	if removeOperationErr == nil {
+		r.removeActivityOperationLocked(reservation)
+	}
+	r.activityOperationMu.Unlock()
+	if removeOperationErr != nil {
 		r.structuredMu.Unlock()
-		return 0, false, err
+		return 0, false, removeOperationErr
 	}
 	if err := removeIfPresent(r.rawOutputRefPath(sessionID)); err != nil {
 		r.structuredMu.Unlock()

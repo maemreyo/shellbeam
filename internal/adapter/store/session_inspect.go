@@ -81,6 +81,48 @@ func (r *Repository) ListSessionSummaries(ctx context.Context, request persisten
 }
 
 func (r *Repository) filteredSessionSummaries(ctx context.Context, filter persistentBindingFilter) ([]persistent.Summary, error) {
+	if filter.ActivityID != "" {
+		if ids, ready := r.indexedActivityOperationIDs(filter.ActivityID); ready {
+			return r.filteredSessionSummariesFromOperationIDs(ctx, filter, ids)
+		}
+	}
+	return r.filteredSessionSummariesFromOperationScan(ctx, filter)
+}
+
+func (r *Repository) filteredSessionSummariesFromOperationIDs(ctx context.Context, filter persistentBindingFilter, ids []operation.ID) ([]persistent.Summary, error) {
+	out := make([]persistent.Summary, 0, len(ids))
+	for _, id := range ids {
+		reservation, err := r.LoadOperation(ctx, id)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !sessionReservationMatchesFilter(reservation, filter) {
+			continue
+		}
+		snapshot, err := r.LoadSession(ctx, reservation.SessionID)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if filter.State != "" && string(snapshot.State) != filter.State {
+			continue
+		}
+		summary, err := r.canonicalSessionSummary(ctx, reservation, snapshot)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, summary)
+	}
+	sortSessionSummaries(out)
+	return out, nil
+}
+
+func (r *Repository) filteredSessionSummariesFromOperationScan(ctx context.Context, filter persistentBindingFilter) ([]persistent.Summary, error) {
 	file, err := os.Open(filepath.Join(r.root, "operations"))
 	if err != nil {
 		return nil, err
@@ -109,16 +151,7 @@ func (r *Repository) filteredSessionSummaries(ctx context.Context, filter persis
 		if err != nil {
 			return nil, err
 		}
-		if filter.PersistentOnly && !reservation.Persistent {
-			continue
-		}
-		if filter.SessionName != "" && reservation.SessionName != filter.SessionName {
-			continue
-		}
-		if filter.ActivityID != "" && reservation.ActivityID != filter.ActivityID {
-			continue
-		}
-		if filter.WorkspaceID != "" && reservation.WorkspaceID != filter.WorkspaceID {
+		if !sessionReservationMatchesFilter(reservation, filter) {
 			continue
 		}
 		snapshot, err := r.LoadSession(ctx, reservation.SessionID)
@@ -134,12 +167,32 @@ func (r *Repository) filteredSessionSummaries(ctx context.Context, filter persis
 		}
 		out = append(out, summary)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		a := persistentCursorPosition{CreatedAt: out[i].CreatedAt.UTC(), SessionID: out[i].SessionID}
-		b := persistentCursorPosition{CreatedAt: out[j].CreatedAt.UTC(), SessionID: out[j].SessionID}
+	sortSessionSummaries(out)
+	return out, nil
+}
+
+func sessionReservationMatchesFilter(reservation operation.Reservation, filter persistentBindingFilter) bool {
+	if filter.PersistentOnly && !reservation.Persistent {
+		return false
+	}
+	if filter.SessionName != "" && reservation.SessionName != filter.SessionName {
+		return false
+	}
+	if filter.ActivityID != "" && reservation.ActivityID != filter.ActivityID {
+		return false
+	}
+	if filter.WorkspaceID != "" && reservation.WorkspaceID != filter.WorkspaceID {
+		return false
+	}
+	return true
+}
+
+func sortSessionSummaries(summaries []persistent.Summary) {
+	sort.Slice(summaries, func(i, j int) bool {
+		a := persistentCursorPosition{CreatedAt: summaries[i].CreatedAt.UTC(), SessionID: summaries[i].SessionID}
+		b := persistentCursorPosition{CreatedAt: summaries[j].CreatedAt.UTC(), SessionID: summaries[j].SessionID}
 		return comparePersistentPosition(a, b) < 0
 	})
-	return out, nil
 }
 
 func (r *Repository) canonicalSessionSummary(ctx context.Context, reservation operation.Reservation, snapshot session.Snapshot) (persistent.Summary, error) {

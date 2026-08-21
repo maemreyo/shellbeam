@@ -80,7 +80,16 @@ func (r *Repository) reserveOperationLocked(ctx context.Context, want operation.
 	if prepared.Err != nil {
 		return existing, false, prepared
 	}
+	r.activityOperationMu.Lock()
 	result := r.writer.Create(path, want)
+	visible := result.Err == nil
+	if !visible && !errors.Is(result.Err, os.ErrExist) {
+		visible = r.reservationFileMatches(path, want)
+	}
+	if visible {
+		r.addActivityOperationLocked(want)
+	}
+	r.activityOperationMu.Unlock()
 	if result.Err != nil {
 		if errors.Is(result.Err, os.ErrExist) {
 			r.abortObservationBestEffort(seq, observationAbortConflict)
