@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	MaxStructuredRecords         = 1024
-	maxStructuredRecordFileBytes = 8 << 20
+	MaxStructuredRecords         = 8192
+	maxStructuredRecordFileBytes = 128 << 20
 )
 
 var ErrStructuredRecordsCompacted = errors.New("structured records compacted")
@@ -56,15 +56,20 @@ func (r *Repository) PutRecords(ctx context.Context, key string, records []core.
 	if err != nil {
 		return err
 	}
+	setSchema := core.SchemaVersion
 	for _, record := range records {
-		if record.SchemaVersion != core.SchemaVersion {
-			return fmt.Errorf("structured_record_write_requires_v2")
+		switch record.SchemaVersion {
+		case core.SchemaVersion:
+		case core.RecordSchemaVersionV3:
+			setSchema = core.RecordSchemaVersionV3
+		default:
+			return fmt.Errorf("structured_record_write_requires_supported_schema")
 		}
 	}
 	if err := validateRecordsForDerivation(records, derivation); err != nil {
 		return err
 	}
-	set := structuredRecordSet{SchemaVersion: core.SchemaVersion, DerivationKey: key, Records: append([]core.Record(nil), records...)}
+	set := structuredRecordSet{SchemaVersion: setSchema, DerivationKey: key, Records: append([]core.Record(nil), records...)}
 	path := r.recordPath(key)
 	if current, err := readStructuredRecordSet(path, derivation); err == nil {
 		if err := validateStructuredRecordSet(current, derivation); err != nil {
@@ -73,12 +78,18 @@ func (r *Repository) PutRecords(ctx context.Context, key string, records []core.
 		if !sameRecordSetReplay(current, set) {
 			return fmt.Errorf("structured_records_conflict")
 		}
+		if err := r.ensureFailureExcerptRetentionMarkersUnlocked(ctx, key, records); err != nil {
+			return err
+		}
 		return r.ensureStructuredSummaryUnlocked(set)
 	} else if !errors.Is(err, ErrNotFound) {
 		return err
 	}
 	if derivation.Lifecycle != core.LifecycleProcessing {
 		return fmt.Errorf("structured_records_require_processing")
+	}
+	if err := r.ensureFailureExcerptRetentionMarkersUnlocked(ctx, key, records); err != nil {
+		return err
 	}
 	if result := r.writer.Create(path, set); result.Err != nil {
 		return result.Err
@@ -144,7 +155,9 @@ func (r *Repository) compactDerivationDetailUnlocked(ctx context.Context, key st
 			return err
 		}
 		next := derivation
-		next.SchemaVersion = core.SchemaVersion
+		if derivation.SchemaVersion != core.DerivationSchemaVersionV3 {
+			next.SchemaVersion = core.SchemaVersion
+		}
 		next.Completeness = core.CompletenessCompacted
 		if err := r.replaceDerivation(ctx, r.derivationPath(key), next, structuredTransitionObservable(derivation, next)); err != nil {
 			return err

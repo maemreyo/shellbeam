@@ -100,6 +100,17 @@ func TestPersistentReconciliationSurvivesATransientSupervisorFailure(t *testing.
 		Incarnation: "persistent-reconcile-retry", Shell: "/bin/sh", MaxQueuedInputBytes: 100,
 		PersistentRuntime: runtime, TelemetryWorker: worker,
 	})
+	// The reconciler owns this session past its terminal transition, so without
+	// this the goroutine keeps writing bindings into the store after the test
+	// returns and races t.TempDir removal. Registered after the store helper, so
+	// it runs before the directory is deleted.
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := svc.Shutdown(ctx); err != nil {
+			t.Errorf("shutdown left the persistent reconciler running: %v", err)
+		}
+	})
 
 	started, err := svc.Start(context.Background(), app.StartRequest{
 		ProtocolVersion: 2, OperationID: "persistent-retry-op", Command: "printf hello", CWD: "/",

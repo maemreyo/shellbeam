@@ -1,0 +1,69 @@
+{
+  "numFailedTestSuites": 1,
+  "numFailedTests": 1,
+  "numPassedTestSuites": 0,
+  "numPassedTests": 0,
+  "numPendingTestSuites": 0,
+  "numPendingTests": 0,
+  "numRuntimeErrorTestSuites": 0,
+  "numTodoTests": 0,
+  "numTotalTestSuites": 1,
+  "numTotalTests": 1,
+  "openHandles": [],
+  "snapshot": {
+    "added": 0,
+    "didUpdate": false,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0
+  },
+  "startTime": 0,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "duration": 0,
+          "failureDetails": [
+            {
+              "matcherResult": {
+                "actual": "left",
+                "expected": "right",
+                "message": "expect(received).toBe(expected) // Object.is equality\n\nExpected: \"right\"\nReceived: \"left\"",
+                "name": "toBe",
+                "pass": false
+              }
+            }
+          ],
+          "failureMessages": [
+            "Error: expect(received).toBe(expected) // Object.is equality\n\nExpected: \"right\"\nReceived: \"left\"\n    at Object.toBe (/private/jest-fixture/retry_failed.test.js:3:18)\n    at Promise.then.completed (/private/jest-install/node_modules/jest-circus/build/utils.js:298:28)\n    at new Promise (<anonymous>)\n    at callAsyncCircusFn (/private/jest-install/node_modules/jest-circus/build/utils.js:231:10)\n    at _callCircusTest (/private/jest-install/node_modules/jest-circus/build/run.js:316:40)\n    at _runTest (/private/jest-install/node_modules/jest-circus/build/run.js:252:3)\n    at _runTestsForDescribeBlock (/private/jest-install/node_modules/jest-circus/build/run.js:148:7)\n    at run (/private/jest-install/node_modules/jest-circus/build/run.js:71:3)\n    at runAndTransformResultsToJestFormat (/private/jest-install/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapterInit.js:122:21)\n    at jestAdapter (/private/jest-install/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:79:19)\n    at runTestInternal (/private/jest-install/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/private/jest-install/node_modules/jest-runner/build/runTest.js:444:34)"
+          ],
+          "fullName": "retry remains failed",
+          "invocations": 3,
+          "location": null,
+          "numPassingAsserts": 0,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "retry remains failed"
+        }
+      ],
+      "endTime": 0,
+      "message": "  ● retry remains failed\n\n    expect(received).toBe(expected) // Object.is equality\n\n    Expected: \"right\"\n    Received: \"left\"\n\n      1 | jest.retryTimes(2)\n      2 | test('retry remains failed', () => {\n    > 3 |   expect('left').toBe('right')\n        |                  ^\n      4 | })\n      5 |\n\n      at Object.toBe (retry_failed.test.js:3:18)\n",
+      "name": "/private/jest-fixture/retry_failed.test.js",
+      "startTime": 0,
+      "status": "failed",
+      "summary": ""
+    }
+  ],
+  "wasInterrupted": false
+}

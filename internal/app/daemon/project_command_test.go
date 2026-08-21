@@ -321,6 +321,53 @@ func TestProjectCommandDecisionExperimentPytestReplayPreservesCombinedBinding(t 
 	}
 }
 
+func TestProjectCommandAutoJestReplayPreservesCaptureDigestBinding(t *testing.T) {
+	sequence := &typedSequence{}
+	store := newTypedRecordingStore(t, sequence)
+	binding := daemonProjectBinding(t, []string{"jest", "--runInBand", "--json", "--outputFile=reports/jest.json"})
+	binder := &typedBinder{sequence: sequence, binding: binding}
+	owner := &typedOrderOwner{sequence: sequence}
+	digest := strings.Repeat("d", 64)
+	preparer := &pytestCapturePreparerStub{prepare: app.StructuredCapturePreparation{AdapterID: "jest-json", CaptureDigest: digest, Owned: true}}
+	svc := app.NewService(store, owner, app.Options{
+		Incarnation: "typed-daemon", Shell: "/bin/sh", MaxQueuedInputBytes: 100,
+		ProjectCommandBinder: binder, StructuredCapturePreparer: preparer,
+	})
+	req := typedStartRequest("typed-jest-replay", "./internal/app")
+	first, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForTerminal(t, svc, first.SessionID)
+	stored, err := store.LoadOperation(context.Background(), operation.ID(req.OperationID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.StructuredAdapter != "jest-json" || stored.StructuredCaptureDigest != digest {
+		t.Fatalf("stored adapter=%q digest=%q", stored.StructuredAdapter, stored.StructuredCaptureDigest)
+	}
+	wantObservation, err := (operation.ObservationBinding{StructuredAdapter: "jest-json", StructuredCaptureDigest: digest}).Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.ObservationBindingFingerprint != wantObservation {
+		t.Fatalf("stored observation fingerprint=%q want=%q", stored.ObservationBindingFingerprint, wantObservation)
+	}
+
+	binder.setFailure(errors.New("binder must not run on admitted jest replay"))
+	sequence.reset()
+	replayed, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replayed.SessionID != first.SessionID || binder.callCount() != 1 || owner.starts.Load() != 1 || preparer.calls.Load() != 1 {
+		t.Fatalf("replay=%#v first=%#v binds=%d starts=%d prepares=%d", replayed, first, binder.callCount(), owner.starts.Load(), preparer.calls.Load())
+	}
+	if got := sequence.snapshot(); !reflect.DeepEqual(got, []string{"find_operation"}) {
+		t.Fatalf("jest replay touched current binding state: %v", got)
+	}
+}
+
 func TestProjectCommandConflictingCallerFingerprintFailsBeforeClaimOrBinder(t *testing.T) {
 	sequence := &typedSequence{}
 	store := newTypedRecordingStore(t, sequence)

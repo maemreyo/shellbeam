@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,7 +91,7 @@ func TestPytestStructuredCaptureRuntimeMaterializesAndParsesPinnedJUnit(t *testi
 	}
 }
 
-func TestHostPytestPresenceObserverPersistsOnlyPresenceFact(t *testing.T) {
+func TestHostStructuredPresenceObserverPersistsOnlyApprovedPresenceFacts(t *testing.T) {
 	old, had := os.LookupEnv(structuredapp.PytestAddoptsEnvironment)
 	if err := os.Setenv(structuredapp.PytestAddoptsEnvironment, "-q SECRET_DO_NOT_PERSIST"); err != nil {
 		t.Fatal(err)
@@ -101,9 +103,16 @@ func TestHostPytestPresenceObserverPersistsOnlyPresenceFact(t *testing.T) {
 			_ = os.Unsetenv(structuredapp.PytestAddoptsEnvironment)
 		}
 	}()
-	fact, err := (hostPytestPresenceObserver{}).ObserveEnvironmentPresence(context.Background(), structExecution(), structuredapp.PytestAddoptsEnvironment)
+	fact, err := (hostStructuredPresenceObserver{}).ObserveEnvironmentPresence(context.Background(), structExecution(), structuredapp.PytestAddoptsEnvironment)
 	if err != nil || !fact.Present || strings.Contains(fact.AuthorityDigest, "SECRET_DO_NOT_PERSIST") {
 		t.Fatalf("fact=%#v err=%v", fact, err)
+	}
+	jestFact, err := (hostStructuredPresenceObserver{}).ObserveEnvironmentPresence(context.Background(), environmentcore.ExecutionContext{Mode: "argv", Identity: "/usr/bin/jest"}, structuredapp.JestJasmineEnvironment)
+	if err != nil || jestFact.Name != structuredapp.JestJasmineEnvironment {
+		t.Fatalf("jest fact=%#v err=%v", jestFact, err)
+	}
+	if _, err := (hostStructuredPresenceObserver{}).ObserveEnvironmentPresence(context.Background(), structExecution(), "SHELLBEAM_AGENT"); err == nil {
+		t.Fatal("arbitrary environment name unexpectedly observed")
 	}
 }
 
@@ -144,5 +153,115 @@ func unsetEnvironmentForTest(t *testing.T, name string) func() {
 		} else {
 			_ = os.Unsetenv(name)
 		}
+	}
+}
+
+func TestJestStructuredCaptureRuntimePreparesQualifiedJSON(t *testing.T) {
+	restoreEnv := unsetEnvironmentForTest(t, structuredapp.JestJasmineEnvironment)
+	defer restoreEnv()
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "reports"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := openStructuredCaptureTestStore(t)
+	workspace := saveStructuredCaptureWorkspace(t, store, root)
+	runtime, err := newExecutionObservationRuntime(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.shutdown(context.Background())
+
+	preparation, err := runtime.capture.PrepareStructuredCapture(context.Background(), daemonapp.StructuredCapturePrepareRequest{
+		OperationID: "jest-runtime-op", SessionID: "jest-runtime-session", WorkspaceID: string(workspace.ID),
+		StructuredAdapter: structuredapp.JestJSONAdapterID,
+		Argv:              []string{"jest", "--runInBand", "--json", "--outputFile=reports/jest.json"}, CWD: root,
+		ExecutionMode: operation.ExecutionModeArgv, Executable: "/usr/bin/jest",
+	})
+	if err != nil || preparation.AdapterID != structuredapp.JestJSONAdapterID || preparation.CaptureDigest == "" || !preparation.Owned {
+		t.Fatalf("preparation=%#v err=%v", preparation, err)
+	}
+	stored, findErr := store.FindCaptureAuthority(context.Background(), "jest-runtime-op")
+	if findErr != nil || stored.Authority.JestInvocation == nil || stored.Authority.JestInvocation.JasmineEnvironmentFact.Present {
+		t.Fatalf("authority=%#v err=%v", stored, findErr)
+	}
+
+	fixturePath := filepath.Join("..", "..", "tests", "fixtures", "jest-json", "real-doc-fixtures", "jest-30.4.2", "pass.json")
+	payload, readErr := os.ReadFile(fixturePath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	payload = []byte(strings.ReplaceAll(string(payload), "/private/jest-fixture", filepath.ToSlash(root)))
+	if err := os.WriteFile(filepath.Join(root, "reports", "jest.json"), payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reservation := operation.Reservation{SchemaVersion: 2, OperationID: "jest-runtime-op", SessionID: "jest-runtime-session", WorkspaceID: string(workspace.ID), StructuredAdapter: preparation.AdapterID, StructuredCaptureDigest: preparation.CaptureDigest, ExecutionMode: operation.ExecutionModeArgv, Executable: "/usr/bin/jest", Argv: []string{"jest", "--runInBand", "--json", "--outputFile=reports/jest.json"}, CWD: root}
+	capture := runtime.capture.AcquireTerminal(context.Background(), reservation)
+	if capture.State != structuredapp.TerminalCaptureAcquired || capture.Source() == nil {
+		t.Fatalf("capture=%#v", capture)
+	}
+	rec := receipt.Receipt{SchemaVersion: 1, OperationID: "jest-runtime-op", SessionID: "jest-runtime-session", Fingerprint: "fp", DaemonIncarnation: "daemon", State: session.Failed, Outcome: session.Failure, OutputComplete: true}
+	if err := runtime.capture.ScheduleTerminal(context.Background(), rec, capture); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		derivation, found, err := store.FindOperationDerivation(context.Background(), "jest-runtime-op")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if found && derivation.Lifecycle == structuredcore.LifecycleTerminal {
+			if derivation.Producer.AdapterID != structuredapp.JestJSONAdapterID || derivation.ParseOutcome != structuredcore.ParseComplete {
+				t.Fatalf("derivation=%#v", derivation)
+			}
+			inspected, inspectErr := runtime.structured.Inspect(context.Background(), structuredapp.InspectRequest{OperationID: "jest-runtime-op", MaxRecords: 16})
+			if inspectErr != nil {
+				t.Fatal(inspectErr)
+			}
+			if inspected.Status != structuredapp.InspectTerminal || inspected.SourceKind != structuredcore.StructuredInputArtifactBlob || inspected.SourceState != structuredapp.InputSourceRetained || inspected.SemanticsCoverage == nil || inspected.SemanticsCoverage.Namespace != "jest" || inspected.SemanticsCoverage.Family != "v30" || inspected.ObservedEntries == nil || inspected.ObservedEntries.Files != 1 || inspected.ObservedEntries.Entries != 1 {
+				t.Fatalf("inspect=%#v", inspected)
+			}
+			encoded, _ := json.Marshal(inspected)
+			if bytes.Contains(encoded, []byte(root)) || bytes.Contains(encoded, []byte(`"content"`)) {
+				t.Fatalf("private artifact path/content leaked: %s", encoded)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("jest derivation did not become terminal")
+}
+
+func TestJestStructuredCaptureRuntimeRejectsJasmineEnvironment(t *testing.T) {
+	old, had := os.LookupEnv(structuredapp.JestJasmineEnvironment)
+	if err := os.Setenv(structuredapp.JestJasmineEnvironment, "1"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if had {
+			_ = os.Setenv(structuredapp.JestJasmineEnvironment, old)
+		} else {
+			_ = os.Unsetenv(structuredapp.JestJasmineEnvironment)
+		}
+	}()
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "reports"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store := openStructuredCaptureTestStore(t)
+	workspace := saveStructuredCaptureWorkspace(t, store, root)
+	runtime, err := newExecutionObservationRuntime(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer runtime.shutdown(context.Background())
+
+	preparation, err := runtime.capture.PrepareStructuredCapture(context.Background(), daemonapp.StructuredCapturePrepareRequest{
+		OperationID: "jest-jasmine-reject", SessionID: "jest-jasmine-session", WorkspaceID: string(workspace.ID),
+		StructuredAdapter: structuredapp.JestJSONAdapterID,
+		Argv:              []string{"jest", "--json", "--outputFile=reports/jest.json"}, CWD: root,
+		ExecutionMode: operation.ExecutionModeArgv, Executable: "/usr/bin/jest",
+	})
+	if err == nil || preparation.AdapterID != "" || preparation.Owned {
+		t.Fatalf("preparation=%#v err=%v", preparation, err)
 	}
 }

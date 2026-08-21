@@ -15,7 +15,7 @@ import (
 const maxStructuredMetadataBytes = 64 << 10
 
 func (r *Repository) initStructuredResultStore() error {
-	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir(), r.structuredCaptureAuthorityDir(), r.artifactBlobRoot(), r.artifactRecoveryRoot(), r.artifactBlobRefRoot(), r.artifactBlobTombstoneRoot()} {
+	for _, dir := range []string{r.structuredRoot(), r.structuredInputDir(), r.structuredDerivationDir(), r.structuredRecordDir(), r.structuredSummaryDir(), r.structuredOperationDir(), r.structuredCaptureAuthorityDir(), r.failureExcerptRetentionRoot(), r.artifactBlobRoot(), r.artifactRecoveryRoot(), r.artifactBlobRefRoot(), r.artifactBlobTombstoneRoot()} {
 		if err := ensurePrivateDir(dir); err != nil {
 			return fmt.Errorf("structured result store: %w", err)
 		}
@@ -65,8 +65,8 @@ func (r *Repository) PutDerivation(ctx context.Context, next core.Derivation) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if next.SchemaVersion != core.SchemaVersion {
-		return fmt.Errorf("structured_derivation_write_requires_v2")
+	if next.SchemaVersion != core.SchemaVersion && next.SchemaVersion != core.DerivationSchemaVersionV3 {
+		return fmt.Errorf("structured_derivation_write_requires_supported_schema")
 	}
 	if err := validateStructuredDerivation(next); err != nil {
 		return err

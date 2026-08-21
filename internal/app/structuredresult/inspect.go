@@ -77,19 +77,21 @@ type InspectSummary struct {
 }
 
 type InspectResult struct {
-	SchemaVersion     int                             `json:"schema_version"`
-	OperationID       string                          `json:"operation_id"`
-	Status            InspectStatus                   `json:"status"`
-	DerivationKey     string                          `json:"derivation_key,omitempty"`
-	Producer          *core.Producer                  `json:"producer,omitempty"`
-	ParseOutcome      core.ParseOutcome               `json:"parse_outcome,omitempty"`
-	Completeness      core.Completeness               `json:"completeness,omitempty"`
-	SourceKind        core.StructuredInputKind        `json:"source_kind,omitempty"`
-	SourceState       InputSourceState                `json:"source_state,omitempty"`
-	SemanticsCoverage *core.ProducerSemanticsCoverage `json:"semantics_coverage,omitempty"`
-	Summary           InspectSummary                  `json:"summary"`
-	Records           []core.Record                   `json:"records,omitempty"`
-	Continuation      string                          `json:"continuation,omitempty"`
+	SchemaVersion      int                             `json:"schema_version"`
+	OperationID        string                          `json:"operation_id"`
+	Status             InspectStatus                   `json:"status"`
+	DerivationKey      string                          `json:"derivation_key,omitempty"`
+	Producer           *core.Producer                  `json:"producer,omitempty"`
+	ParseOutcome       core.ParseOutcome               `json:"parse_outcome,omitempty"`
+	Completeness       core.Completeness               `json:"completeness,omitempty"`
+	CompletenessReason core.CompletenessReason         `json:"completeness_reason,omitempty"`
+	ObservedEntries    *core.ObservedEntryCounts       `json:"observed_entries,omitempty"`
+	SourceKind         core.StructuredInputKind        `json:"source_kind,omitempty"`
+	SourceState        InputSourceState                `json:"source_state,omitempty"`
+	SemanticsCoverage  *core.ProducerSemanticsCoverage `json:"semantics_coverage,omitempty"`
+	Summary            InspectSummary                  `json:"summary"`
+	Records            []core.Record                   `json:"records,omitempty"`
+	Continuation       string                          `json:"continuation,omitempty"`
 }
 
 type InspectionRepository interface {
@@ -271,7 +273,11 @@ func inspectFromDerivation(operationID string, d core.Derivation) InspectResult 
 		status = InspectTerminal
 	}
 	producer := d.Producer
-	return InspectResult{SchemaVersion: 1, OperationID: operationID, Status: status, DerivationKey: d.DerivationKey, Producer: &producer, ParseOutcome: d.ParseOutcome, Completeness: d.Completeness, Summary: InspectSummary{DetailsStatus: DetailsUnavailable}}
+	return InspectResult{
+		SchemaVersion: 1, OperationID: operationID, Status: status, DerivationKey: d.DerivationKey, Producer: &producer,
+		ParseOutcome: d.ParseOutcome, Completeness: d.Completeness, CompletenessReason: d.CompletenessReason,
+		ObservedEntries: cloneObservedEntries(d.ObservedEntries), Summary: InspectSummary{DetailsStatus: DetailsUnavailable},
+	}
 }
 func applyStoredSummary(out *InspectSummary, in RecordSummary) {
 	out.Errors = in.Errors

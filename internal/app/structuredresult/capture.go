@@ -292,6 +292,39 @@ type CaptureSpawner interface {
 	SpawnCaptureOperation(context.Context, operation.ID) error
 }
 
+type ProducerCaptureRequest interface {
+	AdapterID() string
+	Qualify(context.Context, EnvironmentPresenceObserver) (ProducerInvocationBinding, bool, error)
+}
+
+type PytestCaptureRequest struct {
+	Invocation PytestInvocationRequest
+}
+
+func (r PytestCaptureRequest) AdapterID() string { return PytestJUnitAdapterID }
+
+func (r PytestCaptureRequest) Qualify(ctx context.Context, observer EnvironmentPresenceObserver) (ProducerInvocationBinding, bool, error) {
+	binding, qualified, err := QualifyPytestInvocation(ctx, r.Invocation, observer)
+	if err != nil || !qualified {
+		return ProducerInvocationBinding{}, qualified, err
+	}
+	return ProducerInvocationBinding{Kind: ProducerInvocationPytest, PytestInvocation: &binding}, true, nil
+}
+
+type JestCaptureRequest struct {
+	Invocation JestInvocationRequest
+}
+
+func (r JestCaptureRequest) AdapterID() string { return JestJSONAdapterID }
+
+func (r JestCaptureRequest) Qualify(ctx context.Context, observer EnvironmentPresenceObserver) (ProducerInvocationBinding, bool, error) {
+	binding, qualified, err := QualifyJestInvocation(ctx, r.Invocation, observer)
+	if err != nil || !qualified {
+		return ProducerInvocationBinding{}, qualified, err
+	}
+	return ProducerInvocationBinding{Kind: ProducerInvocationJest, JestInvocation: &binding}, true, nil
+}
+
 type PreSpawnCaptureRequest struct {
 	OperationID   operation.ID
 	SessionID     operation.SessionID
@@ -299,7 +332,7 @@ type PreSpawnCaptureRequest struct {
 	WorkspaceID   string
 	WorkspaceRoot string
 	MaxBlobBytes  int64
-	Invocation    PytestInvocationRequest
+	Producer      ProducerCaptureRequest
 }
 
 type PreSpawnCaptureResult struct {
@@ -349,12 +382,18 @@ func (p *CapturePreparer) Prepare(ctx context.Context, req PreSpawnCaptureReques
 		return PreSpawnCaptureResult{}, err
 	}
 
-	binding, qualified, err := QualifyPytestInvocation(ctx, req.Invocation, p.presence)
+	binding, qualified, err := req.Producer.Qualify(ctx, p.presence)
 	if err != nil {
 		return PreSpawnCaptureResult{}, err
 	}
 	if !qualified {
-		return PreSpawnCaptureResult{CaptureUnavailable: fmt.Errorf("pytest invocation unqualified")}, nil
+		return PreSpawnCaptureResult{CaptureUnavailable: fmt.Errorf("%s invocation unqualified", req.Producer.AdapterID())}, nil
+	}
+	if err := binding.Validate(); err != nil || binding.AdapterID() != req.Producer.AdapterID() {
+		if err == nil {
+			err = fmt.Errorf("producer capture binding adapter mismatch")
+		}
+		return PreSpawnCaptureResult{}, err
 	}
 	result := PreSpawnCaptureResult{InvocationQualified: true}
 	record, slot, authority, err := p.prepareNewCaptureAuthority(ctx, req, binding)
@@ -418,12 +457,13 @@ func (p *CapturePreparer) PrepareAndSpawn(ctx context.Context, req PreSpawnCaptu
 	return result, nil
 }
 
-func (p *CapturePreparer) prepareNewCaptureAuthority(ctx context.Context, req PreSpawnCaptureRequest, binding PytestInvocationBindingV1) (CaptureAuthorityRecord, *ArtifactPathAuthoritySlot, ArtifactPathAuthority, error) {
+func (p *CapturePreparer) prepareNewCaptureAuthority(ctx context.Context, req PreSpawnCaptureRequest, binding ProducerInvocationBinding) (CaptureAuthorityRecord, *ArtifactPathAuthoritySlot, ArtifactPathAuthority, error) {
 	slot, err := p.coordinator.AcquirePathAuthoritySlot(ctx)
 	if err != nil {
 		return CaptureAuthorityRecord{}, nil, nil, err
 	}
-	authority, baseline, err := p.baseline.QualifyAbsent(ctx, req.WorkspaceRoot, binding.JUnitOutput.NormalizedWorkspacePath)
+	output := binding.OutputBinding()
+	authority, baseline, err := p.baseline.QualifyAbsent(ctx, req.WorkspaceRoot, output.NormalizedWorkspacePath)
 	if err != nil {
 		_ = slot.Release()
 		return CaptureAuthorityRecord{}, nil, nil, err
@@ -435,7 +475,7 @@ func (p *CapturePreparer) prepareNewCaptureAuthority(ctx context.Context, req Pr
 		_ = slot.Release()
 		return CaptureAuthorityRecord{}, nil, nil, err
 	}
-	if authority == nil || authority.NormalizedWorkspacePath() != binding.JUnitOutput.NormalizedWorkspacePath || authority.BaselineDigest() != baseline.AuthorityDigest {
+	if authority == nil || authority.NormalizedWorkspacePath() != output.NormalizedWorkspacePath || authority.BaselineDigest() != baseline.AuthorityDigest {
 		return cleanup(fmt.Errorf("artifact baseline authority mismatch"))
 	}
 	captureAuthority, err := buildCaptureAuthority(req, binding, baseline)

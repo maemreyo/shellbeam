@@ -1,0 +1,606 @@
+{
+  "fixtures": [
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/pass.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "pass.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "1f4d8d81c7c25ffe9b242e2a7403e80e5b2632d062d7e50569abcd15050c11aa",
+      "source_case": "pass.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-29.7.0/fail.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "fail.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "2078ea9500b84b668db1303f8ed1c80f6e6e66d47037b5b97e2efa2f075684ec",
+      "source_case": "fail.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/test-skip.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "test_skip.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "63b19bc6a5c3809225ecaea7a021db2a9beae7ee0771d4c5e837f9fa4b3b4f25",
+      "source_case": "test_skip.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/test-todo.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "test_todo.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "8ba0db416bb3ce63070550538b49d7a7b8ea2b289f6ced8921e32c5f99f8cce7",
+      "source_case": "test_todo.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/describe-skip.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "describe_skip.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "18403654fe2e8cbd88c680ac6d5b8bc72b3aec64a2ff7c2f6658ab207f579981",
+      "source_case": "describe_skip.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-29.7.0/before-all-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "before_all_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "f9835b98e63c9a01ebecc88c44e05dde5ab68265991160e5654a32b54d788cdd",
+      "source_case": "before_all_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-29.7.0/before-each-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "before_each_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "1b5c4ca3849ecad7fd4e577035547c5241f44343d85134dbad2fe2a53943496a",
+      "source_case": "before_each_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-29.7.0/after-all-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "after_all_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "ac8e2a97ca0d2c9fd90570a3c607583cde3d6d3bb99399fe9c9ceb4672c7dc23",
+      "source_case": "after_all_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-29.7.0/module-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "module_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "8890810cc79ee805028a1c5c24c43208382551050182fb949da14a08f40fd470",
+      "source_case": "module_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-29.7.0/retry-failed.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "retry_failed.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "8ff739ffe9c3c84b4796a673240a75d1af8a505a3050e6320102293f35b9569c",
+      "source_case": "retry_failed.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/retry-passed.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "retry_passed.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "65fada01ca7a632b0f29d4d491be9d92236ea22c096fbb18518274fad8b932eb",
+      "source_case": "retry_passed.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/failing-expected.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "failing_expected.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "d3edc177aa59460ad1fa0f99c9539391fcfec3b9f0e1a0df90cf83e818ad1bac",
+      "source_case": "failing_expected.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-29.7.0/failing-unexpected.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "failing_unexpected.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "03729b2ca43f317ec71d9d0d325d67c3a9dfff56c0594c53170390437dee3dfa",
+      "source_case": "failing_unexpected.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/focused-trap.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "focused_trap.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "a4c7f8f125be0c010fbdf529e7b61a5acd24677af8e5a72e1603ebbb08499194",
+      "source_case": "focused_trap.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-29.7.0/over-cap.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "over_cap.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "29.7.0",
+      "producer": "jest",
+      "producer_version": "29.7.0",
+      "sha256": "2c8f614896e287ee3243caf2db67da253710d57b8c5a01726f515c612c085dd0",
+      "source_case": "over_cap.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/pass.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "pass.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "b1b676c5840d97aeecc2f358748452676be5a32ee5a973e9b8a8d40beffd3ba0",
+      "source_case": "pass.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-30.4.2/fail.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "fail.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "c8ed16f90cc1590962a585841938b57f7f8197e461a446b81df48d229588db91",
+      "source_case": "fail.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/test-skip.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "test_skip.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "1b4c8693df02ec2d17d79a7ab0ed4de88017003833afc5d5d28eee83eeb595b2",
+      "source_case": "test_skip.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/test-todo.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "test_todo.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "0a1d0985b6601aefa6a7d473c0d6e0f0c3554e7fc6b544679a9e45c4e5921405",
+      "source_case": "test_todo.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/describe-skip.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "describe_skip.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "1e8fdc2c2e9cdd1d5a62a65be3a9c793f373033aac05572d59a4a73b3c8425eb",
+      "source_case": "describe_skip.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-30.4.2/before-all-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "before_all_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "81ce501132ae3ee5da482d3b815cf6b0d34c8d9cb8ac23a92dc3868f5bdaff09",
+      "source_case": "before_all_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-30.4.2/before-each-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "before_each_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "63aef461ad6e101ad1db6b35052c849555fdb6b62313cc14cb0285f618fb4217",
+      "source_case": "before_each_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-30.4.2/after-all-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "after_all_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "3fa45fa745503435531d21112182db9a449cd6c194f520662650b3990c8fe8ed",
+      "source_case": "after_all_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-30.4.2/module-throw.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "module_throw.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "eb96ea152b6239b8d35954e33e45d0c82623a669744586de0d93163aba157436",
+      "source_case": "module_throw.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-30.4.2/retry-failed.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "retry_failed.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "f9ccdd7c421b76f7c030fa092d7a6590c13c07835dc6bcf99488fdd3cf5f4a03",
+      "source_case": "retry_failed.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/retry-passed.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "retry_passed.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "5a484b5fcba10451700d68b8df5e3750ddde8aaaf660e4a7671541330f2d1543",
+      "source_case": "retry_passed.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/failing-expected.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "failing_expected.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "b1b582a0d7a815a32cde0228929242e5c691d02c6bdec0b8e8f81b87b469cf2a",
+      "source_case": "failing_expected.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 1,
+      "fixture": "jest-30.4.2/failing-unexpected.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "failing_unexpected.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "07c31bb051b83cbc18d163b9a6bb04c3a054c6df7c27810a61b5938b11d552c1",
+      "source_case": "failing_unexpected.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/focused-trap.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "focused_trap.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "a437eddc6ced1a4297a24e2688b6a88368d55c44768bf4ffcfd546d224e6aeb1",
+      "source_case": "focused_trap.test.js"
+    },
+    {
+      "environment": {
+        "JEST_JASMINE": "absent"
+      },
+      "exit_code": 0,
+      "fixture": "jest-30.4.2/over-cap.json",
+      "generator_argv": [
+        "<jest>",
+        "--runInBand",
+        "--json",
+        "--outputFile=<raw.json>",
+        "over_cap.test.js"
+      ],
+      "normalization": "canonical JSON; zero dynamic timing/memory fields; replace ephemeral source/install roots; preserve key membership, statuses, counters, invocations, messages and semantic shape",
+      "package_version": "30.4.2",
+      "producer": "jest",
+      "producer_version": "30.4.1",
+      "sha256": "55b90ebb2a6dc7699a6405f8fa07994246b28342dca8a60ee411446990d45282",
+      "source_case": "over_cap.test.js"
+    }
+  ],
+  "generator": "scripts/generate-jest-json-fixtures.sh",
+  "schema_version": 1
+}

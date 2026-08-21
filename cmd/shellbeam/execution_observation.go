@@ -9,6 +9,7 @@ import (
 
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	gojson "github.com/maemreyo/shellbeam/internal/adapter/structured/gojson"
+	jestjson "github.com/maemreyo/shellbeam/internal/adapter/structured/jestjson"
 	pytestjunit "github.com/maemreyo/shellbeam/internal/adapter/structured/pytestjunit"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
@@ -23,8 +24,8 @@ import (
 const (
 	structuredWorkerCount           = 2
 	structuredWorkerQueueDepth      = 64
-	structuredWorkerMaxBytes        = 8 << 20
-	structuredWorkerMaxRecords      = 1024
+	structuredWorkerMaxBytes        = 16 << 20
+	structuredWorkerMaxRecords      = 8192
 	structuredWorkerMaxString       = 64 << 10
 	structuredWorkerMaxDepth        = 16
 	structuredWorkerMaxTime         = 5 * time.Second
@@ -63,7 +64,7 @@ func newExecutionObservationRuntime(ctx context.Context, store *storeadapter.Rep
 		return nil, err
 	}
 	worker, err := structuredapp.NewWorker(binder, store, reader, []structuredapp.Adapter{
-		gojson.TestAdapter{}, gojson.VetAdapter{}, pytestjunit.Adapter{},
+		gojson.TestAdapter{}, gojson.VetAdapter{}, pytestjunit.Adapter{}, jestjson.Adapter{},
 	}, structuredapp.WorkerOptions{
 		MaxWorkers: structuredWorkerCount,
 		QueueDepth: structuredWorkerQueueDepth,

@@ -7,6 +7,12 @@ import (
 )
 
 func (s *Service) Shutdown(ctx context.Context) error {
+	// Reconcilers are quiesced before the non-terminal collection below, because
+	// a persistent reconciler deliberately outlives its session's terminal
+	// transition and the collection cannot see it.
+	if err := s.quiescePersistentReconcilers(ctx); err != nil {
+		return err
+	}
 	s.mu.RLock()
 	live := make([]*liveSession, 0, len(s.live))
 	for _, l := range s.live {
@@ -28,19 +34,9 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		handle := l.handle
 		l.mu.Unlock()
 		if persistent {
-			l.mu.Lock()
-			cancel, reconcileDone := l.persistentCancel, l.persistentReconcileDone
-			l.mu.Unlock()
-			if cancel != nil {
-				cancel()
-			}
-			if reconcileDone != nil {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-reconcileDone:
-				}
-			}
+			// The reconciler is already stopped: quiescePersistentReconcilers
+			// cancelled and awaited it above, for terminal and non-terminal
+			// sessions alike.
 			if handle != nil {
 				_ = handle.Close()
 			}
@@ -75,6 +71,50 @@ func (s *Service) Shutdown(ctx context.Context) error {
 		}
 		done := l.done
 		l.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-done:
+		}
+	}
+	return nil
+}
+
+// quiescePersistentReconcilers cancels every persistent session's reconciler and
+// waits for each to exit.
+//
+// It deliberately ignores session state. A reconciler is the lifecycle owner of
+// its session and keeps retrying post-terminal convergence -- a binding update
+// -- after the session itself has gone terminal, so a terminal session can still
+// hold a live writer. Its context is rooted at context.Background(), so
+// live.persistentCancel is the only thing that can stop it.
+func (s *Service) quiescePersistentReconcilers(ctx context.Context) error {
+	s.mu.RLock()
+	cancels := make([]context.CancelFunc, 0, len(s.live))
+	waits := make([]chan struct{}, 0, len(s.live))
+	for _, l := range s.live {
+		l.mu.Lock()
+		persistent, cancel, done := l.persistent, l.persistentCancel, l.persistentReconcileDone
+		l.mu.Unlock()
+		if !persistent {
+			continue
+		}
+		if cancel != nil {
+			cancels = append(cancels, cancel)
+		}
+		if done != nil {
+			waits = append(waits, done)
+		}
+	}
+	s.mu.RUnlock()
+
+	// Every reconciler is cancelled before any of them is awaited, so the cost is
+	// the slowest reconciler rather than the sum of all of them. Waiting happens
+	// without s.mu held, because a reconciler may need it to finish its write.
+	for _, cancel := range cancels {
+		cancel()
+	}
+	for _, done := range waits {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

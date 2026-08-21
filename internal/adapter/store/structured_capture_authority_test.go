@@ -41,7 +41,40 @@ func testCaptureAuthority(t *testing.T, operationID, path string, baselineByte b
 		ProducerBindingDigest: producerDigest,
 		Baseline:              structuredapp.CaptureBaselineIdentity{SchemaVersion: structuredapp.CaptureBaselineSchemaV1, State: structuredapp.CaptureBaselineAbsent, AuthorityDigest: strings.Repeat(string(baselineByte), 64)},
 	}
-	return structuredapp.CaptureAuthority{SchemaVersion: structuredapp.CaptureAuthoritySchemaV1, PytestInvocation: &binding, Intent: intent}
+	return structuredapp.CaptureAuthority{SchemaVersion: structuredapp.CaptureAuthoritySchemaV1, ProducerInvocationBinding: structuredapp.ProducerInvocationBinding{Kind: structuredapp.ProducerInvocationPytest, PytestInvocation: &binding}, Intent: intent}
+}
+
+func TestLegacyPytestCaptureAuthorityLiteralReopensWithoutRewrite(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	r := openStructuredRepositoryAt(t, root)
+	const legacy = `{"schema_version":1,"authority":{"schema_version":1,"pytest_invocation":{"schema_version":1,"producer_form":"pytest","junit_output":{"declared_path_token":"reports/junit.xml","normalized_workspace_path":"reports/junit.xml"},"junit_family_override":"junit_family=xunit2","config_addopts_override":"addopts=","argument_file_state":"none","pytest_addopts_environment_fact":{"name":"PYTEST_ADDOPTS","present":false,"authority_schema_version":1,"execution":{"mode":"argv","identity":"/usr/bin/pytest"},"authority_digest":"ce194512848b8619473a1806043e4f235cbb24f2a841e7ec672eafbd69d1b0b4"}},"intent":{"schema_version":1,"operation_id":"capture-legacy-pin","session_id":"capture-legacy-pin-session","repository_id":"repo_01M09A27JCSE71BXSP477EKN34","workspace_id":"ws_01M0CJB0KMBXWM7C7YDFYHBT2Q","adapter_id":"pytest-junit-xml","declared_path_token":"reports/junit.xml","normalized_workspace_path":"reports/junit.xml","expected_kind":"regular_file","max_blob_bytes":16777216,"producer_binding_digest":"9af119dd5b9dc43b72aee11291a5e93416cc78ce1faacea9508d32d70c818e95","baseline":{"schema_version":1,"state":"absent","authority_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},"structured_capture_digest":"9606da56f1bad7ca876d37adf9b2ab9c0faa8e5d74341bb1ae3181852fd49adc","state":"prepared"}` + "\n"
+	path := r.captureAuthorityPath(operation.ID("capture-legacy-pin"))
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened := openStructuredRepositoryAt(t, root)
+	got, err := reopened.FindCaptureAuthority(context.Background(), operation.ID("capture-legacy-pin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.StructuredCaptureDigest != "9606da56f1bad7ca876d37adf9b2ab9c0faa8e5d74341bb1ae3181852fd49adc" {
+		t.Fatalf("capture digest=%q", got.StructuredCaptureDigest)
+	}
+	if got.Authority.PytestInvocation == nil {
+		t.Fatal("legacy pytest invocation missing after reopen")
+	}
+	if got.Authority.ProducerInvocationBinding.Kind != structuredapp.ProducerInvocationPytest {
+		t.Fatalf("legacy binding kind=%q want pytest", got.Authority.ProducerInvocationBinding.Kind)
+	}
+	producerDigest, err := got.Authority.PytestInvocation.ProducerBindingDigest()
+	if err != nil || producerDigest != "9af119dd5b9dc43b72aee11291a5e93416cc78ce1faacea9508d32d70c818e95" {
+		t.Fatalf("producer digest=%q err=%v", producerDigest, err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != legacy {
+		t.Fatalf("legacy authority bytes changed: err=%v\nwant=%s\ngot=%s", err, legacy, after)
+	}
 }
 
 func TestReserveCaptureAuthorityPersistsCanonicalReplayAuthority(t *testing.T) {
@@ -59,6 +92,9 @@ func TestReserveCaptureAuthorityPersistsCanonicalReplayAuthority(t *testing.T) {
 	before, err := os.ReadFile(r.captureAuthorityPath(operation.ID("capture-op")))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if strings.Contains(string(before), `"kind":"pytest"`) {
+		t.Fatalf("new pytest authority drifted legacy wire shape: %s", before)
 	}
 
 	stored, created, err = r.ReserveCaptureAuthority(context.Background(), want)

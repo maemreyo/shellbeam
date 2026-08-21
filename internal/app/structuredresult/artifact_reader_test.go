@@ -30,12 +30,23 @@ func (r *rawReaderProbe) DescribeInput(context.Context, core.StructuredInputRef)
 }
 
 type artifactInputStoreProbe struct {
-	data   []byte
-	err    error
-	calls  int
-	ref    core.ArtifactBlobRef
-	offset int64
-	max    int
+	data    []byte
+	context InputContext
+	err     error
+	calls   int
+	ref     core.ArtifactBlobRef
+	offset  int64
+	max     int
+}
+
+func (s *artifactInputStoreProbe) DescribeArtifactInput(_ context.Context, ref core.ArtifactBlobRef) (InputContext, error) {
+	if s.err != nil {
+		return InputContext{}, s.err
+	}
+	if s.context.OperationID == "" {
+		return InputContext{OperationID: ref.OperationID}, nil
+	}
+	return s.context, nil
 }
 
 func (s *artifactInputStoreProbe) ReadArtifactBlobRange(_ context.Context, ref core.ArtifactBlobRef, offset int64, max int) ([]byte, error) {
@@ -87,7 +98,7 @@ func TestArtifactReaderLeavesRawInputByteForByteUnchanged(t *testing.T) {
 
 func TestArtifactReaderUsesOnlyPrivateArtifactResolverAndReturnsArtifactOperationContext(t *testing.T) {
 	raw := &rawReaderProbe{data: []byte("raw")}
-	artifacts := &artifactInputStoreProbe{data: []byte("01234567")}
+	artifacts := &artifactInputStoreProbe{data: []byte("01234567"), context: InputContext{OperationID: "artifact-reader-op", RepositoryRoot: "/repo"}}
 	reader, err := NewArtifactReader(raw, artifacts)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +113,7 @@ func TestArtifactReaderUsesOnlyPrivateArtifactResolverAndReturnsArtifactOperatio
 		t.Fatalf("artifact probe=%#v", artifacts)
 	}
 	ctx, err := reader.DescribeInput(context.Background(), input)
-	if err != nil || ctx.OperationID != ref.OperationID || ctx.RepositoryRoot != "" {
+	if err != nil || ctx.OperationID != ref.OperationID || ctx.RepositoryRoot != "/repo" {
 		t.Fatalf("ctx=%#v err=%v", ctx, err)
 	}
 	if raw.readCalls != 0 || raw.describeCalls != 0 {

@@ -326,6 +326,8 @@ func structuredAdapterRequirement(adapter string) string {
 		return "argv: go vet -json ..."
 	case structuredapp.PytestJUnitAdapterID:
 		return "direct pytest argv with explicit JUnit XML, junit_family=xunit2, addopts=, no argfile/PYTEST_ADDOPTS"
+	case structuredapp.JestJSONAdapterID:
+		return "direct jest argv with --json and explicit --outputFile, no excluded flags/@token/JEST_JASMINE"
 	default:
 		return "matching direct argv with native machine-readable output"
 	}
