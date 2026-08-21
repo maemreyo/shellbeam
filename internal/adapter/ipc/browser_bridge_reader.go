@@ -10,6 +10,7 @@ import (
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	structuredcore "github.com/maemreyo/shellbeam/internal/core/structuredresult"
+	verificationcore "github.com/maemreyo/shellbeam/internal/core/verification"
 )
 
 // BrowserBridgeReader maps the Browser Bridge typed read port onto IPC v2.
@@ -61,6 +62,7 @@ func (r *BrowserBridgeReader) Verification(ctx context.Context, workspaceID, act
 	resp, err := r.client.CallV2(ctx, RequestV2{
 		IPVersion: 2, Kind: "request", RequestID: "bb-verification",
 		Action: "inspect.verification", WorkspaceID: workspaceID, ActivityID: activityID,
+		VerificationRequestV2Fields: VerificationRequestV2Fields{Phase: verificationcore.PhaseCheckpoint},
 	})
 	if err != nil {
 		return nil, false, err
