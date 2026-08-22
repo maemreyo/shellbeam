@@ -6,7 +6,7 @@ LOG := /tmp/shellbeam-daemon.log
 
 .PHONY: help build test vet fmt fmt-check tidy modverify doctor daemon run-mcp \
 	daemon-start daemon-stop daemon-restart daemon-status \
-	hardening security mcp-local vulncheck devctl-check devctl-verify \
+	hardening security mcp-local vulncheck devctl-check devctl-verify main-runtime-scripts \
 	commit-gate test-dirty build-dirty release-evidence package verify-package clean ci
 
 help: ## List available targets
@@ -97,6 +97,11 @@ devctl-verify: ## devctl check + test (writes a receipt under .build/receipts/)
 	@./scripts/check-json-mode.sh
 	go run ./tools/devctl verify
 
+main-runtime-scripts: ## Test main-runtime bootstrap, ownership, and process cleanup scripts
+	sh scripts/test-main-runtime-bootstrap.sh
+	sh scripts/test-main-runtime-owner.sh
+	sh scripts/test-shellbeam-runtimes.sh
+
 commit-gate: ## Run selective staged-change checks used by the tracked pre-commit hook
 	go run ./tools/devctl commit-gate --json
 
@@ -120,4 +125,4 @@ clean: ## Remove local build output
 	rm -f $(BIN)
 	rm -rf .build dist
 
-ci: fmt-check vet test security ## Everything CI-equivalent expects on a normal PR
+ci: fmt-check vet test security main-runtime-scripts ## Everything CI-equivalent expects on a normal PR

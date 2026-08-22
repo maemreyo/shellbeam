@@ -47,8 +47,8 @@
 #   RUNTIME_OWNER_DIR       machine-global launcher owner directory
 #                           (default: /tmp/shellbeam-main-runtime-<uid>.owner)
 #   SYNC_WATCH_SECONDS      poll origin/main every N seconds while running
-#                           (default: 0, disabled)
-#   SYNC_ON_CHANGE          notify | restart (default: notify)
+#                           (default: 60; set 0 to disable)
+#   SYNC_ON_CHANGE          notify | restart (default: restart)
 #   SKIP_TUNNEL             set to 1 to sync, build and serve without starting
 #                           the tunnel, and exit once the daemon is proven ready.
 #                           Needs no credentials, so it is the way to check that
@@ -73,21 +73,45 @@ TUNNEL_PROFILE_FILE=${TUNNEL_PROFILE_FILE:-$HOME/.config/tunnel-client/$TUNNEL_P
 # still caught immediately by the liveness check inside wait_ready.
 READY_TIMEOUT_SECONDS=${READY_TIMEOUT_SECONDS:-90}
 STOP_TIMEOUT_SECONDS=${STOP_TIMEOUT_SECONDS:-15}
-SYNC_WATCH_SECONDS=${SYNC_WATCH_SECONDS:-0}
-SYNC_ON_CHANGE=${SYNC_ON_CHANGE:-notify}
+SYNC_WATCH_SECONDS=${SYNC_WATCH_SECONDS:-60}
+SYNC_ON_CHANGE=${SYNC_ON_CHANGE:-restart}
 SKIP_TUNNEL=${SKIP_TUNNEL:-}
 RUNTIME_OWNER_DIR=${RUNTIME_OWNER_DIR:-/tmp/shellbeam-main-runtime-$(id -u).owner}
 
-SRC_REPO=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+INVOKE_REPO=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+# A launcher checkout is not authoritative. Once this bootstrap contract exists,
+# even a stale topic worktree must fetch origin/main and exec the launcher and
+# helpers materialized from that exact commit. Known pre-bootstrap worktrees are
+# deliberately removed during rollout because no future code can retrofit a
+# guard into an already-old file.
+if [ -z "${SHELLBEAM_MAIN_RUNTIME_BOOTSTRAPPED:-}" ]; then
+	[ -f "$INVOKE_REPO/scripts/lib/main-runtime-bootstrap.sh" ] || {
+		printf 'error: runtime bootstrap helper missing: %s\n' "$INVOKE_REPO/scripts/lib/main-runtime-bootstrap.sh" >&2
+		exit 1
+	}
+	# shellcheck source=lib/main-runtime-bootstrap.sh
+	. "$INVOKE_REPO/scripts/lib/main-runtime-bootstrap.sh"
+	main_runtime_bootstrap "$INVOKE_REPO"
+	exit $?
+fi
+
+SRC_REPO=${SHELLBEAM_SOURCE_REPO:?missing SHELLBEAM_SOURCE_REPO from runtime bootstrap}
+TARGET_MAIN=${SHELLBEAM_TARGET_MAIN:?missing SHELLBEAM_TARGET_MAIN from runtime bootstrap}
+LAUNCHER_LIB_DIR=${SHELLBEAM_LAUNCHER_LIB_DIR:?missing SHELLBEAM_LAUNCHER_LIB_DIR from runtime bootstrap}
 BIN="$MAIN_WT/shellbeam"
 
 log() { printf '%s %s\n' "[$(date +%H:%M:%S)]" "$*" >&2; }
 die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 
-[ -f "$SRC_REPO/scripts/lib/main-runtime-owner.sh" ] ||
-	die "runtime ownership helper missing: $SRC_REPO/scripts/lib/main-runtime-owner.sh"
+[ -f "$LAUNCHER_LIB_DIR/main-runtime-bootstrap.sh" ] ||
+	die "runtime bootstrap helper missing: $LAUNCHER_LIB_DIR/main-runtime-bootstrap.sh"
+[ -f "$LAUNCHER_LIB_DIR/main-runtime-owner.sh" ] ||
+	die "runtime ownership helper missing: $LAUNCHER_LIB_DIR/main-runtime-owner.sh"
+# shellcheck source=lib/main-runtime-bootstrap.sh
+. "$LAUNCHER_LIB_DIR/main-runtime-bootstrap.sh"
 # shellcheck source=lib/main-runtime-owner.sh
-. "$SRC_REPO/scripts/lib/main-runtime-owner.sh"
+. "$LAUNCHER_LIB_DIR/main-runtime-owner.sh"
 
 # ---------------------------------------------------------------- preflight ---
 
@@ -95,6 +119,10 @@ case "$SYNC_ON_CHANGE" in
 notify | restart) ;;
 *) die "SYNC_ON_CHANGE must be 'notify' or 'restart', got '$SYNC_ON_CHANGE'" ;;
 esac
+
+log "syncing canonical main to origin/main ($(printf '%.12s' "$TARGET_MAIN"))"
+main_runtime_sync_source_main "$SRC_REPO" "$TARGET_MAIN" ||
+	die "canonical main is not safely fast-forwardable to origin/main"
 
 # Detaching the worktree we are reading this script from can rewrite the script
 # mid-execution, because sh reads a script incrementally rather than all at once.
@@ -233,6 +261,9 @@ cleanup() {
 		daemon_pid=""
 	fi
 	release_runtime_owner
+	if [ -n "${SHELLBEAM_LAUNCHER_TMP_DIR:-}" ]; then
+		rm -rf "$SHELLBEAM_LAUNCHER_TMP_DIR" 2>/dev/null || true
+	fi
 }
 handle_signal() {
 	cleanup
@@ -255,11 +286,7 @@ ensure_worktree() {
 # sync_to_remote_main puts the runtime worktree on the exact commit origin/main
 # points at. Detached, so there is no local branch that can quietly get ahead.
 sync_to_remote_main() {
-	log "fetching origin/main"
-	git -C "$SRC_REPO" fetch --quiet origin main ||
-		die "git fetch failed; check credentials or network (GIT_TERMINAL_PROMPT=0 means it will not prompt)"
-
-	target=$(git -C "$SRC_REPO" rev-parse FETCH_HEAD)
+	target=$TARGET_MAIN
 
 	# This worktree is never authored in, so anything uncommitted here is a
 	# surprise worth stopping for rather than discarding.
@@ -453,5 +480,10 @@ while :; do
 	run_cycle
 	[ -n "$restart_requested" ] || break
 	cleanup
-	log "--- restarting on new origin/main ---"
+	log "--- re-entering bootstrap for new origin/main ---"
+	launcher_tmp=${SHELLBEAM_LAUNCHER_TMP_DIR:-}
+	unset SHELLBEAM_MAIN_RUNTIME_BOOTSTRAPPED SHELLBEAM_SOURCE_REPO SHELLBEAM_TARGET_MAIN \
+		SHELLBEAM_LAUNCHER_LIB_DIR SHELLBEAM_LAUNCHER_TMP_DIR
+	[ -z "$launcher_tmp" ] || rm -rf "$launcher_tmp"
+	exec sh "$SRC_REPO/scripts/run-main-runtime.sh"
 done

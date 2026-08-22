@@ -98,7 +98,7 @@ rm -rf "$RUNTIME_OWNER_DIR"
 pass "owner metadata replacement is retried instead of aborting"
 
 # Static launcher integration contract.
-grep -q '^\. .*scripts/lib/main-runtime-owner\.sh' "$LAUNCHER" || fail "launcher does not source owner helper"
+grep -q '^\. "$LAUNCHER_LIB_DIR/main-runtime-owner\.sh"' "$LAUNCHER" || fail "launcher does not source materialized owner helper"
 acquire_line=$(grep -n '^[[:space:]]*acquire_runtime_owner$' "$LAUNCHER" | head -1 | cut -d: -f1)
 stop_line=$(grep -n '^[[:space:]]*stop_daemon$' "$LAUNCHER" | head -1 | cut -d: -f1)
 [ -n "$acquire_line" ] && [ -n "$stop_line" ] && [ "$acquire_line" -lt "$stop_line" ] || fail "launcher must acquire stack owner before stop_daemon"
