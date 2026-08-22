@@ -20,6 +20,8 @@ import (
 
 const mediaDisclosure = " read_media reads the original selected local image file bytes and sends those bytes to the connected MCP client/model; encoded files may include embedded metadata such as EXIF, GPS, ICC profiles, comments, application metadata, or trailing bytes."
 
+const toolDescription = "Run and control commands with the full authority of the local OS user. Transport success is not command success; inspect the terminal receipt. For repository work, call inspect.project for the target workspace first; if it advertises agent_bootstrap, read that repository-relative contract before repository-specific changes."
+
 const projectOnboardingInstructions = "For repository onboarding, inspect.project before relying on project-specific capabilities. If inspect.project advertises agent_bootstrap, read that repository-relative contract before making repository-specific changes and follow the contracts it references. Do not auto-trust discovered repository commands and do not automatically write .shellbeam/project.toml. When a shared manifest would be useful, audit bounded repository evidence, propose the focused change, obtain normal user approval before writing it, validate it, then review the exact current discovery_fingerprint. While that reviewed fingerprint is current, avoid repeated onboarding prompts. review_due requests re-review and does not block ordinary execution."
 
 const (
@@ -41,7 +43,7 @@ func toolDefinitionV2(catalog capability.Catalog) *mcpgo.Tool {
 	destructive, open := true, true
 	return &mcpgo.Tool{
 		Name: "local_shell", Title: "ShellBeam — Local Shell",
-		Description: "Run and control commands with the full authority of the local OS user. Transport success is not command success; inspect the terminal receipt." + mediaDisclosure,
+		Description: toolDescription + mediaDisclosure,
 		InputSchema: composeMediaInputSchema(), OutputSchema: composeMediaOutputSchema(),
 		Annotations: &mcpgo.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &destructive, OpenWorldHint: &open, IdempotentHint: false},
 	}
@@ -53,7 +55,7 @@ func toolDefinition(inputName, outputName schema.Name) *mcpgo.Tool {
 	output, _ := schema.Load(outputName)
 	return &mcpgo.Tool{
 		Name: "local_shell", Title: "ShellBeam — Local Shell",
-		Description: "Run and control commands with the full authority of the local OS user. Transport success is not command success; inspect the terminal receipt.",
+		Description: toolDescription,
 		InputSchema: json.RawMessage(input), OutputSchema: json.RawMessage(output),
 		Annotations: &mcpgo.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: &destructive, OpenWorldHint: &open, IdempotentHint: false},
 	}
