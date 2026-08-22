@@ -163,4 +163,35 @@ grep -q '^trap handle_signal INT TERM$' "$ROOT/scripts/run-main-runtime.sh" ||
 	fail "run-main-runtime.sh no longer traps INT/TERM into cleanup"
 pass "launcher premises this script depends on are unchanged"
 
+# --- the launcher log is resolved from the process, not guessed ----------------
+#
+# Guessing a path produced a bare `tail: No such file or directory` against a
+# perfectly healthy runtime, because the launcher had been started by something
+# other than `make runtime-up` and was writing elsewhere. Resolution therefore
+# reads fd 1 of the pid the owner record names.
+snapshot="$TMP/log-snapshot"
+: >"$snapshot"
+RUNTIME_OWNER_DIR="$TMP/log-owner"
+mkdir -p "$RUNTIME_OWNER_DIR"
+
+assert_eq "$(launcher_log_path)" "" "no owner record and no launcher resolves to nothing"
+pass "with nothing running, no log path is invented"
+
+sh -c 'exec sleep 60' >"$TMP/fixture-launcher.log" 2>&1 & fixture=$!
+children="$children $fixture"
+printf '%s\n' "$fixture" >"$RUNTIME_OWNER_DIR/launcher.pid"
+runtime_process_started "$fixture" >"$RUNTIME_OWNER_DIR/launcher.started"
+resolved=$(launcher_log_path)
+case "$resolved" in
+*"fixture-launcher.log") ;;
+*) fail "did not resolve the recorded launcher's own fd 1: got [$resolved]" ;;
+esac
+pass "the log path comes from the recorded launcher's open descriptor"
+
+# A record whose fingerprint no longer matches must not send a reader to
+# whatever process now holds that pid.
+printf '%s\n' "not-the-current-process-start" >"$RUNTIME_OWNER_DIR/launcher.started"
+assert_eq "$(launcher_log_path)" "" "a stale owner record resolves to nothing"
+pass "a stale owner record never redirects the reader to an unrelated process"
+
 printf 'all shellbeam runtimes tests passed\n'
