@@ -62,6 +62,49 @@ assert_eq "$(lease_pid "$TMP/rt")" "4242" "lease pid parsed"
 assert_eq "$(lease_pid "$TMP/absent")" "" "missing lease reads empty"
 pass "lease pid is read from daemon.owner"
 
+# --- orphan marking ------------------------------------------------------------
+#
+# A detached launcher sits on ppid 1 by design. Marking it as orphaned reported
+# a healthy runtime as a leak, which is what running the real stop path exposed.
+assert_eq "$(orphan_suffix daemon 1)" "+orphan" "daemon on init is orphaned"
+assert_eq "$(orphan_suffix tunnel 1)" "+orphan" "tunnel on init is orphaned"
+assert_eq "$(orphan_suffix mcp 1)" "+orphan" "mcp on init is orphaned"
+assert_eq "$(orphan_suffix launcher 1)" "" "detached launcher is not orphaned"
+assert_eq "$(orphan_suffix daemon 4242)" "" "parented daemon is not orphaned"
+pass "orphan marking exempts a deliberately detached launcher"
+
+# --- a lease outlives its daemon however it died --------------------------------
+#
+# Measured against the real stop path: a daemon retired by SIGTERM removed its
+# socket and left daemon.owner naming its own dead pid. dead_leases must report
+# that, so the section cannot assume an ungraceful death.
+snapshot="$TMP/empty-snapshot"
+: >"$snapshot"
+DEFAULT_RUNTIME_DIR="$TMP/shellbeam-probe"
+mkdir -p "$TMP/shellbeam-probe"
+# A pid that is certainly gone, and certainly ours: a constant could be alive,
+# and `kill -0` against another user's live pid fails with EPERM rather than
+# ESRCH, which would read as dead.
+sleep 60 & dead_owner=$!
+kill -KILL "$dead_owner" 2>/dev/null || true
+wait "$dead_owner" 2>/dev/null || true
+printf '{"schema_version":1,"pid":%s,"incarnation":"x"}\n' "$dead_owner" >"$TMP/shellbeam-probe/daemon.owner"
+sleep 60 & live_owner=$!; children="$children $live_owner"
+mkdir -p "$TMP/shellbeam-live"
+printf '{"schema_version":1,"pid":%s,"incarnation":"x"}\n' "$live_owner" >"$TMP/shellbeam-live/daemon.owner"
+# dead_leases resolves its scan root with `pwd -P`, so on darwin it reports
+# /private/var/... where $TMP is /var/... . Compare against the same form.
+TMP_P=$(CDPATH="" cd -- "$TMP" && pwd -P)
+reported=$(dead_leases | awk '{print $2}' | sort)
+case "$reported" in
+*"$TMP_P/shellbeam-probe"*) ;;
+*) fail "a lease naming a dead pid was not reported: [$reported]" ;;
+esac
+case "$reported" in
+*"$TMP_P/shellbeam-live"*) fail "a lease naming a live pid was reported: [$reported]" ;;
+esac
+pass "dead leases are reported by pid liveness, not by manner of death"
+
 # --- PID reuse defense ----------------------------------------------------------
 #
 # This is the whole reason identity comes from the owner helper. A live process
