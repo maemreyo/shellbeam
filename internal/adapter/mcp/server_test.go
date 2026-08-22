@@ -7,6 +7,7 @@ import (
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
+	"strings"
 	"testing"
 )
 
@@ -24,6 +25,11 @@ func TestMetadata(t *testing.T) {
 	tool := ToolDefinition()
 	if tool.Name != "local_shell" || tool.Annotations == nil || tool.Annotations.ReadOnlyHint || tool.Annotations.IdempotentHint {
 		t.Fatalf("%#v", tool)
+	}
+	for _, tool := range []*mcpgo.Tool{ToolDefinition(), ToolDefinitionV2()} {
+		if !strings.Contains(tool.Description, "inspect.project") || !strings.Contains(tool.Description, "agent_bootstrap") {
+			t.Fatalf("tool description missing repository bootstrap pointer: %q", tool.Description)
+		}
 	}
 }
 func TestInMemoryConformance(t *testing.T) {

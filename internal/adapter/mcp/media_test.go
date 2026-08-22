@@ -381,4 +381,7 @@ func TestMCPRefreshesConditionalToolSchemaOnNextRequest(t *testing.T) {
 	if !strings.Contains(after.Tools[0].Description, "original selected local image file bytes") {
 		t.Fatalf("refreshed tool disclosure missing: %q", after.Tools[0].Description)
 	}
+	if !strings.Contains(after.Tools[0].Description, "inspect.project") || !strings.Contains(after.Tools[0].Description, "agent_bootstrap") {
+		t.Fatalf("refreshed tool repository bootstrap pointer missing: %q", after.Tools[0].Description)
+	}
 }
