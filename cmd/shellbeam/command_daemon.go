@@ -98,7 +98,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	}
 	defer codeRuntime.Close()
 	structuredScheduler, telemetryScheduler, evidenceScheduler := &structuredWorkerProxy{}, &telemetryWorkerProxy{}, &evidenceWorkerProxy{}
-	contextExecService := composeContextExecService(ctx, store, delegatedRuntime, paths.RuntimeDir, incarnation, structuredScheduler, telemetryScheduler, evidenceScheduler)
+	contextExecService, catalog := composeContextExecServiceCapability(ctx, store, delegatedRuntime, paths.RuntimeDir, incarnation, structuredScheduler, telemetryScheduler, evidenceScheduler, catalog)
 	projectLoader := projectadapter.NewLoader()
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{

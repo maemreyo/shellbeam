@@ -115,6 +115,7 @@ func doctorReport(args []string) (control.Report, error) {
 		handoffCatalog = doctorInteractiveHandoffCatalog(paths.Socket)
 	}
 	report.Checks = append(report.Checks, doctorInteractiveHandoffCheck(handoffCatalog))
+	report.Checks = append(report.Checks, doctorContextExecCheck(handoffCatalog))
 	report.Checks = append(report.Checks, doctorFreeSpaceCheck(paths.StateDir, cfg.MinFreeSpaceBytes))
 	return report, nil
 }
@@ -128,6 +129,66 @@ func doctorInteractiveHandoffCatalog(socket string) capability.Catalog {
 		return catalog
 	}
 	return resp.Server.Clone()
+}
+
+func doctorContextExecCheck(catalog capability.Catalog) control.Check {
+	check := control.Check{ID: "context_exec", Status: control.Warn, Message: "context execution unavailable"}
+	provider := "unavailable"
+	if catalog.Features[capability.FeatureDelegatedInteractive] == capability.Available && catalog.DelegatedInteractive != nil {
+		provider = catalog.DelegatedInteractive.ProviderID
+	}
+	shellAdapters := "none"
+	helperProtocol := "unavailable"
+	evidenceAuthority := "unavailable"
+	if catalog.ContextExec != nil {
+		if len(catalog.ContextExec.ShellAdapters) > 0 {
+			shells := make([]string, len(catalog.ContextExec.ShellAdapters))
+			for i, family := range catalog.ContextExec.ShellAdapters {
+				shells[i] = string(family)
+			}
+			shellAdapters = strings.Join(shells, ",")
+		}
+		if catalog.ContextExec.HelperProtocolVersion > 0 {
+			helperProtocol = fmt.Sprintf("%d", catalog.ContextExec.HelperProtocolVersion)
+		}
+		if catalog.ContextExec.EvidenceAuthority != "" {
+			evidenceAuthority = catalog.ContextExec.EvidenceAuthority
+		}
+	}
+
+	blockers := make([]string, 0, 3)
+	if catalog.Features[capability.FeatureDelegatedInteractive] != capability.Available || catalog.DelegatedInteractive == nil {
+		blockers = append(blockers, "delegated_provider_unavailable")
+	}
+	privacyQualified := catalog.Features[capability.FeatureInteractiveHandoff] == capability.Available && catalog.InteractiveHandoff != nil && catalog.InteractiveHandoff.Secret && catalog.InteractiveHandoff.Privacy != nil && catalog.InteractiveHandoff.Privacy.SecretPrivateInterval && catalog.InteractiveHandoff.Privacy.PrivacyReleaseSeparate && catalog.InteractiveHandoff.Privacy.ObserverTopologyQualified && !catalog.InteractiveHandoff.Privacy.HumanInputPersisted
+	if !privacyQualified {
+		blockers = append(blockers, "privacy_topology_unqualified")
+	}
+	if catalog.Features[capability.FeatureContextExec] != capability.Available || catalog.ContextExec == nil {
+		blockers = append(blockers, "context_exec_runtime_unavailable")
+	}
+
+	parts := []string{"provider=" + provider, "shell_adapters=" + shellAdapters, "helper_protocol=" + helperProtocol, "evidence_authority=" + evidenceAuthority}
+	if catalog.Features[capability.FeatureContextExec] == capability.Available && catalog.ContextExec != nil && len(blockers) == 0 {
+		qualities := make([]string, len(catalog.ContextExec.EvidenceQualities))
+		for i, quality := range catalog.ContextExec.EvidenceQualities {
+			qualities[i] = string(quality)
+		}
+		parts = append(parts,
+			"evidence_qualities="+strings.Join(qualities, ","),
+			"output_attribution="+string(catalog.ContextExec.OutputAttribution),
+			"resource_enforcement="+string(catalog.ContextExec.ResourceEnforcement),
+			"hermetic="+string(catalog.ContextExec.Hermetic),
+			"blockers=none",
+		)
+		check.Status = control.Pass
+		check.Message = "context execution available"
+		check.Hint = strings.Join(parts, "; ")
+		return check
+	}
+	parts = append(parts, "blockers="+strings.Join(blockers, ","))
+	check.Hint = strings.Join(parts, "; ")
+	return check
 }
 
 func doctorInteractiveHandoffCheck(catalog capability.Catalog) control.Check {

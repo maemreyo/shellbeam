@@ -21,6 +21,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/media"
@@ -40,6 +41,7 @@ type DaemonClient interface {
 type Request struct {
 	ProtocolVersion          int
 	Action                   string
+	ContextExec              contextcore.Request
 	WorkspaceID              string
 	ActivityID               string
 	CodeQuery                *codeintel.Query
@@ -100,6 +102,7 @@ type Response struct {
 	Sessions               *persistent.InspectPage
 	NegotiatedMedia        *capability.NegotiatedMedia
 	Media                  *media.Result
+	ContextExec            *contextcore.PublicState
 	Handoff                *handoff.PublicState
 	HandoffTimedOut        bool
 	Code                   string

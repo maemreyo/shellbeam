@@ -20,6 +20,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -50,6 +51,7 @@ type RequestV2 struct {
 	Kind                     string                                   `json:"kind"`
 	RequestID                string                                   `json:"request_id"`
 	Action                   string                                   `json:"action"`
+	ContextExecID            string                                   `json:"context_exec_id,omitempty"`
 	CheckpointCreateID       string                                   `json:"checkpoint_create_id,omitempty"`
 	RestoreID                string                                   `json:"restore_id,omitempty"`
 	CheckpointID             string                                   `json:"checkpoint_id,omitempty"`
@@ -158,6 +160,7 @@ type ResponseV2 struct {
 	Code                             *codeintel.Result                   `json:"code,omitempty"`
 	OutputView                       *outputview.Result                  `json:"output_view,omitempty"`
 	Sessions                         *persistent.InspectPage             `json:"sessions,omitempty"`
+	ContextExec                      *contextcore.PublicState            `json:"context_exec,omitempty"`
 	Handoff                          *handoff.PublicState                `json:"handoff,omitempty"`
 	HandoffTimedOut                  bool                                `json:"handoff_timed_out,omitempty"`
 	Error                            *Error                              `json:"error,omitempty"`
@@ -244,6 +247,11 @@ func validateRequestV2(v RequestV2) error {
 	switch v.Action {
 	case "start":
 		return validateStartRequestV2(v)
+	case "context.exec":
+		req := contextcore.Request{ContextExecID: v.ContextExecID, SessionID: v.SessionID, AuthorityEpoch: v.AuthorityEpoch, Argv: append([]string(nil), v.Argv...), TimeoutMS: v.TimeoutMS, MaxOutputBytes: int64(v.MaxOutputBytes)}
+		if err := req.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "context_exec"}, err)
+		}
 	case "poll":
 		if v.SessionID == "" {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "session_id"}, fmt.Errorf("missing session id"))

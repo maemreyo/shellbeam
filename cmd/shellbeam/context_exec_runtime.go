@@ -16,10 +16,12 @@ import (
 	contextapp "github.com/maemreyo/shellbeam/internal/app/contextexec"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	shellapp "github.com/maemreyo/shellbeam/internal/app/shellintegration"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	shellcore "github.com/maemreyo/shellbeam/internal/core/shellintegration"
 )
 
 type contextExecDaemonRuntime struct {
@@ -209,6 +211,27 @@ func (r *contextExecDaemonRuntime) serverFor(req contextExecServeRequest) *conte
 var _ contextapp.HelperRuntime = (*contextExecDaemonRuntime)(nil)
 var _ contextapp.RuntimeCallbackBinder = (*contextExecDaemonRuntime)(nil)
 var _ = contextcore.SchemaVersion
+
+func composeContextExecCapability(catalog capability.Catalog, service daemonapp.ContextExecService) capability.Catalog {
+	if service == nil || catalog.DelegatedInteractive == nil {
+		return catalog
+	}
+	support := capability.ContextExecSupport{
+		ProviderID: catalog.DelegatedInteractive.ProviderID, ProviderVersion: catalog.DelegatedInteractive.ProviderVersion, Platform: catalog.DelegatedInteractive.Platform,
+		ShellAdapters:         []shellcore.ShellFamily{shellcore.ShellFish, shellcore.ShellZsh, shellcore.ShellBash},
+		HelperProtocolVersion: contextadapter.ProtocolVersion,
+		EvidenceAuthority:     contextcore.EvidenceAuthorityContextExecChildOwnedV1,
+		EvidenceQualities:     []contextcore.EvidenceQuality{contextcore.EvidenceQualityUnproven, contextcore.EvidenceQualityIncomplete, contextcore.EvidenceQualityComplete, contextcore.EvidenceQualityAmbiguous},
+		OutputAttribution:     contextcore.OutputAttributionHelperOwnedChildPipes,
+		ResourceEnforcement:   capability.Unavailable, Hermetic: capability.Unavailable,
+	}
+	return catalog.WithContextExec(support)
+}
+
+func composeContextExecServiceCapability(ctx context.Context, store daemonapp.Store, provider daemonapp.DelegatedRuntime, runtimeDir, incarnation string, structured daemonapp.StructuredWorker, telemetry daemonapp.TelemetryWorker, evidence daemonapp.EvidenceWorker, catalog capability.Catalog) (daemonapp.ContextExecService, capability.Catalog) {
+	service := composeContextExecService(ctx, store, provider, runtimeDir, incarnation, structured, telemetry, evidence)
+	return service, composeContextExecCapability(catalog, service)
+}
 
 func composeContextExecService(ctx context.Context, store daemonapp.Store, provider daemonapp.DelegatedRuntime, runtimeDir, incarnation string, structured daemonapp.StructuredWorker, telemetry daemonapp.TelemetryWorker, evidence daemonapp.EvidenceWorker) daemonapp.ContextExecService {
 	runtime, executable := composeContextExecRuntime(ctx, provider, runtimeDir)

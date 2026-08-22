@@ -14,8 +14,19 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 	return req
 }
 
+func applyBridgeContextExecV2(req *RequestV2, in bridge.Request) {
+	req.ContextExecID = in.ContextExec.ContextExecID
+	req.SessionID = in.ContextExec.SessionID
+	req.AuthorityEpoch = in.ContextExec.AuthorityEpoch
+	req.Argv = append([]string(nil), in.ContextExec.Argv...)
+	req.TimeoutMS = in.ContextExec.TimeoutMS
+	req.MaxOutputBytes = int(in.ContextExec.MaxOutputBytes)
+}
+
 func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	switch in.Action {
+	case "context.exec":
+		applyBridgeContextExecV2(req, in)
 	case "start":
 		applyStartV2(req, in)
 	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":

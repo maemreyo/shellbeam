@@ -13,6 +13,7 @@ import (
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
@@ -34,12 +35,21 @@ func requestFromInput(version int, in input, raw []byte) bridge.Request {
 	return request
 }
 
+func populateExecutionRequestFromInput(request *bridge.Request, in input) {
+	switch in.Action {
+	case "context.exec":
+		request.ContextExec = contextcore.Request{ContextExecID: in.ContextExecID, SessionID: in.SessionID, AuthorityEpoch: in.AuthorityEpoch, Argv: append([]string(nil), in.Argv...), TimeoutMS: in.TimeoutMS, MaxOutputBytes: int64(in.MaxOutputBytes)}
+	case "start":
+		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionMode: in.SessionMode, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone()}
+	}
+}
+
 func populateRequestFromInput(request *bridge.Request, in input) {
 	switch in.Action {
 	case "read_media":
 		request.Media = mediaRequestFromInput(in)
-	case "start":
-		request.Start = app.StartRequest{OperationID: in.OperationID, ActivityID: in.ActivityID, WorkspaceID: in.WorkspaceID, WorkspaceHint: in.WorkspaceHint, StructuredAdapter: in.StructuredAdapter, ProjectCommandID: in.ProjectCommandID, Params: cloneMCPStringMap(in.Params), Command: in.Command, Argv: append([]string(nil), in.Argv...), Intent: in.Intent, Evidence: in.Evidence, CWD: in.CWD, TTY: in.TTY, Persistent: in.Persistent, SessionMode: in.SessionMode, SessionName: in.SessionName, YieldMS: in.YieldMS, TimeoutMS: in.TimeoutMS, StdinMode: in.StdinMode, TimeoutMode: in.TimeoutMode, MaxOutputBytes: in.MaxOutputBytes, TraceMode: in.TraceMode, ResourceLimits: in.ResourceLimits.Clone()}
+	case "context.exec", "start":
+		populateExecutionRequestFromInput(request, in)
 	case "handoff.request":
 		request.HandoffRequest = handoff.Request{HandoffID: in.HandoffID, SessionID: in.SessionID, Reason: in.HandoffReason, Privacy: in.HandoffPrivacy, Completion: *in.HandoffCompletion}
 	case "handoff.wait":

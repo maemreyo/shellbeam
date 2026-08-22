@@ -37,6 +37,7 @@ const (
 	FeatureResourceEnforcement    Feature = "resource_enforcement"
 	FeatureDelegatedInteractive   Feature = "delegated_interactive"
 	FeatureInteractiveHandoff     Feature = "interactive_handoff"
+	FeatureContextExec            Feature = "context_exec"
 )
 
 type Limits struct {
@@ -180,6 +181,7 @@ type Catalog struct {
 	InputTracing                      *InputTracingSupport         `json:"input_tracing,omitempty"`
 	DelegatedInteractive              *DelegatedInteractiveSupport `json:"delegated_interactive,omitempty"`
 	InteractiveHandoff                *InteractiveHandoffSupport   `json:"interactive_handoff,omitempty"`
+	ContextExec                       *ContextExecSupport          `json:"context_exec,omitempty"`
 	Features                          map[Feature]Availability     `json:"features"`
 	Limits                            Limits                       `json:"limits"`
 }
@@ -212,6 +214,7 @@ var targetFeatures = []Feature{
 	FeatureResourceEnforcement,
 	FeatureDelegatedInteractive,
 	FeatureInteractiveHandoff,
+	FeatureContextExec,
 }
 
 func TargetFeatures() []Feature {
@@ -292,6 +295,10 @@ func (c Catalog) Clone() Catalog {
 	if c.InteractiveHandoff != nil {
 		support := c.InteractiveHandoff.Clone()
 		out.InteractiveHandoff = &support
+	}
+	if c.ContextExec != nil {
+		support := c.ContextExec.Clone()
+		out.ContextExec = &support
 	}
 	out.Features = make(map[Feature]Availability, len(c.Features))
 	for feature, availability := range c.Features {

@@ -15,6 +15,7 @@ import (
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -32,6 +33,7 @@ import (
 
 type input struct {
 	Action              string                            `json:"action"`
+	ContextExecID       string                            `json:"context_exec_id,omitempty"`
 	CheckpointCreateID  string                            `json:"checkpoint_create_id,omitempty"`
 	RestoreID           string                            `json:"restore_id,omitempty"`
 	CheckpointID        string                            `json:"checkpoint_id,omitempty"`
@@ -131,6 +133,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 		}
 		return validateV2(v)
 	}
+	if v.Action == "context.exec" || hasField(raw, "context_exec_id") {
+		return fmt.Errorf("context execution requires modern protocol")
+	}
 	if v.Action == "inspect.trace" || hasField(raw, "trace_mode") || hasField(raw, "max_resources") {
 		return fmt.Errorf("input tracing requires modern protocol")
 	}
@@ -163,6 +168,8 @@ func validateV2(v input) error {
 	switch v.Action {
 	case "read_media":
 		return validateMediaInput(v)
+	case "context.exec":
+		return (contextcore.Request{ContextExecID: v.ContextExecID, SessionID: v.SessionID, AuthorityEpoch: v.AuthorityEpoch, Argv: append([]string(nil), v.Argv...), TimeoutMS: v.TimeoutMS, MaxOutputBytes: int64(v.MaxOutputBytes)}).Validate()
 	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
 		return validateHandoffInputV2(v)
 	case "read_output":

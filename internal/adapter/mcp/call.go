@@ -78,6 +78,12 @@ func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
 	body := map[string]any{"schema_version": 2, "ok": true, "action": action}
 	summary := action
 	switch action {
+	case "context.exec":
+		if out.ContextExec == nil {
+			return toolErrorV2(action, "invalid_daemon_response", "context exec projection missing", false)
+		}
+		body["context_exec"] = out.ContextExec
+		summary = fmt.Sprintf("context.exec %s: %s", out.ContextExec.ContextExecID, out.ContextExec.Lifecycle)
 	case "start", "poll":
 		var failed *mcpgo.CallToolResult
 		summary, failed = executionSuccessV2(in, out, body)

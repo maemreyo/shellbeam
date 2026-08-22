@@ -11,6 +11,8 @@ func v2ActionFields(action string) []string {
 	switch action {
 	case "start":
 		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_mode", "session_name", "yield_time_ms", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "max_output_bytes"}
+	case "context.exec":
+		return []string{"context_exec_id", "session_id", "authority_epoch", "argv", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
 	case "handoff.request":

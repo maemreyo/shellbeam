@@ -45,7 +45,7 @@ func validateSessionInspectV2(v RequestV2) error {
 
 func isSupportedV2Action(action string) bool {
 	switch action {
-	case "start", "poll", "write", "kill", "read_output", "checkpoint_create", "checkpoint_restore", "checkpoint_inspect", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes", "capabilities.negotiate", "read_media", "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+	case "start", "context.exec", "poll", "write", "kill", "read_output", "checkpoint_create", "checkpoint_restore", "checkpoint_inspect", "inspect.server", "inspect.workspace", "inspect.activity", "inspect.sessions", "inspect.project", "inspect.readiness", "inspect.events", "inspect.structured", "inspect.telemetry", "inspect.trace", "inspect.evidence", "inspect.environment", "inspect.process", "repro.create", "inspect.repro", "inspect.code", "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes", "capabilities.negotiate", "read_media", "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
 		return true
 	default:
 		return false

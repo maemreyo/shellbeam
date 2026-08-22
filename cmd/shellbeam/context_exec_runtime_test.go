@@ -17,6 +17,7 @@ import (
 	contextapp "github.com/maemreyo/shellbeam/internal/app/contextexec"
 	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	shellapp "github.com/maemreyo/shellbeam/internal/app/shellintegration"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	evidencecore "github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -246,5 +247,37 @@ func TestContextExecTerminalSchedulerKeepsEvidenceScopedToFrozenContracts(t *tes
 	}
 	if structured.calls != 1 || telemetry.calls != 2 || evidence.calls != 1 {
 		t.Fatalf("contract calls structured=%d telemetry=%d evidence=%d", structured.calls, telemetry.calls, evidence.calls)
+	}
+}
+
+type contextExecCapabilityService struct{}
+
+func (contextExecCapabilityService) Execute(context.Context, contextcore.Request) (operation.ContextExecState, error) {
+	return operation.ContextExecState{}, nil
+}
+func (contextExecCapabilityService) Reconcile(context.Context) ([]contextapp.RecoveryDecision, error) {
+	return nil, nil
+}
+
+func TestComposeContextExecCapabilityRequiresComposedServiceAndH4(t *testing.T) {
+	base := capability.Baseline(capability.Limits{}).
+		WithDelegatedInteractive(capability.DelegatedInteractiveSupport{ProviderID: "tmux_control_mode", ProviderVersion: 1, Platform: "darwin", MaxMutationRecords: 4096}).
+		WithInteractiveHandoff(capability.InteractiveHandoffSupport{
+			ManualStandard: true, Secret: true,
+			Privacy:          &capability.HandoffPrivacySupport{SecretPrivateInterval: true, PrivacyReleaseSeparate: true, ObserverTopologyQualified: true, HumanInputPersisted: false},
+			CaptureQualities: []receipt.CaptureQuality{receipt.CaptureComplete, receipt.CapturePartial, receipt.CaptureIncomplete},
+		})
+	if got := composeContextExecCapability(base, nil); got.Features[capability.FeatureContextExec] != capability.Unavailable || got.ContextExec != nil {
+		t.Fatalf("nil service advertised context exec: %#v", got.ContextExec)
+	}
+	got := composeContextExecCapability(base, contextExecCapabilityService{})
+	if got.Features[capability.FeatureContextExec] != capability.Available || got.ContextExec == nil {
+		t.Fatalf("composed context exec unavailable: features=%#v support=%#v", got.Features, got.ContextExec)
+	}
+	if got.ContextExec.HelperProtocolVersion != contextadapter.ProtocolVersion || got.ContextExec.EvidenceAuthority != contextcore.EvidenceAuthorityContextExecChildOwnedV1 || got.ContextExec.ResourceEnforcement != capability.Unavailable || got.ContextExec.Hermetic != capability.Unavailable {
+		t.Fatalf("context exec support=%#v", got.ContextExec)
+	}
+	if strings.Join([]string{string(got.ContextExec.ShellAdapters[0]), string(got.ContextExec.ShellAdapters[1]), string(got.ContextExec.ShellAdapters[2])}, ",") != "fish,zsh,bash" {
+		t.Fatalf("shell adapters=%v", got.ContextExec.ShellAdapters)
 	}
 }
