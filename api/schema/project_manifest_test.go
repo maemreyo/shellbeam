@@ -28,6 +28,7 @@ func TestManifestInspectWireSchemas(t *testing.T) {
 	workspaceID := "ws_01K00000000000000000000000"
 	project := map[string]any{
 		"status":                "valid",
+		"agent_bootstrap":       map[string]any{"path": "AGENTS.md", "provenance": "workspace_convention"},
 		"schema_version":        1.0,
 		"manifest_digest":       "abc",
 		"discovery_fingerprint": "def",

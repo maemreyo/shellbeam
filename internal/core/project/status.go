@@ -10,6 +10,13 @@ const (
 	CodeManifestAbsent = "project_manifest_absent"
 )
 
+type AgentBootstrap struct {
+	Path       string `json:"path"`
+	Provenance string `json:"provenance"`
+}
+
+const AgentBootstrapWorkspaceConvention = "workspace_convention"
+
 type LoadResult struct {
 	State                LoadState
 	Parsed               *Parsed
@@ -17,6 +24,7 @@ type LoadResult struct {
 	DiscoveryFingerprint string
 	DetectedFamilies     []string
 	DiscoveryEvidence    []string
+	AgentBootstrap       *AgentBootstrap
 	Code                 string
 }
 
@@ -40,20 +48,22 @@ type StatusInput struct {
 	DetectedFamilies     []string
 	DiscoveryEvidence    []string
 	Code                 string
+	AgentBootstrap       *AgentBootstrap
 }
 
 type Inspection struct {
-	Status               Status    `json:"status"`
-	SchemaVersion        int       `json:"schema_version,omitempty"`
-	ManifestDigest       string    `json:"manifest_digest,omitempty"`
-	DiscoveryFingerprint string    `json:"discovery_fingerprint,omitempty"`
-	ReviewFingerprint    string    `json:"review_fingerprint,omitempty"`
-	DetectedFamilies     []string  `json:"detected_families,omitempty"`
-	DiscoveryEvidence    []string  `json:"discovery_evidence,omitempty"`
-	Confidence           string    `json:"confidence"`
-	Provenance           string    `json:"provenance"`
-	Code                 string    `json:"code,omitempty"`
-	Manifest             *Manifest `json:"manifest,omitempty"`
+	Status               Status          `json:"status"`
+	SchemaVersion        int             `json:"schema_version,omitempty"`
+	ManifestDigest       string          `json:"manifest_digest,omitempty"`
+	DiscoveryFingerprint string          `json:"discovery_fingerprint,omitempty"`
+	ReviewFingerprint    string          `json:"review_fingerprint,omitempty"`
+	DetectedFamilies     []string        `json:"detected_families,omitempty"`
+	DiscoveryEvidence    []string        `json:"discovery_evidence,omitempty"`
+	Confidence           string          `json:"confidence"`
+	Provenance           string          `json:"provenance"`
+	Code                 string          `json:"code,omitempty"`
+	AgentBootstrap       *AgentBootstrap `json:"agent_bootstrap,omitempty"`
+	Manifest             *Manifest       `json:"manifest,omitempty"`
 }
 
 func EvaluateStatus(input StatusInput) Status {
@@ -100,6 +110,14 @@ func NewInspection(input StatusInput, manifest *Manifest) Inspection {
 		Status: status, SchemaVersion: input.SchemaVersion, ManifestDigest: input.ManifestDigest,
 		DiscoveryFingerprint: input.DiscoveryFingerprint, ReviewFingerprint: reviewFingerprint,
 		DetectedFamilies: append([]string(nil), input.DetectedFamilies...), DiscoveryEvidence: append([]string(nil), input.DiscoveryEvidence...),
-		Confidence: confidence, Provenance: provenance, Code: input.Code, Manifest: manifest,
+		Confidence: confidence, Provenance: provenance, Code: input.Code, AgentBootstrap: cloneAgentBootstrap(input.AgentBootstrap), Manifest: manifest,
 	}
+}
+
+func cloneAgentBootstrap(value *AgentBootstrap) *AgentBootstrap {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }

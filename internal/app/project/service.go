@@ -121,6 +121,7 @@ func inspectionFromLoad(load core.LoadResult, review *core.Review) core.Inspecti
 	input := core.StatusInput{
 		LoadState: load.State, ManifestDigest: load.ManifestDigest,
 		DiscoveryFingerprint: load.DiscoveryFingerprint, DetectedFamilies: load.DetectedFamilies, DiscoveryEvidence: load.DiscoveryEvidence, Code: load.Code, Review: review,
+		AgentBootstrap: load.AgentBootstrap,
 	}
 	var manifest *core.Manifest
 	if load.Parsed != nil {
