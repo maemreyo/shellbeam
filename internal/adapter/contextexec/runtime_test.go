@@ -53,6 +53,27 @@ func TestRuntimeOwnsRealChildContextPipesAndDoesNotAttributePaneNoise(t *testing
 	}
 }
 
+func TestRuntimeAcceptsAuthenticatedCWDAliasForSameDirectory(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+	request := runtimeRequestFrame(t, aliasDir, []string{"/bin/echo", "ok"}, 1024, 1000)
+	runtime := Runtime{Launcher: testStrongLauncher{}, Environ: func() []string { return []string{"PATH=/usr/bin:/bin"} }, Getwd: func() (string, error) { return realDir, nil }}
+	terminal, err := runtime.Execute(context.Background(), request, &testExecutionProtocol{})
+	if err != nil {
+		t.Fatalf("same-directory cwd alias rejected: %v", err)
+	}
+	if terminal.Result.Lifecycle != core.LifecycleChildTerminal {
+		t.Fatalf("result=%#v", terminal.Result)
+	}
+}
+
 func TestRuntimeMarksTruncatedOutputIncompleteWithoutDroppingChildOwnedAuthority(t *testing.T) {
 	cwd := t.TempDir()
 	request := runtimeRequestFrame(t, cwd, []string{"/bin/sh", "-c", `printf '1234567890'; printf 'abcdefghij' >&2`}, 8, 2000)

@@ -69,6 +69,7 @@ type NoChildFailureTruth struct {
 
 type ContextAuthority interface {
 	Snapshot(context.Context, core.Request) (AuthoritySnapshot, error)
+	ClaimSnapshot(context.Context, core.Request) (ClaimAuthoritySnapshot, error)
 }
 
 type HelperArmRequest struct {
@@ -79,7 +80,7 @@ type HelperArmRequest struct {
 }
 
 type RuntimeCallbacks struct {
-	BindClaim                  func(context.Context, string, core.HelperBinding, core.ContextBinding, time.Time, string) (operation.ContextExecState, error)
+	BindClaim                  func(context.Context, string, core.HelperBinding, core.ContextBinding, core.ShellContinuityExpectation, core.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error)
 	AuthorizePrepared          func(context.Context, operation.ContextExecState, string) (operation.ContextExecState, PreparedAuthorization, error)
 	RecordSpawn                func(context.Context, operation.ContextExecState, SpawnTruth) (operation.ContextExecState, error)
 	RecordTerminal             func(context.Context, operation.ContextExecState, TerminalTruth) (operation.ContextExecState, error)
@@ -99,7 +100,7 @@ type HelperRuntime interface {
 	ArmContextHelper(context.Context, HelperArmRequest) (shellapp.ContextHelperArm, error)
 }
 
-type AuthoritySnapshot struct {
+type ClaimAuthoritySnapshot struct {
 	Binding                   delegated.Binding
 	ProviderRef               delegated.ProviderRef
 	Observation               delegatedapp.Observation
@@ -109,7 +110,11 @@ type AuthoritySnapshot struct {
 	PrivacyReleasePending     bool
 	AgentIngressWritable      bool
 	OwnershipTransferActive   bool
-	Shell                     shellcore.ShellIdentity
+}
+
+type AuthoritySnapshot struct {
+	ClaimAuthoritySnapshot
+	Shell shellcore.ShellIdentity
 }
 
 type Options struct {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -19,13 +20,36 @@ type recordingCommandPort struct {
 	mu      sync.Mutex
 	scripts []string
 	err     error
+	root    string
 }
 
 func (p *recordingCommandPort) WriteShell(_ context.Context, script string) error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	p.scripts = append(p.scripts, script)
-	return p.err
+	err := p.err
+	root := p.root
+	p.mu.Unlock()
+	if err == nil && root != "" && strings.Contains(script, "hook_installed") {
+		go sendTestHookInstalledAck(root)
+	}
+	return err
+}
+
+func sendTestHookInstalledAck(root string) {
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		paths, _ := filepath.Glob(filepath.Join(root, ".hn_*.sock"))
+		if len(paths) == 1 {
+			base := filepath.Base(paths[0])
+			hex := strings.TrimSuffix(strings.TrimPrefix(base, ".hn_"), ".sock")
+			_ = SendNotification(context.Background(), paths[0], Notification{
+				HandoffID: "handoff-task6", AuthorityEpoch: 4, EventID: "evt_" + hex,
+				ShellRuntimeID: "runtime-task6", Event: NotificationHookInstalled,
+			})
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
 }
 func (p *recordingCommandPort) snapshot() []string {
 	p.mu.Lock()
@@ -48,12 +72,13 @@ func task6Deps(t *testing.T, port *recordingCommandPort) Dependencies {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	port.root = root
 	return Dependencies{Executable: "/opt/shellbeam/bin/shellbeam", RuntimeDir: root, Command: port}
 }
 
 func assertMinimalNotifierInvocation(t *testing.T, script string) {
 	t.Helper()
-	if !strings.Contains(script, "'/usr/bin/env' '-i'") || !strings.Contains(script, "__handoff_notify") {
+	if !strings.Contains(script, "/usr/bin/env") || !strings.Contains(script, "-i") || !strings.Contains(script, "__handoff_notify") {
 		t.Fatalf("notifier is not environment-isolated: %s", script)
 	}
 	for _, forbidden := range []string{"CONTROL_PLANE_API_KEY=", "env |", "printenv", "config.fish", ".zshrc", ".bashrc"} {
@@ -73,6 +98,115 @@ func TestNotifierRejectsTooLongUnixSocketPathBeforeListen(t *testing.T) {
 	_, _, err := newOneShotWatcher(task6WatchRequest(core.ShellFish), Dependencies{Executable: "/opt/shellbeam/bin/shellbeam", RuntimeDir: root, Command: port}, fishScripts)
 	if err == nil || !strings.Contains(err.Error(), "socket path too long") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+type delayedAckCommandPort struct {
+	root    string
+	mu      sync.Mutex
+	scripts []string
+}
+
+func (p *delayedAckCommandPort) WriteShell(_ context.Context, script string) error {
+	p.mu.Lock()
+	p.scripts = append(p.scripts, script)
+	p.mu.Unlock()
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		paths, _ := filepath.Glob(filepath.Join(p.root, ".hn_*.sock"))
+		if len(paths) != 1 {
+			return
+		}
+		base := filepath.Base(paths[0])
+		hex := strings.TrimSuffix(strings.TrimPrefix(base, ".hn_"), ".sock")
+		_ = SendNotification(context.Background(), paths[0], Notification{
+			HandoffID: "handoff-task6", AuthorityEpoch: 4, EventID: "evt_" + hex,
+			ShellRuntimeID: "runtime-task6", Event: NotificationEvent("hook_installed"), Satisfied: false,
+		})
+	}()
+	return nil
+}
+
+func (p *delayedAckCommandPort) snapshot() []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]string(nil), p.scripts...)
+}
+
+func TestWatcherInstallWaitsForShellExecutionAcknowledgement(t *testing.T) {
+	root, err := os.MkdirTemp("/tmp", "sb-hn-ack-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	port := &delayedAckCommandPort{root: root}
+	deps := Dependencies{Executable: "/opt/shellbeam/bin/shellbeam", RuntimeDir: root, Command: port}
+	adapter, err := NewZshAdapter(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	watcher, err := adapter.Install(t.Context(), task6WatchRequest(core.ShellZsh))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	if elapsed := time.Since(started); elapsed < 25*time.Millisecond {
+		t.Fatalf("install returned before shell execution acknowledgement: %s", elapsed)
+	}
+	scripts := port.snapshot()
+	if len(scripts) != 1 || !strings.Contains(scripts[0], "hook_installed") || !regexp.MustCompile(`(?m)^eval `).MatchString(scripts[0]) {
+		t.Fatalf("install delivery lacks atomic execution ack: %q", scripts)
+	}
+}
+
+func TestWatcherInstallAcknowledgementKeepsPromptTransportOpen(t *testing.T) {
+	port := &recordingCommandPort{}
+	deps := task6Deps(t, port)
+	adapter, err := NewZshAdapter(deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watcher, err := adapter.Install(t.Context(), task6WatchRequest(core.ShellZsh))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer watcher.Close()
+	concrete, ok := watcher.(*oneShotWatcher)
+	if !ok {
+		t.Fatalf("watcher=%T", watcher)
+	}
+	// Give the acknowledgement context-cancellation goroutine a chance to run.
+	// A successful installation acknowledgement must not close the prompt listener.
+	time.Sleep(5 * time.Millisecond)
+	if _, err := os.Stat(concrete.socketPath); err != nil {
+		t.Fatalf("prompt transport closed after install acknowledgement: %v", err)
+	}
+
+	waitCh := make(chan app.WatchEvent, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		event, err := watcher.Wait(t.Context())
+		if err != nil {
+			errCh <- err
+			return
+		}
+		waitCh <- event
+	}()
+	notification := concrete.expected
+	notification.Satisfied = true
+	if err := SendNotification(t.Context(), concrete.socketPath, notification); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-errCh:
+		t.Fatal(err)
+	case event := <-waitCh:
+		if event.Result.State != core.RequirementSatisfied {
+			t.Fatalf("event=%#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("prompt notification was not observed after install acknowledgement")
 	}
 }
 

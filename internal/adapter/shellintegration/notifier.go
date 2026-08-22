@@ -50,7 +50,10 @@ func (v Dependencies) validate() error {
 
 type NotificationEvent string
 
-const NotificationPromptBoundary NotificationEvent = "prompt_boundary"
+const (
+	NotificationPromptBoundary NotificationEvent = "prompt_boundary"
+	NotificationHookInstalled  NotificationEvent = "hook_installed"
+)
 
 type Notification struct {
 	HandoffID      string                   `json:"handoff_id"`
@@ -68,7 +71,13 @@ func (v Notification) Validate() error {
 	if err := v.AuthorityEpoch.Validate(); err != nil {
 		return err
 	}
-	if v.Event != NotificationPromptBoundary {
+	switch v.Event {
+	case NotificationPromptBoundary:
+	case NotificationHookInstalled:
+		if v.Satisfied {
+			return fmt.Errorf("hook installation acknowledgement cannot satisfy requirement")
+		}
+	default:
 		return fmt.Errorf("invalid shell notification event")
 	}
 	return nil
@@ -136,57 +145,48 @@ func newOneShotWatcher(req app.WatchRequest, deps Dependencies, installBuilder f
 	}
 	trueNotify := notifierInvocation(deps.Executable, socketPath, req, eventID, true)
 	falseNotify := notifierInvocation(deps.Executable, socketPath, req, eventID, false)
+	installedNotify := notifierInvocationForEvent(deps.Executable, socketPath, req, eventID, NotificationHookInstalled, false)
 	install, cleanup := installBuilder(req, eventID, trueNotify, falseNotify)
 	watcher := &oneShotWatcher{
 		req: req, expected: Notification{HandoffID: req.HandoffID, AuthorityEpoch: req.AuthorityEpoch, EventID: eventID, ShellRuntimeID: req.Shell.RuntimeID, Event: NotificationPromptBoundary},
 		listener: listener, socketPath: socketPath, command: deps.Command, cleanup: cleanup,
 	}
-	if err := deps.Command.WriteShell(context.Background(), install); err != nil {
+	// Deliver registration and its acknowledgement as one top-level eval. This
+	// prevents an interactive prompt from running the newly registered hook
+	// between registration and the acknowledgement.
+	delivery := "eval " + shellQuote(install+"\n"+installedNotify)
+	if err := deps.Command.WriteShell(context.Background(), delivery); err != nil {
 		watcher.closeTransport()
 		return nil, "", err
 	}
-	return watcher, install, nil
+	ackCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ack, err := watcher.receiveNotification(ackCtx)
+	cancel()
+	if err != nil {
+		_ = watcher.Close()
+		return nil, "", fmt.Errorf("shell hook installation acknowledgement failed: %w", err)
+	}
+	wantAck := watcher.expected
+	wantAck.Event = NotificationHookInstalled
+	wantAck.Satisfied = false
+	if ack != wantAck {
+		_ = watcher.Close()
+		return nil, "", fmt.Errorf("shell hook installation acknowledgement mismatch")
+	}
+	return watcher, delivery, nil
 }
 
 func (w *oneShotWatcher) Wait(ctx context.Context) (app.WatchEvent, error) {
 	if w == nil || w.listener == nil {
 		return app.WatchEvent{}, fmt.Errorf("shell watcher unavailable")
 	}
-	if err := ctx.Err(); err != nil {
+	notification, err := w.receiveNotification(ctx)
+	if err != nil {
 		_ = w.Close()
 		return app.WatchEvent{}, err
 	}
-	cancelDone := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = w.Close()
-		case <-cancelDone:
-		}
-	}()
-	defer close(cancelDone)
-	conn, err := w.listener.Accept()
-	if err != nil {
-		if ctx.Err() != nil {
-			return app.WatchEvent{}, ctx.Err()
-		}
-		return app.WatchEvent{}, err
-	}
-	defer conn.Close()
-	decoder := json.NewDecoder(bufio.NewReader(io.LimitReader(conn, 4097)))
-	decoder.DisallowUnknownFields()
-	var notification Notification
-	if err := decoder.Decode(&notification); err != nil {
-		return app.WatchEvent{}, err
-	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
-		return app.WatchEvent{}, fmt.Errorf("trailing shell notification")
-	}
-	if err := notification.Validate(); err != nil {
-		return app.WatchEvent{}, err
-	}
-	if notification.HandoffID != w.expected.HandoffID || notification.AuthorityEpoch != w.expected.AuthorityEpoch || notification.EventID != w.expected.EventID || notification.ShellRuntimeID != w.expected.ShellRuntimeID || notification.Event != w.expected.Event {
+	if !sameNotificationIdentity(notification, w.expected) {
+		_ = w.Close()
 		return app.WatchEvent{}, fmt.Errorf("shell notification authority mismatch")
 	}
 	// Every qualified shell hook removes itself immediately after the one-shot
@@ -203,6 +203,50 @@ func (w *oneShotWatcher) Wait(ctx context.Context) (app.WatchEvent, error) {
 		Result:   core.RequirementResult{Requirement: w.req.Requirement, State: state, Quality: core.RequirementQualityExactShellAdapter, SafeBoundary: true, ObservedAt: now},
 		Boundary: core.BoundaryProof{HandoffID: w.req.HandoffID, AuthorityEpoch: w.req.AuthorityEpoch, Shell: w.req.Shell, Quality: core.BoundaryQualityShellPrompt, ObservedAt: now},
 	}, nil
+}
+
+func sameNotificationIdentity(got, want Notification) bool {
+	return got.HandoffID == want.HandoffID && got.AuthorityEpoch == want.AuthorityEpoch && got.EventID == want.EventID && got.ShellRuntimeID == want.ShellRuntimeID && got.Event == want.Event
+}
+
+func (w *oneShotWatcher) receiveNotification(ctx context.Context) (Notification, error) {
+	if w == nil || w.listener == nil {
+		return Notification{}, fmt.Errorf("shell watcher unavailable")
+	}
+	if err := ctx.Err(); err != nil {
+		return Notification{}, err
+	}
+	cancelDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			w.closeTransport()
+		case <-cancelDone:
+		}
+	}()
+	defer close(cancelDone)
+	conn, err := w.listener.Accept()
+	if err != nil {
+		if ctx.Err() != nil {
+			return Notification{}, ctx.Err()
+		}
+		return Notification{}, err
+	}
+	defer conn.Close()
+	decoder := json.NewDecoder(bufio.NewReader(io.LimitReader(conn, 4097)))
+	decoder.DisallowUnknownFields()
+	var notification Notification
+	if err := decoder.Decode(&notification); err != nil {
+		return Notification{}, err
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		return Notification{}, fmt.Errorf("trailing shell notification")
+	}
+	if err := notification.Validate(); err != nil {
+		return Notification{}, err
+	}
+	return notification, nil
 }
 
 func (w *oneShotWatcher) Close() error {
@@ -232,6 +276,10 @@ func (w *oneShotWatcher) closeTransport() {
 }
 
 func notifierInvocation(executable, socket string, req app.WatchRequest, eventID string, satisfied bool) string {
+	return notifierInvocationForEvent(executable, socket, req, eventID, NotificationPromptBoundary, satisfied)
+}
+
+func notifierInvocationForEvent(executable, socket string, req app.WatchRequest, eventID string, event NotificationEvent, satisfied bool) string {
 	args := []string{
 		"/usr/bin/env", "-i", executable, "__handoff_notify",
 		"--socket", socket,
@@ -239,7 +287,7 @@ func notifierInvocation(executable, socket string, req app.WatchRequest, eventID
 		"--epoch", strconv.FormatUint(uint64(req.AuthorityEpoch), 10),
 		"--event-id", eventID,
 		"--shell-runtime-id", req.Shell.RuntimeID,
-		"--event", string(NotificationPromptBoundary),
+		"--event", string(event),
 		"--satisfied", strconv.FormatBool(satisfied),
 	}
 	quoted := make([]string, 0, len(args))

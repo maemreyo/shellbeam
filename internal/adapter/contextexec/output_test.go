@@ -13,6 +13,7 @@ func TestSanitizeChildEnvironmentPreservesUserContextAndStripsOnlyClosedControlK
 		"H5_SECRET=" + secret,
 		"APP_CONFIG=SHELLBEAM_CONTEXT_EXEC_CLAIM-is-just-user-data",
 		"SHELLBEAM_CONTEXT_EXEC_SOCKET=/private/control.sock",
+		"SHELLBEAM_CONTEXT_EXEC_RUNTIME_DIR=/private/runtime",
 		"SHELLBEAM_CONTEXT_EXEC_CLAIM=claim-material",
 		"SHELLBEAM_CONTEXT_EXEC_GENERATION=generation_01",
 		"SHELLBEAM_CONTEXT_EXEC_LAUNCH_ID=launch_01",
@@ -29,7 +30,7 @@ func TestSanitizeChildEnvironmentPreservesUserContextAndStripsOnlyClosedControlK
 			t.Fatalf("lost user context %q: %s", want, joined)
 		}
 	}
-	for _, forbidden := range []string{"SHELLBEAM_CONTEXT_EXEC_SOCKET=", "SHELLBEAM_CONTEXT_EXEC_CLAIM=claim", "SHELLBEAM_CONTEXT_EXEC_GENERATION=", "SHELLBEAM_CONTEXT_EXEC_LAUNCH_ID=", "SHELLBEAM_TRACE_SOCKET=", "SHELLBEAM_TRACE_PROTOCOL=", "SHELLBEAM_TRACE_ID=", "SHELLBEAM_PROVIDER_GENERATION="} {
+	for _, forbidden := range []string{"SHELLBEAM_CONTEXT_EXEC_SOCKET=", "SHELLBEAM_CONTEXT_EXEC_RUNTIME_DIR=", "SHELLBEAM_CONTEXT_EXEC_CLAIM=claim", "SHELLBEAM_CONTEXT_EXEC_GENERATION=", "SHELLBEAM_CONTEXT_EXEC_LAUNCH_ID=", "SHELLBEAM_TRACE_SOCKET=", "SHELLBEAM_TRACE_PROTOCOL=", "SHELLBEAM_TRACE_ID=", "SHELLBEAM_PROVIDER_GENERATION="} {
 		if strings.Contains(joined, forbidden) {
 			t.Fatalf("control env survived: %q in %s", forbidden, joined)
 		}

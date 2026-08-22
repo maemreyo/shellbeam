@@ -97,8 +97,10 @@ func TestServerRejectsCorrelationOnlyUnsafePeerAndWrongProofBeforeRequestFetch(t
 			var bindCalls atomic.Int32
 			server := &Server{
 				Expectation: expectation,
-				VerifyPeer:  func(context.Context, net.Conn, ClaimExpectation) error { return tc.peerErr },
-				BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, time.Time, string) (operation.ContextExecState, error) {
+				VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
+					return validAdapterContinuityProof(expectation.Continuity), tc.peerErr
+				},
+				BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, core.ShellContinuityExpectation, core.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error) {
 					bindCalls.Add(1)
 					return validBoundState(t, expectation), nil
 				},
@@ -151,8 +153,10 @@ func TestServerAuthenticatesOneBoundGenerationThenSendsRequest(t *testing.T) {
 	var bindCalls atomic.Int32
 	server := &Server{
 		Expectation: expectation,
-		VerifyPeer:  func(context.Context, net.Conn, ClaimExpectation) error { return nil },
-		BindClaim: func(_ context.Context, id string, helper core.HelperBinding, _ core.ContextBinding, _ time.Time, digest string) (operation.ContextExecState, error) {
+		VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
+			return validAdapterContinuityProof(expectation.Continuity), nil
+		},
+		BindClaim: func(_ context.Context, id string, helper core.HelperBinding, _ core.ContextBinding, _ core.ShellContinuityExpectation, _ core.ShellContinuityProof, _ time.Time, digest string) (operation.ContextExecState, error) {
 			bindCalls.Add(1)
 			if id != expectation.Identity.ContextExecID || helper != expectation.Helper || len(digest) != 64 {
 				return operation.ContextExecState{}, errors.New("binding mismatch")
@@ -193,8 +197,21 @@ func validClaimIdentity(t *testing.T) ClaimIdentity {
 func validClaimExpectation(t *testing.T) ClaimExpectation {
 	t.Helper()
 	id := validClaimIdentity(t)
-	return ClaimExpectation{Identity: id, Helper: core.HelperBinding{OpaqueLaunchID: id.OpaqueLaunchID, Generation: id.Generation, RequestFingerprint: id.RequestFingerprint, ExecutablePath: "/opt/shellbeam/bin/shellbeam"}, Context: core.ContextExpectation{SessionID: id.SessionID, AuthorityEpoch: id.AuthorityEpoch, ProviderGeneration: "gen_task5a_01", ShellIdentity: "fish:runtime_01", CWDObserved: "/tmp/project", PrivacyState: "standard"}}
+	helper := core.HelperBinding{OpaqueLaunchID: id.OpaqueLaunchID, Generation: id.Generation, RequestFingerprint: id.RequestFingerprint, ExecutablePath: "/opt/shellbeam/bin/shellbeam"}
+	contextExpectation := core.ContextExpectation{SessionID: id.SessionID, AuthorityEpoch: id.AuthorityEpoch, ProviderGeneration: "gen_task5a_01", ShellIdentity: "fish:runtime_01", CWDObserved: "/tmp/project", PrivacyState: "standard"}
+	continuity := core.ShellContinuityExpectation{
+		SessionID:                id.SessionID,
+		AuthorityEpoch:           id.AuthorityEpoch,
+		ProviderGeneration:       contextExpectation.ProviderGeneration,
+		ShellRuntimeIdentity:     contextExpectation.ShellIdentity,
+		PaneShellPID:             42,
+		PaneShellProcessIdentity: "proc_shell_stable",
+		PaneTTY:                  "/dev/ttys042",
+		HelperExecutableIdentity: helper.ExecutablePath,
+	}
+	return ClaimExpectation{Identity: id, Helper: helper, Context: contextExpectation, Continuity: continuity}
 }
+
 func validBoundState(t *testing.T, expectation ClaimExpectation) operation.ContextExecState {
 	t.Helper()
 	req := core.Request{ContextExecID: expectation.Identity.ContextExecID, SessionID: expectation.Identity.SessionID, AuthorityEpoch: expectation.Identity.AuthorityEpoch, Argv: []string{"printf", "ok"}, TimeoutMS: 1000, MaxOutputBytes: 1024}
@@ -236,7 +253,7 @@ func TestHostPeerVerifierRequiresExactHelperAndStableParentIdentity(t *testing.T
 			return nil
 		},
 	}
-	if err := verifier.Verify(context.Background(), nil, validClaimExpectation(t)); err != nil {
+	if _, err := verifier.Verify(context.Background(), nil, validClaimExpectation(t)); err != nil {
 		t.Fatalf("valid peer: %v", err)
 	}
 
@@ -269,7 +286,7 @@ func TestHostPeerVerifierRequiresExactHelperAndStableParentIdentity(t *testing.T
 				return f, nil
 			}
 			mutate(&candidate, copyFacts)
-			if err := candidate.Verify(context.Background(), nil, validClaimExpectation(t)); err == nil {
+			if _, err := candidate.Verify(context.Background(), nil, validClaimExpectation(t)); err == nil {
 				t.Fatal("unsafe peer accepted")
 			}
 		})
@@ -300,7 +317,7 @@ func TestHostPeerVerifierRejectsWrapperDescendantEvenWithExactShellAncestor(t *t
 		},
 		Foreground: func(int, string) error { return nil },
 	}
-	if err := verifier.Verify(context.Background(), nil, validClaimExpectation(t)); err == nil {
+	if _, err := verifier.Verify(context.Background(), nil, validClaimExpectation(t)); err == nil {
 		t.Fatal("wrapper descendant accepted as exact context helper")
 	}
 }
@@ -333,14 +350,16 @@ func TestHostPeerVerifierRejectsExactDirectChildWhenNotForeground(t *testing.T) 
 			return errors.New("not foreground")
 		},
 	}
-	if err := verifier.Verify(context.Background(), nil, validClaimExpectation(t)); err == nil {
+	if _, err := verifier.Verify(context.Background(), nil, validClaimExpectation(t)); err == nil {
 		t.Fatal("non-foreground direct child accepted as context helper")
 	}
 }
 
 func TestServerAuthRejectsWithStableSafeFailure(t *testing.T) {
 	expectation := validClaimExpectation(t)
-	server := &Server{Expectation: expectation, VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) error { return errors.New("peer secret diagnostic") }, BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, time.Time, string) (operation.ContextExecState, error) {
+	server := &Server{Expectation: expectation, VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
+		return core.ShellContinuityProof{}, errors.New("peer secret diagnostic")
+	}, BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, core.ShellContinuityExpectation, core.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error) {
 		t.Fatal("binder reached")
 		return operation.ContextExecState{}, nil
 	}}
@@ -402,7 +421,9 @@ func TestServerRejectsStaleOrMismatchedDurableClaimAfterValidProof(t *testing.T)
 		s.Helper.RequestFingerprint = fp
 	}} {
 		t.Run(name, func(t *testing.T) {
-			server := &Server{Expectation: expectation, VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) error { return nil }, BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, time.Time, string) (operation.ContextExecState, error) {
+			server := &Server{Expectation: expectation, VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
+				return validAdapterContinuityProof(expectation.Continuity), nil
+			}, BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, core.ShellContinuityExpectation, core.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error) {
 				state := validBoundState(t, expectation)
 				mutate(&state)
 				return state, nil
@@ -447,11 +468,11 @@ func TestServerRejectsLegacyProtocolBeforePeerProofOrClaimBinding(t *testing.T) 
 	var peerCalls, bindCalls atomic.Int32
 	server := &Server{
 		Expectation: expectation,
-		VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) error {
+		VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
 			peerCalls.Add(1)
-			return nil
+			return validAdapterContinuityProof(expectation.Continuity), nil
 		},
-		BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, time.Time, string) (operation.ContextExecState, error) {
+		BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, core.ShellContinuityExpectation, core.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error) {
 			bindCalls.Add(1)
 			return validBoundState(t, expectation), nil
 		},

@@ -27,11 +27,11 @@ func (a *ZshAdapter) Install(_ context.Context, req app.WatchRequest) (app.Requi
 	return watcher, err
 }
 
-func zshScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) (string, string) {
+func zshScripts(req app.WatchRequest, eventID, trueNotify, _ string) (string, string) {
 	name := "__shellbeam_handoff_" + eventID
 	armed := name + "_armed"
 	variable := req.Requirement.Name
-	install := fmt.Sprintf("typeset -ga precmd_functions\ntypeset -g %s=0\nfunction %s() {\n  if [[ \"${%s}\" == 0 ]]; then\n    %s=1\n    return\n  fi\n  if [[ ${parameters[%s]-} == *export* && -n \"${%s}\" ]]; then\n    %s\n  else\n    %s\n  fi\n  precmd_functions=(${precmd_functions:#%s})\n  unset %s\n  unfunction %s\n}\nprecmd_functions+=(%s)", armed, name, armed, armed, variable, variable, trueNotify, falseNotify, name, armed, name, name)
+	install := fmt.Sprintf("typeset -ga precmd_functions\ntypeset -g %s=0\nfunction %s() {\n  if [[ \"${%s}\" == 0 ]]; then\n    %s=1\n    return\n  fi\n  if [[ ${parameters[%s]-} == *export* && -n \"${%s}\" ]]; then\n    %s\n    precmd_functions=(${precmd_functions:#%s})\n    unset %s\n    unfunction %s\n  fi\n}\nprecmd_functions+=(%s)", armed, name, armed, armed, variable, variable, trueNotify, name, armed, name, name)
 	cleanup := fmt.Sprintf("typeset -ga precmd_functions; precmd_functions=(${precmd_functions:#%s}); unset %s 2>/dev/null || true; unfunction %s 2>/dev/null || true", name, armed, name)
 	return install, cleanup
 }

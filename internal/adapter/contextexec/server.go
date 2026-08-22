@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -14,9 +15,10 @@ import (
 )
 
 type ClaimExpectation struct {
-	Identity ClaimIdentity
-	Helper   core.HelperBinding
-	Context  core.ContextExpectation
+	Identity   ClaimIdentity
+	Helper     core.HelperBinding
+	Context    core.ContextExpectation
+	Continuity core.ShellContinuityExpectation
 }
 
 func (e ClaimExpectation) Validate() error {
@@ -29,17 +31,27 @@ func (e ClaimExpectation) Validate() error {
 	if err := e.Context.Validate(); err != nil {
 		return err
 	}
+	if err := e.Continuity.Validate(); err != nil {
+		return err
+	}
 	if e.Context.SessionID != e.Identity.SessionID || e.Context.AuthorityEpoch != e.Identity.AuthorityEpoch {
 		return fmt.Errorf("context helper expectation authority mismatch")
 	}
 	if e.Helper.OpaqueLaunchID != e.Identity.OpaqueLaunchID || e.Helper.Generation != e.Identity.Generation || e.Helper.RequestFingerprint != e.Identity.RequestFingerprint {
 		return fmt.Errorf("context helper expectation mismatch")
 	}
+	if e.Continuity.SessionID != e.Identity.SessionID ||
+		e.Continuity.AuthorityEpoch != e.Identity.AuthorityEpoch ||
+		e.Continuity.ProviderGeneration != e.Context.ProviderGeneration ||
+		e.Continuity.ShellRuntimeIdentity != e.Context.ShellIdentity ||
+		filepath.Clean(e.Continuity.HelperExecutableIdentity) != filepath.Clean(e.Helper.ExecutablePath) {
+		return fmt.Errorf("context helper continuity expectation mismatch")
+	}
 	return nil
 }
 
-type PeerVerifier func(context.Context, net.Conn, ClaimExpectation) error
-type ClaimBinder func(context.Context, string, core.HelperBinding, core.ContextBinding, time.Time, string) (operation.ContextExecState, error)
+type PeerVerifier func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error)
+type ClaimBinder func(context.Context, string, core.HelperBinding, core.ContextBinding, core.ShellContinuityExpectation, core.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error)
 type PreparedAuthorizer func(context.Context, operation.ContextExecState, PreparedFrame) (operation.ContextExecState, ExecuteFrame, error)
 type SpawnRecorder func(context.Context, operation.ContextExecState, SpawnFrame) (operation.ContextExecState, error)
 
@@ -71,7 +83,11 @@ func (s *Server) Authenticate(ctx context.Context, conn net.Conn) (operation.Con
 	if s.VerifyPeer == nil {
 		return operation.ContextExecState{}, s.authFailure("peer_verifier_missing")
 	}
-	if err := s.VerifyPeer(ctx, conn, s.Expectation); err != nil {
+	continuityProof, err := s.VerifyPeer(ctx, conn, s.Expectation)
+	if err != nil {
+		return operation.ContextExecState{}, s.authFailure("peer_unproven")
+	}
+	if err := continuityProof.ValidateFor(s.Expectation.Continuity); err != nil {
 		return operation.ContextExecState{}, s.authFailure("peer_unproven")
 	}
 	capFn := s.NewCapability
@@ -108,7 +124,7 @@ func (s *Server) Authenticate(ctx context.Context, conn net.Conn) (operation.Con
 	if err != nil {
 		return operation.ContextExecState{}, err
 	}
-	if filepath.Clean(contextFrame.CWD) != filepath.Clean(s.Expectation.Context.CWDObserved) {
+	if !sameDirectoryIdentity(contextFrame.CWD, s.Expectation.Context.CWDObserved) {
 		return operation.ContextExecState{}, s.boundaryFailure("cwd_mismatch")
 	}
 	if s.BindClaim == nil {
@@ -116,7 +132,7 @@ func (s *Server) Authenticate(ctx context.Context, conn net.Conn) (operation.Con
 	}
 	finalContext := finalContextBinding(s.Expectation.Context)
 	now := s.boundaryNow()
-	state, err := s.BindClaim(ctx, s.Expectation.Identity.ContextExecID, s.Expectation.Helper, finalContext, now, ClaimVerifierDigest(capability))
+	state, err := s.BindClaim(ctx, s.Expectation.Identity.ContextExecID, s.Expectation.Helper, finalContext, s.Expectation.Continuity, continuityProof, now, ClaimVerifierDigest(capability))
 	if err != nil {
 		return operation.ContextExecState{}, s.authFailure("claim_binding")
 	}
@@ -129,6 +145,23 @@ func (s *Server) Authenticate(ctx context.Context, conn net.Conn) (operation.Con
 	}
 	return state.Clone(), nil
 }
+func sameDirectoryIdentity(observed, expected string) bool {
+	observed = filepath.Clean(observed)
+	expected = filepath.Clean(expected)
+	if observed == expected {
+		return true
+	}
+	observedInfo, err := os.Stat(observed)
+	if err != nil || !observedInfo.IsDir() {
+		return false
+	}
+	expectedInfo, err := os.Stat(expected)
+	if err != nil || !expectedInfo.IsDir() {
+		return false
+	}
+	return os.SameFile(observedInfo, expectedInfo)
+}
+
 func finalContextBinding(expectation core.ContextExpectation) core.ContextBinding {
 	return core.ContextBinding{
 		SessionID: expectation.SessionID, AuthorityEpoch: expectation.AuthorityEpoch,

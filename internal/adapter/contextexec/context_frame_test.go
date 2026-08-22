@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -45,8 +47,10 @@ func TestServerRejectsAuthenticatedCWDMismatchBeforeBindingOrRequestDelivery(t *
 	var bindCalls atomic.Int32
 	server := &Server{
 		Expectation: expectation,
-		VerifyPeer:  func(context.Context, net.Conn, ClaimExpectation) error { return nil },
-		BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, time.Time, string) (operation.ContextExecState, error) {
+		VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
+			return validAdapterContinuityProof(expectation.Continuity), nil
+		},
+		BindClaim: func(context.Context, string, core.HelperBinding, core.ContextBinding, core.ShellContinuityExpectation, core.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error) {
 			bindCalls.Add(1)
 			return operation.ContextExecState{}, errors.New("binder must not run")
 		},
@@ -78,6 +82,58 @@ func TestServerRejectsAuthenticatedCWDMismatchBeforeBindingOrRequestDelivery(t *
 	}
 }
 
+func TestServerAcceptsAuthenticatedCWDAliasForSameDirectory(t *testing.T) {
+	root := t.TempDir()
+	realDir := filepath.Join(root, "real")
+	aliasDir := filepath.Join(root, "alias")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(realDir, aliasDir); err != nil {
+		t.Fatal(err)
+	}
+
+	expectation := validClaimExpectation(t)
+	expectation.Context = validContextExpectation(expectation)
+	expectation.Context.CWDObserved = aliasDir
+	var bindCalls atomic.Int32
+	server := &Server{
+		Expectation: expectation,
+		VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
+			return validAdapterContinuityProof(expectation.Continuity), nil
+		},
+		BindClaim: func(_ context.Context, _ string, _ core.HelperBinding, final core.ContextBinding, _ core.ShellContinuityExpectation, _ core.ShellContinuityProof, _ time.Time, _ string) (operation.ContextExecState, error) {
+			bindCalls.Add(1)
+			if final.CWDObserved != aliasDir {
+				return operation.ContextExecState{}, errors.New("canonical binding path changed")
+			}
+			state := validBoundState(t, expectation)
+			state.Context = &final
+			return state, nil
+		},
+	}
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	done := make(chan error, 1)
+	go func() { _, err := server.Authenticate(context.Background(), left); done <- err }()
+
+	if err := right.SetDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	client := Client{Conn: right, OpaqueLaunchID: expectation.Identity.OpaqueLaunchID, Getwd: func() (string, error) { return realDir, nil }}
+	if _, err := client.Authenticate(context.Background()); err != nil {
+		serverErr := <-done
+		t.Fatalf("same-directory alias rejected: client=%v server=%v", err, serverErr)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if bindCalls.Load() != 1 {
+		t.Fatalf("bind calls=%d", bindCalls.Load())
+	}
+}
+
 func TestServerBindsFinalPromptContextAtomicallyBeforeSendingRequest(t *testing.T) {
 	expectation := validClaimExpectation(t)
 	expectation.Context = validContextExpectation(expectation)
@@ -85,9 +141,11 @@ func TestServerBindsFinalPromptContextAtomicallyBeforeSendingRequest(t *testing.
 	var bindCalls atomic.Int32
 	server := &Server{
 		Expectation: expectation,
-		VerifyPeer:  func(context.Context, net.Conn, ClaimExpectation) error { return nil },
-		Now:         func() time.Time { return observedAt },
-		BindClaim: func(_ context.Context, id string, helper core.HelperBinding, final core.ContextBinding, boundary time.Time, digest string) (operation.ContextExecState, error) {
+		VerifyPeer: func(context.Context, net.Conn, ClaimExpectation) (core.ShellContinuityProof, error) {
+			return validAdapterContinuityProof(expectation.Continuity), nil
+		},
+		Now: func() time.Time { return observedAt },
+		BindClaim: func(_ context.Context, id string, helper core.HelperBinding, final core.ContextBinding, _ core.ShellContinuityExpectation, _ core.ShellContinuityProof, boundary time.Time, digest string) (operation.ContextExecState, error) {
 			bindCalls.Add(1)
 			if id != expectation.Identity.ContextExecID || helper != expectation.Helper || len(digest) != 64 || boundary != observedAt {
 				return operation.ContextExecState{}, errors.New("binding metadata mismatch")

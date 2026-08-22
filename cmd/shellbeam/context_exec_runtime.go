@@ -11,6 +11,7 @@ import (
 	"time"
 
 	contextadapter "github.com/maemreyo/shellbeam/internal/adapter/contextexec"
+	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
 	shelladapter "github.com/maemreyo/shellbeam/internal/adapter/shellintegration"
 	contextapp "github.com/maemreyo/shellbeam/internal/app/contextexec"
@@ -18,6 +19,7 @@ import (
 	shellapp "github.com/maemreyo/shellbeam/internal/app/shellintegration"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -172,12 +174,22 @@ func (r *contextExecDaemonRuntime) serveOne(listener net.Listener, path string, 
 
 func (r *contextExecDaemonRuntime) serverFor(req contextExecServeRequest) *contextadapter.Server {
 	arm := req.arm
+	continuity := contextcore.ShellContinuityExpectation{
+		SessionID:                arm.Shell.SessionID,
+		AuthorityEpoch:           arm.Shell.Authority.Epoch,
+		ProviderGeneration:       arm.Shell.Facts.ProviderGeneration,
+		ShellRuntimeIdentity:     arm.Expectation.ShellIdentity,
+		PaneShellPID:             arm.Shell.Facts.PanePID,
+		PaneShellProcessIdentity: req.parentIdentity,
+		PaneTTY:                  filepath.Clean(arm.Shell.Facts.PaneTTY),
+		HelperExecutableIdentity: filepath.Clean(arm.Helper.ExecutablePath),
+	}
 	expectation := contextadapter.ClaimExpectation{
 		Identity: contextadapter.ClaimIdentity{
 			OpaqueLaunchID: arm.Helper.OpaqueLaunchID, ContextExecID: arm.Shell.ContextExecID, SessionID: arm.Shell.SessionID,
 			AuthorityEpoch: arm.Shell.Authority.Epoch, Generation: arm.Helper.Generation, RequestFingerprint: arm.Helper.RequestFingerprint,
 		},
-		Helper: arm.Helper, Context: arm.Expectation,
+		Helper: arm.Helper, Context: arm.Expectation, Continuity: continuity,
 	}
 	verify := r.verifyPeer
 	if verify == nil {
@@ -208,8 +220,16 @@ func (r *contextExecDaemonRuntime) serverFor(req contextExecServeRequest) *conte
 	return server
 }
 
+func (a *daemonActions) ExecuteContext(ctx context.Context, req contextcore.Request) (operation.ContextExecState, error) {
+	if a == nil || a.observation == nil {
+		return operation.ContextExecState{}, failure.New(failure.ContextExecUnavailable, map[string]string{"context_exec_id": req.ContextExecID, "session_id": req.SessionID, "reason": "context_exec_unavailable"}, nil)
+	}
+	return a.observation.ExecuteContext(ctx, req)
+}
+
 var _ contextapp.HelperRuntime = (*contextExecDaemonRuntime)(nil)
 var _ contextapp.RuntimeCallbackBinder = (*contextExecDaemonRuntime)(nil)
+var _ ipcadapter.ContextExecActions = (*daemonActions)(nil)
 var _ = contextcore.SchemaVersion
 
 func composeContextExecCapability(catalog capability.Catalog, service daemonapp.ContextExecService) capability.Catalog {

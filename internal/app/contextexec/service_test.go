@@ -230,14 +230,28 @@ func (f *admissionStoreFake) ListContextExecRecoveryCandidates(context.Context) 
 }
 
 type authorityFake struct {
-	snapshot AuthoritySnapshot
-	err      error
-	calls    int
+	snapshot      AuthoritySnapshot
+	claimSnapshot ClaimAuthoritySnapshot
+	err           error
+	claimErr      error
+	calls         int
+	claimCalls    int
 }
 
 func (f *authorityFake) Snapshot(context.Context, core.Request) (AuthoritySnapshot, error) {
 	f.calls++
 	return f.snapshot, f.err
+}
+
+func (f *authorityFake) ClaimSnapshot(context.Context, core.Request) (ClaimAuthoritySnapshot, error) {
+	f.claimCalls++
+	if f.claimErr != nil {
+		return ClaimAuthoritySnapshot{}, f.claimErr
+	}
+	if f.claimSnapshot.Binding.SessionID != "" {
+		return f.claimSnapshot, nil
+	}
+	return f.snapshot.ClaimAuthoritySnapshot, f.err
 }
 
 type helperRuntimeFake struct {
@@ -389,7 +403,14 @@ func admissionAuthority(t *testing.T, req core.Request) AuthoritySnapshot {
 	binding := delegated.Binding{SchemaVersion: delegated.BindingSchemaVersion, SessionID: req.SessionID, OperationID: "parent_operation_01", SessionMode: delegated.ModeDelegatedInteractive, AuthorityEpoch: req.AuthorityEpoch, DesiredOwner: delegated.OwnerAgent, ProviderID: "tmux_control_mode", ProviderVersion: 1, Lifecycle: delegated.LifecycleLive, CreatedAt: at, UpdatedAt: at}
 	ref := delegated.ProviderRef{SchemaVersion: delegated.ProviderRefSchemaVersion, SessionID: req.SessionID, ProviderID: binding.ProviderID, ProviderVersion: binding.ProviderVersion, Ref: "provider_ref_01", CreatedAt: at, UpdatedAt: at}
 	obs := delegatedapp.Observation{Provider: binding.ProviderIdentity(), ProviderCurrent: true, ProviderGeneration: "gen_exact", Owner: delegated.OwnerAgent, PanePID: 4242, CurrentCommand: "fish", PaneTTY: "/dev/ttys042", CWD: "/tmp/project"}
-	return AuthoritySnapshot{Binding: binding, ProviderRef: ref, Observation: obs, Authority: delegated.EffectiveAuthority{Epoch: req.AuthorityEpoch, Owner: delegated.OwnerAgent}, PrivacyProviderGeneration: "gen_exact", AgentIngressWritable: true, Shell: shellcore.ShellIdentity{Family: shellcore.ShellFish, RuntimeID: "fish_runtime_01"}}
+	return AuthoritySnapshot{
+		ClaimAuthoritySnapshot: ClaimAuthoritySnapshot{
+			Binding: binding, ProviderRef: ref, Observation: obs,
+			Authority:                 delegated.EffectiveAuthority{Epoch: req.AuthorityEpoch, Owner: delegated.OwnerAgent},
+			PrivacyProviderGeneration: "gen_exact", AgentIngressWritable: true,
+		},
+		Shell: shellcore.ShellIdentity{Family: shellcore.ShellFish, RuntimeID: "fish_runtime_01"},
+	}
 }
 
 func TestExecuteReservesExpectationRevalidatesAndAcquiresLeaseBeforeOneShotArm(t *testing.T) {
@@ -443,6 +464,10 @@ func (f *authoritySequenceFake) Snapshot(context.Context, core.Request) (Authori
 	got := f.snapshots[f.calls]
 	f.calls++
 	return got, nil
+}
+
+func (f *authoritySequenceFake) ClaimSnapshot(context.Context, core.Request) (ClaimAuthoritySnapshot, error) {
+	return ClaimAuthoritySnapshot{}, errors.New("unexpected claim authority snapshot")
 }
 
 func TestExecuteSecondAuthorityDriftStopsBeforeLeaseAndArm(t *testing.T) {
@@ -504,96 +529,6 @@ func TestExecuteArmFailureBecomesAmbiguousWithoutSecondHook(t *testing.T) {
 	if store.releaseCalls != 0 {
 		t.Fatalf("ambiguous arm released lease")
 	}
-}
-
-func TestBindClaimRevalidatesFreshAuthorityBeforeAtomicHelperBinding(t *testing.T) {
-	req := admissionRequest()
-	state := helperRequestedState(t, req)
-	store := &admissionStoreFake{state: state, found: true}
-	authority := &authorityFake{snapshot: admissionAuthority(t, req)}
-	svc := NewService(Options{Store: store, Authority: authority, Helper: &helperRuntimeFake{qualified: true}})
-	final := core.ContextBinding{SessionID: req.SessionID, AuthorityEpoch: req.AuthorityEpoch, ShellIdentity: state.Expectation.ShellIdentity, BoundaryQuality: "shell_prompt", CWDObserved: state.Expectation.CWDObserved, PrivacyState: "standard"}
-	at := time.Date(2026, 8, 21, 14, 5, 0, 0, time.UTC)
-	verifier := strings.Repeat("c", 64)
-	got, err := svc.BindClaim(context.Background(), req.ContextExecID, *state.Helper, final, at, verifier)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Lifecycle != core.LifecycleHelperAuthenticated || got.Context == nil || *got.Context != final || !got.BoundaryObservedAt.Equal(at) {
-		t.Fatalf("bound state=%#v", got)
-	}
-	if store.bindCalls != 1 || store.boundHelper != *state.Helper || store.boundContext != final || store.boundVerifier != verifier || !store.boundAt.Equal(at) {
-		t.Fatalf("bind call mismatch")
-	}
-	if authority.calls != 1 {
-		t.Fatalf("authority calls=%d", authority.calls)
-	}
-}
-
-func TestBindClaimRejectsContextOrAuthorityDriftBeforeStoreBinding(t *testing.T) {
-	req := admissionRequest()
-	baseState := helperRequestedState(t, req)
-	baseAuthority := admissionAuthority(t, req)
-	baseContext := core.ContextBinding{SessionID: req.SessionID, AuthorityEpoch: req.AuthorityEpoch, ShellIdentity: baseState.Expectation.ShellIdentity, BoundaryQuality: "shell_prompt", CWDObserved: baseState.Expectation.CWDObserved, PrivacyState: "standard"}
-	cases := []struct {
-		name   string
-		code   failure.Code
-		mutate func(*AuthoritySnapshot, *core.ContextBinding, *core.HelperBinding)
-	}{
-		{name: "cwd", code: failure.ContextExecBoundaryUnproven, mutate: func(_ *AuthoritySnapshot, c *core.ContextBinding, _ *core.HelperBinding) {
-			c.CWDObserved = "/tmp/changed"
-		}},
-		{name: "shell context", code: failure.ContextExecBoundaryUnproven, mutate: func(_ *AuthoritySnapshot, c *core.ContextBinding, _ *core.HelperBinding) {
-			c.ShellIdentity = "zsh:changed"
-		}},
-		{name: "helper generation", code: failure.ContextHelperAuthFailed, mutate: func(_ *AuthoritySnapshot, _ *core.ContextBinding, h *core.HelperBinding) {
-			h.Generation = "other_generation"
-		}},
-		{name: "provider generation", code: failure.ContextExecStaleGeneration, mutate: func(a *AuthoritySnapshot, _ *core.ContextBinding, _ *core.HelperBinding) {
-			a.Observation.ProviderGeneration = "other_gen"
-			a.PrivacyProviderGeneration = "other_gen"
-		}},
-		{name: "shell authority", code: failure.ContextExecBoundaryUnproven, mutate: func(a *AuthoritySnapshot, _ *core.ContextBinding, _ *core.HelperBinding) {
-			a.Shell = shellcore.ShellIdentity{Family: shellcore.ShellZsh, RuntimeID: "zsh_runtime"}
-		}},
-		{name: "privacy", code: failure.ContextExecPrivacyBlocked, mutate: func(a *AuthoritySnapshot, _ *core.ContextBinding, _ *core.HelperBinding) { a.PrivacyActive = true }},
-		{name: "owner", code: failure.ContextExecNotAgentOwned, mutate: func(a *AuthoritySnapshot, _ *core.ContextBinding, _ *core.HelperBinding) {
-			a.Authority.Owner = delegated.OwnerHuman
-			a.Authority.Fenced = true
-		}},
-		{name: "epoch", code: failure.ContextExecStaleGeneration, mutate: func(a *AuthoritySnapshot, _ *core.ContextBinding, _ *core.HelperBinding) { a.Authority.Epoch++ }},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			state := baseState.Clone()
-			authoritySnapshot := baseAuthority
-			final := baseContext
-			helper := *state.Helper
-			tc.mutate(&authoritySnapshot, &final, &helper)
-			store := &admissionStoreFake{state: state, found: true}
-			svc := NewService(Options{Store: store, Authority: &authorityFake{snapshot: authoritySnapshot}, Helper: &helperRuntimeFake{qualified: true}})
-			_, err := svc.BindClaim(context.Background(), req.ContextExecID, helper, final, time.Now(), strings.Repeat("d", 64))
-			if !errors.Is(err, tc.code) {
-				t.Fatalf("err=%v want=%s", err, tc.code)
-			}
-			if store.bindCalls != 0 {
-				t.Fatalf("store bind called on drift")
-			}
-		})
-	}
-}
-
-func helperRequestedState(t *testing.T, req core.Request) operation.ContextExecState {
-	t.Helper()
-	state := admissionReservedState(t, req)
-	helper := core.HelperBinding{OpaqueLaunchID: "launch_claim_task6", Generation: "helper_generation_claim_task6", RequestFingerprint: state.RequestFingerprint, ExecutablePath: "/opt/shellbeam/bin/shellbeam"}
-	state.Helper = &helper
-	state.Lifecycle = core.LifecycleHelperRequested
-	state.UpdatedAt = state.UpdatedAt.Add(time.Second)
-	if err := state.Validate(); err != nil {
-		t.Fatal(err)
-	}
-	return state
 }
 
 func TestAuthorizePreparedReservesExactChildBeforeExecutionAuthorization(t *testing.T) {

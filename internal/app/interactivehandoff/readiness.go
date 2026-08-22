@@ -3,6 +3,7 @@ package interactivehandoff
 import (
 	"context"
 	"fmt"
+	"os"
 
 	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	shellapp "github.com/maemreyo/shellbeam/internal/app/shellintegration"
@@ -205,16 +206,23 @@ func (s *Service) runAutomaticReadiness(ctx context.Context, req handoff.Request
 	defer s.finishReadinessWatcher(req.HandoffID, epoch, prepared.Watcher)
 	event, err := prepared.Watcher.Wait(ctx)
 	if err != nil || ctx.Err() != nil {
+		fmt.Fprintf(os.Stderr, "SHELLBEAM_H5_READINESS_DIAG stage=wait canceled=%t\n", ctx.Err() != nil)
 		return
 	}
 	watchReq := shellapp.WatchRequest{HandoffID: req.HandoffID, AuthorityEpoch: epoch, Shell: prepared.Shell, Requirement: event.Result.Requirement}
 	if err := event.Validate(watchReq); err != nil {
+		public := failure.Public(err)
+		fmt.Fprintf(os.Stderr, "SHELLBEAM_H5_READINESS_DIAG stage=event_validate code=%s reason=%s\n", public.Code, public.Details["reason"])
 		return
 	}
 	if event.Result.State != shellcore.RequirementSatisfied || !event.Result.SafeBoundary {
+		fmt.Fprintf(os.Stderr, "SHELLBEAM_H5_READINESS_DIAG stage=event_unsatisfied state=%s safe=%t\n", event.Result.State, event.Result.SafeBoundary)
 		return
 	}
-	_ = s.automaticReady(context.Background(), req, epoch, event)
+	if err := s.automaticReady(context.Background(), req, epoch, event); err != nil {
+		public := failure.Public(err)
+		fmt.Fprintf(os.Stderr, "SHELLBEAM_H5_READINESS_DIAG stage=automatic_ready code=%s reason=%s\n", public.Code, public.Details["reason"])
+	}
 }
 
 func (s *Service) finishReadinessWatcher(handoffID string, epoch delegated.AuthorityEpoch, watcher shellapp.RequirementWatcher) {

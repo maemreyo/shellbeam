@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	core "github.com/maemreyo/shellbeam/internal/core/contextexec"
 )
 
 type CanonicalOutput struct {
@@ -14,6 +16,7 @@ type CanonicalOutput struct {
 }
 
 var childControlEnvironment = map[string]struct{}{
+	core.HelperRuntimeDirEnvironment:    {},
 	"SHELLBEAM_CONTEXT_EXEC_SOCKET":     {},
 	"SHELLBEAM_CONTEXT_EXEC_CLAIM":      {},
 	"SHELLBEAM_CONTEXT_EXEC_GENERATION": {},

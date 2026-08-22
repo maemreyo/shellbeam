@@ -105,6 +105,29 @@ func TestContextExecDaemonRuntimeArmFailureRemovesPrivateSocket(t *testing.T) {
 	}
 }
 
+func TestContextExecRuntimeServerBuildsPreLaunchContinuityExpectation(t *testing.T) {
+	r := &contextExecDaemonRuntime{executable: "/bin/echo"}
+	arm := contextExecDaemonArmFixture(t, "/tmp")
+	serve := contextExecServeRequest{arm: arm, callbacks: noopContextExecRuntimeCallbacks(), parentIdentity: "pane-shell-identity"}
+	server := r.serverFor(serve)
+	want := contextcore.ShellContinuityExpectation{
+		SessionID:                arm.Shell.SessionID,
+		AuthorityEpoch:           arm.Shell.Authority.Epoch,
+		ProviderGeneration:       arm.Shell.Facts.ProviderGeneration,
+		ShellRuntimeIdentity:     arm.Expectation.ShellIdentity,
+		PaneShellPID:             arm.Shell.Facts.PanePID,
+		PaneShellProcessIdentity: serve.parentIdentity,
+		PaneTTY:                  filepath.Clean(arm.Shell.Facts.PaneTTY),
+		HelperExecutableIdentity: filepath.Clean(arm.Helper.ExecutablePath),
+	}
+	if server.Expectation.Continuity != want {
+		t.Fatalf("continuity=%#v want=%#v", server.Expectation.Continuity, want)
+	}
+	if err := server.Expectation.Continuity.Validate(); err != nil {
+		t.Fatalf("continuity invalid: %v", err)
+	}
+}
+
 func TestContextExecDaemonRuntimeMapsPrepareAndSpawnTruthOnlyThroughAppCallbacks(t *testing.T) {
 	r := &contextExecDaemonRuntime{executable: "/bin/echo"}
 	req := contextExecDaemonArmFixture(t, "/tmp")
@@ -159,7 +182,7 @@ func shellArmRequestFixture(request contextcore.Request, shell shellcore.ShellId
 
 func noopContextExecRuntimeCallbacks() contextapp.RuntimeCallbacks {
 	return contextapp.RuntimeCallbacks{
-		BindClaim: func(context.Context, string, contextcore.HelperBinding, contextcore.ContextBinding, time.Time, string) (operation.ContextExecState, error) {
+		BindClaim: func(context.Context, string, contextcore.HelperBinding, contextcore.ContextBinding, contextcore.ShellContinuityExpectation, contextcore.ShellContinuityProof, time.Time, string) (operation.ContextExecState, error) {
 			return operation.ContextExecState{}, nil
 		},
 		AuthorizePrepared: func(_ context.Context, state operation.ContextExecState, executable string) (operation.ContextExecState, contextapp.PreparedAuthorization, error) {

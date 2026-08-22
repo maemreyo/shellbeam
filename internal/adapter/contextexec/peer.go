@@ -6,7 +6,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
+	core "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
 )
 
@@ -21,9 +23,9 @@ type HostPeerVerifier struct {
 	Foreground               func(int, string) error
 }
 
-func (v HostPeerVerifier) Verify(ctx context.Context, conn net.Conn, _ ClaimExpectation) error {
+func (v HostPeerVerifier) Verify(ctx context.Context, conn net.Conn, expectation ClaimExpectation) (core.ShellContinuityProof, error) {
 	if !filepath.IsAbs(v.ExpectedHelperExecutable) || v.ParentPID <= 1 || v.ParentIdentity == "" || !filepath.IsAbs(v.PaneTTY) {
-		return fmt.Errorf("invalid context helper peer expectation")
+		return core.ShellContinuityProof{}, fmt.Errorf("invalid context helper peer expectation")
 	}
 	creds := v.Credentials
 	if creds == nil {
@@ -35,37 +37,53 @@ func (v HostPeerVerifier) Verify(ctx context.Context, conn net.Conn, _ ClaimExpe
 	}
 	pid, uid, err := creds(conn)
 	if err != nil || pid <= 1 || int(uid) != currentUID() {
-		return fmt.Errorf("context helper peer credentials unproven")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper peer credentials unproven")
 	}
 	observe := v.Observe
 	if observe == nil {
-		return fmt.Errorf("context helper process observer missing")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper process observer missing")
 	}
 	peer, err := observe(ctx, pid)
 	if err != nil {
-		return fmt.Errorf("context helper peer identity unproven")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper peer identity unproven")
 	}
 	if !sameExecutable(peer.ExecutableIdentity, v.ExpectedHelperExecutable) {
-		return fmt.Errorf("context helper executable mismatch")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper executable mismatch")
 	}
 	if peer.ParentPID != v.ParentPID {
-		return fmt.Errorf("context helper direct parent mismatch")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper direct parent mismatch")
 	}
 	parent, err := observe(ctx, peer.ParentPID)
 	if err != nil {
-		return fmt.Errorf("context helper parent unproven")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper parent unproven")
 	}
 	if parent.PID != v.ParentPID || parent.Identity == nil || parent.Identity.Value != v.ParentIdentity {
-		return fmt.Errorf("context helper parent identity mismatch")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper parent identity mismatch")
 	}
 	foreground := v.Foreground
 	if foreground == nil {
 		foreground = platformForegroundVerifier
 	}
 	if err := foreground(pid, v.PaneTTY); err != nil {
-		return fmt.Errorf("context helper foreground identity unproven")
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper foreground identity unproven")
 	}
-	return nil
+	proof := core.ShellContinuityProof{
+		SessionID:                expectation.Continuity.SessionID,
+		AuthorityEpoch:           expectation.Continuity.AuthorityEpoch,
+		ProviderGeneration:       expectation.Continuity.ProviderGeneration,
+		ShellRuntimeIdentity:     expectation.Continuity.ShellRuntimeIdentity,
+		PaneShellPID:             v.ParentPID,
+		PaneShellProcessIdentity: v.ParentIdentity,
+		PaneTTY:                  filepath.Clean(v.PaneTTY),
+		HelperPID:                pid,
+		HelperExecutableIdentity: filepath.Clean(v.ExpectedHelperExecutable),
+		ForegroundProven:         true,
+		ObservedAt:               time.Now().UTC(),
+	}
+	if err := proof.ValidateFor(expectation.Continuity); err != nil {
+		return core.ShellContinuityProof{}, fmt.Errorf("context helper continuity proof invalid")
+	}
+	return proof, nil
 }
 
 func sameExecutable(observed, expected string) bool {

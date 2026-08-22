@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	app "github.com/maemreyo/shellbeam/internal/app/shellintegration"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	core "github.com/maemreyo/shellbeam/internal/core/shellintegration"
 )
 
@@ -32,7 +33,7 @@ func armContextHelper(ctx context.Context, deps Dependencies, family core.ShellF
 	if err := deps.validate(); err != nil {
 		return err
 	}
-	invocation := contextHelperInvocation(deps.Executable, arm.OpaqueLaunchID)
+	invocation := contextcore.HelperRuntimeDirEnvironment + "=" + shellQuote(deps.RuntimeDir) + " " + contextHelperInvocation(deps.Executable, arm.OpaqueLaunchID)
 	return deps.Command.WriteShell(ctx, build(contextHelperHookName(arm.OpaqueLaunchID), invocation))
 }
 

@@ -12,9 +12,11 @@ import (
 	"testing"
 	"time"
 
+	shelladapter "github.com/maemreyo/shellbeam/internal/adapter/shellintegration"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
+	shellapp "github.com/maemreyo/shellbeam/internal/app/shellintegration"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	shellcore "github.com/maemreyo/shellbeam/internal/core/shellintegration"
@@ -83,7 +85,9 @@ func task7ReadinessRequest(ref delegated.ProviderRef, id string) handoffapp.Read
 
 func TestDelegatedHandoffReadinessUsesExactCurrentFishCommand(t *testing.T) {
 	provider, ref := task7ReadinessProvider("fish")
-	preparer := newDelegatedHandoffReadiness(provider, shortTask7RuntimeDir(t), "/bin/echo")
+	runtimeDir := shortTask7RuntimeDir(t)
+	ackTask7ReadinessInstall(t, runtimeDir, provider.obs, ref, "handoff_task7_fish", 2)
+	preparer := newDelegatedHandoffReadiness(provider, runtimeDir, "/bin/echo")
 	prepared, err := preparer.Prepare(t.Context(), task7ReadinessRequest(ref, "handoff_task7_fish"))
 	if err != nil {
 		t.Fatal(err)
@@ -96,6 +100,35 @@ func TestDelegatedHandoffReadinessUsesExactCurrentFishCommand(t *testing.T) {
 		t.Fatalf("writes=%q", writes)
 	}
 	_ = prepared.Watcher.Close()
+}
+
+func ackTask7ReadinessInstall(t *testing.T, runtimeDir string, obs delegatedapp.Observation, ref delegated.ProviderRef, handoffID string, epoch delegated.AuthorityEpoch) {
+	t.Helper()
+	facts := shellapp.ProviderProcessFacts{
+		SessionID: ref.SessionID, ProviderID: obs.Provider.ID, ProviderVersion: obs.Provider.Version,
+		ProviderGeneration: obs.ProviderGeneration, PanePID: obs.PanePID, CurrentCommand: obs.CurrentCommand,
+		PaneTTY: obs.PaneTTY, CWD: obs.CWD,
+	}
+	shellObs, err := shelladapter.NewUnixProbe().Probe(t.Context(), shellapp.ProbeRequest{Facts: facts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		deadline := time.Now().Add(time.Second)
+		for time.Now().Before(deadline) {
+			paths, _ := filepath.Glob(filepath.Join(runtimeDir, ".hn_*.sock"))
+			if len(paths) == 1 {
+				base := filepath.Base(paths[0])
+				hex := strings.TrimSuffix(strings.TrimPrefix(base, ".hn_"), ".sock")
+				_ = shelladapter.SendNotification(context.Background(), paths[0], shelladapter.Notification{
+					HandoffID: handoffID, AuthorityEpoch: epoch, EventID: "evt_" + hex,
+					ShellRuntimeID: shellObs.Identity.RuntimeID, Event: shelladapter.NotificationHookInstalled,
+				})
+				return
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
 }
 
 func TestDelegatedHandoffReadinessUnknownCurrentCommandFailsClosed(t *testing.T) {

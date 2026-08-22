@@ -3,6 +3,7 @@ package contextexec
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -223,7 +224,7 @@ func validateRevalidation(req core.Request, first, second AuthoritySnapshot, exp
 	if second.Observation.PanePID != first.Observation.PanePID || filepath.Clean(second.Observation.PaneTTY) != filepath.Clean(first.Observation.PaneTTY) {
 		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "pane_identity_changed", nil)
 	}
-	if filepath.Clean(second.Observation.CWD) != expectation.CWDObserved {
+	if !sameContextDirectoryIdentity(second.Observation.CWD, expectation.CWDObserved) {
 		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "cwd_changed", nil)
 	}
 	return nil
@@ -249,7 +250,16 @@ func armMatches(arm shellapp.ContextHelperArm, req shellapp.ContextHelperArmRequ
 		filepath.Clean(arm.PaneTTY) == filepath.Clean(req.Facts.PaneTTY) && arm.OpaqueLaunchID == req.OpaqueLaunchID && !arm.ArmedAt.IsZero()
 }
 
-func (s *Service) BindClaim(ctx context.Context, contextExecID string, helper core.HelperBinding, finalContext core.ContextBinding, boundaryObservedAt time.Time, verifierDigest string) (operation.ContextExecState, error) {
+func (s *Service) BindClaim(
+	ctx context.Context,
+	contextExecID string,
+	helper core.HelperBinding,
+	finalContext core.ContextBinding,
+	continuity core.ShellContinuityExpectation,
+	proof core.ShellContinuityProof,
+	boundaryObservedAt time.Time,
+	verifierDigest string,
+) (operation.ContextExecState, error) {
 	if s == nil || s.store == nil || s.authority == nil {
 		return operation.ContextExecState{}, failure.New(failure.ContextExecUnavailable, map[string]string{"context_exec_id": contextExecID, "reason": "claim_service_unavailable"}, nil)
 	}
@@ -275,14 +285,14 @@ func (s *Service) BindClaim(ctx context.Context, contextExecID string, helper co
 	if err := finalContext.Validate(); err != nil || finalContext != wantContext {
 		return state.Clone(), admissionFailure(req, failure.ContextExecBoundaryUnproven, "final_context_mismatch", err)
 	}
-	snapshot, err := s.authority.Snapshot(ctx, req)
+	claim, err := s.authority.ClaimSnapshot(ctx, req)
 	if err != nil {
 		return state.Clone(), err
 	}
-	if err := validateAdmission(req, snapshot); err != nil {
+	if err := validateClaimAdmission(req, claim); err != nil {
 		return state.Clone(), err
 	}
-	if err := validateClaimAuthority(req, state.Expectation, snapshot); err != nil {
+	if err := validateClaimContinuity(req, state, helper, continuity, proof, claim); err != nil {
 		return state.Clone(), err
 	}
 	bound, result := s.store.BindHelperGeneration(ctx, contextExecID, helper, finalContext, boundaryObservedAt.UTC(), verifierDigest)
@@ -295,21 +305,56 @@ func (s *Service) BindClaim(ctx context.Context, contextExecID string, helper co
 	return bound.Clone(), nil
 }
 
-func validateClaimAuthority(req core.Request, expectation core.ContextExpectation, snapshot AuthoritySnapshot) error {
-	if snapshot.Observation.ProviderGeneration != expectation.ProviderGeneration || snapshot.PrivacyProviderGeneration != expectation.ProviderGeneration {
+func validateClaimContinuity(
+	req core.Request,
+	state operation.ContextExecState,
+	helper core.HelperBinding,
+	continuity core.ShellContinuityExpectation,
+	proof core.ShellContinuityProof,
+	claim ClaimAuthoritySnapshot,
+) error {
+	if err := continuity.Validate(); err != nil {
+		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "shell_continuity_expectation_invalid", err)
+	}
+	if err := proof.ValidateFor(continuity); err != nil {
+		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "shell_continuity_unproven", err)
+	}
+	if claim.Observation.ProviderGeneration != state.Expectation.ProviderGeneration || claim.PrivacyProviderGeneration != state.Expectation.ProviderGeneration {
 		return admissionFailure(req, failure.ContextExecStaleGeneration, "provider_generation_changed", nil)
 	}
-	shellIdentity, err := shellapp.ContextShellIdentity(snapshot.Shell)
-	if err != nil || shellIdentity != expectation.ShellIdentity {
-		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "shell_identity_changed", err)
+	if continuity.SessionID != req.SessionID || continuity.AuthorityEpoch != req.AuthorityEpoch || continuity.ProviderGeneration != state.Expectation.ProviderGeneration {
+		return admissionFailure(req, failure.ContextExecStaleGeneration, "shell_continuity_generation_changed", nil)
 	}
-	if filepath.Clean(snapshot.Observation.CWD) != expectation.CWDObserved {
+	if continuity.ShellRuntimeIdentity != state.Expectation.ShellIdentity || filepath.Clean(continuity.HelperExecutableIdentity) != filepath.Clean(helper.ExecutablePath) {
+		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "shell_continuity_reservation_mismatch", nil)
+	}
+	if continuity.PaneShellPID != claim.Observation.PanePID || filepath.Clean(continuity.PaneTTY) != filepath.Clean(claim.Observation.PaneTTY) {
+		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "pane_identity_changed", nil)
+	}
+	if !sameContextDirectoryIdentity(claim.Observation.CWD, state.Expectation.CWDObserved) {
 		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "cwd_changed", nil)
 	}
 	return nil
 }
 
-func validateAdmission(req core.Request, snapshot AuthoritySnapshot) error {
+func sameContextDirectoryIdentity(observed, expected string) bool {
+	observed = filepath.Clean(observed)
+	expected = filepath.Clean(expected)
+	if observed == expected {
+		return true
+	}
+	observedInfo, err := os.Stat(observed)
+	if err != nil || !observedInfo.IsDir() {
+		return false
+	}
+	expectedInfo, err := os.Stat(expected)
+	if err != nil || !expectedInfo.IsDir() {
+		return false
+	}
+	return os.SameFile(observedInfo, expectedInfo)
+}
+
+func validateClaimAdmission(req core.Request, snapshot ClaimAuthoritySnapshot) error {
 	if err := snapshot.Binding.Validate(); err != nil || snapshot.Binding.SessionID != req.SessionID || snapshot.Binding.Lifecycle != delegated.LifecycleLive {
 		return admissionFailure(req, failure.ContextExecUnavailable, "delegated_session_not_live", err)
 	}
@@ -332,9 +377,6 @@ func validateAdmission(req core.Request, snapshot AuthoritySnapshot) error {
 	if snapshot.PrivacyActive || snapshot.PrivacyReleasePending {
 		return admissionFailure(req, failure.ContextExecPrivacyBlocked, "privacy_active_or_pending", nil)
 	}
-	if _, err := shellapp.ContextShellIdentity(snapshot.Shell); err != nil {
-		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "shell_identity_unqualified", err)
-	}
 	facts := shellapp.ProviderProcessFacts{
 		SessionID: req.SessionID, ProviderID: obs.Provider.ID, ProviderVersion: obs.Provider.Version,
 		ProviderGeneration: obs.ProviderGeneration, PanePID: obs.PanePID, CurrentCommand: obs.CurrentCommand,
@@ -342,6 +384,16 @@ func validateAdmission(req core.Request, snapshot AuthoritySnapshot) error {
 	}
 	if err := facts.Validate(); err != nil || !filepath.IsAbs(obs.PaneTTY) || !strings.HasPrefix(filepath.Clean(obs.PaneTTY), "/dev/") || !filepath.IsAbs(obs.CWD) {
 		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "context_facts_unproven", err)
+	}
+	return nil
+}
+
+func validateAdmission(req core.Request, snapshot AuthoritySnapshot) error {
+	if err := validateClaimAdmission(req, snapshot.ClaimAuthoritySnapshot); err != nil {
+		return err
+	}
+	if _, err := shellapp.ContextShellIdentity(snapshot.Shell); err != nil {
+		return admissionFailure(req, failure.ContextExecBoundaryUnproven, "shell_identity_unqualified", err)
 	}
 	return nil
 }

@@ -42,6 +42,28 @@ func TestContextHelperArmInstallsOneShotHookWithOnlyFixedHelperInvocation(t *tes
 	}
 }
 
+func TestContextHelperArmCarriesPrivateRuntimeLocatorOutsideHelperArgv(t *testing.T) {
+	for _, family := range []core.ShellFamily{core.ShellFish, core.ShellZsh, core.ShellBash} {
+		t.Run(string(family), func(t *testing.T) {
+			port := &recordingCommandPort{}
+			deps := task5LaunchDeps(t, port, "/opt/shellbeam/bin/shellbeam")
+			adapter := task5ArmAdapter(t, family, deps)
+			arm := app.ContextHelperArmSpec{Shell: core.ShellIdentity{Family: family, RuntimeID: "runtime_task8_locator"}, OpaqueLaunchID: "launch_task8_locator_01"}
+			if err := adapter.ArmContextHelper(context.Background(), arm); err != nil {
+				t.Fatal(err)
+			}
+			script := port.snapshot()[0]
+			if !strings.Contains(script, "SHELLBEAM_CONTEXT_EXEC_RUNTIME_DIR") || !strings.Contains(script, deps.RuntimeDir) {
+				t.Fatalf("helper runtime locator missing from private command environment: %s", script)
+			}
+			argv := contextHelperInvocation(deps.Executable, arm.OpaqueLaunchID)
+			if strings.Contains(argv, deps.RuntimeDir) || strings.Contains(argv, "--runtime-dir") || strings.Contains(argv, "--socket") {
+				t.Fatalf("runtime locator leaked into fixed helper argv: %s", argv)
+			}
+		})
+	}
+}
+
 func TestContextHelperAdaptersNoLongerExposeProofThenLaunchAPI(t *testing.T) {
 	for _, adapter := range []any{&FishAdapter{}, &ZshAdapter{}, &BashAdapter{}} {
 		typ := reflect.TypeOf(adapter)

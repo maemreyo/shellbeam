@@ -27,11 +27,11 @@ func (a *BashAdapter) Install(_ context.Context, req app.WatchRequest) (app.Requ
 	return watcher, err
 }
 
-func bashScripts(req app.WatchRequest, eventID, trueNotify, falseNotify string) (string, string) {
+func bashScripts(req app.WatchRequest, eventID, trueNotify, _ string) (string, string) {
 	name := "__shellbeam_handoff_" + eventID
 	armed := name + "_armed"
 	variable := req.Requirement.Name
-	install := fmt.Sprintf("%s=0\n%s() {\n  if [ \"${%s}\" = 0 ]; then\n    %s=1\n    return\n  fi\n  local __shellbeam_exported=false __shellbeam_name\n  for __shellbeam_name in $(compgen -A export -- %s); do\n    if [ \"$__shellbeam_name\" = %s ]; then __shellbeam_exported=true; break; fi\n  done\n  if [ \"$__shellbeam_exported\" = true ] && [ -n \"${%s}\" ]; then\n    %s\n  else\n    %s\n  fi\n  PROMPT_COMMAND=\"${PROMPT_COMMAND%%;%s}\"\n  unset %s\n  unset -f %s\n}\nPROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND;}%s\"", armed, name, armed, armed, variable, variable, variable, trueNotify, falseNotify, name, armed, name, name)
+	install := fmt.Sprintf("%s=0\n%s() {\n  if [ \"${%s}\" = 0 ]; then\n    %s=1\n    return\n  fi\n  local __shellbeam_exported=false __shellbeam_name\n  for __shellbeam_name in $(compgen -A export -- %s); do\n    if [ \"$__shellbeam_name\" = %s ]; then __shellbeam_exported=true; break; fi\n  done\n  if [ \"$__shellbeam_exported\" = true ] && [ -n \"${%s}\" ]; then\n    %s\n    PROMPT_COMMAND=\"${PROMPT_COMMAND%%;%s}\"\n    unset %s\n    unset -f %s\n  fi\n}\nPROMPT_COMMAND=\"${PROMPT_COMMAND:+$PROMPT_COMMAND;}%s\"", armed, name, armed, armed, variable, variable, variable, trueNotify, name, armed, name, name)
 	cleanup := fmt.Sprintf("PROMPT_COMMAND=\"${PROMPT_COMMAND%%;%s}\"; unset %s; unset -f %s 2>/dev/null || true", name, armed, name)
 	return install, cleanup
 }

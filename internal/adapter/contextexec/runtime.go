@@ -218,7 +218,7 @@ func (r Runtime) childSpec(request RequestFrame) (ChildSpec, error) {
 	if err != nil {
 		return ChildSpec{}, contextRuntimeFailure(request, failure.ContextExecBoundaryUnproven, "cwd_unavailable")
 	}
-	if filepath.Clean(cwd) != filepath.Clean(request.Context.CWDObserved) {
+	if !sameDirectoryIdentity(cwd, request.Context.CWDObserved) {
 		return ChildSpec{}, contextRuntimeFailure(request, failure.ContextExecBoundaryUnproven, "cwd_drift")
 	}
 	environ := r.Environ

@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	contextadapter "github.com/maemreyo/shellbeam/internal/adapter/contextexec"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 )
 
 func runContextExecHelper(ctx context.Context, args []string) error {
@@ -17,11 +19,11 @@ func runContextExecHelper(ctx context.Context, args []string) error {
 	if err := contextadapter.ValidateOpaqueLaunchID(launchID); err != nil {
 		return err
 	}
-	_, paths, err := loadCommon("__context_exec_helper", nil)
-	if err != nil {
-		return err
+	runtimeDir := os.Getenv(contextcore.HelperRuntimeDirEnvironment)
+	if runtimeDir == "" || !filepath.IsAbs(runtimeDir) || filepath.Clean(runtimeDir) != runtimeDir {
+		return fmt.Errorf("context helper runtime locator unavailable")
 	}
-	conn, err := contextadapter.DialPrivate(paths.RuntimeDir, launchID)
+	conn, err := contextadapter.DialPrivate(runtimeDir, launchID)
 	if err != nil {
 		return err
 	}

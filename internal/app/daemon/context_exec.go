@@ -91,31 +91,45 @@ type contextExecAuthority struct {
 	shell    shellapp.ShellProbe
 }
 
-func (a contextExecAuthority) Snapshot(ctx context.Context, req contextcore.Request) (contextapp.AuthoritySnapshot, error) {
+func (a contextExecAuthority) ClaimSnapshot(ctx context.Context, req contextcore.Request) (contextapp.ClaimAuthoritySnapshot, error) {
 	binding, err := a.store.LoadDelegatedBinding(ctx, operation.SessionID(req.SessionID))
 	if err != nil {
-		return contextapp.AuthoritySnapshot{}, err
+		return contextapp.ClaimAuthoritySnapshot{}, err
 	}
 	ref, err := a.store.LoadDelegatedProviderRef(ctx, operation.SessionID(req.SessionID))
 	if err != nil {
-		return contextapp.AuthoritySnapshot{}, err
+		return contextapp.ClaimAuthoritySnapshot{}, err
 	}
 	obs, err := a.provider.Inspect(ctx, ref)
 	if err != nil {
-		return contextapp.AuthoritySnapshot{}, err
+		return contextapp.ClaimAuthoritySnapshot{}, err
 	}
 	privacy, err := a.privacy.InspectPrivacy(ctx, ref)
 	if err != nil {
+		return contextapp.ClaimAuthoritySnapshot{}, err
+	}
+	authority := delegated.ReconcileAuthority(delegated.ReconcileInput{Epoch: binding.AuthorityEpoch, DesiredOwner: binding.DesiredOwner, ObservedOwner: obs.Owner, ProviderIdentity: obs.Provider, ProviderCurrent: obs.ProviderCurrent})
+	writable := binding.Lifecycle == delegated.LifecycleLive && binding.DesiredOwner == delegated.OwnerAgent && authority.Owner == delegated.OwnerAgent && !authority.Fenced
+	return contextapp.ClaimAuthoritySnapshot{
+		Binding: binding, ProviderRef: ref, Observation: obs, Authority: authority,
+		PrivacyProviderGeneration: privacy.ProviderGeneration, PrivacyActive: privacy.Active,
+		PrivacyReleasePending: privacy.ReleasePending, AgentIngressWritable: writable,
+		OwnershipTransferActive: !writable,
+	}, nil
+}
+
+func (a contextExecAuthority) Snapshot(ctx context.Context, req contextcore.Request) (contextapp.AuthoritySnapshot, error) {
+	claim, err := a.ClaimSnapshot(ctx, req)
+	if err != nil {
 		return contextapp.AuthoritySnapshot{}, err
 	}
+	obs := claim.Observation
 	facts := shellapp.ProviderProcessFacts{SessionID: req.SessionID, ProviderID: obs.Provider.ID, ProviderVersion: obs.Provider.Version, ProviderGeneration: obs.ProviderGeneration, PanePID: obs.PanePID, CurrentCommand: obs.CurrentCommand, PaneTTY: obs.PaneTTY, CWD: obs.CWD}
 	shellObs, err := a.shell.Probe(ctx, shellapp.ProbeRequest{Facts: facts})
 	if err != nil {
 		return contextapp.AuthoritySnapshot{}, err
 	}
-	authority := delegated.ReconcileAuthority(delegated.ReconcileInput{Epoch: binding.AuthorityEpoch, DesiredOwner: binding.DesiredOwner, ObservedOwner: obs.Owner, ProviderIdentity: obs.Provider, ProviderCurrent: obs.ProviderCurrent})
-	writable := binding.Lifecycle == delegated.LifecycleLive && binding.DesiredOwner == delegated.OwnerAgent && authority.Owner == delegated.OwnerAgent && !authority.Fenced
-	return contextapp.AuthoritySnapshot{Binding: binding, ProviderRef: ref, Observation: obs, Authority: authority, PrivacyProviderGeneration: privacy.ProviderGeneration, PrivacyActive: privacy.Active, PrivacyReleasePending: privacy.ReleasePending, AgentIngressWritable: writable, OwnershipTransferActive: !writable, Shell: shellObs.Identity}, nil
+	return contextapp.AuthoritySnapshot{ClaimAuthoritySnapshot: claim, Shell: shellObs.Identity}, nil
 }
 
 func ComposeContextExec(store Store, provider DelegatedRuntime, shellProbe shellapp.ShellProbe, helper contextapp.HelperRuntime, options ContextExecCompositionOptions) (*contextapp.Service, bool) {
