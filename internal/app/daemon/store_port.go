@@ -3,12 +3,14 @@ package daemon
 
 import (
 	"context"
+	contextexec "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	"time"
 )
 
 type Durability string
@@ -58,6 +60,17 @@ type DelegatedSessionStore interface {
 	DelegatedOutputBytes(context.Context, operation.SessionID) (int64, error)
 	LoadDelegatedCaptureTruth(context.Context, operation.SessionID) (receipt.CaptureTruth, error)
 	MarkDelegatedCaptureReason(context.Context, operation.SessionID, receipt.CaptureReason) (receipt.CaptureTruth, StoreResult)
+}
+
+type ContextExecStore interface {
+	ReserveContextExec(context.Context, operation.ContextExecState) (operation.ContextExecState, bool, StoreResult)
+	LookupContextExec(context.Context, string) (operation.ContextExecState, bool, error)
+	AdvanceContextExec(context.Context, string, operation.ContextExecTransition) (operation.ContextExecState, StoreResult)
+	BindHelperGeneration(context.Context, string, contextexec.HelperBinding, contextexec.ContextBinding, time.Time, string) (operation.ContextExecState, StoreResult)
+	AcquireContextExecLease(context.Context, operation.SessionID, delegated.AuthorityEpoch, string, string) (operation.ContextExecLease, bool, StoreResult)
+	ReleaseContextExecLease(context.Context, operation.ContextExecLease) StoreResult
+	FindContextExecLease(context.Context, operation.SessionID, delegated.AuthorityEpoch) (operation.ContextExecLease, bool, error)
+	ListContextExecRecoveryCandidates(context.Context) ([]operation.ContextExecState, error)
 }
 
 type InteractiveHandoffStore interface {

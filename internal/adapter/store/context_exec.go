@@ -228,6 +228,14 @@ func applyContextExecTransition(current operation.ContextExecState, transition o
 	if transition.ExecutionAuthorized {
 		return current, contextExecConflict(current.Request.ContextExecID)
 	}
+	if transition.Lifecycle == contextexec.LifecycleCanonicalized && contextExecNoChildCanonicalTransition(current, next) {
+		next.Lifecycle = transition.Lifecycle
+		next.UpdatedAt = now
+		if err := next.Validate(); err != nil {
+			return current, err
+		}
+		return next, nil
+	}
 	if !current.Lifecycle.CanAdvanceTo(transition.Lifecycle) {
 		return current, contextExecConflict(current.Request.ContextExecID)
 	}
@@ -240,6 +248,20 @@ func applyContextExecTransition(current operation.ContextExecState, transition o
 		return current, err
 	}
 	return next, nil
+}
+
+func contextExecNoChildCanonicalTransition(current, next operation.ContextExecState) bool {
+	result := next.Result
+	if result == nil || result.Lifecycle != contextexec.LifecycleCanonicalized || result.FailureCode == "" || result.Spawn.Succeeded || result.EvidenceAuthority != "" {
+		return false
+	}
+	if result.Validate() != nil {
+		return false
+	}
+	if result.Spawn.Attempted {
+		return current.Lifecycle == contextexec.LifecycleChildReserved && current.ExecutionAuthorized && current.ChildOperationID != ""
+	}
+	return current.Lifecycle == contextexec.LifecycleHelperAuthenticated && !current.ExecutionAuthorized && current.ChildOperationID == ""
 }
 
 func (r *Repository) BindHelperGeneration(ctx context.Context, id string, helper contextexec.HelperBinding, finalContext contextexec.ContextBinding, boundaryObservedAt time.Time, verifierDigest string) (operation.ContextExecState, app.StoreResult) {

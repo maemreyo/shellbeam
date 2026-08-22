@@ -8,11 +8,28 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	core "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
+
+func TestExecuteFrameBindsAuthorizedPreparedExecutable(t *testing.T) {
+	good := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: "/usr/bin/printf"}
+	if err := good.Validate(); err != nil {
+		t.Fatalf("valid execute frame: %v", err)
+	}
+	missing := good
+	missing.ResolvedExecutable = ""
+	if err := missing.Validate(); err == nil {
+		t.Fatal("authorized execute frame accepted without resolved executable")
+	}
+	denied := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: false, ResolvedExecutable: "/usr/bin/printf"}
+	if err := denied.Validate(); err == nil {
+		t.Fatal("denied execute frame carried resolved executable")
+	}
+}
 
 func TestPrepareHandshakeBumpsProtocolAndFramesAreClosed(t *testing.T) {
 	if ProtocolVersion != 3 {
@@ -22,7 +39,7 @@ func TestPrepareHandshakeBumpsProtocolAndFramesAreClosed(t *testing.T) {
 	if err := prepared.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: operation.ID("context_child_op_01"), ChildSessionID: operation.SessionID("context_child_session_01")}
+	execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: operation.ID("context_child_op_01"), ChildSessionID: operation.SessionID("context_child_session_01"), ResolvedExecutable: "/usr/bin/printf"}
 	if err := execute.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +130,7 @@ func (p *orderingExecutionProtocol) AuthorizePrepared(_ context.Context, frame P
 		return ExecuteFrame{}, errors.New("unexpected prepared identity")
 	}
 	*p.authorized = true
-	return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01"}, nil
+	return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: "/usr/bin/printf"}, nil
 }
 func (p *orderingExecutionProtocol) SendSpawn(frame SpawnFrame) error {
 	p.mu.Lock()
@@ -219,12 +236,42 @@ func (r *serverPreparedRecorder) RecordSpawn(_ context.Context, state operation.
 	return next, nil
 }
 
+func TestServerRejectsExecuteAckExecutableDriftBeforeWritingAuthorization(t *testing.T) {
+	expectation := validClaimExpectation(t)
+	state := validBoundState(t, expectation)
+	var mu sync.Mutex
+	log := []string{}
+	execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: "/usr/bin/other"}
+	recorder := &serverPreparedRecorder{log: &log, mu: &mu, execute: execute}
+	server := &Server{Expectation: expectation, AuthorizePrepared: recorder.AuthorizePrepared, RecordSpawn: recorder.RecordSpawn}
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := server.ReceiveExecution(context.Background(), left, state)
+		done <- err
+	}()
+	if err := writeFrame(right, PreparedFrame{ProtocolVersion: ProtocolVersion, Kind: KindPrepared, ResolvedExecutable: "/usr/bin/printf"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("server accepted execute executable drift")
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("server attempted to write drifted execute authorization")
+	}
+}
+
 func TestServerExecutionExchangeAuthorizesBeforeAckAndRecordsSpawnBeforeTerminal(t *testing.T) {
 	expectation := validClaimExpectation(t)
 	state := validBoundState(t, expectation)
 	var mu sync.Mutex
 	log := []string{}
-	execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01"}
+	execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: "/usr/bin/printf"}
 	recorder := &serverPreparedRecorder{log: &log, mu: &mu, execute: execute}
 	server := &Server{Expectation: expectation, AuthorizePrepared: recorder.AuthorizePrepared, RecordSpawn: recorder.RecordSpawn}
 	left, right := net.Pipe()
@@ -280,7 +327,7 @@ func TestServerExecutionExchangeRejectsSpawnExecutableOrChildIdentityDrift(t *te
 	} {
 		expectation := validClaimExpectation(t)
 		state := validBoundState(t, expectation)
-		execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01"}
+		execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: "/usr/bin/printf"}
 		var mu sync.Mutex
 		log := []string{}
 		recorder := &serverPreparedRecorder{log: &log, mu: &mu, execute: execute}
@@ -355,7 +402,7 @@ func TestServerExecutionExchangeExplicitSpawnFailureEndsWithoutTerminal(t *testi
 	state := validBoundState(t, expectation)
 	var mu sync.Mutex
 	log := []string{}
-	execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01"}
+	execute := ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: "/usr/bin/printf"}
 	recorder := &serverPreparedRecorder{log: &log, mu: &mu, execute: execute}
 	server := &Server{Expectation: expectation, AuthorizePrepared: recorder.AuthorizePrepared, RecordSpawn: func(ctx context.Context, got operation.ContextExecState, frame SpawnFrame) (operation.ContextExecState, error) {
 		if frame.Spawn.Succeeded || frame.Spawn.ErrorCode == "" {
@@ -409,7 +456,7 @@ func (*startFailureProtocol) AuthorizePrepared(_ context.Context, frame Prepared
 	if err := frame.Validate(); err != nil {
 		return ExecuteFrame{}, err
 	}
-	return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01"}, nil
+	return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: "/usr/bin/printf"}, nil
 }
 func (p *startFailureProtocol) SendSpawn(frame SpawnFrame) error {
 	p.spawn = frame

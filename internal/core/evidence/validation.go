@@ -14,7 +14,7 @@ var evidenceAuthorityIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0
 
 func ValidateMechanicalReceiptAuthority(authority string) error {
 	switch authority {
-	case "":
+	case "", "context_exec_child_owned_v1":
 		return nil
 	case "session_lifecycle_only":
 		return fmt.Errorf("session lifecycle receipt cannot authorize mechanical evidence")

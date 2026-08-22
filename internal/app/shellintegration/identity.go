@@ -86,6 +86,18 @@ func (v ShellIdentityObservation) AdapterEligible() bool {
 	return v.Validate() == nil && v.State == IdentityExact && v.Identity.Family != core.ShellUnknown
 }
 
+func ContextShellIdentity(shell core.ShellIdentity) (string, error) {
+	if err := shell.Validate(); err != nil {
+		return "", err
+	}
+	switch shell.Family {
+	case core.ShellFish, core.ShellZsh, core.ShellBash:
+		return string(shell.Family) + ":" + shell.RuntimeID, nil
+	default:
+		return "", fmt.Errorf("context execution requires an exact supported shell identity")
+	}
+}
+
 func validFactID(value string, max int) bool {
 	if value == "" || len(value) > max {
 		return false

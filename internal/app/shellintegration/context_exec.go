@@ -46,11 +46,8 @@ func (v ContextHelperArmRequest) validate() error {
 	if err := v.Facts.Validate(); err != nil {
 		return err
 	}
-	if err := v.ExpectedShell.Validate(); err != nil {
+	if _, err := ContextShellIdentity(v.ExpectedShell); err != nil {
 		return err
-	}
-	if v.ExpectedShell.Family == core.ShellUnknown {
-		return fmt.Errorf("context helper arm requires exact shell")
 	}
 	if !validFactID(v.OpaqueLaunchID, 128) {
 		return fmt.Errorf("invalid context helper opaque launch identity")

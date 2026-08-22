@@ -41,3 +41,35 @@ func TestProviderProcessFactsRequirePaneScopedCurrentProcessIdentity(t *testing.
 		}
 	}
 }
+
+func TestContextShellIdentityUsesCanonicalFamilyRuntimeEncoding(t *testing.T) {
+	cases := []struct {
+		name string
+		in   core.ShellIdentity
+		want string
+	}{
+		{name: "fish", in: core.ShellIdentity{Family: core.ShellFish, RuntimeID: "runtime_01"}, want: "fish:runtime_01"},
+		{name: "zsh", in: core.ShellIdentity{Family: core.ShellZsh, RuntimeID: "runtime_02"}, want: "zsh:runtime_02"},
+		{name: "bash", in: core.ShellIdentity{Family: core.ShellBash, RuntimeID: "runtime_03"}, want: "bash:runtime_03"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ContextShellIdentity(tc.in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("identity=%q want=%q", got, tc.want)
+			}
+		})
+	}
+	for _, bad := range []core.ShellIdentity{
+		{Family: core.ShellUnknown, RuntimeID: "runtime_unknown"},
+		{Family: core.ShellFish, RuntimeID: ""},
+		{Family: core.ShellFamily("future"), RuntimeID: "runtime_future"},
+	} {
+		if _, err := ContextShellIdentity(bad); err == nil {
+			t.Fatalf("invalid shell identity accepted: %#v", bad)
+		}
+	}
+}

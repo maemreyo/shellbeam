@@ -3,6 +3,8 @@ package receipt
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
@@ -25,6 +27,37 @@ type SignalEvidence struct {
 	Requested string `json:"requested,omitempty"`
 	Attempted bool   `json:"attempted"`
 	Succeeded bool   `json:"succeeded"`
+}
+
+type ContextExecProvenance struct {
+	ContextExecID       string                   `json:"context_exec_id"`
+	ParentSessionID     string                   `json:"parent_session_id"`
+	AuthorityEpoch      delegated.AuthorityEpoch `json:"authority_epoch"`
+	RequestedExecutable string                   `json:"requested_executable"`
+	ResolvedExecutable  string                   `json:"resolved_executable"`
+}
+
+func (v ContextExecProvenance) Validate() error {
+	if !validContextExecReceiptRef(v.ContextExecID) || !validContextExecReceiptRef(v.ParentSessionID) || v.AuthorityEpoch < 1 {
+		return fmt.Errorf("invalid context exec receipt provenance identity")
+	}
+	if v.RequestedExecutable == "" || strings.IndexByte(v.RequestedExecutable, 0) >= 0 || v.ResolvedExecutable == "" || !filepath.IsAbs(v.ResolvedExecutable) {
+		return fmt.Errorf("invalid context exec executable provenance")
+	}
+	return nil
+}
+
+func validContextExecReceiptRef(value string) bool {
+	if value == "" || len(value) > 128 || strings.ContainsAny(value, `/\\`) {
+		return false
+	}
+	for i := range value {
+		c := value[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-' || c == '.' || c == ':') {
+			return false
+		}
+	}
+	return true
 }
 
 type ResourceCleanupStatus string
@@ -70,6 +103,7 @@ type Receipt struct {
 	SessionMode                   string                   `json:"session_mode,omitempty"`
 	AuthorityEpoch                delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
 	EvidenceAuthority             string                   `json:"evidence_authority,omitempty"`
+	ContextExec                   *ContextExecProvenance   `json:"context_exec,omitempty"`
 	InputAuthorityProvenance      string                   `json:"input_authority_provenance,omitempty"`
 	CaptureQuality                CaptureQuality           `json:"capture_quality,omitempty"`
 	CaptureReasons                []CaptureReason          `json:"capture_reasons,omitempty"`
@@ -147,6 +181,8 @@ func (r Receipt) validateSchema() error {
 		return r.validateV4()
 	case 5:
 		return r.validateV5()
+	case 6:
+		return r.validateV6()
 	default:
 		return fmt.Errorf("unsupported receipt schema")
 	}
@@ -226,6 +262,28 @@ func (r Receipt) validateV5() error {
 		return err
 	}
 	return ValidateCaptureTruth(r.CaptureQuality, r.CaptureReasons, r.OutputComplete)
+}
+
+func (r Receipt) validateV6() error {
+	if r.RequestFingerprint == "" || r.ExecutionFingerprint == "" || r.ExecutionMode != "argv" || r.Executable == "" || !filepath.IsAbs(r.Executable) || r.ContextExec == nil {
+		return fmt.Errorf("v6 context exec receipt identity missing")
+	}
+	if err := r.ContextExec.Validate(); err != nil {
+		return err
+	}
+	if r.ContextExec.AuthorityEpoch != r.AuthorityEpoch || r.ContextExec.ResolvedExecutable != r.Executable {
+		return fmt.Errorf("v6 context exec receipt provenance mismatch")
+	}
+	if r.SessionMode != "" || r.Persistent || r.TTY || r.ProjectCommand != nil || r.Evidence != nil || r.InputAuthorityProvenance != "" || r.CaptureQuality != "" || len(r.CaptureReasons) != 0 {
+		return fmt.Errorf("v6 context exec receipt claims unsupported authority")
+	}
+	if r.EvidenceAuthority != EvidenceAuthorityContextExecChildOwnedV1 {
+		return fmt.Errorf("invalid v6 context exec evidence authority")
+	}
+	if !r.Spawn.Attempted || !r.Spawn.Succeeded || !r.Exit.Reaped {
+		return fmt.Errorf("v6 context exec receipt lacks literal child truth")
+	}
+	return nil
 }
 
 func (r Receipt) validateCommonTruth() error {

@@ -15,6 +15,17 @@ import (
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
+func invalidIntentFailure(err error) error {
+	field := "command"
+	switch err.Error() {
+	case "cwd must be absolute":
+		field = "cwd"
+	case "timeout must be non-negative":
+		field = "timeout_ms"
+	}
+	return failure.New(failure.InvalidInput, map[string]string{"field": field}, err)
+}
+
 func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id operation.ID, intent operation.Intent) (View, bool, error) {
 	if req.ProtocolVersion != 2 {
 		return View{}, false, nil

@@ -97,9 +97,8 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		return err
 	}
 	defer codeRuntime.Close()
-	structuredScheduler := &structuredWorkerProxy{}
-	telemetryScheduler := &telemetryWorkerProxy{}
-	evidenceScheduler := &evidenceWorkerProxy{}
+	structuredScheduler, telemetryScheduler, evidenceScheduler := &structuredWorkerProxy{}, &telemetryWorkerProxy{}, &evidenceWorkerProxy{}
+	contextExecService := composeContextExecService(ctx, store, delegatedRuntime, paths.RuntimeDir, incarnation, structuredScheduler, telemetryScheduler, evidenceScheduler)
 	projectLoader := projectadapter.NewLoader()
 	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
@@ -115,6 +114,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		ProjectCommandBinder:    projectBinder,
 		PersistentRuntime:       persistentRuntime,
 		DelegatedRuntime:        delegatedRuntime,
+		ContextExec:             contextExecService,
 		HandoffReadiness:        handoffReadiness,
 		HandoffPresenterFactory: terminalRuntime.PresenterFactory,
 		MediaReader:             daemonMediaReader(),
@@ -242,6 +242,9 @@ func serveDaemonRuntime(
 		return err
 	}
 	if err = reconcileHandoffDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
+	if _, err = svc.ReconcileContextExec(startupCtx); err != nil {
 		return err
 	}
 	server.MarkReady()

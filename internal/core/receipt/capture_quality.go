@@ -21,9 +21,10 @@ const (
 )
 
 const (
-	InputAuthorityAgentOnly               = "agent_only"
-	InputAuthorityHumanWriteGranted       = "human_write_authority_granted"
-	EvidenceAuthoritySessionLifecycleOnly = "session_lifecycle_only"
+	InputAuthorityAgentOnly                  = "agent_only"
+	InputAuthorityHumanWriteGranted          = "human_write_authority_granted"
+	EvidenceAuthoritySessionLifecycleOnly    = "session_lifecycle_only"
+	EvidenceAuthorityContextExecChildOwnedV1 = "context_exec_child_owned_v1"
 )
 
 type CaptureTruth struct {

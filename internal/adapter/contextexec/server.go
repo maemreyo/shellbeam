@@ -202,7 +202,7 @@ func (s *Server) ReceiveExecution(ctx context.Context, conn net.Conn, state oper
 	if !execute.Authorized {
 		return state.Clone(), ReceivedResult{}, fmt.Errorf("prepared context child denied without deterministic failure")
 	}
-	if err := validateExecutionState(next, s.Expectation, core.LifecycleChildReserved); err != nil || !next.ExecutionAuthorized || next.ChildOperationID != execute.ChildOperationID || next.ChildSessionID != execute.ChildSessionID {
+	if err := validateExecutionState(next, s.Expectation, core.LifecycleChildReserved); err != nil || !next.ExecutionAuthorized || next.ChildOperationID != execute.ChildOperationID || next.ChildSessionID != execute.ChildSessionID || !sameExecutable(execute.ResolvedExecutable, prepared.ResolvedExecutable) {
 		if err != nil {
 			return state.Clone(), ReceivedResult{}, err
 		}
@@ -261,6 +261,7 @@ func validateExecutionState(state operation.ContextExecState, e ClaimExpectation
 type ReceivedResult struct {
 	Stdout   []byte
 	Stderr   []byte
+	Combined []byte
 	Terminal core.Result
 }
 
@@ -276,7 +277,7 @@ func (s *Server) receiveResult(ctx context.Context, conn net.Conn, state operati
 		return ReceivedResult{}, fmt.Errorf("context helper connection missing")
 	}
 	offsets := map[OutputStream]int64{StreamStdout: 0, StreamStderr: 0}
-	var stdout, stderr []byte
+	var stdout, stderr, combined []byte
 	for {
 		if err := ctx.Err(); err != nil {
 			return ReceivedResult{}, err
@@ -302,6 +303,7 @@ func (s *Server) receiveResult(ctx context.Context, conn net.Conn, state operati
 				return ReceivedResult{}, fmt.Errorf("context helper output bound exceeded")
 			}
 			offsets[frame.Stream] += int64(len(frame.Data))
+			combined = append(combined, frame.Data...)
 			if frame.Stream == StreamStdout {
 				stdout = append(stdout, frame.Data...)
 			} else {
@@ -322,7 +324,7 @@ func (s *Server) receiveResult(ctx context.Context, conn net.Conn, state operati
 			if r.Output.StdoutBytes != offsets[StreamStdout] || r.Output.StderrBytes != offsets[StreamStderr] {
 				return ReceivedResult{}, fmt.Errorf("context helper terminal output count mismatch")
 			}
-			return ReceivedResult{Stdout: stdout, Stderr: stderr, Terminal: r}, nil
+			return ReceivedResult{Stdout: stdout, Stderr: stderr, Combined: combined, Terminal: r}, nil
 		}
 	}
 }

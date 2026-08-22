@@ -62,6 +62,7 @@ type Result struct {
 	AuthorityEpoch           delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
 	EvidenceAuthority        string                   `json:"evidence_authority,omitempty"`
 	InputAuthorityProvenance string                   `json:"input_authority_provenance,omitempty"`
+	ContextExec              *ContextExecProvenance   `json:"context_exec,omitempty"`
 	Operation                OperationResult          `json:"operation"`
 	Child                    *ChildResult             `json:"child,omitempty"`
 	Output                   OutputResult             `json:"output"`
@@ -157,6 +158,12 @@ func NewResult(in ResultInput) (Result, error) {
 			result.InputAuthorityProvenance = in.Receipt.InputAuthorityProvenance
 			result.Output.CaptureQuality = in.Receipt.CaptureQuality
 			result.Output.CaptureReasons = append([]CaptureReason(nil), in.Receipt.CaptureReasons...)
+		}
+		if in.Receipt.SchemaVersion == 6 {
+			contextExec := *in.Receipt.ContextExec
+			result.AuthorityEpoch = in.Receipt.AuthorityEpoch
+			result.EvidenceAuthority = in.Receipt.EvidenceAuthority
+			result.ContextExec = &contextExec
 		}
 		result.Child = childFromReceipt(*in.Receipt)
 		return result, nil

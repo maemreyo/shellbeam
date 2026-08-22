@@ -113,6 +113,48 @@ func TestServerReceivesOnlyContiguousBoundChildFramesAndTerminalIdentity(t *test
 	}
 }
 
+func TestServerPreservesCanonicalOutputFrameArrivalOrder(t *testing.T) {
+	expectation := validClaimExpectation(t)
+	state := validBoundState(t, expectation)
+	left, right := net.Pipe()
+	defer left.Close()
+	defer right.Close()
+	server := &Server{Expectation: expectation}
+	done := make(chan struct {
+		result ReceivedResult
+		err    error
+	}, 1)
+	go func() {
+		result, err := server.ReceiveResult(context.Background(), left, state)
+		done <- struct {
+			result ReceivedResult
+			err    error
+		}{result, err}
+	}()
+	client := Client{Conn: right}
+	frames := []OutputFrame{
+		{ProtocolVersion: ProtocolVersion, Kind: KindOutput, Stream: StreamStdout, Offset: 0, Data: []byte("a")},
+		{ProtocolVersion: ProtocolVersion, Kind: KindOutput, Stream: StreamStderr, Offset: 0, Data: []byte("b")},
+		{ProtocolVersion: ProtocolVersion, Kind: KindOutput, Stream: StreamStdout, Offset: 1, Data: []byte("c")},
+	}
+	for _, frame := range frames {
+		if err := client.SendOutput(frame); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result := validTerminalResultForState(t, state, 2, 1, true)
+	if err := client.SendTerminal(TerminalFrame{ProtocolVersion: ProtocolVersion, Kind: KindTerminal, Result: result}); err != nil {
+		t.Fatal(err)
+	}
+	got := <-done
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if string(got.result.Combined) != "abc" {
+		t.Fatalf("combined=%q want abc", got.result.Combined)
+	}
+}
+
 func TestServerRejectsOutputGapAndTerminalCountForgery(t *testing.T) {
 	expectation := validClaimExpectation(t)
 	state := validBoundState(t, expectation)

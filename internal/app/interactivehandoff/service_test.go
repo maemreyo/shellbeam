@@ -26,6 +26,7 @@ type fakeStore struct {
 	provenance string
 	controls   map[string]fakeControl
 	calls      *[]string
+	reserveErr error
 }
 
 type fakeControl struct {
@@ -49,6 +50,9 @@ func (s *fakeStore) ReserveHandoff(_ context.Context, req handoff.Request, state
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.call("reserve")
+	if s.reserveErr != nil {
+		return handoff.State{}, false, s.reserveErr
+	}
 	if s.found {
 		if s.req != req {
 			return s.state, false, failure.New(failure.HandoffConflict, map[string]string{"handoff_id": req.HandoffID}, nil)
@@ -287,6 +291,23 @@ func TestRequestReplayPrecedesProviderFreshness(t *testing.T) {
 		t.Fatalf("changed request err=%v", err)
 	}
 	_ = store
+}
+
+func TestHandoffRequestBlockedByActiveContextExecLeaseBeforeRuntimeMutation(t *testing.T) {
+	store, _, _, svc, calls, req := fixture(t)
+	beforeEpoch := store.binding.AuthorityEpoch
+	beforeOwner := store.binding.DesiredOwner
+	store.reserveErr = failure.New(failure.HandoffConflict, map[string]string{"handoff_id": req.HandoffID, "reason": "context_exec_lease_active"}, nil)
+	if _, err := svc.Request(t.Context(), req); !errors.Is(err, failure.HandoffConflict) {
+		t.Fatalf("err=%v want handoff_conflict", err)
+	}
+	want := []string{"find", "load_binding", "load_ref", "inspect_agent", "reserve"}
+	if !reflect.DeepEqual(*calls, want) {
+		t.Fatalf("calls=%v want=%v", *calls, want)
+	}
+	if store.binding.AuthorityEpoch != beforeEpoch || store.binding.DesiredOwner != beforeOwner || store.found {
+		t.Fatalf("handoff mutated under context lease: binding=%#v found=%v", store.binding, store.found)
+	}
 }
 
 func TestRequestFenceFailureLeavesDurableFailClosedAgentFencing(t *testing.T) {

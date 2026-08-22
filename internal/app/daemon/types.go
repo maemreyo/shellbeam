@@ -39,6 +39,7 @@ type Options struct {
 	MediaReadBudget         time.Duration
 	InputTracePreparer      traceapp.Preparer
 	InputTraceWorker        InputTraceWorker
+	ContextExec             ContextExecService
 }
 type StartRequest struct {
 	ProtocolVersion   int                       `json:"-"`

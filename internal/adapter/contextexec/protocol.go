@@ -146,11 +146,12 @@ func (f PreparedFrame) Validate() error {
 }
 
 type ExecuteFrame struct {
-	ProtocolVersion  int                 `json:"protocol_version"`
-	Kind             MessageKind         `json:"kind"`
-	Authorized       bool                `json:"authorized"`
-	ChildOperationID operation.ID        `json:"child_operation_id,omitempty"`
-	ChildSessionID   operation.SessionID `json:"child_session_id,omitempty"`
+	ProtocolVersion    int                 `json:"protocol_version"`
+	Kind               MessageKind         `json:"kind"`
+	Authorized         bool                `json:"authorized"`
+	ChildOperationID   operation.ID        `json:"child_operation_id,omitempty"`
+	ChildSessionID     operation.SessionID `json:"child_session_id,omitempty"`
+	ResolvedExecutable string              `json:"resolved_executable,omitempty"`
 }
 
 func (f ExecuteFrame) Validate() error {
@@ -158,7 +159,7 @@ func (f ExecuteFrame) Validate() error {
 		return fmt.Errorf("invalid context helper execute frame")
 	}
 	if !f.Authorized {
-		if f.ChildOperationID != "" || f.ChildSessionID != "" {
+		if f.ChildOperationID != "" || f.ChildSessionID != "" || f.ResolvedExecutable != "" {
 			return fmt.Errorf("denied context helper execute frame carries child identity")
 		}
 		return nil
@@ -168,6 +169,9 @@ func (f ExecuteFrame) Validate() error {
 	}
 	if _, err := operation.ParseSessionID(string(f.ChildSessionID)); err != nil {
 		return fmt.Errorf("invalid context helper child session: %w", err)
+	}
+	if f.ResolvedExecutable == "" || len(f.ResolvedExecutable) > core.MaxPathBytes || !filepath.IsAbs(f.ResolvedExecutable) {
+		return fmt.Errorf("invalid context helper execute executable")
 	}
 	return nil
 }

@@ -110,7 +110,7 @@ func (*testExecutionProtocol) AuthorizePrepared(_ context.Context, frame Prepare
 	if frame.FailureCode != "" {
 		return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: false}, nil
 	}
-	return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01"}, nil
+	return ExecuteFrame{ProtocolVersion: ProtocolVersion, Kind: KindExecute, Authorized: true, ChildOperationID: "context_child_op_01", ChildSessionID: "context_child_session_01", ResolvedExecutable: frame.ResolvedExecutable}, nil
 }
 func (*testExecutionProtocol) SendSpawn(frame SpawnFrame) error { return frame.Validate() }
 func (p *testExecutionProtocol) SendOutput(frame OutputFrame) error {

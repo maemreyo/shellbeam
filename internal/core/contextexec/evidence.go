@@ -112,6 +112,9 @@ func (r Result) Validate() error {
 	case LifecycleChildTerminal:
 		return r.validateChildTerminal(false)
 	case LifecycleCanonicalized:
+		if r.FailureCode != "" && !r.Spawn.Succeeded {
+			return r.validateCanonicalNoChildFailure()
+		}
 		return r.validateChildTerminal(true)
 	case LifecycleHelperLost, LifecycleAmbiguous:
 		return r.validateAmbiguousResult()
@@ -174,6 +177,34 @@ func (r Result) validateOutputQuality(label string) error {
 		return fmt.Errorf("incomplete %s output has inconsistent evidence quality", label)
 	}
 	return nil
+}
+
+func (r Result) validateCanonicalNoChildFailure() error {
+	if !validOpaque(r.FailureCode, MaxOpaqueRefBytes) || r.Helper == nil {
+		return fmt.Errorf("canonical no-child context exec failure lacks stable identity")
+	}
+	if r.EvidenceAuthority != "" || r.EvidenceQuality != EvidenceQualityUnproven {
+		return fmt.Errorf("canonical no-child context exec failure cannot claim mechanical evidence")
+	}
+	if r.Exit.Reaped || r.Exit.Code != nil || r.Exit.Signal != "" || r.Signal.Attempted || r.Signal.Succeeded || r.Signal.Requested != "" || r.TimedOut {
+		return fmt.Errorf("canonical no-child context exec failure carries child terminal evidence")
+	}
+	if r.Output != (OutputEvidence{}) {
+		return fmt.Errorf("canonical no-child context exec failure carries output evidence")
+	}
+	if r.Spawn.Succeeded {
+		return fmt.Errorf("canonical no-child context exec failure claims successful spawn")
+	}
+	if !r.Spawn.Attempted {
+		if r.Spawn.ErrorCode != "" || r.Executable != (ExecutableIdentity{}) {
+			return fmt.Errorf("prepare failure carries spawn or executable evidence")
+		}
+		return nil
+	}
+	if r.Spawn.ErrorCode != r.FailureCode {
+		return fmt.Errorf("failed spawn error code mismatch")
+	}
+	return r.Executable.Validate()
 }
 
 func (r Result) validateAmbiguousResult() error {

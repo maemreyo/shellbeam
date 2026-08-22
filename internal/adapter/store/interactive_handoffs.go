@@ -134,6 +134,11 @@ func (r *Repository) ReserveHandoff(ctx context.Context, req handoff.Request, in
 	if binding.Lifecycle != delegated.LifecycleLive || binding.DesiredOwner != delegated.OwnerAgent {
 		return handoff.State{}, false, app.StoreResult{Durability: app.DurableChange, Err: handoffConflict(req.HandoffID, "delegated_session_not_agent_live")}
 	}
+	if _, active, err := r.findContextExecLeaseLocked(sid, binding.AuthorityEpoch); err != nil {
+		return handoff.State{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	} else if active {
+		return handoff.State{}, false, app.StoreResult{Durability: app.DurableChange, Err: handoffConflict(req.HandoffID, "context_exec_lease_active")}
+	}
 	if initial.AuthorityEpoch != binding.AuthorityEpoch+1 {
 		return handoff.State{}, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.StaleControlGeneration, map[string]string{"session_id": req.SessionID, "expected_epoch": fmt.Sprint(binding.AuthorityEpoch + 1), "current_epoch": fmt.Sprint(initial.AuthorityEpoch)}, nil)}
 	}

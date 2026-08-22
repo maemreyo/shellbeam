@@ -105,7 +105,7 @@ func (r Runtime) prepareAuthorizedExecution(ctx context.Context, request Request
 		_ = prepared.Close()
 		return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextHelperLost, "execute_ack_lost")
 	}
-	if err := execute.Validate(); err != nil || !execute.Authorized {
+	if err := execute.Validate(); err != nil || !execute.Authorized || !ExecutableMatches(execute.ResolvedExecutable, resolved) {
 		_ = prepared.Close()
 		return nil, ExecuteFrame{}, "", contextRuntimeFailure(request, failure.ContextExecUnavailable, "execute_not_authorized")
 	}

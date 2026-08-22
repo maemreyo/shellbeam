@@ -85,6 +85,46 @@ func (b ContextExecBinding) ExecutionFingerprint(cwd, actualExecutable string) (
 	return hex.EncodeToString(sum[:]), nil
 }
 
+func DeriveContextChildIDs(requestFingerprint string) (ID, SessionID, error) {
+	if !validContextExecDigest(requestFingerprint) {
+		return "", "", fmt.Errorf("invalid context exec request fingerprint")
+	}
+	opSum := sha256.Sum256([]byte("shellbeam-context-child-operation-v1\x00" + requestFingerprint))
+	sessionSum := sha256.Sum256([]byte("shellbeam-context-child-session-v1\x00" + requestFingerprint))
+	opID := ID("cxop_" + hex.EncodeToString(opSum[:]))
+	sessionID := SessionID("cxs_" + hex.EncodeToString(sessionSum[:]))
+	if _, err := ParseID(string(opID)); err != nil {
+		return "", "", err
+	}
+	if _, err := ParseSessionID(string(sessionID)); err != nil {
+		return "", "", err
+	}
+	return opID, sessionID, nil
+}
+
+type ContextExecLease struct {
+	SessionID          SessionID                `json:"session_id"`
+	AuthorityEpoch     delegated.AuthorityEpoch `json:"authority_epoch"`
+	ContextExecID      string                   `json:"context_exec_id"`
+	RequestFingerprint string                   `json:"request_fingerprint"`
+}
+
+func (l ContextExecLease) Validate() error {
+	if _, err := ParseSessionID(string(l.SessionID)); err != nil {
+		return err
+	}
+	if err := l.AuthorityEpoch.Validate(); err != nil {
+		return err
+	}
+	if !validContextExecID(l.ContextExecID) {
+		return fmt.Errorf("invalid context exec lease identity")
+	}
+	if !validContextExecDigest(l.RequestFingerprint) {
+		return fmt.Errorf("invalid context exec lease request fingerprint")
+	}
+	return nil
+}
+
 type ContextExecState struct {
 	SchemaVersion       int                            `json:"schema_version"`
 	Request             contextexec.Request            `json:"request"`
@@ -215,7 +255,18 @@ func (s ContextExecState) validateLifecycleState() error {
 			return fmt.Errorf("terminal context exec state is incomplete")
 		}
 	case contextexec.LifecycleCanonicalized:
-		if s.Helper == nil || s.Context == nil || s.ChildOperationID == "" || s.Result == nil || s.Result.Lifecycle != contextexec.LifecycleCanonicalized || !s.ExecutionAuthorized {
+		if s.Helper == nil || s.Context == nil || s.Result == nil || s.Result.Lifecycle != contextexec.LifecycleCanonicalized {
+			return fmt.Errorf("canonical context exec state is incomplete")
+		}
+		if s.Result.FailureCode != "" && !s.Result.Spawn.Succeeded {
+			if s.Result.Spawn.Attempted {
+				if s.ChildOperationID == "" || !s.ExecutionAuthorized {
+					return fmt.Errorf("failed-spawn canonical context exec lacks authorized child reservation")
+				}
+			} else if s.ChildOperationID != "" || s.ExecutionAuthorized {
+				return fmt.Errorf("prepare-failure canonical context exec invented child reservation")
+			}
+		} else if s.ChildOperationID == "" || !s.ExecutionAuthorized {
 			return fmt.Errorf("canonical context exec state is incomplete")
 		}
 	case contextexec.LifecycleHelperLost, contextexec.LifecycleAmbiguous:

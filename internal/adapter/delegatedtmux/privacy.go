@@ -143,6 +143,27 @@ func (s privacyStateStore) remove(ref string) error {
 	return nil
 }
 
+func (p *Provider) InspectPrivacy(ctx context.Context, ref core.ProviderRef) (app.PrivacyObservation, error) {
+	state, err := p.privacyProviderState(ctx, ref)
+	if err != nil {
+		return app.PrivacyObservation{}, err
+	}
+	observation := app.PrivacyObservation{ProviderGeneration: state.ProviderGeneration, ObservedAt: time.Now().UTC()}
+	privacy, err := p.privacy.load(ref.Ref)
+	if errors.Is(err, os.ErrNotExist) {
+		return observation, observation.Validate()
+	}
+	if err != nil {
+		return app.PrivacyObservation{}, privacyBarrierFailure("", "privacy_state_invalid", err)
+	}
+	if privacy.ProviderGeneration != state.ProviderGeneration || privacy.SessionID != ref.SessionID || privacy.ProviderRef != ref.Ref {
+		return app.PrivacyObservation{}, privacyBarrierFailure(privacy.HandoffID, "privacy_generation_mismatch", nil)
+	}
+	observation.Active = privacy.Active
+	observation.ReleasePending = privacy.Active
+	return observation, observation.Validate()
+}
+
 func (p *Provider) ArmPrivateObservation(ctx context.Context, ref core.ProviderRef, spec app.PrivacySpec) (app.PrivacyHandle, error) {
 	if err := spec.Validate(); err != nil {
 		return app.PrivacyHandle{}, failure.New(failure.InvalidInput, map[string]string{"field": "privacy_spec"}, err)

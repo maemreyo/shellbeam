@@ -41,6 +41,7 @@ type Service struct {
 	mediaAfter           func(time.Duration) <-chan time.Time
 	mediaWorkerDone      chan struct{}
 	handoff              handoffCoordinator
+	contextExec          ContextExecService
 }
 
 // timeoutSource values name who chose the bound a receipt reports.
@@ -126,6 +127,7 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	service := &Service{
 		store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{},
 		mediaSlots: make(chan struct{}, media.MaxConcurrentReads), mediaReadBudget: mediaBudget, mediaAfter: time.After,
+		contextExec: options.ContextExec,
 	}
 	configureHandoffCoordinator(service)
 	return service
@@ -147,17 +149,6 @@ func (s *Service) InspectServer(context.Context) (ServerInfo, error) {
 }
 func newSessionID() string                    { return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String() }
 func (s *Service) get(id string) *liveSession { s.mu.RLock(); defer s.mu.RUnlock(); return s.live[id] }
-
-func invalidIntentFailure(err error) error {
-	field := "command"
-	switch err.Error() {
-	case "cwd must be absolute":
-		field = "cwd"
-	case "timeout must be non-negative":
-		field = "timeout_ms"
-	}
-	return failure.New(failure.InvalidInput, map[string]string{"field": field}, err)
-}
 
 func (s *Service) put(v *liveSession) { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
 func (s *Service) remove(id string)   { s.mu.Lock(); delete(s.live, id); s.mu.Unlock() }

@@ -142,3 +142,29 @@ func TestChildTerminalRequiresLiteralHelperOwnedTruthAndNoAuthority(t *testing.T
 		t.Fatal("child terminal accepted without reap")
 	}
 }
+
+func TestCanonicalNoChildFailureCarriesNoMechanicalEvidenceAuthority(t *testing.T) {
+	base := validCanonicalResult()
+	for _, attempted := range []bool{false, true} {
+		got := base
+		got.Lifecycle = LifecycleCanonicalized
+		got.FailureCode = "context_exec_unavailable"
+		got.EvidenceAuthority = ""
+		got.EvidenceQuality = EvidenceQualityUnproven
+		got.Exit = receipt.ExitEvidence{}
+		got.Output = OutputEvidence{}
+		if attempted {
+			got.Spawn = receipt.SpawnEvidence{Attempted: true, Succeeded: false, ErrorCode: "context_exec_unavailable"}
+		} else {
+			got.Spawn = receipt.SpawnEvidence{}
+			got.Executable = ExecutableIdentity{}
+		}
+		if err := got.Validate(); err != nil {
+			t.Fatalf("attempted=%v err=%v result=%#v", attempted, err, got)
+		}
+		got.EvidenceAuthority = EvidenceAuthorityContextExecChildOwnedV1
+		if err := got.Validate(); err == nil {
+			t.Fatalf("attempted=%v failure claimed mechanical authority", attempted)
+		}
+	}
+}

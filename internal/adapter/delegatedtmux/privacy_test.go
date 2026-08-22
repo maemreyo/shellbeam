@@ -181,3 +181,37 @@ func TestNativePrivacyHundredArmReleaseReconnectCyclesKeepPublicNeighborsVisible
 		t.Fatalf("private A leaked after 100 cycles: %q", sinkA.String())
 	}
 }
+
+func TestInspectPrivacyReturnsCurrentGenerationAndReleaseTruth(t *testing.T) {
+	p, _ := nativeProvider(t)
+	ref, _ := createHumanNativeSession(t, p, "session_h5_privacy_inspect", nil)
+	initial, err := p.InspectPrivacy(t.Context(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.ProviderGeneration == "" || initial.Active || initial.ReleasePending || initial.ObservedAt.IsZero() {
+		t.Fatalf("initial privacy=%#v", initial)
+	}
+	spec := app.PrivacySpec{HandoffID: "handoff-inspect-privacy", AuthorityEpoch: 2}
+	handle, err := p.ArmPrivateObservation(t.Context(), ref, spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := p.InspectPrivacy(t.Context(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.ProviderGeneration != initial.ProviderGeneration || !active.Active || !active.ReleasePending {
+		t.Fatalf("active privacy=%#v", active)
+	}
+	if err := p.ReleasePrivateObservation(t.Context(), ref, handle, nativePrivacyBoundary(spec, time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	released, err := p.InspectPrivacy(t.Context(), ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released.ProviderGeneration != initial.ProviderGeneration || released.Active || released.ReleasePending {
+		t.Fatalf("released privacy=%#v", released)
+	}
+}

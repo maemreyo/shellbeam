@@ -186,6 +186,24 @@ type PrivacyProvider interface {
 	ReleasePrivateObservation(context.Context, core.ProviderRef, PrivacyHandle, ForwardBoundary) error
 }
 
+type PrivacyObservation struct {
+	ProviderGeneration string    `json:"provider_generation"`
+	Active             bool      `json:"active"`
+	ReleasePending     bool      `json:"release_pending"`
+	ObservedAt         time.Time `json:"observed_at"`
+}
+
+func (v PrivacyObservation) Validate() error {
+	if !validProviderOpaque(v.ProviderGeneration, 128) || v.ObservedAt.IsZero() || v.ReleasePending != v.Active {
+		return fmt.Errorf("invalid privacy observation")
+	}
+	return nil
+}
+
+type PrivacyInspector interface {
+	InspectPrivacy(context.Context, core.ProviderRef) (PrivacyObservation, error)
+}
+
 func validProviderOpaque(v string, max int) bool {
 	if len(v) < 1 || len(v) > max {
 		return false
