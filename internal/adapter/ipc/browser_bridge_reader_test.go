@@ -45,3 +45,31 @@ func TestBrowserBridgeReaderVerificationSendsCheckpointPhaseOverIPC(t *testing.T
 		t.Fatalf("response phase=%q want %q", got.Phase, verificationcore.PhaseCheckpoint)
 	}
 }
+
+func TestBrowserBridgeReaderSessionsExplicitlyIncludesDirectSessions(t *testing.T) {
+	actions := &persistentSessionIPCActions{}
+	runtimeDir, err := os.MkdirTemp("/tmp", "shellbeam-browser-bridge-sessions-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtimeDir) })
+
+	server, err := Listen(runtimeDir, actions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	go server.Serve()
+
+	reader := NewBrowserBridgeReader(server.SocketPath())
+	_, _, err = reader.Sessions(context.Background(), "activity-direct-and-persistent", 64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actions.last.ActivityID != "activity-direct-and-persistent" || actions.last.Limit != 64 {
+		t.Fatalf("session inspect request=%#v", actions.last)
+	}
+	if actions.last.PersistentOnly == nil || *actions.last.PersistentOnly {
+		t.Fatalf("persistent_only=%v, want explicit false", actions.last.PersistentOnly)
+	}
+}
