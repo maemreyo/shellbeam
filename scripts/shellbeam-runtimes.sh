@@ -36,6 +36,7 @@
 # Usage:
 #   scripts/shellbeam-runtimes.sh [list]
 #   scripts/shellbeam-runtimes.sh kill [--dry-run]
+#   scripts/shellbeam-runtimes.sh log [--path-only]
 #
 # Environment:
 #   RUNTIME_OWNER_DIR    machine-global launcher owner record, read only
@@ -81,6 +82,7 @@ HELPER="$SRC_REPO/scripts/lib/main-runtime-owner.sh"
 # under `set -u` when this file is sourced for its definitions alone.
 action=list
 dry_run=""
+path_only=""
 snapshot=""
 
 # ------------------------------------------------------------------ discovery ---
@@ -492,6 +494,57 @@ do_kill() {
 	return 1
 }
 
+# ------------------------------------------------------------------------ log ---
+
+# launcher_log_path prints the file the running launcher writes to, or nothing.
+#
+# It asks the process instead of assuming a path, because there is no single
+# right answer to assume: a launcher may have been started by `make runtime-up`,
+# by hand, or by a scheduler, and each sends its output somewhere different.
+# Guessing produced a bare `tail: No such file or directory`, which reads like a
+# broken runtime rather than a wrong guess -- the runtime was healthy and
+# logging normally at the time.
+#
+# The owner record names the launcher authoritatively, and its identity is
+# confirmed the same way any signal target is, so a stale record cannot send a
+# reader to some unrelated process's output.
+launcher_log_path() {
+	pid=$(owner_field launcher.pid)
+	started=$(owner_field launcher.started)
+	if [ -z "$pid" ] || ! runtime_process_is_same "$pid" "$started"; then
+		# No usable record. A launcher started before the owner record existed,
+		# or one whose record was reclaimed, is still worth reading.
+		pid=$(
+			while IFS= read -r record; do
+				[ "$(field "$record" 1)" = launcher ] || continue
+				field "$record" 2
+				break
+			done <"$snapshot"
+		)
+	fi
+	[ -n "$pid" ] || return 0
+	command -v lsof >/dev/null 2>&1 || return 0
+	# Column 4 is the descriptor, which lsof writes as 1, 1u, 1w or 1r; the last
+	# column is the name it resolves to.
+	lsof -p "$pid" 2>/dev/null | awk '$4 ~ /^1[uwr]?$/ { print $NF; exit }'
+}
+
+do_log() {
+	target=$(launcher_log_path)
+	[ -n "$target" ] ||
+		die "no running launcher to read a log from; run '$0 list' to see what is up"
+	if [ ! -f "$target" ]; then
+		die "the launcher's output is not a regular file: $target
+  it is most likely running in a terminal rather than detached"
+	fi
+	if [ -n "$path_only" ]; then
+		printf '%s\n' "$target"
+		return 0
+	fi
+	log "following $target"
+	tail -f "$target"
+}
+
 # ----------------------------------------------------------------------- main ---
 
 # Sourcing this file defines its functions without taking a pass over the
@@ -503,8 +556,9 @@ do_kill() {
 
 for arg in "$@"; do
 	case "$arg" in
-	list | kill) action=$arg ;;
+	list | kill | log) action=$arg ;;
 	--dry-run) dry_run=1 ;;
+	--path-only) path_only=1 ;;
 	-h | --help)
 		# The header comment is the help text. Ending the range at the first
 		# non-comment line keeps the two from drifting apart the way a line
@@ -512,11 +566,13 @@ for arg in "$@"; do
 		awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
 		exit 0
 		;;
-	*) die "unknown argument: $arg (want: list | kill [--dry-run])" ;;
+	*) die "unknown argument: $arg (want: list | kill [--dry-run] | log [--path-only])" ;;
 	esac
 done
 [ "$action" = kill ] || [ -z "$dry_run" ] ||
 	die "--dry-run applies to 'kill'"
+[ "$action" = log ] || [ -z "$path_only" ] ||
+	die "--path-only applies to 'log'"
 
 snapshot=$(mktemp -t shellbeam-runtimes) || die "mktemp failed"
 trap 'rm -f "$snapshot"' EXIT INT TERM
@@ -526,4 +582,5 @@ collect >"$snapshot"
 case "$action" in
 list) do_list ;;
 kill) do_kill ;;
+log) do_log ;;
 esac

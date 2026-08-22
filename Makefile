@@ -8,7 +8,7 @@ LAUNCHER_LOG := /tmp/shellbeam-launcher.log
 .PHONY: help build test vet fmt fmt-check tidy modverify doctor daemon run-mcp \
 	daemon-start daemon-stop daemon-restart daemon-status \
 	hardening security mcp-local vulncheck devctl-check devctl-verify main-runtime-scripts \
-	runtime-up runtime-ps runtime-kill runtime-gc \
+	runtime-up runtime-ps runtime-kill runtime-log runtime-gc \
 	commit-gate test-dirty build-dirty release-evidence package verify-package clean ci
 
 help: ## List available targets
@@ -116,6 +116,9 @@ runtime-ps: ## List every ShellBeam runtime process on this machine
 
 runtime-kill: ## Stop every ShellBeam runtime process on this machine
 	@sh $(CURDIR)/scripts/shellbeam-runtimes.sh kill
+
+runtime-log: ## Follow the running launcher's log, wherever it happens to write
+	@sh $(CURDIR)/scripts/shellbeam-runtimes.sh log
 
 runtime-gc: ## Reclaim disk left behind by the runtime rebuild loop
 	@sh $(CURDIR)/scripts/runtime-gc.sh
