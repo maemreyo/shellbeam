@@ -7,6 +7,7 @@ import (
 	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -47,17 +48,8 @@ func (p *Planner) ActivityFacts(ctx context.Context, correlationID string) proto
 		return unreachable(protocol.VerbActivityFacts)
 	}
 	if found && sessions != nil {
-		for _, s := range sessions.Sessions {
-			switch persistent.Lifecycle(s.State) {
-			case persistent.LifecycleProvisioning:
-				facts.Sessions.Provisioning++
-			case persistent.LifecycleLive:
-				facts.Sessions.Live++
-			case persistent.LifecycleTerminal:
-				facts.Sessions.Terminal++
-			case persistent.LifecycleLost:
-				facts.Sessions.Lost++
-			}
+		for _, summary := range sessions.Sessions {
+			classifySessionFact(&facts.Sessions, summary)
 		}
 		facts.SessionsTruncated = sessions.Continuation != ""
 	}
@@ -65,6 +57,24 @@ func (p *Planner) ActivityFacts(ctx context.Context, correlationID string) proto
 	out.Activity = &facts
 	out.Coverage = coverageFor(act.CompactedOperations)
 	return out
+}
+
+func classifySessionFact(facts *protocol.SessionFacts, summary persistent.Summary) {
+	state := session.State(summary.State)
+	if state.Terminal() {
+		facts.Terminal++
+		return
+	}
+	if summary.OwnershipStatus == persistent.OwnershipLost {
+		facts.Lost++
+		return
+	}
+	switch state {
+	case session.Starting:
+		facts.Provisioning++
+	case session.Running, session.Finalizing:
+		facts.Live++
+	}
 }
 
 // ActivityEvents runs one activity-scoped journal read with one opaque cursor.

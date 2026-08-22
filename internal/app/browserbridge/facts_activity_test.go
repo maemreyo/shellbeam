@@ -10,6 +10,7 @@ import (
 	protocol "github.com/maemreyo/shellbeam/internal/core/browserbridge"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
+	"github.com/maemreyo/shellbeam/internal/core/session"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -73,8 +74,15 @@ func TestActivityFactsComposesActivityAndSessionsAndDerivesEveryID(t *testing.T)
 		},
 		activityFound: true,
 		sessions: &persistent.InspectPage{Sessions: []persistent.Summary{
-			{SessionID: "s-1", State: string(persistent.LifecycleLive)},
-			{SessionID: "s-2", State: string(persistent.LifecycleTerminal)},
+			{SessionID: "s-start", State: string(session.Starting), OwnershipStatus: persistent.OwnershipCurrent},
+			{SessionID: "s-run", State: string(session.Running), OwnershipStatus: persistent.OwnershipCurrent},
+			{SessionID: "s-final", State: string(session.Finalizing), OwnershipStatus: persistent.OwnershipReattached},
+			{SessionID: "s-done", State: string(session.Completed), OwnershipStatus: persistent.OwnershipTerminal},
+			{SessionID: "s-failed", State: string(session.Failed), OwnershipStatus: persistent.OwnershipTerminal},
+			{SessionID: "s-timeout", State: string(session.TimedOut), OwnershipStatus: persistent.OwnershipTerminal},
+			{SessionID: "s-killed", State: string(session.Killed), OwnershipStatus: persistent.OwnershipTerminal},
+			{SessionID: "s-abandoned", State: string(session.Abandoned), OwnershipStatus: persistent.OwnershipTerminal},
+			{SessionID: "s-lost", State: string(session.Running), OwnershipStatus: persistent.OwnershipLost},
 		}},
 		sessionsFound: true,
 	}
@@ -86,8 +94,8 @@ func TestActivityFactsComposesActivityAndSessionsAndDerivesEveryID(t *testing.T)
 	if resp.Activity == nil || !resp.Activity.Found {
 		t.Fatal("activity not reported found")
 	}
-	if resp.Activity.Sessions.Live != 1 || resp.Activity.Sessions.Terminal != 1 {
-		t.Fatalf("session counts = %+v", resp.Activity.Sessions)
+	if got := resp.Activity.Sessions; got.Provisioning != 1 || got.Live != 2 || got.Terminal != 5 || got.Lost != 1 {
+		t.Fatalf("session counts = %+v", got)
 	}
 	if resp.Coverage.CompactedOperations != 12 || resp.Coverage.HistoricalOperations != "partial" {
 		t.Fatalf("coverage = %+v", resp.Coverage)

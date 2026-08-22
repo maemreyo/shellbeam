@@ -37,9 +37,10 @@ func (r *BrowserBridgeReader) Activity(ctx context.Context, activityID string) (
 }
 
 func (r *BrowserBridgeReader) Sessions(ctx context.Context, activityID string, maxRecords int) (*persistent.InspectPage, bool, error) {
+	persistentOnly := false
 	resp, err := r.client.CallV2(ctx, RequestV2{
 		IPVersion: 2, Kind: "request", RequestID: "bb-sessions",
-		Action: "inspect.sessions", ActivityID: activityID, MaxRecords: maxRecords,
+		Action: "inspect.sessions", ActivityID: activityID, PersistentOnly: &persistentOnly, MaxRecords: maxRecords,
 	})
 	if err != nil {
 		return nil, false, err
