@@ -218,7 +218,9 @@ func TestTelemetryPreparedObservationGapReconcilesAfterRestart(t *testing.T) {
 
 func openTelemetryRepository(t *testing.T, limits Limits) *Repository {
 	t.Helper()
-	return openTelemetryRepositoryAt(t, filepath.Join(t.TempDir(), "state"), limits)
+	r := openTelemetryRepositoryAt(t, filepath.Join(t.TempDir(), "state"), limits)
+	r.now = func() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) }
+	return r
 }
 
 func openTelemetryRepositoryAt(t *testing.T, root string, limits Limits) *Repository {
