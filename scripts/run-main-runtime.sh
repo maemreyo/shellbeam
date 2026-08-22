@@ -113,6 +113,20 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 # shellcheck source=lib/main-runtime-owner.sh
 . "$LAUNCHER_LIB_DIR/main-runtime-owner.sh"
 
+# The materialized bootstrap directory is owned from the moment it exists, not
+# from the moment the richer cleanup handler is installed further down. Every
+# preflight refusal happens between those two points -- a missing Go toolchain
+# is exactly that -- and each one used to leave a copy of the launcher and its
+# helpers behind in TMPDIR with nothing that would ever collect it. This handler
+# is deliberately narrow: at this point no child has been started and no
+# ownership has been taken, so the directory is the only thing there is to
+# release. `trap cleanup EXIT` replaces it once there is more to undo.
+early_cleanup() {
+	[ -n "${SHELLBEAM_LAUNCHER_TMP_DIR:-}" ] || return 0
+	rm -rf "$SHELLBEAM_LAUNCHER_TMP_DIR" 2>/dev/null || true
+}
+trap early_cleanup EXIT INT TERM
+
 # ---------------------------------------------------------------- preflight ---
 
 case "$SYNC_ON_CHANGE" in

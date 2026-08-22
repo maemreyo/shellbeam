@@ -157,4 +157,31 @@ fi
 [ ! -e "$TMP/toolchain-owner" ] || fail "launcher took runtime ownership before refusing"
 pass "a launcher without a Go toolchain refuses in preflight, before teardown"
 
+# --- a refusal does not leak the materialized launcher -------------------------
+#
+# The bootstrap copies the launcher and its helpers into TMPDIR and execs them.
+# The full cleanup handler is installed well after preflight, so before this was
+# fixed every refusal above left one of those copies behind with nothing that
+# would ever collect it. Re-run the same refusal with a materialized directory
+# whose path is known, and require it to be gone afterwards.
+LEAKDIR="$TMP/materialized-refusal"
+mkdir -p "$LEAKDIR/scripts/lib"
+cp "$LAUNCHER" "$LEAKDIR/scripts/run-main-runtime.sh"
+cp "$ROOT/scripts/lib/main-runtime-bootstrap.sh" "$LEAKDIR/scripts/lib/"
+cp "$ROOT/scripts/lib/main-runtime-owner.sh" "$LEAKDIR/scripts/lib/"
+env -i \
+  PATH="$SHIM" \
+  HOME="$HOME" \
+  SHELLBEAM_MAIN_RUNTIME_BOOTSTRAPPED=1 \
+  SHELLBEAM_SOURCE_REPO="$CANON" \
+  SHELLBEAM_TARGET_MAIN="$canon_head" \
+  SHELLBEAM_LAUNCHER_LIB_DIR="$LEAKDIR/scripts/lib" \
+  SHELLBEAM_LAUNCHER_TMP_DIR="$LEAKDIR" \
+  MAIN_WT="$TMP/leak-wt" \
+  RUNTIME_OWNER_DIR="$TMP/leak-owner" \
+  SKIP_TUNNEL=1 \
+  /bin/sh "$LEAKDIR/scripts/run-main-runtime.sh" >/dev/null 2>&1 || true
+[ ! -e "$LEAKDIR" ] || fail "a preflight refusal left the materialized launcher behind: $LEAKDIR"
+pass "a preflight refusal collects its own materialized launcher directory"
+
 printf 'all main-runtime bootstrap tests passed\n'
