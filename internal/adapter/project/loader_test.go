@@ -10,6 +10,41 @@ import (
 	core "github.com/maemreyo/shellbeam/internal/core/project"
 )
 
+func TestManifestLoaderDiscoversRootAgentBootstrap(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Agent bootstrap\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := NewLoader().Load(context.Background(), root)
+	if got.State != core.LoadAbsent {
+		t.Fatalf("load=%#v", got)
+	}
+	if got.AgentBootstrap == nil {
+		t.Fatalf("agent bootstrap not discovered: %#v", got)
+	}
+	if got.AgentBootstrap.Path != "AGENTS.md" {
+		t.Fatalf("bootstrap path=%q", got.AgentBootstrap.Path)
+	}
+	if got.AgentBootstrap.Provenance != core.AgentBootstrapWorkspaceConvention {
+		t.Fatalf("bootstrap provenance=%q", got.AgentBootstrap.Provenance)
+	}
+}
+
+func TestManifestLoaderIgnoresSymlinkedAgentBootstrap(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "AGENTS.md")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	got := NewLoader().Load(context.Background(), root)
+	if got.AgentBootstrap != nil {
+		t.Fatalf("symlinked bootstrap advertised: %#v", got)
+	}
+}
+
 func TestManifestLoaderAbsentValidOversizedAndNoUpwardSearch(t *testing.T) {
 	parent := t.TempDir()
 	child := filepath.Join(parent, "child")
