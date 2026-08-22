@@ -133,6 +133,28 @@ main_runtime_sync_source_main "$SRC_REPO" "$TARGET_MAIN" ||
 
 command -v git >/dev/null 2>&1 || die "git not found on PATH"
 
+# The Go toolchain is checked here rather than discovered at `make build`, and
+# the reason is a failure this cost a live runtime to find. A launcher armed
+# from a detached context -- a controller, a scheduler, anything that does not
+# inherit an interactive profile -- gets sh's built-in PATH, which on darwin
+# omits /opt/homebrew/bin. `go` is not found, check-json-mode.sh exits 127, and
+# make reports `Error 127`, which this script then reported as the generic
+# "build failed". Meanwhile the incumbent stack had already been retired by
+# whatever asked for the restart, so nothing came back and the only symptom
+# visible from outside was an MCP connector that never reconnected.
+#
+# Refusing here instead names the cause, and does it before anything has been
+# torn down. PATH is quoted into the message because "go not found" is not
+# actionable on a machine where go is plainly installed -- the PATH the
+# launcher actually received is the thing the operator needs to see.
+for tool in go make; do
+	command -v "$tool" >/dev/null 2>&1 ||
+		die "$tool not found on PATH; the runtime worktree cannot be built
+  PATH=$PATH
+  a launcher armed outside an interactive shell inherits sh's default PATH,
+  which omits /opt/homebrew/bin; export a PATH that resolves the Go toolchain"
+done
+
 # Everything below is needed only to run the tunnel, so SKIP_TUNNEL can validate
 # the sync/build/serve path on a machine that holds no credentials at all.
 if [ -z "$SKIP_TUNNEL" ]; then

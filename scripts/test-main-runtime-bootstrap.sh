@@ -81,4 +81,80 @@ cleanup_block=$(awk '/^cleanup\(\) \{/{flag=1} flag{print} /^\}/{if(flag){exit}}
 printf '%s\n' "$cleanup_block" | grep -Fq 'SHELLBEAM_LAUNCHER_TMP_DIR' || fail "launcher cleanup does not remove materialized bootstrap directory"
 pass "launcher cleanup owns materialized bootstrap directory lifecycle"
 
+# --- the toolchain is refused before anything is torn down ----------------------
+#
+# Reproduction of a live failure: a launcher armed from a detached context gets
+# sh's built-in PATH, which on darwin omits /opt/homebrew/bin. `go` was not
+# found, check-json-mode.sh exited 127, make reported Error 127, and the
+# launcher reported the generic "build failed" -- after whatever asked for the
+# restart had already retired the incumbent stack, so nothing came back and the
+# only outward symptom was an MCP connector that never reconnected.
+#
+# The launcher is executed for real here rather than grepped, because the
+# property under test is that it *refuses*, and refuses early. Bootstrap is
+# pre-satisfied through its documented environment contract so no network is
+# needed, and MAIN_WT plus RUNTIME_OWNER_DIR are pointed into TMP so a
+# regression that got further than it should cannot reach a live runtime.
+CANON="$TMP/canonical"
+git init -q "$CANON"
+(
+  cd "$CANON"
+  git config user.email test@example.com
+  git config user.name test
+  mkdir -p scripts/lib
+  cp "$ROOT/scripts/lib/main-runtime-bootstrap.sh" scripts/lib/
+  cp "$ROOT/scripts/lib/main-runtime-owner.sh" scripts/lib/
+  git add -A
+  git commit -qm fixture
+  git branch -M main
+)
+canon_head=$(git -C "$CANON" rev-parse HEAD)
+
+# The PATH is built rather than hardcoded. Naming real directories encodes one
+# machine's layout instead of the property under test: /usr/local/bin has no Go
+# on darwin but does on a GitHub ubuntu runner, so a hardcoded list silently
+# stops testing anything. This shim carries exactly what the launcher needs to
+# reach the toolchain check -- dirname for INVOKE_REPO, date for log(), git for
+# the canonical-main sync -- and nothing else, so go and make are provably
+# absent everywhere.
+SHIM="$TMP/shimbin"
+mkdir -p "$SHIM"
+for tool in sh dirname basename date git printf sed awk cat rm mkdir; do
+  tool_path=$(command -v "$tool" 2>/dev/null) || continue
+  ln -sf "$tool_path" "$SHIM/$tool"
+done
+for absent in go make; do
+  if PATH="$SHIM" command -v "$absent" >/dev/null 2>&1; then
+    fail "shim PATH still resolves $absent; the case would test nothing"
+  fi
+done
+PATH="$SHIM" command -v git >/dev/null 2>&1 ||
+  fail "shim PATH lost git, which preflight checks before the toolchain"
+
+toolchain_status=0
+toolchain_out=$(
+  env -i \
+    PATH="$SHIM" \
+    HOME="$HOME" \
+    SHELLBEAM_MAIN_RUNTIME_BOOTSTRAPPED=1 \
+    SHELLBEAM_SOURCE_REPO="$CANON" \
+    SHELLBEAM_TARGET_MAIN="$canon_head" \
+    SHELLBEAM_LAUNCHER_LIB_DIR="$CANON/scripts/lib" \
+    MAIN_WT="$TMP/toolchain-wt" \
+    RUNTIME_OWNER_DIR="$TMP/toolchain-owner" \
+    SKIP_TUNNEL=1 \
+    /bin/sh "$LAUNCHER" 2>&1
+) || toolchain_status=$?
+
+[ "$toolchain_status" -ne 0 ] || fail "launcher accepted a PATH with no Go toolchain"
+printf '%s\n' "$toolchain_out" | grep -Fq 'go not found on PATH' ||
+  fail "refusal does not name the missing tool: [$toolchain_out]"
+printf '%s\n' "$toolchain_out" | grep -Fq "PATH=$SHIM" ||
+  fail "refusal does not quote the PATH the launcher received: [$toolchain_out]"
+if printf '%s\n' "$toolchain_out" | grep -Fq 'building'; then
+  fail "launcher reached the build stage before refusing: [$toolchain_out]"
+fi
+[ ! -e "$TMP/toolchain-owner" ] || fail "launcher took runtime ownership before refusing"
+pass "a launcher without a Go toolchain refuses in preflight, before teardown"
+
 printf 'all main-runtime bootstrap tests passed\n'
