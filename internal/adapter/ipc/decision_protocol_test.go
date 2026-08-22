@@ -347,6 +347,47 @@ func TestDecisionProtocolRequestContextCarriesAuthenticatedPeerUID(t *testing.T)
 	}
 }
 
+type decisionSuccessResponseActions struct {
+	fakeActions
+}
+
+func (decisionSuccessResponseActions) DecisionProtocol(_ context.Context, _, _ string, _ DecisionRequestV1) (DecisionResponseV1, error) {
+	return DecisionResponseV1{Policy: &dp.PolicySnapshot{SchemaVersion: 1, RepositoryID: "repo-transport"}}, nil
+}
+
+func TestDecisionProtocolBridgeForwardPreservesSuccessfulResponse(t *testing.T) {
+	runtime, err := os.MkdirTemp("/tmp", "shellbeam-decision-forward-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	srv, err := Listen(runtime, decisionSuccessResponseActions{})
+	if err != nil {
+		if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
+			t.Skip("sandbox blocks Unix sockets")
+		}
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	go srv.Serve()
+
+	got, err := NewClient(srv.SocketPath()).Forward(context.Background(), bridge.Request{
+		ProtocolVersion: 2,
+		Action:          "decision.inspect",
+		WorkspaceID:     "ws_01K00000000000000000000000",
+		Decision:        &bridge.DecisionRequest{EpisodeID: "episode-transport"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Decision == nil {
+		t.Fatalf("decision response lost across IPC bridge: %#v", got)
+	}
+	if got.Decision.Policy == nil || got.Decision.Policy.RepositoryID != "repo-transport" {
+		t.Fatalf("decision policy response=%#v", got.Decision)
+	}
+}
+
 func TestDecisionProtocolSecurityRejectsUnrelatedExecutionEvidenceFields(t *testing.T) {
 	for _, field := range []string{"evidence", "verification_attempt"} {
 		t.Run(field, func(t *testing.T) {
