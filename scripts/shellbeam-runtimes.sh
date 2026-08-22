@@ -125,6 +125,19 @@ runtime_dir_from_argv() {
 	printf '%s\n' "$DEFAULT_RUNTIME_DIR"
 }
 
+# orphan_suffix marks a process nothing will ever reap.
+#
+# A daemon, tunnel or mcp on ppid 1 lost the launcher or test that owned it. A
+# launcher is different: its parent is only the shell that started it, so
+# `nohup scripts/run-main-runtime.sh &` leaves it on ppid 1 by design while it
+# still reaps its own children through its traps. Marking that reported a
+# healthy detached runtime as a leak, which is how this was found.
+orphan_suffix() {
+	[ "$1" != launcher ] || return 0
+	[ "$2" = 1 ] || return 0
+	printf '+orphan\n'
+}
+
 # lease_pid prints the pid recorded in a directory's daemon.owner, or nothing.
 lease_pid() {
 	[ -f "$1/daemon.owner" ] || return 0
@@ -195,9 +208,7 @@ collect() {
 				state=stale
 			fi
 		fi
-		# A runtime process reparented to init is one whose launcher or test is
-		# already gone. Nothing will ever reap it.
-		[ "$ppid" != 1 ] || state="$state+orphan"
+		state="$state$(orphan_suffix "$role" "$ppid")"
 
 		started=$(runtime_process_started "$pid" 2>/dev/null || true)
 
@@ -290,9 +301,16 @@ print_owner_record() {
 
 # dead_leases reports directories whose daemon.owner names a pid that is gone.
 # This is what makes run-main-runtime.sh's "another daemon won the lease" and
-# doctor's runtime_owner failures diagnosable instead of mysterious. Only an
-# ungraceful death leaves one: a daemon that receives SIGTERM releases its lease
-# on the way out.
+# doctor's runtime_owner failures diagnosable instead of mysterious.
+#
+# A lease outlives its daemon however that daemon died. Measured: a daemon
+# retired by run-main-runtime.sh's cleanup removed its daemon.sock and left
+# daemon.owner behind naming its own dead pid. That is not a defect -- ownership
+# is decided by whether the recorded pid is alive, so a crash and a clean exit
+# recover through one path -- but it does mean every row here is an ordinary
+# leftover rather than evidence of an ungraceful death. A stale lease does not
+# block a successor: the launcher resolves ownership through `doctor`, which
+# reported "no daemon owns the runtime directory" against exactly such a file.
 #
 # The scan root is resolved to its physical path first. On darwin /tmp is a
 # symlink to /private/tmp, and find(1) does not follow a symlink given as its
