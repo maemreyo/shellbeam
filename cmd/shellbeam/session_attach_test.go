@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -223,5 +224,23 @@ func TestSessionAttachAcceptsH4PrivateBootstrapAndPrintsPrivateWarning(t *testin
 	}
 	if got := stderr.String(); !strings.Contains(got, h4LocalWarning) || strings.Contains(got, "Secret handoff is unavailable") {
 		t.Fatalf("H4 private warning=%q", got)
+	}
+}
+
+func TestLocalAttachEnvironmentPreservesTerminalDescriptionPaths(t *testing.T) {
+	got := localAttachEnvironment([]string{
+		"TERM=xterm-ghostty",
+		"TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo",
+		"TERMINFO_DIRS=/usr/share/terminfo:/opt/share/terminfo",
+		"COLORTERM=truecolor",
+		"SHELLBEAM_ATTACH_SENTINEL=private",
+	})
+	want := []string{
+		"TERM=xterm-ghostty",
+		"TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo",
+		"TERMINFO_DIRS=/usr/share/terminfo:/opt/share/terminfo",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("local attach terminal environment=%v want=%v", got, want)
 	}
 }
