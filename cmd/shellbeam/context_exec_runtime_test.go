@@ -273,6 +273,13 @@ func TestContextExecTerminalSchedulerKeepsEvidenceScopedToFrozenContracts(t *tes
 	}
 }
 
+func TestComposeContextExecServiceUnavailableIsNilInterface(t *testing.T) {
+	service := composeContextExecService(context.Background(), nil, nil, "/tmp", "daemon_ctx", nil, nil, nil)
+	if service != nil {
+		t.Fatalf("unavailable context exec returned non-nil interface: %#v", service)
+	}
+}
+
 type contextExecCapabilityService struct{}
 
 func (contextExecCapabilityService) Execute(context.Context, contextcore.Request) (operation.ContextExecState, error) {

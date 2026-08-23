@@ -257,6 +257,9 @@ func composeContextExecService(ctx context.Context, store daemonapp.Store, provi
 	runtime, executable := composeContextExecRuntime(ctx, provider, runtimeDir)
 	scheduler := contextExecTerminalScheduler{structured: structured, telemetry: telemetry, evidence: evidence}
 	service, _ := daemonapp.ComposeContextExec(store, provider, shelladapter.NewUnixProbe(), runtime, daemonapp.ContextExecCompositionOptions{Incarnation: incarnation, HelperExecutable: executable, TerminalScheduler: scheduler})
+	if service == nil {
+		return nil
+	}
 	return service
 }
 
