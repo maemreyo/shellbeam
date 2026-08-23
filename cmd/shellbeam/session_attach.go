@@ -255,7 +255,7 @@ func newLocalHandoffID() string {
 	return hex.EncodeToString(b[:])
 }
 func localAttachEnvironment(env []string) []string {
-	allowed := map[string]bool{"HOME": true, "LANG": true, "LC_ALL": true, "LC_CTYPE": true, "PATH": true, "TERM": true, "TMPDIR": true}
+	allowed := map[string]bool{"HOME": true, "LANG": true, "LC_ALL": true, "LC_CTYPE": true, "PATH": true, "TERM": true, "TERMINFO": true, "TERMINFO_DIRS": true, "TMPDIR": true}
 	out := make([]string, 0, 7)
 	hasTerm := false
 	for _, entry := range env {
