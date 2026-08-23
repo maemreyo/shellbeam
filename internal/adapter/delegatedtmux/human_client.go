@@ -335,7 +335,11 @@ func attachEnvironment(env []string) []string {
 		return nil
 	}
 	out := append([]string(nil), env...)
-	for _, entry := range out {
+	for i, entry := range out {
+		if entry == "TERM=xterm-ghostty" {
+			out[i] = "TERM=xterm-256color"
+			return out
+		}
 		if strings.HasPrefix(entry, "TERM=") {
 			return out
 		}

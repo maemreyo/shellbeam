@@ -150,3 +150,16 @@ func waitHumanDone(t *testing.T, done <-chan error) {
 		t.Fatal("human attach did not exit")
 	}
 }
+
+func TestAttachEnvironmentDowngradesGhosttyTermForTmuxCompatibility(t *testing.T) {
+	env := attachEnvironment([]string{"PATH=/usr/bin:/bin", "TERM=xterm-ghostty"})
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "TERM=") {
+			if entry != "TERM=xterm-256color" {
+				t.Fatalf("TERM=%q want xterm-256color compatibility fallback", entry)
+			}
+			return
+		}
+	}
+	t.Fatal("attach environment omitted TERM")
+}
