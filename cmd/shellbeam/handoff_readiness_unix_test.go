@@ -102,6 +102,25 @@ func TestDelegatedHandoffReadinessUsesExactCurrentFishCommand(t *testing.T) {
 	_ = prepared.Watcher.Close()
 }
 
+func TestDelegatedHandoffReadinessUsesExactCurrentNushellCommand(t *testing.T) {
+	provider, ref := task7ReadinessProvider("nu")
+	runtimeDir := shortTask7RuntimeDir(t)
+	ackTask7ReadinessInstall(t, runtimeDir, provider.obs, ref, "handoff_task9_nushell", 2)
+	preparer := newDelegatedHandoffReadiness(provider, runtimeDir, "/bin/echo")
+	prepared, err := preparer.Prepare(t.Context(), task7ReadinessRequest(ref, "handoff_task9_nushell"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prepared.Shell.Family != shellcore.ShellNushell {
+		t.Fatalf("shell=%#v", prepared.Shell)
+	}
+	writes := provider.writeSnapshot()
+	if len(writes) != 1 || !strings.Contains(writes[0], "$env.config.hooks.pre_prompt") || strings.Contains(writes[0], "eval ") || strings.Contains(writes[0], "PROMPT_COMMAND") || strings.Contains(writes[0], "fish_prompt") {
+		t.Fatalf("writes=%q", writes)
+	}
+	_ = prepared.Watcher.Close()
+}
+
 func ackTask7ReadinessInstall(t *testing.T, runtimeDir string, obs delegatedapp.Observation, ref delegated.ProviderRef, handoffID string, epoch delegated.AuthorityEpoch) {
 	t.Helper()
 	facts := shellapp.ProviderProcessFacts{

@@ -300,7 +300,7 @@ func TestComposeContextExecCapabilityRequiresComposedServiceAndH4(t *testing.T) 
 	if got.ContextExec.HelperProtocolVersion != contextadapter.ProtocolVersion || got.ContextExec.EvidenceAuthority != contextcore.EvidenceAuthorityContextExecChildOwnedV1 || got.ContextExec.ResourceEnforcement != capability.Unavailable || got.ContextExec.Hermetic != capability.Unavailable {
 		t.Fatalf("context exec support=%#v", got.ContextExec)
 	}
-	if strings.Join([]string{string(got.ContextExec.ShellAdapters[0]), string(got.ContextExec.ShellAdapters[1]), string(got.ContextExec.ShellAdapters[2])}, ",") != "fish,zsh,bash" {
+	if strings.Join([]string{string(got.ContextExec.ShellAdapters[0]), string(got.ContextExec.ShellAdapters[1]), string(got.ContextExec.ShellAdapters[2]), string(got.ContextExec.ShellAdapters[3])}, ",") != "fish,zsh,bash,nushell" {
 		t.Fatalf("shell adapters=%v", got.ContextExec.ShellAdapters)
 	}
 }

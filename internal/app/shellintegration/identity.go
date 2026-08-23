@@ -91,7 +91,7 @@ func ContextShellIdentity(shell core.ShellIdentity) (string, error) {
 		return "", err
 	}
 	switch shell.Family {
-	case core.ShellFish, core.ShellZsh, core.ShellBash:
+	case core.ShellFish, core.ShellZsh, core.ShellBash, core.ShellNushell:
 		return string(shell.Family) + ":" + shell.RuntimeID, nil
 	default:
 		return "", fmt.Errorf("context execution requires an exact supported shell identity")

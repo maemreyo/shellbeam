@@ -46,8 +46,18 @@ func TestProbeDetectsReplacementThenRequiresExplicitReprobe(t *testing.T) {
 	}
 }
 
-func TestProbeUnknownForegroundNeverFallsBackToBash(t *testing.T) {
+func TestProbeDetectsQualifiedNushellProcessName(t *testing.T) {
 	obs, err := NewUnixProbe().Probe(context.Background(), app.ProbeRequest{Facts: app.ProviderProcessFacts{SessionID: "session-1", ProviderID: "tmux_control_mode", ProviderVersion: 1, ProviderGeneration: "gen_1", PanePID: 42, CurrentCommand: "nu", LoginShell: "/bin/bash"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if obs.State != app.IdentityExact || obs.Identity.Family != core.ShellNushell || !obs.AdapterEligible() {
+		t.Fatalf("nushell observation=%#v", obs)
+	}
+}
+
+func TestProbeUnknownForegroundNeverFallsBackToBash(t *testing.T) {
+	obs, err := NewUnixProbe().Probe(context.Background(), app.ProbeRequest{Facts: app.ProviderProcessFacts{SessionID: "session-1", ProviderID: "tmux_control_mode", ProviderVersion: 1, ProviderGeneration: "gen_1", PanePID: 42, CurrentCommand: "pwsh", LoginShell: "/bin/bash"}})
 	if err != nil {
 		t.Fatal(err)
 	}

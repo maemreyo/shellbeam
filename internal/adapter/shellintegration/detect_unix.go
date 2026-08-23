@@ -61,6 +61,8 @@ func shellFamily(command string) core.ShellFamily {
 		return core.ShellZsh
 	case "bash":
 		return core.ShellBash
+	case "nu":
+		return core.ShellNushell
 	default:
 		return core.ShellUnknown
 	}

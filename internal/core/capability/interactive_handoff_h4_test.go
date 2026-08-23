@@ -15,6 +15,7 @@ func h4Support() InteractiveHandoffSupport {
 			{Shell: shell.ShellFish, Level: shell.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
 			{Shell: shell.ShellZsh, Level: shell.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
 			{Shell: shell.ShellBash, Level: shell.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
+			{Shell: shell.ShellNushell, Level: shell.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
 		},
 		RequirementKinds: []shell.RequirementKind{shell.RequirementEnvironmentExportedNonempty},
 		Privacy:          &HandoffPrivacySupport{SecretPrivateInterval: true, PrivacyReleaseSeparate: true, ObserverTopologyQualified: true, HumanInputPersisted: false},

@@ -238,7 +238,7 @@ func composeContextExecCapability(catalog capability.Catalog, service daemonapp.
 	}
 	support := capability.ContextExecSupport{
 		ProviderID: catalog.DelegatedInteractive.ProviderID, ProviderVersion: catalog.DelegatedInteractive.ProviderVersion, Platform: catalog.DelegatedInteractive.Platform,
-		ShellAdapters:         []shellcore.ShellFamily{shellcore.ShellFish, shellcore.ShellZsh, shellcore.ShellBash},
+		ShellAdapters:         []shellcore.ShellFamily{shellcore.ShellFish, shellcore.ShellZsh, shellcore.ShellBash, shellcore.ShellNushell},
 		HelperProtocolVersion: contextadapter.ProtocolVersion,
 		EvidenceAuthority:     contextcore.EvidenceAuthorityContextExecChildOwnedV1,
 		EvidenceQualities:     []contextcore.EvidenceQuality{contextcore.EvidenceQualityUnproven, contextcore.EvidenceQualityIncomplete, contextcore.EvidenceQualityComplete, contextcore.EvidenceQualityAmbiguous},

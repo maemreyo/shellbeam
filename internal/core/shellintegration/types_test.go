@@ -3,7 +3,7 @@ package shellintegration
 import "testing"
 
 func TestShellIdentityAndCapabilityClosedVocabulary(t *testing.T) {
-	validShells := []ShellFamily{ShellFish, ShellZsh, ShellBash, ShellUnknown}
+	validShells := []ShellFamily{ShellFish, ShellZsh, ShellBash, ShellNushell, ShellUnknown}
 	for _, family := range validShells {
 		identity := ShellIdentity{Family: family, RuntimeID: "runtime-1"}
 		if err := identity.Validate(); err != nil {

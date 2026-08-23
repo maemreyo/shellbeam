@@ -141,3 +141,30 @@ func TestLifecycleAllowsOnlyOneWatcherPerHandoffAndClosesOnCancellation(t *testi
 		t.Fatalf("close count=%d", watcher.closeCount())
 	}
 }
+
+func TestServiceAcceptsQualifiedNushellAdapter(t *testing.T) {
+	now := time.Date(2026, 8, 22, 16, 30, 0, 0, time.UTC)
+	shell := core.ShellIdentity{Family: core.ShellNushell, RuntimeID: "runtime-nushell"}
+	req := core.Requirement{Kind: core.RequirementEnvironmentExportedNonempty, Name: "CONTROL_PLANE_API_KEY"}
+	watcher := &watcherFake{event: WatchEvent{
+		Result:   core.RequirementResult{Requirement: req, State: core.RequirementSatisfied, Quality: core.RequirementQualityExactShellAdapter, SafeBoundary: true, ObservedAt: now},
+		Boundary: core.BoundaryProof{HandoffID: "handoff-nushell", AuthorityEpoch: 5, Shell: shell, Quality: core.BoundaryQualityShellPrompt, ObservedAt: now},
+	}}
+	nushell := &adapterFake{family: core.ShellNushell, watcher: watcher}
+	probe := &probeFake{observation: ShellIdentityObservation{Identity: shell, State: IdentityExact, ObservedAt: now}}
+	svc, err := NewService(probe, nushell)
+	if err != nil {
+		t.Fatalf("qualified Nushell adapter rejected: %v", err)
+	}
+	out, err := svc.Observe(context.Background(), ObserveRequest{
+		HandoffID: "handoff-nushell", AuthorityEpoch: delegated.AuthorityEpoch(5),
+		Facts:       ProviderProcessFacts{SessionID: "session-nushell", ProviderID: "tmux_control_mode", ProviderVersion: 1, ProviderGeneration: "gen_nu", PanePID: 84, CurrentCommand: "nu"},
+		Requirement: req,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nushell.installs.Load() != 1 || out.Result.State != core.RequirementSatisfied || out.Boundary == nil || !out.Boundary.CurrentFor("handoff-nushell", 5, shell) {
+		t.Fatalf("installs=%d out=%#v", nushell.installs.Load(), out)
+	}
+}

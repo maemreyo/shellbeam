@@ -8,12 +8,13 @@ const (
 	ShellFish    ShellFamily = "fish"
 	ShellZsh     ShellFamily = "zsh"
 	ShellBash    ShellFamily = "bash"
+	ShellNushell ShellFamily = "nushell"
 	ShellUnknown ShellFamily = "unknown"
 )
 
 func (v ShellFamily) Validate() error {
 	switch v {
-	case ShellFish, ShellZsh, ShellBash, ShellUnknown:
+	case ShellFish, ShellZsh, ShellBash, ShellNushell, ShellUnknown:
 		return nil
 	default:
 		return fmt.Errorf("invalid shell family")

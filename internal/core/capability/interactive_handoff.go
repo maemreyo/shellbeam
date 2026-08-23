@@ -13,7 +13,7 @@ type ShellIntegrationSupport struct {
 }
 
 func (s ShellIntegrationSupport) valid() bool {
-	if s.Shell != shell.ShellFish && s.Shell != shell.ShellZsh && s.Shell != shell.ShellBash {
+	if s.Shell != shell.ShellFish && s.Shell != shell.ShellZsh && s.Shell != shell.ShellBash && s.Shell != shell.ShellNushell {
 		return false
 	}
 	if err := s.Level.Validate(); err != nil {

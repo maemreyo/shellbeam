@@ -63,6 +63,7 @@ func TestInteractiveHandoffH4CapabilitySchemaAdvertisesClosedProviderShellRequir
 			map[string]any{"shell": "fish", "level": "requirement_aware", "safe_boundary": true, "environment_exported_nonempty": true},
 			map[string]any{"shell": "zsh", "level": "requirement_aware", "safe_boundary": true, "environment_exported_nonempty": true},
 			map[string]any{"shell": "bash", "level": "requirement_aware", "safe_boundary": true, "environment_exported_nonempty": true},
+			map[string]any{"shell": "nushell", "level": "requirement_aware", "safe_boundary": true, "environment_exported_nonempty": true},
 		},
 		"requirement_kinds": []any{"environment_exported_nonempty"},
 		"privacy":           map[string]any{"secret_private_interval": true, "privacy_release_separate": true, "observer_topology_qualified": true, "human_input_persisted": false},

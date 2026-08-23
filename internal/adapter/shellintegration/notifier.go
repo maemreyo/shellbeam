@@ -118,12 +118,28 @@ type oneShotWatcher struct {
 	cleanupErr  error
 }
 
+type watcherNotifierBuilder func(string, string, app.WatchRequest, string, NotificationEvent, bool) string
+type watcherDeliveryBuilder func(string, string) string
+
 func newOneShotWatcher(req app.WatchRequest, deps Dependencies, installBuilder func(app.WatchRequest, string, string, string) (string, string)) (*oneShotWatcher, string, error) {
+	return newOneShotWatcherWithDialect(req, deps, installBuilder, notifierInvocationForEvent, posixWatcherDelivery)
+}
+
+func newOneShotWatcherWithDialect(
+	req app.WatchRequest,
+	deps Dependencies,
+	installBuilder func(app.WatchRequest, string, string, string) (string, string),
+	notifyBuilder watcherNotifierBuilder,
+	deliveryBuilder watcherDeliveryBuilder,
+) (*oneShotWatcher, string, error) {
 	if err := req.Validate(); err != nil {
 		return nil, "", err
 	}
 	if err := deps.validate(); err != nil {
 		return nil, "", err
+	}
+	if installBuilder == nil || notifyBuilder == nil || deliveryBuilder == nil {
+		return nil, "", fmt.Errorf("shell watcher dialect unavailable")
 	}
 	eventID, err := newEventID()
 	if err != nil {
@@ -143,18 +159,15 @@ func newOneShotWatcher(req app.WatchRequest, deps Dependencies, installBuilder f
 		_ = os.Remove(socketPath)
 		return nil, "", err
 	}
-	trueNotify := notifierInvocation(deps.Executable, socketPath, req, eventID, true)
-	falseNotify := notifierInvocation(deps.Executable, socketPath, req, eventID, false)
-	installedNotify := notifierInvocationForEvent(deps.Executable, socketPath, req, eventID, NotificationHookInstalled, false)
+	trueNotify := notifyBuilder(deps.Executable, socketPath, req, eventID, NotificationPromptBoundary, true)
+	falseNotify := notifyBuilder(deps.Executable, socketPath, req, eventID, NotificationPromptBoundary, false)
+	installedNotify := notifyBuilder(deps.Executable, socketPath, req, eventID, NotificationHookInstalled, false)
 	install, cleanup := installBuilder(req, eventID, trueNotify, falseNotify)
 	watcher := &oneShotWatcher{
 		req: req, expected: Notification{HandoffID: req.HandoffID, AuthorityEpoch: req.AuthorityEpoch, EventID: eventID, ShellRuntimeID: req.Shell.RuntimeID, Event: NotificationPromptBoundary},
 		listener: listener, socketPath: socketPath, command: deps.Command, cleanup: cleanup,
 	}
-	// Deliver registration and its acknowledgement as one top-level eval. This
-	// prevents an interactive prompt from running the newly registered hook
-	// between registration and the acknowledgement.
-	delivery := "eval " + shellQuote(install+"\n"+installedNotify)
+	delivery := deliveryBuilder(install, installedNotify)
 	if err := deps.Command.WriteShell(context.Background(), delivery); err != nil {
 		watcher.closeTransport()
 		return nil, "", err
@@ -176,6 +189,11 @@ func newOneShotWatcher(req app.WatchRequest, deps Dependencies, installBuilder f
 	return watcher, delivery, nil
 }
 
+func posixWatcherDelivery(install, installedNotify string) string {
+	// Bourne-family adapters need one top-level eval so registration and its
+	// acknowledgement complete before the newly registered prompt hook can run.
+	return "eval " + shellQuote(install+"\n"+installedNotify)
+}
 func (w *oneShotWatcher) Wait(ctx context.Context) (app.WatchEvent, error) {
 	if w == nil || w.listener == nil {
 		return app.WatchEvent{}, fmt.Errorf("shell watcher unavailable")

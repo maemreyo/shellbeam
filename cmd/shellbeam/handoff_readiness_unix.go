@@ -27,6 +27,7 @@ func supportedHandoffShellIntegrations() []capability.ShellIntegrationSupport {
 		{Shell: shellcore.ShellFish, Level: shellcore.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
 		{Shell: shellcore.ShellZsh, Level: shellcore.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
 		{Shell: shellcore.ShellBash, Level: shellcore.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
+		{Shell: shellcore.ShellNushell, Level: shellcore.CapabilityRequirementAware, SafeBoundary: true, EnvironmentExportedNonempty: true},
 	}
 }
 
@@ -115,6 +116,8 @@ func shellAdapterFor(family shellcore.ShellFamily, deps shelladapter.Dependencie
 		return shelladapter.NewZshAdapter(deps)
 	case shellcore.ShellBash:
 		return shelladapter.NewBashAdapter(deps)
+	case shellcore.ShellNushell:
+		return shelladapter.NewNushellAdapter(deps)
 	default:
 		return nil, fmt.Errorf("unsupported current shell")
 	}

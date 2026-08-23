@@ -20,7 +20,7 @@ func TestDoctorContextExecReportsQualifiedContractWithoutPrivateMaterial(t *test
 		}).
 		WithContextExec(capability.ContextExecSupport{
 			ProviderID: "tmux_control_mode", ProviderVersion: 1, Platform: "darwin",
-			ShellAdapters: []shellcore.ShellFamily{shellcore.ShellFish, shellcore.ShellZsh, shellcore.ShellBash}, HelperProtocolVersion: 3,
+			ShellAdapters: []shellcore.ShellFamily{shellcore.ShellFish, shellcore.ShellZsh, shellcore.ShellBash, shellcore.ShellNushell}, HelperProtocolVersion: 3,
 			EvidenceAuthority:   contextcore.EvidenceAuthorityContextExecChildOwnedV1,
 			EvidenceQualities:   []contextcore.EvidenceQuality{contextcore.EvidenceQualityUnproven, contextcore.EvidenceQualityIncomplete, contextcore.EvidenceQualityComplete, contextcore.EvidenceQualityAmbiguous},
 			OutputAttribution:   contextcore.OutputAttributionHelperOwnedChildPipes,
@@ -31,7 +31,7 @@ func TestDoctorContextExecReportsQualifiedContractWithoutPrivateMaterial(t *test
 		t.Fatalf("check=%#v", check)
 	}
 	for _, required := range []string{
-		"provider=tmux_control_mode", "shell_adapters=fish,zsh,bash", "helper_protocol=3",
+		"provider=tmux_control_mode", "shell_adapters=fish,zsh,bash,nushell", "helper_protocol=3",
 		"evidence_authority=context_exec_child_owned_v1", "evidence_qualities=unproven,incomplete,complete,ambiguous",
 		"resource_enforcement=unavailable", "hermetic=unavailable", "blockers=none",
 	} {

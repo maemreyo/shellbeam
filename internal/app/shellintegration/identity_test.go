@@ -51,6 +51,7 @@ func TestContextShellIdentityUsesCanonicalFamilyRuntimeEncoding(t *testing.T) {
 		{name: "fish", in: core.ShellIdentity{Family: core.ShellFish, RuntimeID: "runtime_01"}, want: "fish:runtime_01"},
 		{name: "zsh", in: core.ShellIdentity{Family: core.ShellZsh, RuntimeID: "runtime_02"}, want: "zsh:runtime_02"},
 		{name: "bash", in: core.ShellIdentity{Family: core.ShellBash, RuntimeID: "runtime_03"}, want: "bash:runtime_03"},
+		{name: "nushell", in: core.ShellIdentity{Family: core.ShellNushell, RuntimeID: "runtime_04"}, want: "nushell:runtime_04"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

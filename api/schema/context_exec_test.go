@@ -130,7 +130,7 @@ func TestContextExecCapabilitySchemaExposesClosedNativeContract(t *testing.T) {
 	}
 	server["context_exec"] = map[string]any{
 		"provider_id": "tmux_control_mode", "provider_version": 1.0, "platform": "darwin",
-		"shell_adapters": []any{"fish", "zsh", "bash"}, "helper_protocol_version": 3.0,
+		"shell_adapters": []any{"fish", "zsh", "bash", "nushell"}, "helper_protocol_version": 3.0,
 		"evidence_authority":   "context_exec_child_owned_v1",
 		"evidence_qualities":   []any{"unproven", "incomplete", "complete", "ambiguous"},
 		"output_attribution":   "helper_owned_child_pipes",

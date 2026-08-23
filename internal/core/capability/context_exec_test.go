@@ -27,7 +27,7 @@ func TestContextExecCapabilityRequiresExactH4CompositionAndKeepsResourceClaimsSe
 	setContextExecSupportField(t, support, "ProviderID", "tmux_control_mode")
 	setContextExecSupportField(t, support, "ProviderVersion", 1)
 	setContextExecSupportField(t, support, "Platform", "darwin")
-	setContextExecStringSlice(t, support, "ShellAdapters", []string{"fish", "zsh", "bash"})
+	setContextExecStringSlice(t, support, "ShellAdapters", []string{"fish", "zsh", "bash", "nushell"})
 	setContextExecSupportField(t, support, "HelperProtocolVersion", 3)
 	setContextExecSupportField(t, support, "EvidenceAuthority", "context_exec_child_owned_v1")
 	setContextExecStringSlice(t, support, "EvidenceQualities", []string{"unproven", "incomplete", "complete", "ambiguous"})

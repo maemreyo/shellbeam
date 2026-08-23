@@ -323,3 +323,11 @@ func TestWatcherNotificationSelfRemovalAvoidsRedundantCleanupInjection(t *testin
 		t.Fatalf("successful notification injected redundant cleanup: before=%d after=%d scripts=%q", before, after, port.snapshot())
 	}
 }
+
+func TestPosixWatcherDeliveryPreservesRealCommandBoundary(t *testing.T) {
+	got := posixWatcherDelivery("install", "ack")
+	want := "eval " + shellQuote("install\nack")
+	if got != want {
+		t.Fatalf("delivery=%q want=%q", got, want)
+	}
+}

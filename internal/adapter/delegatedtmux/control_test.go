@@ -1,8 +1,10 @@
 package delegatedtmux
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestParseControlTranscriptPreservesCommandAndPaneOutputOrdering(t *testing.T) {
@@ -74,5 +76,44 @@ func TestControlClientBuffersPreTargetOutputUntilExactPaneBinding(t *testing.T) 
 	}
 	if string(sink.data) != "old" {
 		t.Fatalf("drained=%q", sink.data)
+	}
+}
+
+func TestControlClientCloseWaitsForProcessExitNotReadLoopEOF(t *testing.T) {
+	cmd := exec.Command("/bin/sh", "-c", `trap '' TERM; exec 1>&-; while :; do :; done`)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := newControlClient(cmd, stdin, stdout)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-c.done:
+	case <-time.After(time.Second):
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		t.Fatal("control read loop did not observe stdout EOF")
+	}
+
+	closed := make(chan error, 1)
+	go func() { closed <- c.close() }()
+	select {
+	case err := <-closed:
+		if err == nil {
+			return
+		}
+		if cmd.ProcessState == nil {
+			t.Fatalf("close err=%v process_state=<nil>", err)
+		}
+	case <-time.After(time.Second):
+		_ = cmd.Process.Kill()
+		err := <-closed
+		t.Fatalf("control close exceeded bounded teardown window: %v", err)
 	}
 }

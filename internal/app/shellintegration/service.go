@@ -58,7 +58,7 @@ func NewService(probe ShellProbe, adapters ...Adapter) (*Service, error) {
 			return nil, fmt.Errorf("nil shell adapter")
 		}
 		family := adapter.Family()
-		if family != core.ShellFish && family != core.ShellZsh && family != core.ShellBash {
+		if family != core.ShellFish && family != core.ShellZsh && family != core.ShellBash && family != core.ShellNushell {
 			return nil, fmt.Errorf("unsupported shell adapter family")
 		}
 		if _, exists := s.adapters[family]; exists {

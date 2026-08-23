@@ -205,12 +205,12 @@ func TestInteractiveHandoffCapabilityIntersectsPrivacyAndShellReadiness(t *testi
 	}
 
 	readinessOnly := composeInteractiveHandoffCapability(base, &h2CapabilityProvider{}, true)
-	if readinessOnly.InteractiveHandoff == nil || readinessOnly.InteractiveHandoff.Secret || !readinessOnly.InteractiveHandoff.AutomaticReadiness || len(readinessOnly.InteractiveHandoff.ShellIntegrations) != 3 || len(readinessOnly.InteractiveHandoff.RequirementKinds) != 1 {
+	if readinessOnly.InteractiveHandoff == nil || readinessOnly.InteractiveHandoff.Secret || !readinessOnly.InteractiveHandoff.AutomaticReadiness || len(readinessOnly.InteractiveHandoff.ShellIntegrations) != 4 || len(readinessOnly.InteractiveHandoff.RequirementKinds) != 1 {
 		t.Fatalf("readiness-only capability=%#v", readinessOnly.InteractiveHandoff)
 	}
 
 	full := composeInteractiveHandoffCapability(base, &h4PrivacyCapabilityProvider{}, true)
-	if full.InteractiveHandoff == nil || !full.InteractiveHandoff.Secret || !full.InteractiveHandoff.AutomaticReadiness || full.InteractiveHandoff.Privacy == nil || len(full.InteractiveHandoff.ShellIntegrations) != 3 || len(full.InteractiveHandoff.RequirementKinds) != 1 || len(full.InteractiveHandoff.CaptureQualities) != 3 || !full.InteractiveHandoff.ValidH4() {
+	if full.InteractiveHandoff == nil || !full.InteractiveHandoff.Secret || !full.InteractiveHandoff.AutomaticReadiness || full.InteractiveHandoff.Privacy == nil || len(full.InteractiveHandoff.ShellIntegrations) != 4 || len(full.InteractiveHandoff.RequirementKinds) != 1 || len(full.InteractiveHandoff.CaptureQualities) != 3 || !full.InteractiveHandoff.ValidH4() {
 		t.Fatalf("full H4 capability=%#v", full.InteractiveHandoff)
 	}
 }

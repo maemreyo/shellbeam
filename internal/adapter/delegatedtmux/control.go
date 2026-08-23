@@ -450,13 +450,17 @@ func (c *controlClient) close() error {
 	_ = c.stdin.Close()
 	if c.cmd != nil && c.cmd.Process != nil {
 		_ = c.cmd.Process.Signal(syscall.SIGTERM)
+		waited := make(chan error, 1)
+		go func() { waited <- c.cmd.Wait() }()
+		timer := time.NewTimer(250 * time.Millisecond)
+		defer timer.Stop()
 		select {
-		case <-c.done:
-		case <-time.After(250 * time.Millisecond):
+		case err := <-waited:
+			return err
+		case <-timer.C:
 			_ = c.cmd.Process.Kill()
-			<-c.done
+			return <-waited
 		}
-		return c.cmd.Wait()
 	}
 	return nil
 }

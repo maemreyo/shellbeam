@@ -29,7 +29,7 @@ func (s ContextExecSupport) valid() bool {
 	if s.ProviderID == "" || s.ProviderVersion < 1 || s.Platform == "" || s.HelperProtocolVersion < 1 {
 		return false
 	}
-	if len(s.ShellAdapters) != 3 || s.ShellAdapters[0] != shellcore.ShellFish || s.ShellAdapters[1] != shellcore.ShellZsh || s.ShellAdapters[2] != shellcore.ShellBash {
+	if len(s.ShellAdapters) != 4 || s.ShellAdapters[0] != shellcore.ShellFish || s.ShellAdapters[1] != shellcore.ShellZsh || s.ShellAdapters[2] != shellcore.ShellBash || s.ShellAdapters[3] != shellcore.ShellNushell {
 		return false
 	}
 	wantQualities := []contextcore.EvidenceQuality{
