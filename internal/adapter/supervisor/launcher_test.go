@@ -196,7 +196,14 @@ func TestLauncherIndependentSessionsLaunchConcurrently(t *testing.T) {
 	select {
 	case <-entered:
 		close(release)
-	case <-time.After(100 * time.Millisecond):
+	// The deadline is a hang guard, not the measurement. A launcher that
+	// serialized these would never let the second session reach spawn at all,
+	// because the first is still blocked on release, so waiting longer cannot
+	// turn a serialized run into a passing one. What a short deadline does
+	// measure is how quickly a loaded machine happens to schedule the second
+	// goroutine: at 100ms this failed on CI while passing locally, which is a
+	// property of the runner rather than of the launcher.
+	case <-time.After(10 * time.Second):
 		close(release)
 		t.Fatal("independent persistent sessions were serialized by launcher")
 	}

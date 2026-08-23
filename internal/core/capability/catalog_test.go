@@ -106,8 +106,8 @@ func TestExecutionTelemetryAndReproCapabilitiesAreExplicitAndBounded(t *testing.
 	if telemetry.Limits.TelemetryMaxSamples != 1024 || telemetry.Limits.TelemetryMetadataBytes != 8<<20 || telemetry.Limits.TelemetryMaxKeys != 256 || telemetry.Limits.TelemetryMaxKeysPerRepository != 64 || telemetry.Limits.TelemetryMaxSamplesPerKey != 64 || telemetry.Limits.TelemetryRetentionAgeMS != 7*24*60*60*1000 || telemetry.Limits.TelemetryInspectSamples != 128 {
 		t.Fatalf("telemetry limits=%#v", telemetry.Limits)
 	}
-	if telemetry.ResourceObservation == nil || telemetry.ResourceObservation.CPUTime != ResourceUnavailable || telemetry.ResourceObservation.MaxRSS != ResourceUnavailable || telemetry.ResourceObservation.IOBytes != ResourceUnavailable || telemetry.ResourceObservation.ProcessCountPeak != ResourceUnavailable {
-		t.Fatalf("resource support overclaimed: %#v", telemetry.ResourceObservation)
+	if telemetry.ResourceObservation == nil || telemetry.ResourceObservation.CPUTime != ResourcePlatformReported || telemetry.ResourceObservation.MaxRSS != ResourcePlatformReported || telemetry.ResourceObservation.IOBytes != ResourceUnavailable || telemetry.ResourceObservation.ProcessCountPeak != ResourceSampled {
+		t.Fatalf("resource support dishonest: %#v", telemetry.ResourceObservation)
 	}
 	repro := telemetry.WithReproductionCapsules(256, 32, 65536)
 	if repro.Features[FeatureReproductionCapsules] != Available || !reflect.DeepEqual(repro.ReproSchemaVersions, []int{1}) || repro.Limits.ReproMaxCapsules != 256 || repro.Limits.ReproMaxReferences != 32 || repro.Limits.ReproMetadataBytes != 65536 {
@@ -335,5 +335,71 @@ func TestResourceEnforcementRejectsIncompleteOrOverclaimedSupport(t *testing.T) 
 		if got.Features[FeatureResourceEnforcement] != Unavailable || got.ResourceEnforcement != nil {
 			t.Fatalf("invalid support advertised: %#v", support)
 		}
+	}
+}
+
+func TestCatalogRuntimeIdentityClonesAndValidates(t *testing.T) {
+	modified := false
+	runtime := RuntimeIdentity{
+		SchemaVersion:     1,
+		Version:           "v1.2.3",
+		Revision:          "86b0cb56cf7a57dd6ab1d0208bf08ffcb3acbbbf",
+		VCSModified:       &modified,
+		BinarySHA256:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		DaemonIncarnation: "01M0BTQCZYM47Y3YCPAGDDGKME",
+		DaemonStartedAt:   "2026-08-19T08:38:42+07:00",
+	}
+	if err := runtime.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	catalog := Baseline(Limits{}).WithRuntime(runtime)
+	if catalog.Runtime == nil || catalog.Runtime.Revision != runtime.Revision {
+		t.Fatalf("runtime=%#v", catalog.Runtime)
+	}
+	clone := catalog.Clone()
+	if clone.Runtime == nil || clone.Runtime == catalog.Runtime {
+		t.Fatalf("runtime clone alias=%#v %#v", catalog.Runtime, clone.Runtime)
+	}
+	*clone.Runtime.VCSModified = true
+	if *catalog.Runtime.VCSModified {
+		t.Fatal("runtime modified pointer leaked across clone")
+	}
+}
+
+func TestRuntimeIdentityRejectsInvalidDigestAndTimestamp(t *testing.T) {
+	for name, runtime := range map[string]RuntimeIdentity{
+		"schema":  {SchemaVersion: 2},
+		"digest":  {SchemaVersion: 1, BinarySHA256: "bad"},
+		"started": {SchemaVersion: 1, DaemonStartedAt: "yesterday"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := runtime.Validate(); err == nil {
+				t.Fatalf("accepted %#v", runtime)
+			}
+		})
+	}
+}
+
+func TestStructuredArtifactInputCapabilityIsAdditiveVersionedAndBounded(t *testing.T) {
+	base := Baseline(Limits{}).WithStructuredResults([]string{"go-test-json", "go-vet-json", "pytest-junit-xml"}, []string{"diagnostic", "test_case", "test_suite", "artifact_result"}, 128, true)
+	if !reflect.DeepEqual(base.StructuredSchemaVersions, []int{1}) || len(base.StructuredInputKinds) != 0 {
+		t.Fatalf("base=%#v", base)
+	}
+	got := base.WithStructuredArtifactInputs(16<<20, 4, 4, 250)
+	if !reflect.DeepEqual(got.StructuredSchemaVersions, []int{1, 2, 3}) || !reflect.DeepEqual(got.StructuredInputKinds, []string{"raw_output", "artifact_blob"}) {
+		t.Fatalf("catalog=%#v", got)
+	}
+	if got.Limits.StructuredArtifactBlobBytes != 16<<20 || got.Limits.StructuredPinnedArtifactHandles != 4 || got.Limits.StructuredMaterializationQueueDepth != 4 || got.Limits.StructuredTerminalAcquireMS != 250 {
+		t.Fatalf("limits=%#v", got.Limits)
+	}
+	clone := got.Clone()
+	clone.StructuredSchemaVersions[0] = 99
+	clone.StructuredInputKinds[0] = "changed"
+	if got.StructuredSchemaVersions[0] != 1 || got.StructuredInputKinds[0] != "raw_output" {
+		t.Fatal("structured artifact capability clone aliased slices")
+	}
+	invalid := base.WithStructuredArtifactInputs(1, 1, 2, 1)
+	if len(invalid.StructuredInputKinds) != 0 || !reflect.DeepEqual(invalid.StructuredSchemaVersions, []int{1}) {
+		t.Fatalf("invalid=%#v", invalid)
 	}
 }

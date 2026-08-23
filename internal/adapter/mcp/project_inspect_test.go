@@ -48,6 +48,9 @@ func (c *projectBridgeClient) Forward(ctx context.Context, req bridge.Request) (
 func TestProjectInspectionDoesNotExecuteManifestCommandThroughMCP(t *testing.T) {
 	root := t.TempDir()
 	sentinel := filepath.Join(root, "SENTINEL")
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Agent bootstrap\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(root, ".shellbeam"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -71,6 +74,14 @@ func TestProjectInspectionDoesNotExecuteManifestCommandThroughMCP(t *testing.T) 
 	body, ok := res.StructuredContent.(map[string]any)
 	if !ok || body["project"] == nil {
 		t.Fatalf("structured=%#v", res.StructuredContent)
+	}
+	project, ok := body["project"].(map[string]any)
+	if !ok {
+		t.Fatalf("project=%#v", body["project"])
+	}
+	bootstrap, ok := project["agent_bootstrap"].(map[string]any)
+	if !ok || bootstrap["path"] != "AGENTS.md" || bootstrap["provenance"] != "workspace_convention" {
+		t.Fatalf("agent_bootstrap=%#v project=%#v", bootstrap, project)
 	}
 	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
 		t.Fatalf("manifest command executed through MCP inspect: %v", err)

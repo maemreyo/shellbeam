@@ -39,6 +39,12 @@ func (s *Service) validateDelegatedStart(ctx context.Context, req StartRequest) 
 	if req.ResourceLimits != nil {
 		return true, failure.New(failure.ResourceLimitUnsupported, map[string]string{"metric": "resource_limits", "reason": "delegated_interactive"}, nil)
 	}
+	if req.Hermetic != nil {
+		return true, failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, fmt.Errorf("delegated interactive does not qualify hermetic v1"))
+	}
+	if req.VerificationAttempt != nil {
+		return true, failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, fmt.Errorf("delegated lifecycle is not ordinary verification evidence"))
+	}
 	if err := req.StdinMode.Validate(); err != nil {
 		return true, failure.New(failure.InvalidInput, map[string]string{"field": "stdin_mode"}, err)
 	}
@@ -393,7 +399,7 @@ func (s *Service) publishDelegatedTerminal(live *liveSession, binding delegated.
 	}
 	s.advanceDelegatedBindingUntilDurable(binding)
 	s.scheduleStructuredTerminal(rec, live.reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
+	s.scheduleTelemetryTerminal(rec, nil)
 	s.scheduleEvidenceTerminal(rec, live.reservation)
 	s.scheduleInputTraceTerminal(rec, live.reservation)
 	s.endManagedShell(live)

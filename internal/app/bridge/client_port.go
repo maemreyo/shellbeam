@@ -17,6 +17,7 @@ import (
 	reproapp "github.com/maemreyo/shellbeam/internal/app/repro"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
+	verificationapp "github.com/maemreyo/shellbeam/internal/app/verification"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
@@ -32,6 +33,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
 	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
+	verificationcore "github.com/maemreyo/shellbeam/internal/core/verification"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -39,73 +41,86 @@ type DaemonClient interface {
 	Forward(context.Context, Request) (Response, error)
 }
 type Request struct {
-	ProtocolVersion          int
-	Action                   string
-	ContextExec              contextcore.Request
-	WorkspaceID              string
-	ActivityID               string
-	CodeQuery                *codeintel.Query
-	Start                    daemon.StartRequest
-	Poll                     daemon.PollRequest
-	Write                    daemon.WriteRequest
-	Kill                     daemon.KillRequest
-	EventInspect             observationapp.InspectRequest
-	EvidenceInspect          evidenceapp.InspectRequest
-	EnvironmentInspect       environmentapp.InspectRequest
-	ProcessInspect           processapp.InspectRequest
-	MutationScopeSet         mutationscopeapp.SetRequest
-	MutationScopeRelease     mutationscopeapp.ReleaseRequest
-	MutationScopeInspect     mutationscopeapp.InspectRequest
-	StructuredInspect        structuredapp.InspectRequest
-	TelemetryInspect         telemetryapp.InspectRequest
-	ReproCreate              reprocore.CreateRequest
-	ReproID                  string
-	OutputRead               outputview.Request
-	SessionInspect           persistent.InspectRequest
-	ConsumerMedia            *capability.MediaSupport
-	MediaContractFingerprint string
-	Media                    *daemon.MediaRequest
-	CheckpointCreate         checkpointcore.CreateRequest
-	CheckpointRestore        checkpointcore.RestoreRequest
-	CheckpointID             string
-	InputTraceInspect        inputtraceapp.InspectRequest
-	HandoffRequest           handoff.Request
-	TerminalAffinity         *terminalpresentation.BridgeAffinityHint
-	HandoffWait              handoffapp.WaitRequest
-	HandoffID                string
+	ProtocolVersion           int
+	Action                    string
+	ContextExec               contextcore.Request
+	WorkspaceID               string
+	ActivityID                string
+	CodeQuery                 *codeintel.Query
+	Start                     daemon.StartRequest
+	Poll                      daemon.PollRequest
+	Write                     daemon.WriteRequest
+	Kill                      daemon.KillRequest
+	EventInspect              observationapp.InspectRequest
+	EvidenceInspect           evidenceapp.InspectRequest
+	EnvironmentInspect        environmentapp.InspectRequest
+	ProcessInspect            processapp.InspectRequest
+	MutationScopeSet          mutationscopeapp.SetRequest
+	MutationScopeRelease      mutationscopeapp.ReleaseRequest
+	MutationScopeInspect      mutationscopeapp.InspectRequest
+	StructuredInspect         structuredapp.InspectRequest
+	TelemetryInspect          telemetryapp.InspectRequest
+	ReproCreate               reprocore.CreateRequest
+	ReproID                   string
+	OutputRead                outputview.Request
+	SessionInspect            persistent.InspectRequest
+	ConsumerMedia             *capability.MediaSupport
+	MediaContractFingerprint  string
+	Media                     *daemon.MediaRequest
+	CheckpointCreate          checkpointcore.CreateRequest
+	CheckpointRestore         checkpointcore.RestoreRequest
+	CheckpointID              string
+	InputTraceInspect         inputtraceapp.InspectRequest
+	HandoffRequest            handoff.Request
+	TerminalAffinity          *terminalpresentation.BridgeAffinityHint
+	HandoffWait               handoffapp.WaitRequest
+	HandoffID                 string
+	VerificationInspect       verificationapp.InspectRequest
+	VerificationPolicyPreview verificationapp.PreviewPolicyRequest
+	VerificationActivate      verificationapp.ActivateRequest
+	VerificationWaiverSet     verificationapp.SetWaiverRequest
+	VerificationWaiverRevoke  verificationapp.RevokeWaiverRequest
+	Decision                  *DecisionRequest
 }
 type Response struct {
-	View                   daemon.View
-	Result                 *receipt.Result
-	Checkpoint             *checkpointcore.Checkpoint
-	Restore                *checkpointcore.RestoreResult
-	CheckpointInspection   *checkpointapp.CheckpointInspection
-	Server                 *capability.Catalog
-	Project                *project.Inspection
-	Readiness              *project.Readiness
-	Workspace              *workspace.Workspace
-	Activity               *activity.Activity
-	Events                 *observationapp.InspectResult
-	Evidence               *evidenceapp.InspectResult
-	Environment            *environmentcore.Snapshot
-	Process                *processcore.Observation
-	Mutation               *mutationscopeapp.MutationResult
-	MutationScopes         *mutationscopecore.InspectResult
-	ActivityMutationScopes *mutationscopecore.InspectResult
-	Structured             *structuredapp.InspectResult
-	Telemetry              *telemetryapp.InspectResult
-	InputTrace             *inputtraceapp.InspectResult
-	Capsule                *reprocore.Capsule
-	Repro                  *reproapp.InspectResult
-	CodeResult             *codeintel.Result
-	OutputView             *outputview.Result
-	Sessions               *persistent.InspectPage
-	NegotiatedMedia        *capability.NegotiatedMedia
-	Media                  *media.Result
-	ContextExec            *contextcore.PublicState
-	Handoff                *handoff.PublicState
-	HandoffTimedOut        bool
-	Code                   string
-	Message                string
-	Retryable              bool
+	View                      daemon.View
+	Result                    *receipt.Result
+	Checkpoint                *checkpointcore.Checkpoint
+	Restore                   *checkpointcore.RestoreResult
+	CheckpointInspection      *checkpointapp.CheckpointInspection
+	Server                    *capability.Catalog
+	Project                   *project.Inspection
+	Readiness                 *project.Readiness
+	Workspace                 *workspace.Workspace
+	Activity                  *activity.Activity
+	Events                    *observationapp.InspectResult
+	Evidence                  *evidenceapp.InspectResult
+	Environment               *environmentcore.Snapshot
+	Process                   *processcore.Observation
+	Mutation                  *mutationscopeapp.MutationResult
+	MutationScopes            *mutationscopecore.InspectResult
+	ActivityMutationScopes    *mutationscopecore.InspectResult
+	Structured                *structuredapp.InspectResult
+	Telemetry                 *telemetryapp.InspectResult
+	InputTrace                *inputtraceapp.InspectResult
+	Capsule                   *reprocore.Capsule
+	Repro                     *reproapp.InspectResult
+	CodeResult                *codeintel.Result
+	OutputView                *outputview.Result
+	Sessions                  *persistent.InspectPage
+	NegotiatedMedia           *capability.NegotiatedMedia
+	Media                     *media.Result
+	ContextExec               *contextcore.PublicState
+	Handoff                   *handoff.PublicState
+	HandoffTimedOut           bool
+	Verification              *verificationapp.Inspection
+	VerificationPolicyPreview *verificationapp.PolicyPreview
+	VerificationActivation    *verificationcore.ActivationWriteResult
+	VerificationWaiver        *verificationcore.WaiverWriteResult
+	VerificationRevocation    *verificationcore.RevocationWriteResult
+	Decision                  *DecisionResponse
+	Code                      string
+	Message                   string
+	Retryable                 bool
+	Details                   map[string]string
 }

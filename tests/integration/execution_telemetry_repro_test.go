@@ -179,12 +179,13 @@ func putA4StructuredTerminal(t *testing.T, store *storeadapter.Repository, opera
 	t.Helper()
 	ctx := context.Background()
 	ref := structured.RawOutputRef{SessionID: string(sessionID), StartByte: 0, EndByte: int64(len(raw)), SHA256: strings.Repeat("1", 64)}
+	inputRef := structured.RawInputRef(ref)
 	producer := structured.Producer{AdapterID: "go-test-json", AdapterVersion: 1, CapabilityVersion: 1}
 	key, err := structured.DerivationKey([]structured.RawOutputRef{ref}, producer, 1, strings.Repeat("2", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pending := structured.Derivation{SchemaVersion: 1, DerivationKey: key, SourceAuthorityRefs: []structured.RawOutputRef{ref}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("2", 64), Lifecycle: structured.LifecyclePending, Completeness: structured.CompletenessUnavailable}
+	pending := structured.Derivation{SchemaVersion: structured.SchemaVersion, DerivationKey: key, SourceAuthorityRefs: []structured.StructuredInputRef{inputRef}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("2", 64), Lifecycle: structured.LifecyclePending, Completeness: structured.CompletenessUnavailable}
 	processing := pending
 	processing.Lifecycle = structured.LifecycleProcessing
 	terminal := processing
@@ -195,7 +196,7 @@ func putA4StructuredTerminal(t *testing.T, store *storeadapter.Repository, opera
 	if err := store.PutDerivation(ctx, processing); err != nil {
 		t.Fatal(err)
 	}
-	record := structured.Record{SchemaVersion: 1, RecordKind: structured.RecordArtifactResult, Authority: structured.AuthorityMechanical, DerivationMethod: structured.DerivationNativeFieldMapping, Producer: producer, OperationID: string(operationID), SourceRef: ref, ArtifactResult: &structured.ArtifactResult{Name: "integration", Status: "ok"}}
+	record := structured.Record{SchemaVersion: structured.SchemaVersion, RecordKind: structured.RecordArtifactResult, Authority: structured.AuthorityMechanical, DerivationMethod: structured.DerivationNativeFieldMapping, Producer: producer, OperationID: string(operationID), SourceRef: inputRef, ArtifactResult: &structured.ArtifactResult{Name: "integration", Status: "ok"}}
 	if err := store.PutRecords(ctx, key, []structured.Record{record}); err != nil {
 		t.Fatal(err)
 	}

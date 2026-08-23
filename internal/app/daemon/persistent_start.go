@@ -101,7 +101,7 @@ func (s *Service) publishPersistentSpawnFailure(reservation operation.Reservatio
 	s.publishUntilDurable(rec)
 	s.convergeFailedPersistentBinding(reservation.SessionID)
 	s.scheduleStructuredTerminal(rec, reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
+	s.scheduleTelemetryTerminal(rec, nil)
 	s.scheduleEvidenceTerminal(rec, reservation)
 	s.scheduleInputTraceTerminal(rec, reservation)
 }

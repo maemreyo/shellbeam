@@ -16,7 +16,7 @@ func actionFieldsV2(action string) []string {
 	case "read_media":
 		return []string{"consumer_media", "media_contract_fingerprint", "media"}
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_mode", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "yield_time_ms", "max_output_bytes"}
+		return []string{"operation_id", "experiment_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_mode", "session_name", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "hermetic", "yield_time_ms", "max_output_bytes"}
 	case "context.exec":
 		return []string{"context_exec_id", "session_id", "authority_epoch", "argv", "timeout_ms", "max_output_bytes"}
 	case "poll":
@@ -39,6 +39,16 @@ func actionFieldsV2(action string) []string {
 		return []string{"restore_id", "checkpoint_id", "paths"}
 	case "checkpoint_inspect":
 		return []string{"checkpoint_id"}
+	case "inspect.verification":
+		return []string{"workspace_id", "activity_id", "phase"}
+	case "verification.policy.preview":
+		return []string{"workspace_id", "profile"}
+	case "verification.policy.activate":
+		return []string{"workspace_id", "activation_id", "proposed_policy_digest", "expected_previous_policy_digest", "proposal_generation", "authority", "actor"}
+	case "verification.waiver.set":
+		return []string{"workspace_id", "waiver_id", "policy_digest", "rule_id", "phase", "generation", "checkpoint_id", "authority", "actor", "reason", "expires_at", "expires_phase"}
+	case "verification.waiver.revoke":
+		return []string{"workspace_id", "waiver_id", "authority", "actor"}
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		return []string{"workspace_id"}
 	case "inspect.activity":
@@ -71,6 +81,8 @@ func actionFieldsV2(action string) []string {
 		return []string{"repro_id"}
 	case "inspect.code":
 		return []string{"workspace_id", "activity_id", "code_query"}
+	case "decision.policy.snapshot", "decision.policy.activate", "decision.create", "decision.inspect", "decision.evaluate", "decision.close_unresolved", "decision.candidate.create", "decision.candidate.revise", "decision.experiment.define", "decision.prediction.bind", "decision.experiment.seal", "decision.experiment.close", "decision.experiment.abort", "decision.assessment.record", "decision.selection.propose", "decision.override.create", "decision.selection.commit", "decision.authority.materialize":
+		return []string{"decision", "workspace_id"}
 	default:
 		return nil
 	}
@@ -107,6 +119,12 @@ func validateDelegatedStartRequestV2(v RequestV2) error {
 	}
 	if v.SessionMode != delegated.ModeDelegatedInteractive {
 		return nil
+	}
+	if v.Hermetic != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, fmt.Errorf("delegated hermetic execution is not qualified"))
+	}
+	if v.VerificationAttempt != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, fmt.Errorf("delegated verification attempt is not qualified"))
 	}
 	if v.Evidence != nil {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, fmt.Errorf("delegated lifecycle is not ordinary verification evidence"))

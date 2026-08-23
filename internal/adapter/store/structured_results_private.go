@@ -9,13 +9,14 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/source"
 	core "github.com/maemreyo/shellbeam/internal/core/structuredresult"
 )
 
 func validateRecordsForDerivation(records []core.Record, derivation core.Derivation) error {
 	for _, record := range records {
-		if err := record.Validate(); err != nil || record.Producer != derivation.Producer || !rawRefBelongs(record.SourceRef, derivation.SourceAuthorityRefs) {
+		if err := record.Validate(); err != nil || record.Producer != derivation.Producer || !inputRefBelongs(record.SourceRef, derivation.SourceAuthorityRefs) {
 			return fmt.Errorf("structured_record_derivation_mismatch")
 		}
 	}
@@ -23,8 +24,27 @@ func validateRecordsForDerivation(records []core.Record, derivation core.Derivat
 }
 
 func validateStructuredRecordSet(set structuredRecordSet, derivation core.Derivation) error {
-	if set.SchemaVersion != 1 || set.DerivationKey != derivation.DerivationKey || len(set.Records) < 1 || len(set.Records) > MaxStructuredRecords {
+	if set.SchemaVersion != core.SchemaVersionV1 && set.SchemaVersion != core.SchemaVersion && set.SchemaVersion != core.RecordSchemaVersionV3 || set.DerivationKey != derivation.DerivationKey || len(set.Records) < 1 || len(set.Records) > MaxStructuredRecords {
 		return fmt.Errorf("invalid_structured_record_set")
+	}
+	hasV3 := false
+	for _, record := range set.Records {
+		switch set.SchemaVersion {
+		case core.SchemaVersionV1, core.SchemaVersion:
+			if record.SchemaVersion != set.SchemaVersion {
+				return fmt.Errorf("structured_record_schema_mismatch")
+			}
+		case core.RecordSchemaVersionV3:
+			if record.SchemaVersion != core.SchemaVersion && record.SchemaVersion != core.RecordSchemaVersionV3 {
+				return fmt.Errorf("structured_record_schema_mismatch")
+			}
+			if record.SchemaVersion == core.RecordSchemaVersionV3 {
+				hasV3 = true
+			}
+		}
+	}
+	if set.SchemaVersion == core.RecordSchemaVersionV3 && !hasV3 {
+		return fmt.Errorf("structured_record_schema_mismatch")
 	}
 	return validateRecordsForDerivation(set.Records, derivation)
 }
@@ -45,9 +65,9 @@ func validateStructuredSummary(summary structuredSummary) error {
 	return nil
 }
 
-func rawRefBelongs(ref core.RawOutputRef, refs []core.RawOutputRef) bool {
+func inputRefBelongs(ref core.StructuredInputRef, refs []core.StructuredInputRef) bool {
 	for _, candidate := range refs {
-		if ref == candidate {
+		if reflect.DeepEqual(ref, candidate) {
 			return true
 		}
 	}
@@ -58,7 +78,7 @@ func validateStructuredDerivation(d core.Derivation) error {
 	if err := d.Validate(); err != nil {
 		return err
 	}
-	key, err := core.DerivationKey(d.SourceAuthorityRefs, d.Producer, d.DerivationSchemaVersion, d.DerivationConfigDigest)
+	key, err := core.DerivationKeyForInputs(d.SourceAuthorityRefs, d.Producer, d.DerivationSchemaVersion, d.DerivationConfigDigest)
 	if err != nil || key != d.DerivationKey {
 		return fmt.Errorf("structured_derivation_identity_mismatch")
 	}
@@ -66,7 +86,7 @@ func validateStructuredDerivation(d core.Derivation) error {
 }
 
 func sameDerivationIdentity(a, b core.Derivation) bool {
-	return a.SchemaVersion == b.SchemaVersion && a.DerivationKey == b.DerivationKey && reflect.DeepEqual(a.SourceAuthorityRefs, b.SourceAuthorityRefs) && a.Producer == b.Producer && a.DerivationSchemaVersion == b.DerivationSchemaVersion && a.DerivationConfigDigest == b.DerivationConfigDigest
+	return a.DerivationKey == b.DerivationKey && reflect.DeepEqual(a.SourceAuthorityRefs, b.SourceAuthorityRefs) && a.Producer == b.Producer && a.DerivationSchemaVersion == b.DerivationSchemaVersion && a.DerivationConfigDigest == b.DerivationConfigDigest
 }
 
 func allowedDerivationTransition(current, next core.Derivation) bool {
@@ -76,7 +96,8 @@ func allowedDerivationTransition(current, next core.Derivation) bool {
 	case core.LifecycleProcessing:
 		return next.Lifecycle == core.LifecycleTerminal
 	case core.LifecycleTerminal:
-		return next.Lifecycle == core.LifecycleTerminal && current.ParseOutcome == next.ParseOutcome && next.Completeness == core.CompletenessCompacted && current.Completeness != core.CompletenessCompacted
+		return next.Lifecycle == core.LifecycleTerminal && current.ParseOutcome == next.ParseOutcome && next.Completeness == core.CompletenessCompacted && current.Completeness != core.CompletenessCompacted &&
+			current.CompletenessReason == next.CompletenessReason && reflect.DeepEqual(current.ObservedEntries, next.ObservedEntries) && reflect.DeepEqual(current.SemanticsCoverage, next.SemanticsCoverage)
 	default:
 		return false
 	}
@@ -99,11 +120,7 @@ func validStructuredKey(key string) bool {
 }
 
 func (r *Repository) readDerivationUnlocked(key string) (core.Derivation, error) {
-	var derivation core.Derivation
-	if err := readPrivateJSON(r.derivationPath(key), maxStructuredMetadataBytes, &derivation); err != nil {
-		return derivation, err
-	}
-	return derivation, validateStructuredDerivation(derivation)
+	return readStructuredDerivation(r.derivationPath(key))
 }
 
 func (r *Repository) structuredRoot() string     { return filepath.Join(r.root, "structured-results") }
@@ -120,6 +137,12 @@ func (r *Repository) structuredSummaryDir() string {
 func (r *Repository) structuredOperationDir() string {
 	return filepath.Join(r.structuredRoot(), "operations")
 }
+func (r *Repository) structuredCaptureAuthorityDir() string {
+	return filepath.Join(r.structuredRoot(), "capture-authority")
+}
+func (r *Repository) failureExcerptRetentionRoot() string {
+	return filepath.Join(r.structuredRoot(), "failure-excerpt-retention")
+}
 func (r *Repository) rawOutputRefPath(sessionID string) string {
 	return filepath.Join(r.structuredInputDir(), sessionID+".json")
 }
@@ -134,6 +157,9 @@ func (r *Repository) summaryPath(key string) string {
 }
 func (r *Repository) structuredOperationPath(operationID string) string {
 	return filepath.Join(r.structuredOperationDir(), operationID+".json")
+}
+func (r *Repository) captureAuthorityPath(operationID operation.ID) string {
+	return filepath.Join(r.structuredCaptureAuthorityDir(), string(operationID)+".json")
 }
 func (r *Repository) structuredSubjectPresent(ctx context.Context, subject string) (bool, error) {
 	parts := strings.Split(subject, ":")

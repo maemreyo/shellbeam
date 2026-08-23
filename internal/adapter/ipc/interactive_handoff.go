@@ -33,7 +33,7 @@ func validateHandoffRequestV2(v RequestV2) error {
 				return failure.New(failure.InvalidInput, map[string]string{"field": "terminal_affinity"}, err)
 			}
 		}
-		return (handoff.Request{HandoffID: v.HandoffID, SessionID: v.SessionID, Reason: v.HandoffReason, Privacy: v.HandoffPrivacy, Completion: *v.HandoffCompletion}).Validate()
+		return (handoff.Request{HandoffID: v.HandoffID, SessionID: v.SessionID, Reason: handoff.Reason(v.Reason), Privacy: v.HandoffPrivacy, Completion: *v.HandoffCompletion}).Validate()
 	case "handoff.wait":
 		if err := handoff.ValidateHandoffID(v.HandoffID); err != nil {
 			return err
@@ -58,7 +58,7 @@ func (s *Server) handoffV2(ctx context.Context, req RequestV2, resp *ResponseV2)
 	var err error
 	switch req.Action {
 	case "handoff.request":
-		handoffReq := handoff.Request{HandoffID: req.HandoffID, SessionID: req.SessionID, Reason: req.HandoffReason, Privacy: req.HandoffPrivacy, Completion: *req.HandoffCompletion}
+		handoffReq := handoff.Request{HandoffID: req.HandoffID, SessionID: req.SessionID, Reason: handoff.Reason(req.Reason), Privacy: req.HandoffPrivacy, Completion: *req.HandoffCompletion}
 		if presentation, ok := s.actions.(HandoffPresentationActions); ok {
 			state, err = presentation.RequestHandoffPublicWithPresentation(ctx, handoffReq, req.TerminalAffinity)
 		} else {

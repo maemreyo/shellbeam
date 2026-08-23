@@ -50,6 +50,7 @@ type Repository struct {
 	observationVisibilityMu  sync.RWMutex
 	eventMu                  sync.Mutex
 	structuredMu             sync.Mutex
+	blobBudgetMu             sync.Mutex
 	telemetryMu              sync.Mutex
 	inputTraceMu             sync.Mutex
 	reproMu                  sync.Mutex
@@ -59,11 +60,20 @@ type Repository struct {
 	delegatedSessionMu       sync.Mutex
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
+	verificationMu           sync.Mutex
+	decisionProtocolMu       sync.Mutex
 	observationHighWatermark uint64
 	observationWake          chan struct{}
+	observationRetryMu       sync.Mutex
+	observationRetries       map[uint64]observationTransitionRetry
+	observationRetryWake     chan struct{}
 	writer                   atomicWriter
 	locks                    map[operation.ID]*sync.Mutex
 	now                      func() time.Time
+
+	activityOperationMu         sync.RWMutex
+	activityOperationIndexReady bool
+	activityOperations          map[string]map[operation.ID]struct{}
 
 	admissionMu sync.Mutex
 	admission   admissionLedger
@@ -80,7 +90,8 @@ type Repository struct {
 	stateBytesRefreshWG  sync.WaitGroup
 	// fullScans counts full-tree scans of the state store. Admission must not
 	// increment it; the regression test asserts that.
-	fullScans atomic.Uint64
+	fullScans        atomic.Uint64
+	blobReservations map[string]int64
 }
 
 const (
@@ -175,45 +186,61 @@ func Open(root string, limits Limits) (*Repository, error) {
 			return nil, err
 		}
 	}
-	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }}
+	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), observationRetries: map[uint64]observationTransitionRetry{}, observationRetryWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, activityOperations: map[string]map[operation.ID]struct{}{}, blobReservations: map[string]int64{}}
 	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
-	if err := repository.initObservationStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initEventStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initStructuredResultStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initTelemetryStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initInputTraceStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initReproStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initEvidenceStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initMutationScopeStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initPersistentSessionStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initDelegatedSessionStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initInteractiveHandoffStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initAdmissionLedger(); err != nil {
+	if err := repository.initializeStores(context.Background()); err != nil {
 		return nil, err
 	}
 	return repository, nil
+}
+
+func (r *Repository) initializeStores(ctx context.Context) error {
+	if err := r.initObservationStore(); err != nil {
+		return err
+	}
+	if err := r.initEventStore(); err != nil {
+		return err
+	}
+	if err := r.initStructuredResultStore(); err != nil {
+		return err
+	}
+	if err := r.RecoverStructuredArtifacts(ctx); err != nil {
+		return err
+	}
+	if err := r.initTelemetryStore(); err != nil {
+		return err
+	}
+	if err := r.initInputTraceStore(); err != nil {
+		return err
+	}
+	if err := r.initReproStore(); err != nil {
+		return err
+	}
+	if err := r.initEvidenceStore(); err != nil {
+		return err
+	}
+	if err := r.initMutationScopeStore(); err != nil {
+		return err
+	}
+	if err := r.initPersistentSessionStore(); err != nil {
+		return err
+	}
+	if err := r.initDelegatedSessionStore(); err != nil {
+		return err
+	}
+	if err := r.initInteractiveHandoffStore(); err != nil {
+		return err
+	}
+	if err := r.initVerificationStore(); err != nil {
+		return err
+	}
+	if err := r.initDecisionProtocolStore(); err != nil {
+		return err
+	}
+	if err := r.initAdmissionLedger(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Repository) lock(id operation.ID) func() {
@@ -380,7 +407,7 @@ func (r *Repository) scanActiveSessions() (map[string]struct{}, int64, error) {
 		if info.Mode().IsRegular() && !isAdmissionIndex(path) {
 			bytes += info.Size()
 		}
-		if filepath.Base(path) == "metadata.json" {
+		if filepath.Base(path) == "metadata.json" && filepath.Dir(filepath.Dir(path)) == filepath.Join(r.root, "sessions") {
 			if strings.HasPrefix(filepath.Base(filepath.Dir(path)), gcStagingPrefix) {
 				// Withdrawn from view by retention; it counts for nothing.
 				return nil

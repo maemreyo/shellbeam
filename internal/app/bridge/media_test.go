@@ -78,6 +78,25 @@ func TestNewNegotiatedBuildsEffectiveCatalogAndInterceptsInspectServer(t *testin
 	}
 }
 
+func TestNewNegotiatedUsesPrivateMediaNegotiationWhenPublicCatalogOmitsMedia(t *testing.T) {
+	consumer := capability.V1MediaSupport()
+	daemon := capability.V1MediaSupport()
+	daemon.MaxImageBytes = 5 << 20
+	base := baselineCatalog()
+	client := &scriptedClient{responses: []Response{{Server: &base}, negotiatedResponse(t, consumer, daemon)}}
+	h, err := NewNegotiated(context.Background(), client, consumer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	effective := h.EffectiveCatalog()
+	if effective.Features[capability.FeatureRichLocalMedia] != capability.Available || effective.Media == nil || effective.Media.MaxImageBytes != 5<<20 {
+		t.Fatalf("private negotiation was not promoted into effective catalog: %#v", effective)
+	}
+	if len(client.requests) != 2 || client.requests[0].Action != "inspect.server" || client.requests[1].Action != "capabilities.negotiate" {
+		t.Fatalf("requests=%#v", client.requests)
+	}
+}
+
 func TestNewNegotiatedOldDaemonDegradesMediaUnavailable(t *testing.T) {
 	base := baselineCatalog()
 	client := &scriptedClient{responses: []Response{{Server: &base}, {Code: string(failure.FeatureUnavailable)}}}
@@ -213,5 +232,76 @@ func TestReadMediaRejectsWrongOrCanonicalizedCWDSubstitution(t *testing.T) {
 				t.Fatalf("response=%#v", got)
 			}
 		})
+	}
+}
+
+type refreshableMediaClient struct {
+	catalog      capability.Catalog
+	mediaEnabled bool
+	requests     []Request
+}
+
+func (c *refreshableMediaClient) Forward(_ context.Context, req Request) (Response, error) {
+	c.requests = append(c.requests, req)
+	switch req.Action {
+	case "inspect.server":
+		catalog := c.catalog.Clone()
+		return Response{Server: &catalog}, nil
+	case "capabilities.negotiate":
+		if !c.mediaEnabled {
+			return Response{Code: string(failure.FeatureUnavailable)}, nil
+		}
+		n, ok := capability.NegotiateMedia(*req.ConsumerMedia, capability.V1MediaSupport())
+		if !ok {
+			return Response{}, nil
+		}
+		return Response{NegotiatedMedia: &n}, nil
+	default:
+		return Response{}, nil
+	}
+}
+
+func TestNegotiatedHandlerRefreshesDaemonCapabilitiesWithoutBackgroundPolling(t *testing.T) {
+	client := &refreshableMediaClient{catalog: baselineCatalog()}
+	h, err := NewNegotiated(context.Background(), client, capability.V1MediaSupport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if media := h.EffectiveCatalog().Media; media != nil {
+		t.Fatalf("initial media unexpectedly available: %#v", media)
+	}
+	before := len(client.requests)
+	client.mediaEnabled = true
+	changed, err := h.RefreshEffectiveCatalog(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed || h.EffectiveCatalog().Media == nil || h.EffectiveCatalog().Features[capability.FeatureRichLocalMedia] != capability.Available {
+		t.Fatalf("refresh changed=%v effective=%#v", changed, h.EffectiveCatalog())
+	}
+	if got := len(client.requests) - before; got != 2 {
+		t.Fatalf("refresh made %d daemon calls, want inspect+negotiate only", got)
+	}
+}
+
+func TestNormalizeMediaFailurePreservesOnlySafeTypedDetails(t *testing.T) {
+	got := normalizeMediaFailureResponse(Response{
+		Code: "media_too_large",
+		Details: map[string]string{
+			"limit":     "7340032",
+			"byte_size": "8388608",
+			"private":   "/Users/test/secret.png",
+		},
+	})
+	if got.Code != "media_too_large" || got.Message != "media exceeds byte limit" || got.Retryable {
+		t.Fatalf("failure=%#v", got)
+	}
+	if got.Details["limit"] != "7340032" || got.Details["byte_size"] != "8388608" || got.Details["private"] != "" {
+		t.Fatalf("details=%#v", got.Details)
+	}
+
+	unknown := normalizeMediaFailureResponse(Response{Code: "private /Users/test/secret.png", Details: map[string]string{"reason": "secret"}})
+	if unknown.Code != "internal" || len(unknown.Details) != 0 {
+		t.Fatalf("unknown=%#v", unknown)
 	}
 }

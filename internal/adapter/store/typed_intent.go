@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	decisionprotocol "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	delegatedsession "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -79,6 +80,10 @@ func (r *Repository) CommitTypedBinding(ctx context.Context, id operation.ID, wa
 	if err := validateTypedBindingCommit(claim, id, want); err != nil {
 		return operation.Reservation{}, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
+	if want.ExperimentID != "" {
+		stored, _, created, result := r.ReserveExperimentOperation(ctx, want, decisionprotocol.ExperimentExecutionLink{ExperimentID: decisionprotocol.ExperimentID(want.ExperimentID)})
+		return stored, created, result
+	}
 	return r.ReserveOperation(ctx, want)
 }
 
@@ -87,6 +92,9 @@ func validateTypedBindingCommit(claim operation.TypedIntentClaim, id operation.I
 		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	if want.EffectiveRequestFingerprint() != claim.RequestFingerprint {
+		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
+	}
+	if !sameVerificationAttempt(claim.Intent.VerificationAttempt, want.VerificationAttempt) {
 		return failure.New(failure.OperationConflict, map[string]string{"operation_id": string(id)}, nil)
 	}
 	if want.ProjectCommand == nil || (want.SchemaVersion != 3 && want.SchemaVersion != 4 && want.SchemaVersion != 5) {

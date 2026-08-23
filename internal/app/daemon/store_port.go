@@ -3,14 +3,16 @@ package daemon
 
 import (
 	"context"
+	"time"
+
 	contextexec "github.com/maemreyo/shellbeam/internal/core/contextexec"
+	decisionprotocol "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
-	"time"
 )
 
 type Durability string
@@ -84,6 +86,11 @@ type InteractiveHandoffStore interface {
 	ListHandoffRecoveryCandidates(context.Context) ([]handoff.State, error)
 	MarkHumanWriteAuthorityGranted(context.Context, operation.SessionID) StoreResult
 	LoadInputAuthorityProvenance(context.Context, operation.SessionID) (string, error)
+}
+
+type DecisionExperimentAdmissionStore interface {
+	ResolveExperimentAdmissionSession(context.Context, decisionprotocol.ExperimentID, operation.ID) (operation.SessionID, bool, error)
+	ReserveExperimentOperation(context.Context, operation.Reservation, decisionprotocol.ExperimentExecutionLink) (operation.Reservation, decisionprotocol.ExperimentExecutionLink, bool, StoreResult)
 }
 
 type PersistentSessionStore interface {

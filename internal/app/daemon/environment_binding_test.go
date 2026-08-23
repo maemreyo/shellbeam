@@ -8,8 +8,12 @@ import (
 
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
+	hermeticapp "github.com/maemreyo/shellbeam/internal/app/hermetic"
+	"github.com/maemreyo/shellbeam/internal/core/capability"
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
 
 type fakeCachedEnvironmentBindings struct {
@@ -167,4 +171,42 @@ func TestTypedProjectCommandFreezesEnvironmentBindingOnce(t *testing.T) {
 	if provider.calls != 1 {
 		t.Fatalf("typed replay reread environment cache: calls=%d", provider.calls)
 	}
+}
+
+func TestHermeticAdmissionDoesNotFreezeAmbientHostEnvironmentBinding(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "hermetic-env-state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerID := hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: envDigest('a'), RuntimeManifestSHA256: envDigest('b')}
+	toolchain := hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: envDigest('c')}
+	prepared := hermeticapp.PreparedExecution{BoundaryID: "hb_01K00000000000000000000030", Provider: providerID, Toolchain: toolchain, CaptureManifestSHA256: envDigest('d'), CaptureContentSHA256: envDigest('e'), Command: hermeticapp.ProviderCommand{Executable: "/private/bwrap", Argv: []string{"/private/bwrap", "--", "/bin/true"}, Dir: "/", Env: []string{}, StdinMode: operation.StdinModeClosed, StatusFD: 3}, PrivateStateRoot: "/private/hb_01K00000000000000000000030", ScratchRoot: "/private/hb_01K00000000000000000000030/scratch"}
+	zero := 0
+	runtime := &fakeHermeticRuntime{prepared: prepared, handle: &hermeticDaemonHandle{result: hermetic.BoundaryResult{SchemaVersion: 1, BoundaryID: prepared.BoundaryID, Provider: providerID, Toolchain: toolchain, EstablishedPreExec: true, Continuity: hermetic.ContinuityComplete}, exit: receipt.ExitEvidence{Reaped: true, Code: &zero}}}
+	catalog := capability.Baseline(capability.Limits{}).WithHermeticBoundary(daemonHermeticSupport())
+	svc := app.NewServiceWithWorkspaceResolver(st, &fakeOwner{}, &fakeAddressResolver{cwd: "/repo"}, app.Options{Incarnation: "h-env", Shell: "/bin/sh", MaxQueuedInputBytes: 100, Capabilities: catalog, HermeticRuntime: runtime})
+	ambient := &fakeCachedEnvironmentBindings{binding: validEnvironmentBinding(t), ok: true}
+	svc.SetEnvironmentBindingProvider(ambient)
+	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "hermetic-env", WorkspaceID: "ws_01K00000000000000000000000", CWD: ".", Command: "true", Hermetic: daemonHermeticAdmissionRequest(), YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = waitForTerminal(t, svc, started.SessionID)
+	if ambient.calls != 0 {
+		t.Fatalf("hermetic admission consulted ambient host environment %d times", ambient.calls)
+	}
+	stored, err := st.LoadOperation(context.Background(), "hermetic-env")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.EnvironmentBinding != nil {
+		t.Fatalf("hermetic reservation persisted ambient environment binding: %#v", stored.EnvironmentBinding)
+	}
+}
+func envDigest(ch byte) string {
+	b := make([]byte, 64)
+	for i := range b {
+		b[i] = ch
+	}
+	return string(b)
 }

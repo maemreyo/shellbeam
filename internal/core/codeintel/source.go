@@ -150,6 +150,7 @@ type (
 	LocationKind             = sharedsource.LocationKind
 	SourceLocation           = sharedsource.SourceLocation
 	ResolvedSourceLocation   = sharedsource.ResolvedSourceLocation
+	DisplaySourceLocation    = sharedsource.DisplaySourceLocation
 	ProviderReportedLocation = sharedsource.ProviderReportedLocation
 	Origin                   = sharedsource.Origin
 	NormalizationQuality     = sharedsource.NormalizationQuality

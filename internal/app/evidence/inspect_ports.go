@@ -4,6 +4,7 @@ import (
 	"context"
 
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	observation "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
@@ -24,4 +25,15 @@ type CurrentState struct {
 
 type CurrentStateProvider interface {
 	ObserveCurrent(context.Context, core.Record) CurrentState
+}
+
+type ProvenScopeObservationRequest struct {
+	WorkspaceID      string
+	WorkspaceRoot    string
+	SourceGeneration string
+	Scope            hermetic.ProvenInputScope
+}
+
+type ProvenScopeObserver interface {
+	ObserveProvenScope(context.Context, ProvenScopeObservationRequest) (string, error)
 }

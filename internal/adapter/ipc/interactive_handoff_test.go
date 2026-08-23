@@ -100,7 +100,7 @@ func TestInteractiveHandoffIPCV2DispatchesPublicActionsAndProjectsSafeState(t *t
 	_, client := localHandoffServer(t, actions)
 	completion := handoff.Completion{Kind: handoff.CompletionManualReady}
 	cases := []RequestV2{
-		{IPVersion: 2, Kind: "request", RequestID: "req", Action: "handoff.request", HandoffID: actions.state.HandoffID, SessionID: actions.state.SessionID, HandoffReason: handoff.ReasonManualIntervention, HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion},
+		{IPVersion: 2, Kind: "request", RequestID: "req", Action: "handoff.request", HandoffID: actions.state.HandoffID, SessionID: actions.state.SessionID, Reason: string(handoff.ReasonManualIntervention), HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion},
 		{IPVersion: 2, Kind: "request", RequestID: "wait", Action: "handoff.wait", HandoffID: actions.state.HandoffID, YieldMS: int64(time.Second / time.Millisecond)},
 		{IPVersion: 2, Kind: "request", RequestID: "abort", Action: "handoff.abort", HandoffID: actions.state.HandoffID},
 		{IPVersion: 2, Kind: "request", RequestID: "inspect", Action: "inspect.handoff", HandoffID: actions.state.HandoffID},
@@ -137,7 +137,7 @@ func TestHandoffRequestV2CarriesValidatedPresentationHintWithoutChangingH2Reques
 		t.Fatal(err)
 	}
 	completion := handoff.Completion{Kind: handoff.CompletionManualReady}
-	req := RequestV2{IPVersion: 2, Kind: "request", RequestID: "h3-hint", Action: "handoff.request", HandoffID: "handoff-h3", SessionID: "session-h3", HandoffReason: handoff.ReasonManualIntervention, HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion, TerminalAffinity: &hint}
+	req := RequestV2{IPVersion: 2, Kind: "request", RequestID: "h3-hint", Action: "handoff.request", HandoffID: "handoff-h3", SessionID: "session-h3", Reason: string(handoff.ReasonManualIntervention), HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion, TerminalAffinity: &hint}
 	if err := validateRequestV2(req); err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +178,7 @@ func TestInteractiveHandoffIPCV2DispatchesPresentationHintOnlyWhenSupported(t *t
 		t.Fatal(err)
 	}
 	completion := handoff.Completion{Kind: handoff.CompletionManualReady}
-	resp, err := client.CallV2(t.Context(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "h3-present", Action: "handoff.request", HandoffID: canonical.HandoffID, SessionID: canonical.SessionID, HandoffReason: handoff.ReasonManualIntervention, HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion, TerminalAffinity: &hint})
+	resp, err := client.CallV2(t.Context(), RequestV2{IPVersion: 2, Kind: "request", RequestID: "h3-present", Action: "handoff.request", HandoffID: canonical.HandoffID, SessionID: canonical.SessionID, Reason: string(handoff.ReasonManualIntervention), HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion, TerminalAffinity: &hint})
 	if err != nil || !resp.OK || actions.hint == nil || *actions.hint != hint {
 		t.Fatalf("resp=%#v err=%v hint=%#v calls=%v", resp, err, actions.hint, actions.calls)
 	}

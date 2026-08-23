@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="1" skipped="0" tests="1" time="0.000" timestamp="1970-01-01T00:00:00+00:00" hostname="fixture-host"><testcase classname="duplicate_entry_test" name="test_call_fail_and_teardown_error" time="0.000"><failure message="AssertionError: call boom&#10;assert False">teardown_error = None
+
+    def test_call_fail_and_teardown_error(teardown_error):
+&gt;       assert False, "call boom"
+E       AssertionError: call boom
+E       assert False
+
+/pytest-fixture/duplicate_entry_test.py:11: AssertionError</failure></testcase><testcase classname="duplicate_entry_test" name="test_call_fail_and_teardown_error" time="0.000"><error message="failed on teardown with &quot;RuntimeError: teardown boom&quot;">@pytest.fixture
+    def teardown_error():
+        yield
+&gt;       raise RuntimeError("teardown boom")
+E       RuntimeError: teardown boom
+
+/pytest-fixture/duplicate_entry_test.py:7: RuntimeError</error></testcase></testsuite></testsuites>

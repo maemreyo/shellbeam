@@ -109,7 +109,7 @@ func startH4NativePrivateRestart(t *testing.T) h4NativeRestartSetup {
 	completion := handoff.Completion{Kind: handoff.CompletionManualReady}
 	requested := callB1NativeDaemon(t, first, ipcadapter.RequestV2{
 		Action: "handoff.request", HandoffID: "handoff-h4-native-private-restart", SessionID: sessionID,
-		HandoffReason: handoff.ReasonCredentialRequired, HandoffPrivacy: handoff.PrivacySecret, HandoffCompletion: &completion,
+		Reason: string(handoff.ReasonCredentialRequired), HandoffPrivacy: handoff.PrivacySecret, HandoffCompletion: &completion,
 	})
 	if requested.Handoff == nil || requested.Handoff.PrivacyState != handoff.PrivacyPrivate || requested.Handoff.CaptureState != handoff.CapturePrivate || requested.Handoff.HumanIngress != handoff.IngressFenced {
 		first.hardKill(t)

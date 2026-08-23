@@ -9,6 +9,7 @@ import (
 
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	observation "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/project"
@@ -198,4 +199,99 @@ func inspectCursorCodec(t *testing.T) *CursorCodec {
 		t.Fatal(err)
 	}
 	return codec
+}
+
+type provenScopeObserverFake struct {
+	digest string
+	err    error
+	calls  int
+	last   ProvenScopeObservationRequest
+}
+
+func (o *provenScopeObserverFake) ObserveProvenScope(_ context.Context, request ProvenScopeObservationRequest) (string, error) {
+	o.calls++
+	o.last = request
+	return o.digest, o.err
+}
+
+func TestInspectHermeticEvidenceUsesProvenScopeWhenOnlyOutsideScopeGenerationChanged(t *testing.T) {
+	repo := newInspectRepoFake()
+	record := inspectRecord("scope", "op-scope", "test", core.ResultPass)
+	record.WorkspaceID = "ws_01K00000000000000000000000"
+	record.Source = core.SourceBinding{WorkspaceID: record.WorkspaceID, PostGeneration: "gen_" + strings.Repeat("d", 64), ObservationQuality: core.SourceQualityFast}
+	record.ProvenInputScope = inspectProvenScope()
+	repo.addEvidence(1, record)
+	currentGeneration := "gen_" + strings.Repeat("e", 64)
+	provider := &currentStateFake{states: map[string]CurrentState{record.WorkspaceID: {Source: core.CurrentSource{WorkspaceID: record.WorkspaceID, Generation: currentGeneration, Quality: core.SourceQualityFast}, WorkspaceRoot: "/repo"}}}
+	scope := &provenScopeObserverFake{digest: record.ProvenInputScope.CaptureContentSHA256}
+	svc := NewInspectorWithProvenScope(repo, provider, &inspectObserverFake{}, scope, inspectCursorCodec(t))
+	got, err := svc.Inspect(context.Background(), InspectRequest{Filter: InspectFilter{OperationID: record.OperationID}, MaxRecords: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Records) != 1 || got.Records[0].Validity.SourceMatch != core.SourceMatchProvenScope || got.Records[0].Validity.Freshness != core.FreshnessCurrent {
+		t.Fatalf("scope validity=%#v", got)
+	}
+	if scope.calls != 1 || scope.last.WorkspaceID != record.WorkspaceID || scope.last.WorkspaceRoot != "/repo" || scope.last.SourceGeneration != currentGeneration || scope.last.Scope.CaptureContentSHA256 != record.ProvenInputScope.CaptureContentSHA256 {
+		t.Fatalf("scope observer calls=%d last=%#v", scope.calls, scope.last)
+	}
+}
+
+func TestInspectHermeticEvidenceKeepsConservativeStaleWhenProvenScopeChangedOrUnavailable(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		digest string
+		err    error
+	}{
+		{name: "changed", digest: strings.Repeat("9", 64)},
+		{name: "unavailable", err: errors.New("scope unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newInspectRepoFake()
+			record := inspectRecord("scope", "op-scope-"+tc.name, "test", core.ResultPass)
+			record.WorkspaceID = "ws_01K00000000000000000000000"
+			record.Source = core.SourceBinding{WorkspaceID: record.WorkspaceID, PostGeneration: "gen_" + strings.Repeat("d", 64), ObservationQuality: core.SourceQualityFast}
+			record.ProvenInputScope = inspectProvenScope()
+			repo.addEvidence(1, record)
+			provider := &currentStateFake{states: map[string]CurrentState{record.WorkspaceID: {Source: core.CurrentSource{WorkspaceID: record.WorkspaceID, Generation: "gen_" + strings.Repeat("e", 64), Quality: core.SourceQualityFast}, WorkspaceRoot: "/repo"}}}
+			scope := &provenScopeObserverFake{digest: tc.digest, err: tc.err}
+			got, err := NewInspectorWithProvenScope(repo, provider, &inspectObserverFake{}, scope, inspectCursorCodec(t)).Inspect(context.Background(), InspectRequest{Filter: InspectFilter{OperationID: record.OperationID}, MaxRecords: 1})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Records[0].Validity.SourceMatch != core.SourceMatchMismatch || got.Records[0].Validity.Freshness != core.FreshnessStale {
+				t.Fatalf("unsafe narrowing=%#v", got.Records[0].Validity)
+			}
+		})
+	}
+}
+
+func TestInspectDoesNotMeasureProvenScopeWhenWholeWorkspaceGenerationIsAlreadyCurrentOrNoScopeExists(t *testing.T) {
+	for _, withScope := range []bool{false, true} {
+		repo := newInspectRepoFake()
+		record := inspectRecord("n", "op-no-scope", "test", core.ResultPass)
+		record.WorkspaceID = "ws_01K00000000000000000000000"
+		record.Source = core.SourceBinding{WorkspaceID: record.WorkspaceID, PostGeneration: "gen_" + strings.Repeat("d", 64), ObservationQuality: core.SourceQualityFast}
+		if withScope {
+			record.ProvenInputScope = inspectProvenScope()
+		}
+		repo.addEvidence(1, record)
+		currentGeneration := record.Source.PostGeneration
+		if !withScope {
+			currentGeneration = "gen_" + strings.Repeat("e", 64)
+		}
+		provider := &currentStateFake{states: map[string]CurrentState{record.WorkspaceID: {Source: core.CurrentSource{WorkspaceID: record.WorkspaceID, Generation: currentGeneration, Quality: core.SourceQualityFast}, WorkspaceRoot: "/repo"}}}
+		scope := &provenScopeObserverFake{digest: strings.Repeat("5", 64)}
+		_, err := NewInspectorWithProvenScope(repo, provider, &inspectObserverFake{}, scope, inspectCursorCodec(t)).Inspect(context.Background(), InspectRequest{Filter: InspectFilter{OperationID: record.OperationID}, MaxRecords: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if scope.calls != 0 {
+			t.Fatalf("withScope=%v unnecessary scope measurements=%d", withScope, scope.calls)
+		}
+	}
+}
+
+func inspectProvenScope() *hermetic.ProvenInputScope {
+	return &hermetic.ProvenInputScope{SchemaVersion: 1, RepoInputs: []string{"go.mod"}, CaptureManifestSHA256: strings.Repeat("4", 64), CaptureContentSHA256: strings.Repeat("5", 64), Provider: hermetic.ProviderIdentity{Provider: hermetic.ProviderBubblewrap, Version: hermetic.BubblewrapVersionV1, BinarySHA256: strings.Repeat("6", 64), RuntimeManifestSHA256: strings.Repeat("7", 64)}, Toolchain: hermetic.ToolchainIdentity{ID: "go-1.26.6-linux-amd64", ManifestSHA256: strings.Repeat("8", 64)}, Environment: hermetic.EnvironmentFixedAllowlist, Stdin: hermetic.StdinClosed, Network: hermetic.NetworkOff, AmbientInputs: []hermetic.AmbientInputClass{hermetic.AmbientClock, hermetic.AmbientRandomness}}
 }

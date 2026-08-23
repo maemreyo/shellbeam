@@ -11,12 +11,11 @@ import (
 	"time"
 
 	app "github.com/maemreyo/shellbeam/internal/app/daemon"
-	delegatedsession "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
-	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
@@ -31,20 +30,23 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	defer unlock()
 	r.admit.Lock()
 	defer r.admit.Unlock()
+	return r.reserveOperationLocked(ctx, want)
+}
+
+// reserveOperationLocked assumes the caller holds the per-operation lock and r.admit.
+// Decision Protocol admission additionally holds decisionProtocolMu after those two locks.
+func (r *Repository) reserveOperationLocked(ctx context.Context, want operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
 	path := filepath.Join(r.root, "operations", string(want.OperationID)+".json")
 	var existing operation.Reservation
 	if err := readStrict(path, &existing); err == nil {
-		stored, created, result := r.replayReservation(want, existing)
-		if result.Err == nil {
-			if candidateErr := r.EnsureEvidenceCandidate(ctx, stored); candidateErr != nil {
-				result.Err = candidateErr
-			}
-		}
-		return stored, created, result
+		return r.replayExistingReservation(ctx, want, existing)
 	} else if !errors.Is(err, ErrNotFound) {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	if err := validateReservation(want); err != nil {
+		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
+	}
+	if err := r.validateVerificationAttemptAuthority(ctx, want); err != nil {
 		return existing, false, app.StoreResult{Durability: app.NoDurableChange, Err: err}
 	}
 	active, used, err := r.admissionCounters()
@@ -77,12 +79,24 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	if prepared.Err != nil {
 		return existing, false, prepared
 	}
+	r.activityOperationMu.Lock()
 	result := r.writer.Create(path, want)
+	visible := result.Err == nil
+	if !visible && !errors.Is(result.Err, os.ErrExist) {
+		visible = r.reservationFileMatches(path, want)
+	}
+	if visible {
+		r.addActivityOperationLocked(want)
+	}
+	r.activityOperationMu.Unlock()
 	if result.Err != nil {
 		if errors.Is(result.Err, os.ErrExist) {
 			r.abortObservationBestEffort(seq, observationAbortConflict)
 			if err = readStrict(path, &existing); err != nil {
 				return existing, false, withObservationSeq(app.StoreResult{Durability: app.AmbiguousChange, Err: err}, seq)
+			}
+			if err = r.validateVerificationAttemptAuthority(ctx, existing); err != nil {
+				return existing, false, withObservationSeq(app.StoreResult{Durability: app.DurableChange, Err: err}, seq)
 			}
 			stored, created, replay := r.replayReservation(want, existing)
 			if replay.Err == nil {
@@ -100,6 +114,22 @@ func (r *Repository) ReserveOperation(ctx context.Context, want operation.Reserv
 	r.commitObservationBestEffort(seq)
 	created, metadata := r.finalizeReservationMetadata(want, seq)
 	return want, created, metadata
+}
+
+func (r *Repository) replayExistingReservation(ctx context.Context, want, existing operation.Reservation) (operation.Reservation, bool, app.StoreResult) {
+	if err := r.validateVerificationAttemptAuthority(ctx, existing); err != nil {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: err}
+	}
+	if err := r.validateVerificationAttemptAuthority(ctx, want); err != nil {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: err}
+	}
+	stored, created, result := r.replayReservation(want, existing)
+	if result.Err == nil {
+		if candidateErr := r.EnsureEvidenceCandidate(ctx, stored); candidateErr != nil {
+			result.Err = candidateErr
+		}
+	}
+	return stored, created, result
 }
 
 func (r *Repository) finalizeReservationMetadata(want operation.Reservation, observationSeq observation.ChangeSeq) (bool, app.StoreResult) {
@@ -157,6 +187,9 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 	if existing.ObservationBindingFingerprint != want.ObservationBindingFingerprint {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
+	if existing.StructuredCaptureDigest != want.StructuredCaptureDigest {
+		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "structured_capture_digest"}, nil)}
+	}
 	if !sameTraceBinding(existing.Trace, want.Trace) {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationMetadataConflict, map[string]string{"operation_id": string(existing.OperationID), "field": "input_trace"}, nil)}
 	}
@@ -199,13 +232,14 @@ func validateReservation(v operation.Reservation) error {
 	if v.OperationID == "" || v.SessionID == "" {
 		return fmt.Errorf("invalid reservation")
 	}
-	if v.ResourceLimits != nil {
-		if v.SchemaVersion == 1 || v.SchemaVersion == 4 {
-			return fmt.Errorf("invalid reservation")
-		}
-		if err := v.ResourceLimits.Validate(); err != nil {
-			return fmt.Errorf("invalid reservation resource limits: %w", err)
-		}
+	if err := validateDecisionExperimentReservation(v); err != nil {
+		return err
+	}
+	if err := validateResourceReservation(v); err != nil {
+		return err
+	}
+	if err := validateHermeticReservation(v); err != nil {
+		return err
 	}
 	if v.SchemaVersion != 5 && (v.SessionMode != "" || v.AuthorityEpoch != 0) {
 		return fmt.Errorf("invalid reservation")
@@ -216,23 +250,16 @@ func validateReservation(v operation.Reservation) error {
 	if err := validateReservationSchema(v); err != nil {
 		return err
 	}
-	if v.EnvironmentBinding != nil {
-		if err := v.EnvironmentBinding.Validate(); err != nil {
-			return fmt.Errorf("invalid reservation environment binding: %w", err)
-		}
+	if err := validateReservationObservationMetadata(v); err != nil {
+		return err
 	}
-	if v.Trace != nil {
-		if err := v.Trace.Validate(); err != nil {
-			return fmt.Errorf("invalid reservation input trace binding: %w", err)
-		}
-	}
-	return nil
+	return validateReservationBindings(v)
 }
 
 func validateReservationSchema(v operation.Reservation) error {
 	switch v.SchemaVersion {
 	case 1:
-		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil {
+		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil || v.VerificationAttempt != nil || v.StructuredCaptureDigest != "" {
 			return fmt.Errorf("invalid reservation")
 		}
 	case 2:
@@ -295,6 +322,94 @@ func validateReservationSchema(v operation.Reservation) error {
 	return nil
 }
 
+func validateReservationBindings(v operation.Reservation) error {
+	if v.EnvironmentBinding != nil {
+		if err := v.EnvironmentBinding.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation environment binding: %w", err)
+		}
+	}
+	if v.Trace != nil {
+		if err := v.Trace.Validate(); err != nil {
+			return fmt.Errorf("invalid reservation input trace binding: %w", err)
+		}
+	}
+	return nil
+}
+
+func validateDecisionExperimentReservation(v operation.Reservation) error {
+	if v.ExperimentID == "" {
+		return nil
+	}
+	if (v.SchemaVersion != 2 && v.SchemaVersion != 3) || v.WorkspaceID == "" || v.Persistent {
+		return fmt.Errorf("invalid decision experiment reservation")
+	}
+	return nil
+}
+
+func validateReservationVerificationAttempt(attempt *evidence.VerificationAttemptIntent) error {
+	if attempt == nil {
+		return nil
+	}
+	if err := attempt.Validate(); err != nil {
+		return fmt.Errorf("invalid reservation verification attempt: %w", err)
+	}
+	return nil
+}
+
+func validateResourceReservation(v operation.Reservation) error {
+	if v.ResourceLimits == nil {
+		return nil
+	}
+	if v.SchemaVersion == 1 || v.SchemaVersion == 4 {
+		return fmt.Errorf("invalid reservation")
+	}
+	if err := v.ResourceLimits.Validate(); err != nil {
+		return fmt.Errorf("invalid reservation resource limits: %w", err)
+	}
+	return nil
+}
+
+func validateHermeticReservation(v operation.Reservation) error {
+	if v.HermeticBoundary == nil {
+		return nil
+	}
+	if v.SchemaVersion != 2 && v.SchemaVersion != 3 {
+		return fmt.Errorf("invalid reservation")
+	}
+	if v.Persistent || v.TTY {
+		return fmt.Errorf("invalid hermetic reservation")
+	}
+	if err := v.HermeticBoundary.Validate(); err != nil {
+		return fmt.Errorf("invalid hermetic reservation: %w", err)
+	}
+	return nil
+}
+
+func validatePersistentPolicyReservation(v operation.Reservation) error {
+	if v.StdinMode == operation.StdinModeUnset && v.TimeoutSource == "" && v.StdinModeSource == "" {
+		// Backward compatibility for V4 reservations written before policy
+		// provenance became durable. Never invent provenance for those records.
+		return nil
+	}
+	if v.StdinMode == operation.StdinModeUnset || v.TimeoutSource == "" || v.StdinModeSource == "" {
+		return fmt.Errorf("invalid persistent reservation policy provenance")
+	}
+	if err := v.StdinMode.Validate(); err != nil {
+		return fmt.Errorf("invalid persistent reservation policy provenance: %w", err)
+	}
+	switch v.TimeoutSource {
+	case "legacy", "unlimited", "default", "requested":
+	default:
+		return fmt.Errorf("invalid persistent reservation policy provenance")
+	}
+	switch v.StdinModeSource {
+	case "legacy", "default", "requested":
+	default:
+		return fmt.Errorf("invalid persistent reservation policy provenance")
+	}
+	return nil
+}
+
 func (r *Repository) ensureSessionMetadata(v operation.Reservation) app.StoreResult {
 	sdir := filepath.Join(r.root, "sessions", string(v.SessionID))
 	if err := ensurePrivateDir(sdir); err != nil {
@@ -339,7 +454,7 @@ func validateContextExecReservation(v operation.Reservation) error {
 	if err := v.ContextExec.Validate(); err != nil || v.ContextExec.RequestFingerprint != v.RequestFingerprint {
 		return fmt.Errorf("invalid context exec reservation binding")
 	}
-	if v.Persistent || v.TTY || v.SessionMode != "" || v.AuthorityEpoch != 0 || v.ProjectCommand != nil || v.Intent != nil || v.Evidence != nil || v.EnvironmentBinding != nil || v.Trace != nil || v.ResourceLimits != nil || v.StructuredAdapter != "" || v.WorkspaceID != "" || v.LogicalCWD != "" {
+	if v.Persistent || v.TTY || v.SessionMode != "" || v.AuthorityEpoch != 0 || v.ProjectCommand != nil || v.Intent != nil || v.Evidence != nil || v.VerificationAttempt != nil || v.EnvironmentBinding != nil || v.Trace != nil || v.ResourceLimits != nil || v.StructuredAdapter != "" || v.StructuredCaptureDigest != "" || v.WorkspaceID != "" || v.LogicalCWD != "" || v.ExperimentID != "" || v.HermeticBoundary != nil {
 		return fmt.Errorf("invalid context exec reservation")
 	}
 	if v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || !filepath.IsAbs(v.Executable) || len(v.Argv) == 0 || v.Argv[0] == "" || v.CWD == "" || !filepath.IsAbs(v.CWD) || v.TimeoutMS < 0 {
@@ -348,100 +463,6 @@ func validateContextExecReservation(v operation.Reservation) error {
 	want, err := v.ContextExec.ExecutionFingerprint(v.CWD, v.Executable)
 	if err != nil || want != v.ExecutionFingerprint {
 		return fmt.Errorf("invalid context exec execution fingerprint")
-	}
-	return nil
-}
-
-func validateDelegatedReservation(v operation.Reservation) error {
-	if v.SessionMode != delegatedsession.ModeDelegatedInteractive || v.AuthorityEpoch != 1 || v.Persistent || v.TTY {
-		return fmt.Errorf("invalid delegated reservation")
-	}
-	if v.RequestFingerprint == "" || v.ExecutionFingerprint == "" || v.Evidence != nil {
-		return fmt.Errorf("invalid delegated reservation")
-	}
-	if v.SessionName != "" {
-		if err := persistentsession.ValidateSessionName(v.SessionName); err != nil {
-			return fmt.Errorf("invalid delegated reservation: %w", err)
-		}
-	}
-	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
-		return fmt.Errorf("invalid delegated reservation")
-	}
-	if v.ProjectCommand != nil {
-		if v.Intent != nil || v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || len(v.Argv) == 0 || v.Argv[0] == "" {
-			return fmt.Errorf("invalid delegated typed reservation")
-		}
-		if err := v.ProjectCommand.Validate(); err != nil {
-			return fmt.Errorf("invalid delegated typed reservation: %w", err)
-		}
-		if !slices.Equal(v.Argv, v.ProjectCommand.ResolvedArgv) || v.CWD != v.ProjectCommand.ResolvedCWD || v.LogicalCWD != v.ProjectCommand.LogicalCWD || v.WorkspaceID == "" {
-			return fmt.Errorf("invalid delegated typed reservation")
-		}
-		return nil
-	}
-	if v.Intent != nil {
-		if err := v.Intent.Validate(); err != nil {
-			return fmt.Errorf("invalid delegated reservation: %w", err)
-		}
-	}
-	switch v.ExecutionMode {
-	case operation.ExecutionModeShell:
-		if v.Command == "" || len(v.Argv) != 0 || v.Shell == "" || v.Executable == "" {
-			return fmt.Errorf("invalid delegated reservation")
-		}
-	case operation.ExecutionModeArgv:
-		if len(v.Argv) == 0 || v.Argv[0] == "" || v.Command != "" || v.Shell != "" || v.Executable == "" {
-			return fmt.Errorf("invalid delegated reservation")
-		}
-	default:
-		return fmt.Errorf("invalid delegated reservation")
-	}
-	return nil
-}
-
-func validatePersistentReservation(v operation.Reservation) error {
-	if !v.Persistent || v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
-		return fmt.Errorf("invalid persistent reservation")
-	}
-	if v.TTY {
-		return fmt.Errorf("invalid persistent reservation")
-	}
-	if v.SessionName != "" {
-		if err := persistentsession.ValidateSessionName(v.SessionName); err != nil {
-			return fmt.Errorf("invalid persistent reservation: %w", err)
-		}
-	}
-	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
-		return fmt.Errorf("invalid persistent reservation")
-	}
-	if v.ProjectCommand != nil {
-		if v.Intent != nil || v.Evidence != nil || v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || len(v.Argv) == 0 || v.Argv[0] == "" {
-			return fmt.Errorf("invalid persistent typed reservation")
-		}
-		if err := v.ProjectCommand.Validate(); err != nil {
-			return fmt.Errorf("invalid persistent typed reservation: %w", err)
-		}
-		if !slices.Equal(v.Argv, v.ProjectCommand.ResolvedArgv) || v.CWD != v.ProjectCommand.ResolvedCWD || v.LogicalCWD != v.ProjectCommand.LogicalCWD || v.WorkspaceID == "" {
-			return fmt.Errorf("invalid persistent typed reservation")
-		}
-		return nil
-	}
-	if v.Intent != nil {
-		if err := v.Intent.Validate(); err != nil {
-			return fmt.Errorf("invalid persistent reservation: %w", err)
-		}
-	}
-	switch v.ExecutionMode {
-	case operation.ExecutionModeShell:
-		if v.Command == "" || len(v.Argv) != 0 || v.Shell == "" || v.Executable == "" {
-			return fmt.Errorf("invalid persistent reservation")
-		}
-	case operation.ExecutionModeArgv:
-		if len(v.Argv) == 0 || v.Argv[0] == "" || v.Command != "" || v.Shell != "" || v.Executable == "" {
-			return fmt.Errorf("invalid persistent reservation")
-		}
-	default:
-		return fmt.Errorf("invalid persistent reservation")
 	}
 	return nil
 }

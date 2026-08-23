@@ -26,6 +26,13 @@ func TestValidityObservationValidateRejectsMalformedDimensions(t *testing.T) {
 	}
 }
 
+func TestValidityAcceptsProvenScopeAsDistinctSourceMatch(t *testing.T) {
+	value := ValidityObservation{SchemaVersion: ValiditySchemaVersion, EvidenceID: "ev_" + strings.Repeat("a", 64), Validity: Validity{SourceMatch: SourceMatchProvenScope, Freshness: FreshnessCurrent, ArtifactMatch: ArtifactMatchNotRequired, PolicyMatch: PolicyMatchUnknown}, CurrentSource: CurrentSource{WorkspaceID: "ws_01K00000000000000000000000", Generation: "gen_" + strings.Repeat("b", 64), Quality: SourceQualityFast}, ObservedAt: time.Now().UTC()}
+	if err := value.Validate(); err != nil {
+		t.Fatalf("proven-scope validity rejected: %v", err)
+	}
+}
+
 func TestMechanicalEvidenceAuthorityRejectsDelegatedLifecycleOnly(t *testing.T) {
 	if err := ValidateMechanicalReceiptAuthority(""); err != nil {
 		t.Fatalf("ordinary receipt authority rejected: %v", err)

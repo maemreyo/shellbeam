@@ -17,14 +17,14 @@ type memoryReader struct {
 	delay time.Duration
 }
 
-func newMemoryReader(text string) (*memoryReader, core.RawOutputRef) {
+func newMemoryReader(text string) (*memoryReader, core.StructuredInputRef) {
 	data := []byte(text)
 	sum := sha256.Sum256(data)
 	ref := core.RawOutputRef{SessionID: "session-1", StartByte: 0, EndByte: int64(len(data)), SHA256: hex.EncodeToString(sum[:])}
-	return &memoryReader{data: data, input: app.InputContext{OperationID: "op-1"}}, ref
+	return &memoryReader{data: data, input: app.InputContext{OperationID: "op-1"}}, core.RawInputRef(ref)
 }
 
-func (r *memoryReader) ReadOutputRange(_ context.Context, ref core.RawOutputRef, offset int64, max int) ([]byte, error) {
+func (r *memoryReader) ReadInputRange(_ context.Context, ref core.StructuredInputRef, offset int64, max int) ([]byte, error) {
 	if r.delay > 0 {
 		time.Sleep(r.delay)
 	}
@@ -37,7 +37,7 @@ func (r *memoryReader) ReadOutputRange(_ context.Context, ref core.RawOutputRef,
 	}
 	return append([]byte(nil), r.data[offset:end]...), nil
 }
-func (r *memoryReader) DescribeInput(context.Context, core.RawOutputRef) (app.InputContext, error) {
+func (r *memoryReader) DescribeInput(context.Context, core.StructuredInputRef) (app.InputContext, error) {
 	return r.input, nil
 }
 

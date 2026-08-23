@@ -66,17 +66,19 @@ func TestOutputRefBinderPinsExactTerminalRange(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256([]byte("abc"))
-	if ref.StartByte != 0 || ref.EndByte != 3 || ref.SHA256 != hex.EncodeToString(sum[:]) {
+	raw, ok := ref.Raw()
+	if !ok || raw.StartByte != 0 || raw.EndByte != 3 || raw.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("ref=%#v", ref)
 	}
-	got, err := binder.ReadOutputRange(context.Background(), ref, 1, 99)
+	got, err := binder.ReadInputRange(context.Background(), ref, 1, 99)
 	if err != nil || string(got) != "bc" {
 		t.Fatalf("read=%q err=%v", got, err)
 	}
-	bad := ref
-	bad.SHA256 = hex.EncodeToString(sha256.New().Sum(nil))
+	badRaw := raw
+	badRaw.SHA256 = hex.EncodeToString(sha256.New().Sum(nil))
+	bad := core.RawInputRef(badRaw)
 	reads := store.reads
-	if _, err := binder.ReadOutputRange(context.Background(), bad, 0, 1); err == nil || store.reads != reads {
+	if _, err := binder.ReadInputRange(context.Background(), bad, 0, 1); err == nil || store.reads != reads {
 		t.Fatalf("mismatched ref read allowed err=%v reads=%d->%d", err, reads, store.reads)
 	}
 }
@@ -90,7 +92,8 @@ func TestOutputRefBinderSupportsEmptyOutputAndFailsClosedAfterCompaction(t *test
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(nil)
-	if ref.EndByte != 0 || ref.SHA256 != hex.EncodeToString(sum[:]) {
+	emptyRaw, ok := ref.Raw()
+	if !ok || emptyRaw.EndByte != 0 || emptyRaw.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatalf("empty ref=%#v", ref)
 	}
 	store.output["non-empty"] = []byte("x")
@@ -99,7 +102,7 @@ func TestOutputRefBinderSupportsEmptyOutputAndFailsClosedAfterCompaction(t *test
 		t.Fatal(err)
 	}
 	store.available = false
-	if _, err := binder.ReadOutputRange(context.Background(), nonEmpty, 0, 1); err == nil {
+	if _, err := binder.ReadInputRange(context.Background(), nonEmpty, 0, 1); err == nil {
 		t.Fatal("compacted raw output remained readable")
 	}
 }

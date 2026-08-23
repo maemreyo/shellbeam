@@ -3,13 +3,13 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -74,6 +74,8 @@ type liveSession struct {
 	exit                    receipt.ExitEvidence
 	signal                  receipt.SignalEvidence
 	resourceCleanup         *receipt.ResourceCleanup
+	hermeticResult          *hermeticcore.BoundaryResult
+	hermeticPrepared        *preparedHermetic
 	input                   *session.InputLedger
 	kills                   *session.KillLedger
 	accepted                int64
@@ -174,14 +176,16 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 			return View{}, err
 		}
 	}
+	if err := validateHermeticAdmission(s.options.Capabilities, s.options.HermeticRuntime, req); err != nil {
+		return View{}, err
+	}
+	if err := s.validatePreResolutionWorkspaceRequirements(req); err != nil {
+		return View{}, err
+	}
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}
-	logicalIntent := operation.Intent{
-		Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS,
-		Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode,
-		TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(),
-	}
+	logicalIntent := operation.Intent{ExperimentID: req.ExperimentID, Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}
@@ -189,7 +193,11 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	return s.admitPreparedStart(ctx, req, reservation, spec, s.store.ReserveOperation, false)
+	commit, err := s.rawReservationCommitter(req)
+	if err != nil {
+		return View{}, err
+	}
+	return s.admitPreparedStart(ctx, req, reservation, spec, commit, false)
 }
 
 func (s *Service) activateLiveSession(live *liveSession) {
@@ -270,6 +278,7 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	rec := s.receiptFor(l, session.Failed, session.Failure)
 	rec.FailureReason = reason
 	rec.Spawn = l.spawn
+	capture := s.acquireStructuredCaptureTerminal(l.reservation)
 	s.endManagedShell(l)
 	// Release the child's descriptors before durability, not after. The process
 	// is already reaped and its output already captured, so nothing here needs
@@ -277,10 +286,11 @@ func (s *Service) finalizeAdmittedStartFailure(l *liveSession, reason string) {
 	// it takes, which can be minutes. Holding a dead child's stdin open for
 	// that whole time is what turned a stalled store into a descriptor leak.
 	s.releaseProcessResources(l)
+	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
-	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
+	s.scheduleStructuredAfterReceipt(rec, l.reservation, capture)
+	s.scheduleTelemetryTerminal(rec, nil)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
 	s.scheduleInputTraceTerminal(rec, l.reservation)
 	l.mu.Lock()
@@ -326,10 +336,14 @@ func classifyTerminalResult(target session.State, resourceBreach operation.Resou
 
 func (s *Service) waitLoop(l *liveSession) {
 	exit := l.handle.Wait(context.Background())
+	resourceEvidence := exit.Resources
+	exit.Resources = nil
 	resourceBreach := resourceLimitBreachOf(l.handle)
 	resourceCleanup := resourceCleanupOf(l.handle)
+	hermeticResult := hermeticBoundaryResultOf(l.handle, l.reservation.HermeticBoundary)
 	l.mu.Lock()
 	l.resourceCleanup = resourceCleanup
+	l.hermeticResult = hermeticResult
 	l.exit = exit
 	l.state = session.Finalizing
 	l.notify()
@@ -363,6 +377,7 @@ func (s *Service) waitLoop(l *liveSession) {
 	rec.Spawn = l.spawn
 	rec.Exit = exit
 	rec.Signal = signalEvidence
+	capture := s.acquireStructuredCaptureTerminal(l.reservation)
 	s.endManagedShell(l)
 	// Release the child's descriptors before durability, not after. The process
 	// is already reaped and its output already captured, so nothing here needs
@@ -370,10 +385,11 @@ func (s *Service) waitLoop(l *liveSession) {
 	// it takes, which can be minutes. Holding a dead child's stdin open for
 	// that whole time is what turned a stalled store into a descriptor leak.
 	s.releaseProcessResources(l)
+	rec.HermeticCleanup = s.discardHermetic(l.hermeticPrepared)
 	s.attachWorkspaceProvenance(&rec, l.workspace)
 	s.publishUntilDurable(rec)
-	s.scheduleStructuredTerminal(rec, l.reservation.StructuredAdapter)
-	s.scheduleTelemetryTerminal(rec)
+	s.scheduleStructuredAfterReceipt(rec, l.reservation, capture)
+	s.scheduleTelemetryTerminal(rec, resourceEvidence)
 	s.scheduleEvidenceTerminal(rec, l.reservation)
 	s.scheduleInputTraceTerminal(rec, l.reservation)
 	l.mu.Lock()
@@ -463,29 +479,4 @@ func (s *Service) timeoutLoop(l *liveSession, d time.Duration) {
 		}()
 	}
 	l.mu.Unlock()
-}
-
-func (s *Service) writeLoop(l *liveSession) {
-	defer close(l.writerDone)
-	for job := range l.jobs {
-		var err error
-		if job.eof {
-			err = l.handle.CloseStdin()
-		} else {
-			err = l.handle.Write(job.data)
-		}
-		l.mu.Lock()
-		if err != nil {
-			if l.captureErr == nil {
-				l.captureErr = fmt.Errorf("input_delivery_failed")
-			}
-			l.handle.Signal("TERM")
-			l.terminalTarget = session.Killed
-		} else if !job.eof {
-			l.delivered += int64(len(job.data))
-			l.input.Delivered(len(job.data))
-		}
-		l.notify()
-		l.mu.Unlock()
-	}
 }

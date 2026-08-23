@@ -11,6 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -24,18 +26,20 @@ const (
 var typedProjectIDPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 type TypedRequestIntent struct {
-	WorkspaceID      string            `json:"workspace_id"`
-	ProjectCommandID string            `json:"project_command_id"`
-	Params           map[string]string `json:"params,omitempty"`
-	TTY              bool              `json:"tty"`
-	TimeoutMS        int64             `json:"timeout_ms"`
-	Persistent       bool              `json:"persistent,omitempty"`
-	SessionMode      string            `json:"session_mode,omitempty"`
-	SessionName      string            `json:"session_name,omitempty"`
-	StdinMode        StdinMode         `json:"stdin_mode,omitempty"`
-	TimeoutMode      TimeoutMode       `json:"timeout_mode,omitempty"`
-	TraceMode        trace.Mode        `json:"trace_mode,omitempty"`
-	ResourceLimits   *ResourceLimits   `json:"resource_limits,omitempty"`
+	WorkspaceID         string                              `json:"workspace_id"`
+	ProjectCommandID    string                              `json:"project_command_id"`
+	Params              map[string]string                   `json:"params,omitempty"`
+	TTY                 bool                                `json:"tty"`
+	TimeoutMS           int64                               `json:"timeout_ms"`
+	Persistent          bool                                `json:"persistent,omitempty"`
+	SessionMode         string                              `json:"session_mode,omitempty"`
+	SessionName         string                              `json:"session_name,omitempty"`
+	StdinMode           StdinMode                           `json:"stdin_mode,omitempty"`
+	TimeoutMode         TimeoutMode                         `json:"timeout_mode,omitempty"`
+	TraceMode           trace.Mode                          `json:"trace_mode,omitempty"`
+	ResourceLimits      *ResourceLimits                     `json:"resource_limits,omitempty"`
+	Hermetic            *hermeticcore.Request               `json:"hermetic,omitempty"`
+	VerificationAttempt *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
 }
 
 type TypedIntentClaim struct {
@@ -73,6 +77,19 @@ func (i TypedRequestIntent) Validate() error {
 	if i.ResourceLimits != nil {
 		if err := i.ResourceLimits.Validate(); err != nil {
 			return err
+		}
+	}
+	if i.Hermetic != nil {
+		if err := i.Hermetic.Validate(); err != nil {
+			return err
+		}
+		if i.TTY || i.Persistent {
+			return fmt.Errorf("hermetic v1 requires non-tty, non-persistent execution")
+		}
+	}
+	if i.VerificationAttempt != nil {
+		if err := i.VerificationAttempt.Validate(); err != nil {
+			return fmt.Errorf("invalid verification attempt: %w", err)
 		}
 	}
 	if err := validateSessionContract(i.SessionMode, i.TTY, i.Persistent, i.SessionName); err != nil {
@@ -153,7 +170,15 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return bindTraceRequestFingerprint(base, i.TraceMode)
+	base, err = hermeticcore.BindFingerprint("request", base, i.Hermetic)
+	if err != nil {
+		return "", err
+	}
+	base, err = bindTraceRequestFingerprint(base, i.TraceMode)
+	if err != nil {
+		return "", err
+	}
+	return bindVerificationAttemptFingerprint("typed_request", base, i.VerificationAttempt)
 }
 
 func (c TypedIntentClaim) Validate() error {

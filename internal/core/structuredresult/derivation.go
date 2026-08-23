@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	SchemaVersion          = 1
-	MaxSourceAuthorityRefs = 8
+	SchemaVersionV1           = 1
+	SchemaVersion             = 2
+	DerivationSchemaVersionV3 = 3
+	MaxSourceAuthorityRefs    = 8
 )
 
 type Lifecycle string
@@ -52,15 +54,18 @@ type Producer struct {
 }
 
 type Derivation struct {
-	SchemaVersion           int            `json:"schema_version"`
-	DerivationKey           string         `json:"derivation_key"`
-	SourceAuthorityRefs     []RawOutputRef `json:"source_authority_refs"`
-	Producer                Producer       `json:"producer"`
-	DerivationSchemaVersion int            `json:"derivation_schema_version"`
-	DerivationConfigDigest  string         `json:"derivation_config_digest"`
-	Lifecycle               Lifecycle      `json:"lifecycle"`
-	ParseOutcome            ParseOutcome   `json:"parse_outcome,omitempty"`
-	Completeness            Completeness   `json:"completeness"`
+	SchemaVersion           int                        `json:"schema_version"`
+	DerivationKey           string                     `json:"derivation_key"`
+	SourceAuthorityRefs     []StructuredInputRef       `json:"source_authority_refs"`
+	Producer                Producer                   `json:"producer"`
+	DerivationSchemaVersion int                        `json:"derivation_schema_version"`
+	DerivationConfigDigest  string                     `json:"derivation_config_digest"`
+	Lifecycle               Lifecycle                  `json:"lifecycle"`
+	ParseOutcome            ParseOutcome               `json:"parse_outcome,omitempty"`
+	Completeness            Completeness               `json:"completeness"`
+	CompletenessReason      CompletenessReason         `json:"completeness_reason,omitempty"`
+	ObservedEntries         *ObservedEntryCounts       `json:"observed_entries,omitempty"`
+	SemanticsCoverage       *ProducerSemanticsCoverage `json:"semantics_coverage,omitempty"`
 }
 
 func DerivationKey(refs []RawOutputRef, producer Producer, schemaVersion int, configDigest string) (string, error) {
@@ -92,18 +97,33 @@ func DerivationKey(refs []RawOutputRef, producer Producer, schemaVersion int, co
 }
 
 func (d Derivation) Validate() error {
-	if d.SchemaVersion != SchemaVersion || !validDigest(d.DerivationKey) || len(d.SourceAuthorityRefs) == 0 || len(d.SourceAuthorityRefs) > MaxSourceAuthorityRefs || d.DerivationSchemaVersion < 1 || !validDigest(d.DerivationConfigDigest) || d.Producer.Validate() != nil || !validCompleteness(d.Completeness) {
+	if d.SchemaVersion != SchemaVersionV1 && d.SchemaVersion != SchemaVersion && d.SchemaVersion != DerivationSchemaVersionV3 || !validDigest(d.DerivationKey) || len(d.SourceAuthorityRefs) == 0 || len(d.SourceAuthorityRefs) > MaxSourceAuthorityRefs || d.DerivationSchemaVersion < 1 || !validDigest(d.DerivationConfigDigest) || d.Producer.Validate() != nil || !validCompleteness(d.Completeness) || !validCompletenessReason(d.CompletenessReason) {
 		return fmt.Errorf("invalid structured derivation")
 	}
 	for _, ref := range d.SourceAuthorityRefs {
 		if err := ref.Validate(); err != nil {
 			return err
 		}
+		if d.SchemaVersion == SchemaVersionV1 && ref.Kind != StructuredInputRawOutput {
+			return fmt.Errorf("schema v1 derivation requires raw output")
+		}
+	}
+	if d.SemanticsCoverage != nil && d.SemanticsCoverage.Validate() != nil {
+		return fmt.Errorf("invalid derivation semantics coverage")
+	}
+	if d.ObservedEntries != nil && d.ObservedEntries.Validate() != nil {
+		return fmt.Errorf("invalid derivation observed entries")
+	}
+	if d.SchemaVersion != DerivationSchemaVersionV3 && (d.CompletenessReason != "" || d.ObservedEntries != nil) {
+		return fmt.Errorf("pre-v3 derivation claims v3 metadata")
+	}
+	if d.SchemaVersion == DerivationSchemaVersionV3 && d.CompletenessReason == "" && d.ObservedEntries == nil {
+		return fmt.Errorf("schema v3 derivation missing v3 metadata")
 	}
 	switch d.Lifecycle {
 	case LifecyclePending, LifecycleProcessing:
-		if d.ParseOutcome != "" {
-			return fmt.Errorf("parse outcome before terminal")
+		if d.ParseOutcome != "" || d.SemanticsCoverage != nil || d.CompletenessReason != "" || d.ObservedEntries != nil {
+			return fmt.Errorf("terminal metadata before terminal")
 		}
 	case LifecycleTerminal:
 		if !validParseOutcome(d.ParseOutcome) {
@@ -111,6 +131,17 @@ func (d Derivation) Validate() error {
 		}
 	default:
 		return fmt.Errorf("invalid derivation lifecycle")
+	}
+	if d.CompletenessReason != "" {
+		if d.ParseOutcome != ParsePartial || d.Completeness != CompletenessPartial && d.Completeness != CompletenessCompacted || d.ObservedEntries == nil {
+			return fmt.Errorf("invalid derivation completeness reason")
+		}
+		if d.CompletenessReason == CompletenessReasonZeroMatch && d.ObservedEntries.Entries != 0 {
+			return fmt.Errorf("zero-match derivation observed entries")
+		}
+	}
+	if d.SchemaVersion == SchemaVersionV1 && d.SemanticsCoverage != nil {
+		return fmt.Errorf("schema v1 derivation claims v2 metadata")
 	}
 	return nil
 }

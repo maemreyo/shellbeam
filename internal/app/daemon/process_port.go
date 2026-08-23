@@ -2,6 +2,8 @@ package daemon
 
 import (
 	"context"
+	hermeticapp "github.com/maemreyo/shellbeam/internal/app/hermetic"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 )
@@ -12,6 +14,19 @@ type OutputSink interface {
 }
 type ProcessOwner interface {
 	Start(context.Context, operation.ExecutionSpec, OutputSink) (ProcessHandle, receipt.SpawnEvidence, error)
+}
+
+type HermeticPrepareRequest struct {
+	WorkspaceID string
+	LogicalCWD  string
+	Request     hermeticcore.Request
+	Target      operation.ExecutionSpec
+}
+
+type HermeticRuntime interface {
+	Prepare(context.Context, HermeticPrepareRequest) (hermeticapp.PreparedExecution, error)
+	Start(context.Context, hermeticapp.PreparedExecution, OutputSink) (ProcessHandle, receipt.SpawnEvidence, error)
+	Discard(context.Context, hermeticapp.PreparedExecution) error
 }
 
 type ExecutionBinder interface {
@@ -83,4 +98,24 @@ func resourceCleanupOf(handle ProcessHandle) *receipt.ResourceCleanup {
 		cleanup.Reason = "cleanup_unknown"
 	}
 	return cleanup
+}
+
+type hermeticBoundaryHandle interface {
+	HermeticBoundaryResult() hermeticcore.BoundaryResult
+}
+
+func hermeticBoundaryResultOf(handle ProcessHandle, binding *hermeticcore.BoundaryBinding) *hermeticcore.BoundaryResult {
+	if binding == nil {
+		return nil
+	}
+	aware, ok := handle.(hermeticBoundaryHandle)
+	if !ok {
+		return lostHermeticResult(binding)
+	}
+	result := aware.HermeticBoundaryResult()
+	if err := hermeticcore.ValidateBoundaryCompletion(*binding, result); err != nil {
+		return lostHermeticResult(binding)
+	}
+	copy := result
+	return &copy
 }

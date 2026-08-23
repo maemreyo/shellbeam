@@ -9,9 +9,11 @@ import (
 
 	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
 	projectapp "github.com/maemreyo/shellbeam/internal/app/project"
+	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
+	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
@@ -75,7 +77,7 @@ func typedRequestIntent(req StartRequest) (operation.TypedRequestIntent, string,
 	}
 	intent := operation.TypedRequestIntent{
 		WorkspaceID: req.WorkspaceID, ProjectCommandID: req.ProjectCommandID, Params: cloneStringMap(req.Params),
-		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(),
+		TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone(), VerificationAttempt: cloneVerificationAttempt(req.VerificationAttempt),
 	}
 	fingerprint, err := intent.Fingerprint()
 	if err != nil {
@@ -111,7 +113,10 @@ func (s *Service) lookupProjectCommandReplay(ctx context.Context, req StartReque
 	if err != nil {
 		return View{}, true, err
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
+	if structuredAdapter == "" && stored.StructuredAdapter != "" && structuredapp.AdapterAcceptsArgv(stored.StructuredAdapter, stored.ProjectCommand.ResolvedArgv) {
+		structuredAdapter = stored.StructuredAdapter
+	}
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -161,14 +166,14 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 	})
 	resolvedIntent := operation.Intent{
 		Argv: append([]string(nil), binding.ResolvedArgv...), WorkspaceID: req.WorkspaceID,
-		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, ResourceLimits: req.ResourceLimits.Clone(),
+		CWD: binding.LogicalCWD, ResolvedCWD: binding.ResolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone(),
 	}
 	resolvedIntent.Resolved, resolvedIntent.TimeoutSource = &resolvedPolicy, timeoutSourceOf(resolvedPolicy)
 	executionFingerprint, err := resolvedIntent.ExecutionFingerprint(spec.Executable)
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, Intent: req.Intent, StructuredAdapter: structuredAdapter}).Fingerprint()
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
@@ -181,7 +186,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 				return 4
 			}
 			return 3
-		}(), OperationID: id, ActivityID: req.ActivityID, WorkspaceID: req.WorkspaceID,
+		}(), OperationID: id, ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, WorkspaceID: req.WorkspaceID,
 		LogicalCWD: binding.LogicalCWD, StructuredAdapter: structuredAdapter,
 		RequestFingerprint: requestFingerprint, ExecutionFingerprint: executionFingerprint,
 		ObservationBindingFingerprint: observationFingerprint,
@@ -193,7 +198,7 @@ func (s *Service) reservationForProjectCommand(req StartRequest, id operation.ID
 			}
 			return 0
 		}(), SessionName: req.SessionName, DaemonIncarnation: s.options.Incarnation,
-		ProjectCommand: &binding, ResourceLimits: req.ResourceLimits.Clone(),
+		ProjectCommand: &binding, VerificationAttempt: cloneVerificationAttempt(req.VerificationAttempt), ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	return reservation, spec, nil
 }
@@ -206,26 +211,55 @@ func (s *Service) admitPreparedStart(ctx context.Context, req StartRequest, rese
 	if err != nil {
 		return View{}, err
 	}
-	sid := newSessionID()
-	reservation.SessionID = operation.SessionID(sid)
+	preparedHermetic, err := s.prepareHermeticExecution(ctx, req, reservation.LogicalCWD, spec)
+	if err != nil {
+		abortPreparedTrace(preparedTrace)
+		return View{}, err
+	}
+	if preparedHermetic != nil {
+		reservation.HermeticBoundary = preparedHermetic.binding.Clone()
+		spec.StdinMode = operation.StdinModeClosed
+	}
+	sessionID, err := s.resolveAdmissionSessionID(ctx, req, reservation.OperationID)
+	if err != nil {
+		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
+		return View{}, err
+	}
+	sid := string(sessionID)
+	reservation.SessionID = sessionID
 	reservation.CreatedAt = time.Now().UTC()
+	structuredPreparation, err := s.prepareStructuredCaptureAdmission(ctx, req, &reservation, spec)
+	if err != nil {
+		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
+		return View{}, err
+	}
 	if reservation.SchemaVersion >= 2 {
 		s.freezeEnvironmentBinding(&reservation)
 	}
 	stored, created, result := commit(ctx, reservation)
 	if result.Err != nil {
+		if structuredPreparation.Owned {
+			_ = s.abortStructuredCapture(context.Background(), reservation)
+		}
 		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
 		return View{}, failure.Normalize(result.Err)
 	}
 	sid = string(stored.SessionID)
 	if !created {
+		if structuredPreparation.Owned {
+			_ = s.abortStructuredCapture(context.Background(), reservation)
+		}
 		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
 		if typedReplay {
 			return s.waitTypedReservedStart(ctx, req, stored, sid)
 		}
 		return s.waitReservedStart(ctx, req, stored, sid)
 	}
-	return s.spawnPreparedStart(ctx, req, stored, spec, sid, preparedTrace)
+	return s.spawnPreparedStart(ctx, req, stored, spec, sid, preparedTrace, preparedHermetic)
 }
 
 func (s *Service) waitTypedReservedStart(ctx context.Context, req StartRequest, stored operation.Reservation, sessionID string) (View, error) {
@@ -236,9 +270,10 @@ func (s *Service) waitTypedReservedStart(ctx context.Context, req StartRequest, 
 	return view, err
 }
 
-func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stored operation.Reservation, spec operation.ExecutionSpec, sid string, preparedTrace inputtraceapp.Prepared) (View, error) {
+func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stored operation.Reservation, spec operation.ExecutionSpec, sid string, preparedTrace inputtraceapp.Prepared, preparedHermetic *preparedHermetic) (View, error) {
 	if stored.Persistent {
 		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
 		return s.spawnPreparedPersistentStart(ctx, req, stored, spec, sid)
 	}
 	executionCWD := stored.CWD
@@ -253,16 +288,24 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	if resolved, resolveErr := s.resolveExecutionPolicy(req); resolveErr == nil {
 		policySource, stdinSource = timeoutSourceOf(resolved), resolved.StdinSource()
 	}
-	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, timeoutSource: policySource, stdinSource: stdinSource, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
+	live := &liveSession{operationID: req.OperationID, activityID: activityID, sessionID: sid, reservation: stored, spec: spec, workspace: workspaceObservation, state: session.Starting, hermeticPrepared: preparedHermetic, timeoutSource: policySource, stdinSource: stdinSource, input: session.NewInputLedger(s.options.MaxQueuedInputBytes, req.TTY), kills: session.NewKillLedger(), changed: make(chan struct{}), jobs: make(chan inputJob, s.options.MaxQueuedInputBytes+1), writerDone: make(chan struct{}), done: make(chan struct{})}
 	processObservation := s.prepareProcessStartedObservation(req.OperationID, sid)
 	if processObservation.Err != nil {
 		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
 		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
 		s.finalizeAdmittedStartFailure(live, "process_observation_failed")
 		return View{}, failure.Normalize(processObservation.Err)
 	}
 	s.activateLiveSession(live)
-	h, spawn, spawnErr := s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
+	var h ProcessHandle
+	var spawn receipt.SpawnEvidence
+	var spawnErr error
+	if preparedHermetic != nil {
+		h, spawn, spawnErr = s.options.HermeticRuntime.Start(context.Background(), preparedHermetic.execution, sessionSink{service: s, id: sid})
+	} else {
+		h, spawn, spawnErr = s.owner.Start(context.Background(), live.spec, sessionSink{service: s, id: sid})
+	}
 	live.mu.Lock()
 	live.spawn = spawn
 	if spawnErr == nil {
@@ -273,6 +316,8 @@ func (s *Service) spawnPreparedStart(ctx context.Context, req StartRequest, stor
 	live.mu.Unlock()
 	if spawnErr != nil {
 		abortPreparedTrace(preparedTrace)
+		s.discardHermetic(preparedHermetic)
+		live.hermeticPrepared = nil
 		s.resolveProcessStartedObservation(processObservation.ObservationSeq, false)
 		s.finishSpawnFailure(live)
 		view, viewErr := s.waitView(ctx, stored, sid, 0, 0, req.MaxOutputBytes)

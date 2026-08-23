@@ -88,16 +88,15 @@ func (c *diagnosticCollector) convertDiagnostic(document synchronizedDocument, d
 	if err != nil {
 		return appcodeintel.ProviderDiagnostic{}, err
 	}
+	location, err := resolvedDocumentLocation(document, byteRange)
+	if err != nil {
+		return appcodeintel.ProviderDiagnostic{}, err
+	}
 	return appcodeintel.ProviderDiagnostic{
-		Severity: mapSeverity(diagnostic.Severity),
-		Code:     diagnostic.Code,
-		Message:  diagnostic.Message,
-		Location: core.SourceLocation{
-			Kind: core.LocationResolved,
-			Resolved: &core.ResolvedSourceLocation{
-				SourceRefID: string(document.SourceRef), StartByte: byteRange.Start, EndByte: byteRange.End,
-			},
-		},
+		Severity:       mapSeverity(diagnostic.Severity),
+		Code:           diagnostic.Code,
+		Message:        diagnostic.Message,
+		Location:       location,
 		ProviderSource: diagnostic.Source,
 		Authority:      core.AuthorityMechanical,
 		Completeness:   core.CompletenessProviderReported,

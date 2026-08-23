@@ -70,6 +70,41 @@ func sweep(t *testing.T, r *Repository, retention time.Duration) RetentionReport
 	return report
 }
 
+func TestRetentionRemovesCollectedOperationFromActivityIndex(t *testing.T) {
+	r := retentionRepository(t)
+	if err := r.repairCommittedOperations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	res := reservationN(900)
+	res.ActivityID = "activity-retention-index"
+	reserveOK(t, r, res)
+	terminateOK(t, r, res)
+	snapshot, err := r.LoadSession(context.Background(), res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.UpdatedAt = time.Now().UTC().Add(-48 * time.Hour)
+	if got := r.AdvanceSession(context.Background(), snapshot); got.Err != nil {
+		t.Fatal(got.Err)
+	}
+
+	r.activityOperationMu.RLock()
+	_, indexedBefore := r.activityOperations[res.ActivityID][res.OperationID]
+	r.activityOperationMu.RUnlock()
+	if !indexedBefore {
+		t.Fatal("new reservation was not indexed before retention")
+	}
+	if report := sweep(t, r, time.Hour); report.Collected != 1 {
+		t.Fatalf("collected %d sessions, want 1", report.Collected)
+	}
+	r.activityOperationMu.RLock()
+	_, indexedAfter := r.activityOperations[res.ActivityID][res.OperationID]
+	r.activityOperationMu.RUnlock()
+	if indexedAfter {
+		t.Fatal("retention left a collected operation in the activity index")
+	}
+}
+
 // TestCollectedSessionsAreNotResurrectedByStartupRepair is the hazard that
 // forces the order in which a session is taken apart.
 //

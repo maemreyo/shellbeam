@@ -8,11 +8,13 @@ import (
 	"path/filepath"
 
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type Intent struct {
+	ExperimentID   string   `json:"experiment_id,omitempty"`
 	Command        string   `json:"command,omitempty"`
 	Argv           []string `json:"argv,omitempty"`
 	WorkspaceID    string   `json:"workspace_id,omitempty"`
@@ -28,11 +30,12 @@ type Intent struct {
 	// StdinMode and TimeoutMode are the caller's raw words, kept unresolved so
 	// the request fingerprint can describe the request rather than the policy
 	// version that happened to be in force.
-	StdinMode            StdinMode       `json:"stdin_mode,omitempty"`
-	TimeoutMode          TimeoutMode     `json:"timeout_mode,omitempty"`
-	TraceMode            trace.Mode      `json:"-"`
-	TraceExecutionDigest string          `json:"-"`
-	ResourceLimits       *ResourceLimits `json:"-"`
+	StdinMode            StdinMode             `json:"stdin_mode,omitempty"`
+	TimeoutMode          TimeoutMode           `json:"timeout_mode,omitempty"`
+	TraceMode            trace.Mode            `json:"-"`
+	TraceExecutionDigest string                `json:"-"`
+	ResourceLimits       *ResourceLimits       `json:"-"`
+	Hermetic             *hermeticcore.Request `json:"-"`
 	// Resolved and TimeoutSource are the contract the daemon settled on; they
 	// belong to the execution fingerprint only.
 	Resolved      *ResolvedExecutionPolicy `json:"-"`
@@ -66,6 +69,9 @@ func (i Intent) Fingerprint() (string, error) {
 	if i.ResourceLimits != nil {
 		return "", fmt.Errorf("resource limits require v2")
 	}
+	if i.Hermetic != nil {
+		return "", fmt.Errorf("hermetic execution requires v2")
+	}
 	return hashIntent(1, "request", i.Command, "", i.CWD, i.TTY, i.TimeoutMS, "", nil)
 }
 
@@ -96,6 +102,10 @@ func (i Intent) RequestFingerprint() (string, error) {
 		return "", err
 	}
 	base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
+	if err != nil {
+		return "", err
+	}
+	base, err = hermeticcore.BindFingerprint("request", base, i.Hermetic)
 	if err != nil {
 		return "", err
 	}
@@ -134,6 +144,10 @@ func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error)
 		return "", err
 	}
 	base, err = bindResourceFingerprint("execution", base, i.ResourceLimits)
+	if err != nil {
+		return "", err
+	}
+	base, err = hermeticcore.BindFingerprint("execution", base, i.Hermetic)
 	if err != nil {
 		return "", err
 	}
@@ -176,6 +190,14 @@ func (i Intent) validateCommon() error {
 	if i.ResourceLimits != nil {
 		if err := i.ResourceLimits.Validate(); err != nil {
 			return err
+		}
+	}
+	if i.Hermetic != nil {
+		if err := i.Hermetic.Validate(); err != nil {
+			return err
+		}
+		if i.TTY || i.Persistent || (i.StdinMode != "" && i.StdinMode != StdinModeClosed) {
+			return fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin")
 		}
 	}
 	if err := i.validateSessionContract(); err != nil {
@@ -268,10 +290,13 @@ func validTraceExecutionDigest(value string) bool {
 }
 
 type ObservationBinding struct {
-	ActivityID        string             `json:"activity_id,omitempty"`
-	Intent            *DeclaredIntent    `json:"intent,omitempty"`
-	StructuredAdapter string             `json:"structured_adapter,omitempty"`
-	Evidence          *evidence.Contract `json:"evidence,omitempty"`
+	ActivityID              string                              `json:"activity_id,omitempty"`
+	ExperimentID            string                              `json:"experiment_id,omitempty"`
+	Intent                  *DeclaredIntent                     `json:"intent,omitempty"`
+	StructuredAdapter       string                              `json:"structured_adapter,omitempty"`
+	StructuredCaptureDigest string                              `json:"structured_capture_digest,omitempty"`
+	Evidence                *evidence.Contract                  `json:"evidence,omitempty"`
+	VerificationAttempt     *evidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
 }
 
 func ValidStructuredAdapterID(value string) bool {
@@ -288,6 +313,52 @@ func ValidStructuredAdapterID(value string) bool {
 }
 
 func (b ObservationBinding) Fingerprint() (string, error) {
+	base, err := b.legacyFingerprint()
+	if err != nil {
+		return "", err
+	}
+	if b.ExperimentID != "" {
+		base, err = bindExperimentFingerprint(base, b.ExperimentID)
+		if err != nil {
+			return "", err
+		}
+	}
+	if b.VerificationAttempt != nil {
+		if b.Evidence == nil {
+			return "", fmt.Errorf("verification attempt requires evidence contract")
+		}
+		base, err = bindVerificationAttemptFingerprint("observation", base, b.VerificationAttempt)
+		if err != nil {
+			return "", err
+		}
+	}
+	if b.StructuredCaptureDigest == "" {
+		return base, nil
+	}
+	if !ValidStructuredCaptureDigest(b.StructuredCaptureDigest) {
+		return "", fmt.Errorf("invalid structured capture digest")
+	}
+	return bindStructuredCaptureFingerprint(base, b.StructuredCaptureDigest)
+}
+
+func bindExperimentFingerprint(base, experimentID string) (string, error) {
+	if experimentID == "" {
+		return base, nil
+	}
+	encoded, err := json.Marshal(struct {
+		Version      int    `json:"version"`
+		Kind         string `json:"kind"`
+		Base         string `json:"base_fingerprint,omitempty"`
+		ExperimentID string `json:"experiment_id"`
+	}{Version: 1, Kind: "decision_experiment", Base: base, ExperimentID: experimentID})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (b ObservationBinding) legacyFingerprint() (string, error) {
 	if b.StructuredAdapter != "" && !ValidStructuredAdapterID(b.StructuredAdapter) {
 		return "", fmt.Errorf("invalid structured adapter")
 	}
@@ -358,5 +429,52 @@ func (b ObservationBinding) Fingerprint() (string, error) {
 		return "", err
 	}
 	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func ValidStructuredCaptureDigest(value string) bool {
+	return validTraceExecutionDigest(value)
+}
+
+func bindStructuredCaptureFingerprint(base, digest string) (string, error) {
+	if !ValidStructuredCaptureDigest(digest) {
+		return "", fmt.Errorf("invalid structured capture digest")
+	}
+	encoded, err := json.Marshal(struct {
+		Version                 int    `json:"version"`
+		Kind                    string `json:"kind"`
+		BaseFingerprint         string `json:"base_fingerprint"`
+		StructuredCaptureDigest string `json:"structured_capture_digest"`
+	}{Version: 5, Kind: "observation", BaseFingerprint: base, StructuredCaptureDigest: digest})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func bindVerificationAttemptFingerprint(kind, base string, attempt *evidence.VerificationAttemptIntent) (string, error) {
+	if attempt == nil {
+		return base, nil
+	}
+	if base == "" {
+		return "", fmt.Errorf("verification attempt requires base fingerprint")
+	}
+	if err := attempt.Validate(); err != nil {
+		return "", err
+	}
+	if attempt.RerunOfEvidenceID == "" {
+		return "", fmt.Errorf("verification attempt requires rerun evidence id")
+	}
+	encoded, err := json.Marshal(struct {
+		Version             int                                `json:"version"`
+		Kind                string                             `json:"kind"`
+		BaseFingerprint     string                             `json:"base_fingerprint"`
+		VerificationAttempt evidence.VerificationAttemptIntent `json:"verification_attempt"`
+	}{Version: 1, Kind: kind, BaseFingerprint: base, VerificationAttempt: *attempt})
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:]), nil
 }

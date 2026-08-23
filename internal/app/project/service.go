@@ -120,7 +120,8 @@ func (s *Service) workspace(ctx context.Context, workspaceID string) (workspace.
 func inspectionFromLoad(load core.LoadResult, review *core.Review) core.Inspection {
 	input := core.StatusInput{
 		LoadState: load.State, ManifestDigest: load.ManifestDigest,
-		DiscoveryFingerprint: load.DiscoveryFingerprint, Code: load.Code, Review: review,
+		DiscoveryFingerprint: load.DiscoveryFingerprint, DetectedFamilies: load.DetectedFamilies, DiscoveryEvidence: load.DiscoveryEvidence, Code: load.Code, Review: review,
+		AgentBootstrap: load.AgentBootstrap,
 	}
 	var manifest *core.Manifest
 	if load.Parsed != nil {

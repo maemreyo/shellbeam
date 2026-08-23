@@ -8,22 +8,14 @@ import (
 	"strings"
 
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
 func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation string) error {
-	if result := r.reconcileMutationScopePending(ctx); result.Err != nil {
-		return result.Err
-	}
-	if err := r.reconcileHandoffTransactions(ctx); err != nil {
-		return err
-	}
-	if err := r.reconcilePreparedExecutionObservations(ctx); err != nil {
-		return err
-	}
-	if err := r.repairCommittedOperations(ctx); err != nil {
+	if err := r.reconcileStartupPrerequisites(ctx); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(filepath.Join(r.root, "sessions"))
@@ -94,6 +86,25 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 	return r.ReconcileAdmission()
 }
 
+func (r *Repository) reconcileStartupPrerequisites(ctx context.Context) error {
+	// Structured recovery owns blob retirement barriers and claim/ref handoff.
+	// Run it before ordinary session reconciliation so bulk-session repair/GC
+	// never races ahead of recoverable structured authority.
+	if err := r.RecoverStructuredArtifacts(ctx); err != nil {
+		return err
+	}
+	if result := r.reconcileMutationScopePending(ctx); result.Err != nil {
+		return result.Err
+	}
+	if err := r.reconcileHandoffTransactions(ctx); err != nil {
+		return err
+	}
+	if err := r.reconcilePreparedExecutionObservations(ctx); err != nil {
+		return err
+	}
+	return r.repairCommittedOperations(ctx)
+}
+
 func (r *Repository) deferDelegatedCrashRecovery(ctx context.Context, reservation operation.Reservation) (bool, error) {
 	if err := ctx.Err(); err != nil {
 		return false, err
@@ -122,6 +133,9 @@ func (r *Repository) deferDelegatedCrashRecovery(ctx context.Context, reservatio
 }
 
 func (r *Repository) repairCommittedOperations(ctx context.Context) error {
+	r.activityOperationMu.Lock()
+	defer r.activityOperationMu.Unlock()
+	activityOperations := map[string]map[operation.ID]struct{}{}
 	entries, err := os.ReadDir(filepath.Join(r.root, "operations"))
 	if err != nil {
 		return err
@@ -141,6 +155,7 @@ func (r *Repository) repairCommittedOperations(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		addActivityOperationToIndex(activityOperations, reservation)
 		if _, err = r.LoadSession(ctx, reservation.SessionID); err == nil {
 			continue
 		} else if !errors.Is(err, ErrNotFound) {
@@ -150,6 +165,8 @@ func (r *Repository) repairCommittedOperations(ctx context.Context) error {
 			return result.Err
 		}
 	}
+	r.activityOperations = activityOperations
+	r.activityOperationIndexReady = true
 	return nil
 }
 
@@ -173,9 +190,22 @@ func abandonedReceipt(snap session.Snapshot, reservation operation.Reservation, 
 		rec.CWD = reservation.CWD
 		rec.TTY = reservation.TTY
 		rec.TimeoutMS = reservation.TimeoutMS
+		if reservation.SchemaVersion == 4 {
+			rec.StdinMode = string(reservation.StdinMode)
+			rec.TimeoutSource = reservation.TimeoutSource
+			rec.StdinModeSource = reservation.StdinModeSource
+		}
 		rec.Persistent = reservation.Persistent
 		rec.SessionName = reservation.SessionName
 		rec.ProjectCommand = reservation.ProjectCommand
+		if reservation.HermeticBoundary != nil {
+			rec.HermeticBinding = reservation.HermeticBoundary.Clone()
+			rec.HermeticResult = &hermetic.BoundaryResult{
+				SchemaVersion: hermetic.BoundaryResultSchemaV1, BoundaryID: reservation.HermeticBoundary.BoundaryID,
+				Provider: reservation.HermeticBoundary.Provider, Toolchain: reservation.HermeticBoundary.Toolchain,
+				EstablishedPreExec: false, Continuity: hermetic.ContinuityLost,
+			}
+		}
 		if reservation.SchemaVersion == 4 && reservation.ProjectCommand == nil {
 			rec.Evidence = reservation.Evidence
 		}

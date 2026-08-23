@@ -58,7 +58,10 @@ type RetentionReport struct {
 }
 
 // CollectExpiredTerminals removes terminal ordinary sessions whose durable
-// terminal record is older than the retention window.
+// terminal record is older than the retention window. Structured artifact
+// claims, derivation refs, blobs, and tombstones live under their own authority
+// and are deliberately outside this sweep; only structured-detail compaction
+// may release refs or retire blob bytes.
 //
 // It is idempotent and safe to interrupt: each session is withdrawn from view
 // by an atomic rename before anything under it is removed, so a caller either
@@ -138,6 +141,15 @@ func (r *Repository) collectSession(ctx context.Context, sessionID string, cutof
 	case err != nil && !errors.Is(err, ErrNotFound):
 		return 0, false, err
 	}
+	// Serialize excerpt retirement with record publication through the same
+	// structured authority. The lock is held until the session directory is
+	// atomically withdrawn, so a delayed parser cannot publish a new excerpt
+	// in the gap between stripping old excerpts and raw-output retirement.
+	r.structuredMu.Lock()
+	if err := r.stripFailureExcerptsForSessionUnlocked(ctx, sessionID); err != nil {
+		r.structuredMu.Unlock()
+		return 0, false, err
+	}
 
 	freed := directorySize(dir)
 
@@ -147,10 +159,18 @@ func (r *Repository) collectSession(ctx context.Context, sessionID string, cutof
 	// behind would resurrect everything retention had just collected, each one
 	// holding a capacity slot. Losing the record and keeping the directory is
 	// harmless by comparison: the next sweep collects it.
-	if err := removeIfPresent(r.operationPath(operation.ID(snapshot.OperationID))); err != nil {
-		return 0, false, err
+	r.activityOperationMu.Lock()
+	removeOperationErr := removeIfPresent(r.operationPath(operation.ID(snapshot.OperationID)))
+	if removeOperationErr == nil {
+		r.removeActivityOperationLocked(reservation)
+	}
+	r.activityOperationMu.Unlock()
+	if removeOperationErr != nil {
+		r.structuredMu.Unlock()
+		return 0, false, removeOperationErr
 	}
 	if err := removeIfPresent(r.rawOutputRefPath(sessionID)); err != nil {
+		r.structuredMu.Unlock()
 		return 0, false, err
 	}
 
@@ -159,11 +179,13 @@ func (r *Repository) collectSession(ctx context.Context, sessionID string, cutof
 	// or output with neither; visibility has to be all or nothing.
 	staged := filepath.Join(r.root, "sessions", gcStagingPrefix+sessionID)
 	if err := os.Rename(dir, staged); err != nil {
+		r.structuredMu.Unlock()
 		if errors.Is(err, os.ErrNotExist) {
 			return 0, false, nil
 		}
 		return 0, false, err
 	}
+	r.structuredMu.Unlock()
 	if err := os.RemoveAll(staged); err != nil {
 		// The session is already invisible; the leftover is collected next time.
 		return freed, true, nil

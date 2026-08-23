@@ -10,6 +10,7 @@ func clearResponseV2Payload(resp *ResponseV2) {
 	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView, resp.Sessions, resp.InputTrace = nil, nil, nil, nil, nil, nil, nil
 	resp.ContextExec = nil
 	resp.Handoff, resp.HandoffTimedOut = nil, false
+	resp.Verification, resp.VerificationPolicyPreview, resp.VerificationActivation, resp.VerificationWaiver, resp.VerificationRevocation = nil, nil, nil, nil, nil
 }
 
 func finalizeResponseV2(resp ResponseV2, err error) ResponseV2 {

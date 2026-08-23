@@ -3,10 +3,12 @@ BIN := shellbeam
 PKG := ./cmd/shellbeam
 PIDFILE := .build/run/daemon.pid
 LOG := /tmp/shellbeam-daemon.log
+LAUNCHER_LOG := /tmp/shellbeam-launcher.log
 
 .PHONY: help build test vet fmt fmt-check tidy modverify doctor daemon run-mcp \
 	daemon-start daemon-stop daemon-restart daemon-status \
-	hardening security mcp-local vulncheck devctl-check devctl-verify \
+	hardening security mcp-local vulncheck devctl-check devctl-verify main-runtime-scripts \
+	runtime-up runtime-ps runtime-kill runtime-log runtime-gc \
 	commit-gate test-dirty build-dirty release-evidence package verify-package clean ci
 
 help: ## List available targets
@@ -97,6 +99,36 @@ devctl-verify: ## devctl check + test (writes a receipt under .build/receipts/)
 	@./scripts/check-json-mode.sh
 	go run ./tools/devctl verify
 
+# The runtime targets pass absolute paths because the launcher and the process
+# tools resolve the repository from their own location, never from the working
+# directory. That is what lets the same commands work from any terminal.
+runtime-up: ## Start the main runtime detached (log: /tmp/shellbeam-launcher.log)
+	@if sh $(CURDIR)/scripts/shellbeam-runtimes.sh 2>/dev/null | grep -q '^launcher'; then \
+		echo "a launcher is already running; use 'make runtime-ps' to inspect it"; \
+	else \
+		( nohup sh $(CURDIR)/scripts/run-main-runtime.sh >$(LAUNCHER_LOG) 2>&1 & ); \
+		echo "launcher starting; log: $(LAUNCHER_LOG)"; \
+		echo "readiness: make runtime-ps"; \
+	fi
+
+runtime-ps: ## List every ShellBeam runtime process on this machine
+	@sh $(CURDIR)/scripts/shellbeam-runtimes.sh
+
+runtime-kill: ## Stop every ShellBeam runtime process on this machine
+	@sh $(CURDIR)/scripts/shellbeam-runtimes.sh kill
+
+runtime-log: ## Follow the running launcher's log, wherever it happens to write
+	@sh $(CURDIR)/scripts/shellbeam-runtimes.sh log
+
+runtime-gc: ## Reclaim disk left behind by the runtime rebuild loop
+	@sh $(CURDIR)/scripts/runtime-gc.sh
+
+main-runtime-scripts: ## Test main-runtime bootstrap, ownership, and process cleanup scripts
+	sh scripts/test-main-runtime-bootstrap.sh
+	sh scripts/test-main-runtime-owner.sh
+	sh scripts/test-shellbeam-runtimes.sh
+	sh scripts/test-runtime-gc.sh
+
 commit-gate: ## Run selective staged-change checks used by the tracked pre-commit hook
 	go run ./tools/devctl commit-gate --json
 
@@ -120,4 +152,4 @@ clean: ## Remove local build output
 	rm -f $(BIN)
 	rm -rf .build dist
 
-ci: fmt-check vet test security ## Everything CI-equivalent expects on a normal PR
+ci: fmt-check vet test security main-runtime-scripts ## Everything CI-equivalent expects on a normal PR

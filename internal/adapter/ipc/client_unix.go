@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
+	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/jsonstrict"
 	"github.com/maemreyo/shellbeam/internal/core/media"
@@ -71,7 +72,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 	if err != nil {
 		return bridge.Response{}, err
 	}
-	response := bridge.Response{Result: out.Result, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media, ContextExec: out.ContextExec, Handoff: out.Handoff, HandoffTimedOut: out.HandoffTimedOut}
+	response := bridgeResponseFromV2(out)
 	if out.View != nil {
 		response.View = *out.View
 	}
@@ -86,8 +87,13 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 		response.Code = out.Error.Code
 		response.Message = out.Error.Message
 		response.Retryable = out.Error.Retryable
+		response.Details = cloneStringMapV2(out.Error.Details)
 	}
 	return response, nil
+}
+
+func bridgeResponseFromV2(out ResponseV2) bridge.Response {
+	return bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, InputTrace: out.InputTrace, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media, ContextExec: out.ContextExec, Handoff: out.Handoff, HandoffTimedOut: out.HandoffTimedOut, Verification: out.Verification, VerificationPolicyPreview: out.VerificationPolicyPreview, VerificationActivation: out.VerificationActivation, VerificationWaiver: out.VerificationWaiver, VerificationRevocation: out.VerificationRevocation, Decision: (*bridge.DecisionResponse)(out.Decision)}
 }
 
 func applyMutationScopeV2(req *RequestV2, in bridge.Request) {
@@ -115,6 +121,7 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.Argv = append([]string(nil), in.Start.Argv...)
 	req.Intent = in.Start.Intent
 	req.Evidence = in.Start.Evidence
+	req.VerificationAttempt = cloneVerificationAttemptV2(in.Start.VerificationAttempt)
 	req.CWD = in.Start.CWD
 	req.TTY = in.Start.TTY
 	req.Persistent = in.Start.Persistent
@@ -123,10 +130,11 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.TimeoutMS = in.Start.TimeoutMS
 	req.StdinMode = in.Start.StdinMode
 	req.TimeoutMode = in.Start.TimeoutMode
-	req.TraceMode = in.Start.TraceMode
 	req.ResourceLimits = in.Start.ResourceLimits.Clone()
+	req.Hermetic = in.Start.Hermetic.Clone()
 	req.YieldMS = in.Start.YieldMS
 	req.MaxOutputBytes = in.Start.MaxOutputBytes
+	req.TraceMode = in.Start.TraceMode
 }
 
 func applyObservationInspectV2(req *RequestV2, in bridge.Request) {
@@ -237,4 +245,11 @@ func decodeMediaResponseV2(body io.Reader, req RequestV2) (ResponseV2, error) {
 		return ResponseV2{}, err
 	}
 	return out, nil
+}
+func cloneVerificationAttemptV2(value *coreevidence.VerificationAttemptIntent) *coreevidence.VerificationAttemptIntent {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
 }

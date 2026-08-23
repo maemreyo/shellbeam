@@ -141,7 +141,7 @@ func listenWithReadiness(runtime string, actions Actions, lease RuntimeLease, di
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
 	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
 	mux.HandleFunc("POST /local/handoff", s.handleHandoffLocal)
-	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
+	s.http = &http.Server{Handler: mux, ConnContext: trustedPeerConnContext, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	if ready {
 		s.MarkReady()
 	}

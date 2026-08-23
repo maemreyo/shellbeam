@@ -8,6 +8,7 @@ import (
 
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/session"
@@ -18,10 +19,59 @@ type SpawnEvidence struct {
 	Succeeded bool   `json:"succeeded"`
 	ErrorCode string `json:"error_code,omitempty"`
 }
+type ResourceQuality string
+
+const (
+	ResourceExact            ResourceQuality = "exact"
+	ResourcePlatformReported ResourceQuality = "platform_reported"
+	ResourceSampled          ResourceQuality = "sampled"
+	ResourceUnavailable      ResourceQuality = "unavailable"
+)
+
+type ResourceMetric struct {
+	Quality ResourceQuality `json:"quality"`
+	Value   *int64          `json:"value,omitempty"`
+}
+
+type ResourceEvidence struct {
+	CPUUserMS        ResourceMetric `json:"cpu_user_ms"`
+	CPUSystemMS      ResourceMetric `json:"cpu_system_ms"`
+	MaxRSSBytes      ResourceMetric `json:"max_rss_bytes"`
+	ReadBytes        ResourceMetric `json:"read_bytes"`
+	WriteBytes       ResourceMetric `json:"write_bytes"`
+	ProcessCountPeak ResourceMetric `json:"process_count_peak"`
+}
+
+func (e ResourceEvidence) Validate() error {
+	for _, metric := range []ResourceMetric{e.CPUUserMS, e.CPUSystemMS, e.MaxRSSBytes, e.ReadBytes, e.WriteBytes, e.ProcessCountPeak} {
+		if err := metric.validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m ResourceMetric) validate() error {
+	switch m.Quality {
+	case ResourceUnavailable:
+		if m.Value != nil {
+			return fmt.Errorf("unavailable resource metric has value")
+		}
+	case ResourceExact, ResourcePlatformReported, ResourceSampled:
+		if m.Value == nil || *m.Value < 0 {
+			return fmt.Errorf("observed resource metric lacks non-negative value")
+		}
+	default:
+		return fmt.Errorf("invalid resource metric quality")
+	}
+	return nil
+}
+
 type ExitEvidence struct {
-	Reaped bool   `json:"reaped"`
-	Code   *int   `json:"code,omitempty"`
-	Signal string `json:"signal,omitempty"`
+	Reaped    bool              `json:"reaped"`
+	Code      *int              `json:"code,omitempty"`
+	Signal    string            `json:"signal,omitempty"`
+	Resources *ResourceEvidence `json:"-"`
 }
 type SignalEvidence struct {
 	Requested string `json:"requested,omitempty"`
@@ -81,6 +131,22 @@ func (c ResourceCleanup) Validate() error {
 	}
 }
 
+type HermeticCleanupStatus string
+
+const HermeticCleanupIncomplete HermeticCleanupStatus = "incomplete"
+
+type HermeticCleanup struct {
+	Status HermeticCleanupStatus `json:"status"`
+	Reason string                `json:"reason"`
+}
+
+func (c HermeticCleanup) Validate() error {
+	if c.Status != HermeticCleanupIncomplete || c.Reason != "discard_failed" {
+		return fmt.Errorf("invalid hermetic cleanup metadata")
+	}
+	return nil
+}
+
 type Receipt struct {
 	SchemaVersion                 int                      `json:"schema_version"`
 	OperationID                   string                   `json:"operation_id"`
@@ -118,17 +184,20 @@ type Receipt struct {
 	// the one policy supplied -- and an agent that guesses wrong either retries
 	// a command that will never behave differently, or concludes ShellBeam cut
 	// it off.
-	StdinMode           string                  `json:"stdin_mode,omitempty"`
-	TimeoutSource       string                  `json:"timeout_source,omitempty"`
-	StdinModeSource     string                  `json:"stdin_mode_source,omitempty"`
-	FailureReason       string                  `json:"failure_reason,omitempty"`
-	ResourceCleanup     *ResourceCleanup        `json:"resource_cleanup,omitempty"`
-	WorkspaceProvenance *WorkspaceProvenance    `json:"workspace_provenance,omitempty"`
-	ProjectCommand      *project.CommandBinding `json:"project_command,omitempty"`
-	Evidence            *evidence.Contract      `json:"evidence,omitempty"`
-	Spawn               SpawnEvidence           `json:"spawn_evidence"`
-	Exit                ExitEvidence            `json:"exit_evidence"`
-	Signal              SignalEvidence          `json:"signal_evidence"`
+	StdinMode           string                    `json:"stdin_mode,omitempty"`
+	TimeoutSource       string                    `json:"timeout_source,omitempty"`
+	StdinModeSource     string                    `json:"stdin_mode_source,omitempty"`
+	FailureReason       string                    `json:"failure_reason,omitempty"`
+	ResourceCleanup     *ResourceCleanup          `json:"resource_cleanup,omitempty"`
+	HermeticCleanup     *HermeticCleanup          `json:"hermetic_cleanup,omitempty"`
+	HermeticBinding     *hermetic.BoundaryBinding `json:"hermetic_boundary,omitempty"`
+	HermeticResult      *hermetic.BoundaryResult  `json:"hermetic_result,omitempty"`
+	WorkspaceProvenance *WorkspaceProvenance      `json:"workspace_provenance,omitempty"`
+	ProjectCommand      *project.CommandBinding   `json:"project_command,omitempty"`
+	Evidence            *evidence.Contract        `json:"evidence,omitempty"`
+	Spawn               SpawnEvidence             `json:"spawn_evidence"`
+	Exit                ExitEvidence              `json:"exit_evidence"`
+	Signal              SignalEvidence            `json:"signal_evidence"`
 }
 
 func (r Receipt) validateResourceCleanup() error {
@@ -153,8 +222,40 @@ func (r Receipt) hasDelegatedFields() bool {
 	return r.SessionMode != "" || r.AuthorityEpoch != 0 || r.EvidenceAuthority != "" || r.InputAuthorityProvenance != "" || r.CaptureQuality != "" || len(r.CaptureReasons) != 0
 }
 
+func (r Receipt) validateHermeticCleanup() error {
+	if r.HermeticCleanup == nil {
+		return nil
+	}
+	if r.SchemaVersion != 2 && r.SchemaVersion != 3 {
+		return fmt.Errorf("hermetic cleanup metadata requires ephemeral v2 or v3 receipt")
+	}
+	if r.HermeticBinding == nil {
+		return fmt.Errorf("hermetic cleanup metadata requires boundary binding")
+	}
+	return r.HermeticCleanup.Validate()
+}
+
+func (r Receipt) validateHermeticBoundary() error {
+	if r.HermeticBinding == nil && r.HermeticResult == nil {
+		return nil
+	}
+	if r.SchemaVersion != 2 && r.SchemaVersion != 3 {
+		return fmt.Errorf("hermetic boundary metadata requires ephemeral v2 or v3 receipt")
+	}
+	if r.HermeticBinding == nil || r.HermeticResult == nil {
+		return fmt.Errorf("incomplete hermetic boundary receipt")
+	}
+	return hermetic.ValidateBoundaryCompletion(*r.HermeticBinding, *r.HermeticResult)
+}
+
 func (r Receipt) Validate() error {
 	if err := r.validateResourceCleanup(); err != nil {
+		return err
+	}
+	if err := r.validateHermeticBoundary(); err != nil {
+		return err
+	}
+	if err := r.validateHermeticCleanup(); err != nil {
 		return err
 	}
 	if r.SchemaVersion < 5 && r.hasDelegatedFields() {
@@ -290,6 +391,11 @@ func (r Receipt) validateCommonTruth() error {
 	if r.InputDeliveredBytes > r.InputAcceptedBytes {
 		return fmt.Errorf("delivered input exceeds accepted")
 	}
+	if r.Exit.Resources != nil {
+		if err := r.Exit.Resources.Validate(); err != nil {
+			return fmt.Errorf("invalid exit resource evidence: %w", err)
+		}
+	}
 	if r.State == session.Completed && r.Outcome == session.Success {
 		reapRequired := r.SchemaVersion != 5
 		outputCompleteRequired := r.SchemaVersion != 5
@@ -303,13 +409,15 @@ func (r Receipt) validateCommonTruth() error {
 	if r.State.Terminal() && r.Outcome == session.NoOutcome {
 		return fmt.Errorf("terminal outcome missing")
 	}
-	if r.WorkspaceProvenance != nil {
-		if r.SchemaVersion < 2 {
-			return fmt.Errorf("workspace provenance requires v2 receipt")
-		}
-		if err := r.WorkspaceProvenance.Validate(); err != nil {
-			return err
-		}
+	return r.validateWorkspaceProvenance()
+}
+
+func (r Receipt) validateWorkspaceProvenance() error {
+	if r.WorkspaceProvenance == nil {
+		return nil
 	}
-	return nil
+	if r.SchemaVersion < 2 {
+		return fmt.Errorf("workspace provenance requires v2 receipt")
+	}
+	return r.WorkspaceProvenance.Validate()
 }

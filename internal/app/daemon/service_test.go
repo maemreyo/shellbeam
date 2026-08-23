@@ -13,6 +13,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -414,6 +415,33 @@ func TestV2EvidenceContractPersistsAndConflictingRetryNeverRespawns(t *testing.T
 	}
 }
 
+func TestV2EvidenceExpectedOutputsAcceptAdmissionResolvedWorkspace(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	owner := &fakeOwner{}
+	workspaceID := workspace.WorkspaceID("ws_01K00000000000000000000008")
+	resolver := &fakeAddressResolver{workspaceID: workspaceID, logicalCWD: "src", cwd: "/bound/repo/src"}
+	svc := app.NewServiceWithWorkspaceResolver(st, owner, resolver, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
+	contract := &evidence.Contract{VerificationKind: evidence.VerificationBuild, ExpectedOutputs: []project.Output{{Path: "dist/app", Kind: "file", Required: true, Digest: "sha256"}}}
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "evidence-auto-workspace", Command: "true", CWD: "/caller/repo/src", Evidence: contract, YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	terminal := waitForTerminal(t, svc, view.SessionID)
+	if terminal.WorkspaceID != string(workspaceID) || owner.starts.Load() != 1 {
+		t.Fatalf("terminal=%#v starts=%d", terminal, owner.starts.Load())
+	}
+	stored, err := st.LoadOperation(context.Background(), operation.ID("evidence-auto-workspace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.WorkspaceID != string(workspaceID) || stored.Evidence == nil || len(stored.Evidence.ExpectedOutputs) != 1 {
+		t.Fatalf("stored=%#v", stored)
+	}
+}
+
 func TestV2EvidenceExpectedOutputsRequireWorkspaceBeforeSpawn(t *testing.T) {
 	owner := &fakeOwner{}
 	svc := app.NewService(nil, owner, app.Options{Incarnation: "d", Shell: "/bin/sh", MaxQueuedInputBytes: 100})
@@ -472,4 +500,26 @@ func TestV2DeclaredIntentPersistsForTerminalEvidenceAuthority(t *testing.T) {
 	if stored.Intent == nil || stored.Intent.Kind != operation.IntentKindTest || stored.Intent.MutatesSource == nil || *stored.Intent.MutatesSource {
 		t.Fatalf("stored intent=%#v", stored.Intent)
 	}
+}
+
+func TestRepositoryWithoutActivatedDecisionPolicyKeepsOrdinaryStartSemantics(t *testing.T) {
+	st, err := storeadapter.Open(filepath.Join(t.TempDir(), "state-decision-policy-absent"), storeadapter.Limits{MaxSessions: 4, MaxSessionOutput: 1000, MaxTotalState: 1 << 20, ControlReserve: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := capability.Baseline(capability.Limits{}).WithDecisionProtocol(capability.DecisionProtocolSupport{
+		SchemaVersion: 1, ProtocolVersion: 1,
+		PredicateKinds:     []string{"OPERATION_OUTCOME", "STRUCTURED_TEST_STATUS", "STRUCTURED_DIAGNOSTIC_PRESENCE", "VERIFICATION_RESULT"},
+		AuthorityProviders: []string{"shellbeam.explicit_caller.v1"}, OneExecutionPerExperiment: true,
+	})
+	owner := &fakeOwner{}
+	svc := app.NewService(st, owner, app.Options{Incarnation: "decision-policy-absent", Shell: "/bin/sh", MaxQueuedInputBytes: 100, Capabilities: catalog})
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "op-decision-policy-absent", Command: "true", CWD: "/", YieldMS: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner.starts.Load() != 1 {
+		t.Fatalf("ordinary start count=%d want 1", owner.starts.Load())
+	}
+	waitForTerminal(t, svc, view.SessionID)
 }

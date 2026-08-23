@@ -18,7 +18,7 @@ func TestNavigationDefinitionReferencesAndTypeDefinitionUseExactSelectedSource(t
 	root := t.TempDir()
 	ws := testWorkspace(root)
 	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBB", "package p\nvar X = 1\n")
-	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath, Bytes: source.Bytes}
 	location := protocol.Location{URI: doc.URI, Range: protocol.Range{
 		Start: protocol.Position{Line: 1, Character: 4}, End: protocol.Position{Line: 1, Character: 5},
 	}}
@@ -45,6 +45,9 @@ func TestNavigationDefinitionReferencesAndTypeDefinitionUseExactSelectedSource(t
 		if resolved == nil || resolved.SourceRefID != string(source.Ref.ID) || resolved.StartByte != int64(len("package p\nvar ")) || resolved.EndByte != int64(len("package p\nvar X")) {
 			t.Fatalf("%s location=%+v", query.Kind, response.Locations[0].Location)
 		}
+		if resolved.Display == nil || resolved.Display.Path != "main.go" || resolved.Display.Line != 2 || resolved.Display.Column != 5 || resolved.Display.EndLine != 2 || resolved.Display.EndColumn != 6 || resolved.Display.Preview != "var X = 1" {
+			t.Fatalf("%s display=%+v", query.Kind, resolved.Display)
+		}
 	}
 	if fake.lastPosition != (protocol.Position{Line: 1, Character: 4}) {
 		t.Fatalf("query position=%+v", fake.lastPosition)
@@ -59,7 +62,7 @@ func TestNavigationDocumentAndWorkspaceSymbolsAreProviderDerived(t *testing.T) {
 		t.Fatal(err)
 	}
 	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBC", text)
-	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath, Bytes: source.Bytes}
 	fake := &navigationFakeSession{
 		fakeSession: newFakeSession(),
 		documentSymbols: protocol.DocumentSymbolSlice{{
@@ -106,7 +109,7 @@ func TestNavigationTypeSummaryUsesBoundedHoverText(t *testing.T) {
 	root := t.TempDir()
 	ws := testWorkspace(root)
 	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBD", "package p\nvar X = 1\n")
-	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath, Bytes: source.Bytes}
 	fake := &navigationFakeSession{fakeSession: newFakeSession(), hover: &protocol.Hover{Contents: &protocol.MarkupContent{Kind: protocol.MarkupKindMarkdown, Value: strings.Repeat("x", navigationMaxTextBytes+100)}}}
 	nav := newNavigationService(fake, navigationCapabilities{Hover: true}, protocol.PositionEncodingKindUTF8)
 	response, err := nav.Query(t.Context(), appcodeintel.ProviderRequest{
@@ -124,7 +127,7 @@ func TestNavigationTypeSummarySanitizesMultilineHoverText(t *testing.T) {
 	root := t.TempDir()
 	ws := testWorkspace(root)
 	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBZ", "package p\nvar X = 1\n")
-	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath, Bytes: source.Bytes}
 	fake := &navigationFakeSession{fakeSession: newFakeSession(), hover: &protocol.Hover{Contents: &protocol.MarkupContent{
 		Kind: protocol.MarkupKindMarkdown, Value: "```go\nvar X int\n```\n\nA bounded summary.",
 	}}}
@@ -144,7 +147,7 @@ func TestNavigationCallHierarchyIsProviderReportedNeverExhaustive(t *testing.T) 
 	root := t.TempDir()
 	ws := testWorkspace(root)
 	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBE", "package p\nfunc A() {}\n")
-	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath, Bytes: source.Bytes}
 	item := protocol.CallHierarchyItem{
 		Name: "A", Kind: protocol.SymbolKindFunction, URI: doc.URI,
 		Range:          protocol.Range{Start: protocol.Position{Line: 1}, End: protocol.Position{Line: 1, Character: 11}},
@@ -176,7 +179,7 @@ func TestNavigationUnsupportedCapabilityAndImportsFailExplicitly(t *testing.T) {
 	root := t.TempDir()
 	ws := testWorkspace(root)
 	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBF", "package p\n")
-	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath, Bytes: source.Bytes}
 	nav := newNavigationService(&navigationFakeSession{fakeSession: newFakeSession()}, navigationCapabilities{}, protocol.PositionEncodingKindUTF8)
 	queries := []core.Query{
 		{Kind: core.QueryDefinition, Path: "main.go", Line: 1, Column: 1},
@@ -195,7 +198,7 @@ func TestNavigationExternalDependencyLocationNeverFabricatesCanonicalSourceRef(t
 	root := t.TempDir()
 	ws := testWorkspace(root)
 	source := boundSource("main.go", "src_01ARZ3NDEKTSV4RRFFQ69G5FBG", "package p\nvar X = 1\n")
-	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, Bytes: source.Bytes}
+	doc := synchronizedDocument{URI: uri.File(filepath.Join(root, "main.go")), Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath, Bytes: source.Bytes}
 	external := filepath.Join(t.TempDir(), "pkg", "mod", "example.com", "dep@v1.0.0", "dep.go")
 	if err := os.MkdirAll(filepath.Dir(external), 0o700); err != nil {
 		t.Fatal(err)

@@ -108,7 +108,7 @@ func completeH5SecretExport(t *testing.T, daemon *b1NativeDaemon, binary, stateD
 	completion := handoff.Completion{Kind: handoff.CompletionEnvironmentExportedNonempty, Name: h5CredentialName}
 	requested := callB1NativeDaemon(t, daemon, ipcadapter.RequestV2{
 		Action: "handoff.request", HandoffID: "handoff-h5-context-exec-secret", SessionID: sessionID,
-		HandoffReason: handoff.ReasonCredentialRequired, HandoffPrivacy: handoff.PrivacySecret, HandoffCompletion: &completion,
+		Reason: string(handoff.ReasonCredentialRequired), HandoffPrivacy: handoff.PrivacySecret, HandoffCompletion: &completion,
 	})
 	if requested.Handoff == nil || requested.Handoff.PrivacyState != handoff.PrivacyPrivate || requested.Handoff.PrivacyRelease != handoff.PrivacyReleasePending {
 		t.Fatalf("secret request=%#v", requested.Handoff)

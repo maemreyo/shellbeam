@@ -19,7 +19,7 @@ func (s *Service) prepareInputTrace(ctx context.Context, req StartRequest, reser
 		return reservation, spec, nil, nil
 	}
 	preparation, err := traceapp.New(s.options.InputTracePreparer).Prepare(ctx, traceapp.PrepareRequest{
-		Mode: mode, OperationID: req.OperationID, WorkspaceID: req.WorkspaceID,
+		Mode: mode, OperationID: req.OperationID, WorkspaceID: reservation.WorkspaceID,
 		ExecutionMode: spec.Mode, Executable: spec.Executable, CWD: spec.CWD,
 	})
 	if err != nil {

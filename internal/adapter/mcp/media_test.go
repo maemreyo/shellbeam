@@ -12,6 +12,7 @@ import (
 
 	bridge "github.com/maemreyo/shellbeam/internal/app/bridge"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	mcpgo "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -90,7 +91,7 @@ func TestMediaDiscoveryIsConditionalAndDisclosesOriginalByteEgress(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReadMediaBranches(t, withoutTools.Tools, 0)
+	assertReadMediaTransportAdvertisement(t, withoutTools.Tools, false)
 	if strings.Contains(withoutTools.Tools[0].Description, "original selected local image file bytes") {
 		t.Fatalf("media disclosure leaked into unavailable catalog: %q", withoutTools.Tools[0].Description)
 	}
@@ -106,7 +107,7 @@ func TestMediaDiscoveryIsConditionalAndDisclosesOriginalByteEgress(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertReadMediaBranches(t, withTools.Tools, 1)
+	assertReadMediaTransportAdvertisement(t, withTools.Tools, true)
 	description := withTools.Tools[0].Description
 	for _, want := range []string{"original selected local image file bytes", "embedded metadata", "MCP client/model"} {
 		if !strings.Contains(description, want) {
@@ -294,7 +295,7 @@ func TestReadMediaCallGateRequiresEffectiveNegotiation(t *testing.T) {
 	}
 }
 
-func assertReadMediaBranches(t *testing.T, tools []*mcpgo.Tool, want int) {
+func assertReadMediaTransportAdvertisement(t *testing.T, tools []*mcpgo.Tool, want bool) {
 	t.Helper()
 	if len(tools) != 1 || tools[0].Name != "local_shell" {
 		t.Fatalf("tools=%#v", tools)
@@ -307,16 +308,80 @@ func assertReadMediaBranches(t *testing.T, tools []*mcpgo.Tool, want int) {
 	if err := json.Unmarshal(encoded, &doc); err != nil {
 		t.Fatal(err)
 	}
-	got := 0
-	for _, raw := range doc["oneOf"].([]any) {
-		branch, _ := raw.(map[string]any)
-		props, _ := branch["properties"].(map[string]any)
-		action, _ := props["action"].(map[string]any)
-		if action["const"] == "read_media" {
-			got++
-		}
+	if _, exists := doc["oneOf"]; exists {
+		t.Fatalf("transport schema regained semantic oneOf validation: %s", encoded)
 	}
+	props, _ := doc["properties"].(map[string]any)
+	action, _ := props["action"].(map[string]any)
+	description, _ := action["description"].(string)
+	got := strings.Contains(description, "read_media")
 	if got != want {
-		t.Fatalf("read_media branches=%d want=%d schema=%s", got, want, encoded)
+		t.Fatalf("read_media advertised=%v want=%v action_description=%q schema=%s", got, want, description, encoded)
+	}
+}
+
+type refreshableMCPMediaClient struct {
+	catalog      capability.Catalog
+	mediaEnabled bool
+	media        media.Result
+}
+
+func (c *refreshableMCPMediaClient) Forward(_ context.Context, req bridge.Request) (bridge.Response, error) {
+	switch req.Action {
+	case "inspect.server":
+		catalog := c.catalog.Clone()
+		return bridge.Response{Server: &catalog}, nil
+	case "capabilities.negotiate":
+		if !c.mediaEnabled {
+			return bridge.Response{Code: string(failure.FeatureUnavailable)}, nil
+		}
+		n, ok := capability.NegotiateMedia(*req.ConsumerMedia, capability.V1MediaSupport())
+		if !ok {
+			return bridge.Response{}, nil
+		}
+		return bridge.Response{NegotiatedMedia: &n}, nil
+	case "read_media":
+		result := c.media
+		result.Data = append([]byte(nil), result.Data...)
+		return bridge.Response{Media: &result}, nil
+	default:
+		return bridge.Response{}, nil
+	}
+}
+
+func TestMCPRefreshesConditionalToolSchemaOnNextRequest(t *testing.T) {
+	catalog := capability.Baseline(capability.Limits{})
+	client := &refreshableMCPMediaClient{catalog: catalog}
+	h, err := bridge.NewNegotiated(context.Background(), client, capability.V1MediaSupport())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := New(h, h.EffectiveCatalog())
+	session, closeSession := currentSession(t, server)
+	defer closeSession()
+
+	before, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReadMediaTransportAdvertisement(t, before.Tools, false)
+
+	client.mediaEnabled = true
+	client.media = mediaResult(t, media.DisplayAddress{AddressKind: media.AddressCWD, CWD: "/tmp", Path: "refresh.png"})
+	probe, err := session.CallTool(context.Background(), &mcpgo.CallToolParams{Name: "local_shell", Arguments: json.RawMessage(`{"action":"inspect.server"}`)})
+	if err != nil || probe.IsError {
+		t.Fatalf("probe=%#v err=%v", probe, err)
+	}
+
+	after, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertReadMediaTransportAdvertisement(t, after.Tools, true)
+	if !strings.Contains(after.Tools[0].Description, "original selected local image file bytes") {
+		t.Fatalf("refreshed tool disclosure missing: %q", after.Tools[0].Description)
+	}
+	if !strings.Contains(after.Tools[0].Description, "inspect.project") || !strings.Contains(after.Tools[0].Description, "agent_bootstrap") {
+		t.Fatalf("refreshed tool repository bootstrap pointer missing: %q", after.Tools[0].Description)
 	}
 }

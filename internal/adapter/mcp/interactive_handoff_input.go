@@ -13,7 +13,7 @@ func validateHandoffInputV2(v input) error {
 		if v.HandoffCompletion == nil {
 			return fmt.Errorf("handoff.request requires completion")
 		}
-		return (handoff.Request{HandoffID: v.HandoffID, SessionID: v.SessionID, Reason: v.HandoffReason, Privacy: v.HandoffPrivacy, Completion: *v.HandoffCompletion}).Validate()
+		return (handoff.Request{HandoffID: v.HandoffID, SessionID: v.SessionID, Reason: handoff.Reason(v.Reason), Privacy: v.HandoffPrivacy, Completion: *v.HandoffCompletion}).Validate()
 	case "handoff.wait":
 		if err := handoff.ValidateHandoffID(v.HandoffID); err != nil {
 			return err

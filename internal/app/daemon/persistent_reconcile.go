@@ -299,7 +299,7 @@ func (s *Service) projectAndSchedulePersistentTerminal(live *liveSession, rec re
 	live.persistentTerminalOnce.Do(func() {
 		s.projectPersistentTerminalLive(live, rec)
 		s.scheduleStructuredTerminal(rec, live.reservation.StructuredAdapter)
-		s.scheduleTelemetryTerminal(rec)
+		s.scheduleTelemetryTerminal(rec, nil)
 		s.scheduleEvidenceTerminal(rec, live.reservation)
 		s.scheduleInputTraceTerminal(rec, live.reservation)
 	})

@@ -10,6 +10,41 @@ import (
 	core "github.com/maemreyo/shellbeam/internal/core/project"
 )
 
+func TestManifestLoaderDiscoversRootAgentBootstrap(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Agent bootstrap\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := NewLoader().Load(context.Background(), root)
+	if got.State != core.LoadAbsent {
+		t.Fatalf("load=%#v", got)
+	}
+	if got.AgentBootstrap == nil {
+		t.Fatalf("agent bootstrap not discovered: %#v", got)
+	}
+	if got.AgentBootstrap.Path != "AGENTS.md" {
+		t.Fatalf("bootstrap path=%q", got.AgentBootstrap.Path)
+	}
+	if got.AgentBootstrap.Provenance != core.AgentBootstrapWorkspaceConvention {
+		t.Fatalf("bootstrap provenance=%q", got.AgentBootstrap.Provenance)
+	}
+}
+
+func TestManifestLoaderIgnoresSymlinkedAgentBootstrap(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "AGENTS.md")
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	got := NewLoader().Load(context.Background(), root)
+	if got.AgentBootstrap != nil {
+		t.Fatalf("symlinked bootstrap advertised: %#v", got)
+	}
+}
+
 func TestManifestLoaderAbsentValidOversizedAndNoUpwardSearch(t *testing.T) {
 	parent := t.TempDir()
 	child := filepath.Join(parent, "child")
@@ -137,5 +172,25 @@ func TestManifestLoaderAcceptsSupportedV2AndRejectsNewerSchema(t *testing.T) {
 	got = NewLoader().Load(context.Background(), root)
 	if got.State != core.LoadInvalid || got.Code != core.CodeUnsupported || got.ManifestDigest != core.RawDigest(v3) {
 		t.Fatalf("v3=%#v", got)
+	}
+}
+
+func TestManifestLoaderDiscoversBoundedProjectFamiliesWhenManifestAbsent(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"go.mod", "package.json", "pyproject.toml", "Cargo.toml"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("marker"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := NewLoader().Load(context.Background(), root)
+	if got.State != core.LoadAbsent || got.Code != core.CodeManifestAbsent {
+		t.Fatalf("load=%#v", got)
+	}
+	wantFamilies := []string{"go", "node", "python", "rust"}
+	if strings.Join(got.DetectedFamilies, ",") != strings.Join(wantFamilies, ",") {
+		t.Fatalf("families=%v", got.DetectedFamilies)
+	}
+	if len(got.DiscoveryEvidence) != 4 || got.DiscoveryFingerprint == "" {
+		t.Fatalf("discovery=%#v", got)
 	}
 }

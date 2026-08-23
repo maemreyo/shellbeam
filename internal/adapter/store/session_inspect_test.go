@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,6 +14,68 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
+
+func TestListSessionSummariesUsesReconciledActivityReservationIndexWithoutScanningUnrelatedHistory(t *testing.T) {
+	r := openRecoveryRepository(t, t.TempDir()+"/state")
+	base := time.Date(2026, 8, 22, 1, 0, 0, 0, time.UTC)
+	binding := persistentBinding("activity-index-session", "activity-index-op", "activity-index", base)
+	binding.ActivityID = "activity-index-fast"
+	reservePersistentOperationWithMetadata(t, r, binding, base)
+	if _, created, result := r.ReservePersistentBinding(context.Background(), binding); result.Err != nil || !created {
+		t.Fatalf("persistent binding created=%v result=%#v", created, result)
+	}
+	if result := r.AdvanceSession(context.Background(), session.Snapshot{
+		SchemaVersion: 1, OperationID: binding.OperationID, SessionID: binding.SessionID,
+		DaemonIncarnation: "daemon-a", State: session.Running, OutputAvailable: true, UpdatedAt: base.Add(time.Second),
+	}); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if err := r.repairCommittedOperations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(r.root, "operations", "unrelated-history"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := r.ListSessionSummaries(context.Background(), persistent.InspectRequest{ActivityID: binding.ActivityID, Limit: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := summarySessionIDs(page); !reflect.DeepEqual(got, []string{binding.SessionID}) {
+		t.Fatalf("activity session ids=%v", got)
+	}
+}
+
+func TestListSessionSummariesActivityIndexTracksReservationsCreatedAfterReconcile(t *testing.T) {
+	r := openRecoveryRepository(t, t.TempDir()+"/state")
+	if err := r.repairCommittedOperations(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Date(2026, 8, 22, 2, 0, 0, 0, time.UTC)
+	binding := persistentBinding("activity-index-late-session", "activity-index-late-op", "activity-index-late", base)
+	binding.ActivityID = "activity-index-late"
+	reservePersistentOperationWithMetadata(t, r, binding, base)
+	if _, created, result := r.ReservePersistentBinding(context.Background(), binding); result.Err != nil || !created {
+		t.Fatalf("persistent binding created=%v result=%#v", created, result)
+	}
+	if result := r.AdvanceSession(context.Background(), session.Snapshot{
+		SchemaVersion: 1, OperationID: binding.OperationID, SessionID: binding.SessionID,
+		DaemonIncarnation: "daemon-a", State: session.Running, OutputAvailable: true, UpdatedAt: base.Add(time.Second),
+	}); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	if err := os.Mkdir(filepath.Join(r.root, "operations", "unrelated-history"), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := r.ListSessionSummaries(context.Background(), persistent.InspectRequest{ActivityID: binding.ActivityID, Limit: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := summarySessionIDs(page); !reflect.DeepEqual(got, []string{binding.SessionID}) {
+		t.Fatalf("late activity session ids=%v", got)
+	}
+}
 
 func TestListSessionSummariesDefaultsToPersistentAndIncludesDirectOnlyWhenRequested(t *testing.T) {
 	r := openRecoveryRepository(t, t.TempDir()+"/state")

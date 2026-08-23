@@ -17,21 +17,36 @@ import (
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
+	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
 type daemonTracePreparer struct {
 	calls    atomic.Int32
+	mu       sync.Mutex
+	requests []traceapp.PrepareRequest
 	prepared traceapp.Prepared
 	err      error
 	panic    bool
 }
 
-func (p *daemonTracePreparer) Prepare(context.Context, traceapp.PrepareRequest) (traceapp.Prepared, error) {
+func (p *daemonTracePreparer) Prepare(_ context.Context, request traceapp.PrepareRequest) (traceapp.Prepared, error) {
 	if p.panic {
 		panic("E27 no-tax preparer reached")
 	}
 	p.calls.Add(1)
+	p.mu.Lock()
+	p.requests = append(p.requests, request)
+	p.mu.Unlock()
 	return p.prepared, p.err
+}
+
+func (p *daemonTracePreparer) lastRequest() traceapp.PrepareRequest {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.requests) == 0 {
+		return traceapp.PrepareRequest{}
+	}
+	return p.requests[len(p.requests)-1]
 }
 
 type daemonTracePrepared struct {
@@ -85,6 +100,29 @@ func TestE27InputTraceOffAndOmittedHaveZeroProviderWork(t *testing.T) {
 				t.Fatalf("starts=%d calls=%d spec=%#v", owner.starts.Load(), preparer.calls.Load(), owner.lastSpec())
 			}
 		})
+	}
+}
+
+func TestE27InputTraceUsesAdmissionResolvedWorkspaceID(t *testing.T) {
+	store := openE27DaemonStore(t)
+	prepared := e27DaemonPrepared()
+	preparer := &daemonTracePreparer{prepared: prepared}
+	owner := &daemonTraceOwner{}
+	workspaceID := workspace.WorkspaceID("ws_01K00000000000000000000007")
+	resolver := &fakeAddressResolver{workspaceID: workspaceID, logicalCWD: "src", cwd: "/bound/repo/src"}
+	svc := app.NewServiceWithExecutionContext(store, owner, resolver, nil, nil, app.Options{
+		Incarnation: "e27-auto-workspace", Shell: "/bin/sh", MaxQueuedInputBytes: 100, InputTracePreparer: preparer,
+	})
+	view, err := svc.Start(context.Background(), app.StartRequest{
+		ProtocolVersion: 2, OperationID: "e27-auto-workspace", Command: "true", CWD: "/caller/repo/src", YieldMS: 100, TraceMode: trace.ModeBestEffort,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForTerminal(t, svc, view.SessionID)
+	request := preparer.lastRequest()
+	if request.WorkspaceID != string(workspaceID) {
+		t.Fatalf("trace workspace_id=%q want=%q request=%#v", request.WorkspaceID, workspaceID, request)
 	}
 }
 

@@ -21,7 +21,7 @@ func (l *authListener) Accept() (net.Conn, error) {
 		}
 		u, err := peerUID(c)
 		if err == nil && u == l.uid {
-			return c, nil
+			return &authenticatedConn{Conn: c, uid: u}, nil
 		}
 		_ = c.Close()
 		if err != nil {

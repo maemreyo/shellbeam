@@ -9,8 +9,8 @@ import (
 	gitadapter "github.com/maemreyo/shellbeam/internal/adapter/git"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
-	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	verificationadapter "github.com/maemreyo/shellbeam/internal/adapter/verification"
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
 	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
@@ -27,6 +27,7 @@ import (
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
+	"github.com/maemreyo/shellbeam/internal/buildinfo"
 	"github.com/maemreyo/shellbeam/internal/config"
 	activitycore "github.com/maemreyo/shellbeam/internal/core/activity"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
@@ -65,7 +66,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	if err != nil {
 		return err
 	}
-	incarnation := ulid.Make().String()
+	incarnation, startedAt, processIdentity := ulid.Make().String(), time.Now().UTC(), buildinfo.CaptureProcessIdentity()
 	stateLease, store, err := openOwnedDaemonState(paths.StateDir, incarnation, cfg)
 	if err != nil {
 		return err
@@ -76,20 +77,24 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		return err
 	}
 	mutationScopeSvc := daemonapp.NewMutationScopeService(store, nil)
-	catalog := daemonRuntimeCatalog(cfg, mutationScopeSvc != nil)
+	catalog := withDaemonRuntimeIdentity(daemonRuntimeCatalog(cfg, mutationScopeSvc != nil), incarnation, startedAt, processIdentity)
 	gitRepo := gitadapter.New()
 	workspaceSvc := workspaceapp.New(store, gitRepo)
 	workspaceObserver := workspaceapp.NewObserver(store, gitRepo)
 	coherence := workspaceapp.NewCoherenceTracker(incarnation)
 	deltaSampler := workspaceapp.NewDeltaSampler(store, gitRepo, coherence)
 	checkpointSvc, catalog := composeSafetyCheckpoints(cfg.ExperimentalCheckpoints, paths.StateDir, paths.RuntimeDir, store, newCheckpointWorkspaceSource(workspaceSvc, workspaceObserver, coherence), catalog, checkpointFactory)
-	inputTraceRuntime, err := composeInputTracing(ctx, cfg.ExperimentalInputTracing, paths.StateDir, store, catalog)
+	inputTraceRuntime, err := composeInputTracing(ctx, cfg.ExperimentalInputTracing, paths.StateDir, store, workspaceSvc, catalog)
 	if err != nil {
 		return err
 	}
 	defer inputTraceRuntime.Close(context.Background())
 	catalog = inputTraceRuntime.Catalog
 	processOwner, catalog := composeResourceEnforcement(catalog, nil)
+	hermeticRuntime, catalog := composeHermeticBoundary(
+		ctx, cfg.ExperimentalHermeticBoundary, paths.StateDir, paths.RuntimeDir,
+		newHermeticWorkspaceSource(workspaceSvc, workspaceObserver), processOwner, catalog, nil,
+	)
 	delegatedRuntime, handoffReadiness, terminalRuntime, catalog := composeInteractiveDaemonRuntimes(ctx, paths.StateDir, paths.RuntimeDir, store, catalog)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
@@ -97,48 +102,42 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		return err
 	}
 	defer codeRuntime.Close()
-	structuredScheduler, telemetryScheduler, evidenceScheduler := &structuredWorkerProxy{}, &telemetryWorkerProxy{}, &evidenceWorkerProxy{}
+	structuredScheduler, structuredCapture, telemetryScheduler, evidenceScheduler := &structuredWorkerProxy{}, &structuredCaptureProxy{}, &telemetryWorkerProxy{}, &evidenceWorkerProxy{}
 	contextExecService, catalog := composeContextExecServiceCapability(ctx, store, delegatedRuntime, paths.RuntimeDir, incarnation, structuredScheduler, telemetryScheduler, evidenceScheduler, catalog)
-	projectLoader := projectadapter.NewLoader()
-	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
+	projectBinder, projectSvc, environmentSvc, verificationRuntime := composeDaemonProjectVerificationRuntime(
+		store, cfg, workspaceSvc, workspaceObserver, deltaSampler, activitySvc,
+	)
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
-		DefaultTimeoutMS:        cfg.DefaultTimeoutMS,
-		MaxTimeoutMS:            cfg.MaxTimeoutMS,
-		MaxQueuedInputBytes:     cfg.MaxQueuedInputSessionBytes,
-		TerminationGrace:        time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
-		Capabilities:            catalog,
-		StructuredWorker:        structuredScheduler,
-		TelemetryWorker:         telemetryScheduler,
-		EvidenceWorker:          evidenceScheduler,
-		ProjectCommandBinder:    projectBinder,
-		PersistentRuntime:       persistentRuntime,
-		DelegatedRuntime:        delegatedRuntime,
-		ContextExec:             contextExecService,
-		HandoffReadiness:        handoffReadiness,
-		HandoffPresenterFactory: terminalRuntime.PresenterFactory,
-		MediaReader:             daemonMediaReader(),
-		InputTracePreparer:      inputTraceRuntime.Preparer,
-		InputTraceWorker:        inputTraceRuntime.Worker,
+		DefaultTimeoutMS:          cfg.DefaultTimeoutMS,
+		MaxTimeoutMS:              cfg.MaxTimeoutMS,
+		MaxQueuedInputBytes:       cfg.MaxQueuedInputSessionBytes,
+		TerminationGrace:          time.Duration(cfg.TerminationGraceMS) * time.Millisecond,
+		Capabilities:              catalog,
+		StructuredWorker:          structuredScheduler,
+		StructuredCapturePreparer: structuredCapture,
+		StructuredCaptureTerminal: structuredCapture,
+		TelemetryWorker:           telemetryScheduler,
+		EvidenceWorker:            evidenceScheduler,
+		ProjectCommandBinder:      projectBinder,
+		PersistentRuntime:         persistentRuntime,
+		DelegatedRuntime:          delegatedRuntime,
+		ContextExec:               contextExecService,
+		HandoffReadiness:          handoffReadiness,
+		HandoffPresenterFactory:   terminalRuntime.PresenterFactory,
+		MediaReader:               daemonMediaReader(),
+		InputTracePreparer:        inputTraceRuntime.Preparer,
+		InputTraceWorker:          inputTraceRuntime.Worker,
+		HermeticRuntime:           hermeticRuntime,
 	})
-	hostReadiness := projectadapter.NewHostReadiness()
-	projectSvc := projectapp.NewWithReadiness(
-		store, projectLoader, store,
-		projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
-		projectapp.ReadinessOptions{},
-	)
-	environmentSvc := environmentapp.NewService(
-		environmentadapter.NewHost(), projectEnvironmentManifestProvider{project: projectSvc}, environmentadapter.NewHostProber(),
-		environmentapp.Options{DefaultExecution: environmentcore.ExecutionContext{Mode: "shell", Identity: cfg.Shell}},
-	)
 	processSvc := processapp.NewService(
 		processadapter.NewHostInspector(), svc, processapp.Options{Ports: processadapter.NewHostPortInspector()},
 	)
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
-	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector}
+	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector, verification: verificationRuntime}
 	startTerminalPresentationRuntime(ctx, terminalRuntime)
-	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, telemetryScheduler, evidenceScheduler)
+	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, structuredCapture, telemetryScheduler, evidenceScheduler)
 }
 
 func composeInteractiveDaemonRuntimes(ctx context.Context, stateDir, runtimeDir string, store *storeadapter.Repository, catalog capability.Catalog) (daemonapp.DelegatedRuntime, handoffapp.ReadinessPreparer, terminalPresentationRuntime, capability.Catalog) {
@@ -185,6 +184,7 @@ func serveDaemonRuntime(
 	actions *daemonActions,
 	workspaceObserver *workspaceapp.Observer,
 	structuredScheduler *structuredWorkerProxy,
+	structuredCapture *structuredCaptureProxy,
 	telemetryScheduler *telemetryWorkerProxy,
 	evidenceScheduler *evidenceWorkerProxy,
 ) error {
@@ -226,31 +226,52 @@ func serveDaemonRuntime(
 	defer shutdownTelemetry(telemetryRuntime, terminationGrace)
 	defer shutdownEvidence(evidenceRuntime, terminationGrace)
 	structuredScheduler.bind(observationRuntime.worker)
+	structuredCapture.bind(observationRuntime.capture)
 	telemetryScheduler.bind(telemetryRuntime.worker)
 	evidenceScheduler.bind(evidenceRuntime.worker)
 	actions.events = observationRuntime.events
 	actions.structured = observationRuntime.structured
 	actions.telemetry = telemetryRuntime.service
 	actions.evidence = evidenceRuntime.inspector
-	actions.repro = reproapp.New(store)
-	observationRuntime.startMaterialization(ctx)
-	evidenceRuntime.startRecovery(ctx)
-	if err = reconcilePersistentDaemonStartup(startupCtx, store, svc); err != nil {
+	verificationRuntime, ok := actions.verification.(*daemonVerificationRuntime)
+	if !ok || verificationRuntime == nil {
+		return fmt.Errorf("verification runtime unavailable")
+	}
+	if err = verificationRuntime.bindRuntimeEvaluationSources(store, evidenceRuntime, telemetryRuntime); err != nil {
 		return err
 	}
-	if err = reconcileDelegatedDaemonStartup(startupCtx, store, svc); err != nil {
+	if err = bindReadyDaemonDecisionRuntime(store, actions, workspaceObserver, evidenceRuntime); err != nil {
 		return err
 	}
-	if err = reconcileHandoffDaemonStartup(startupCtx, store, svc); err != nil {
-		return err
-	}
-	if _, err = svc.ReconcileContextExec(startupCtx); err != nil {
+	if err = prepareReadyDaemonState(ctx, startupCtx, store, svc, actions, observationRuntime, evidenceRuntime); err != nil {
 		return err
 	}
 	server.MarkReady()
 	startHousekeeping(ctx, store, svc, keep)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
+}
+
+func prepareReadyDaemonState(ctx, startupCtx context.Context, store *storeadapter.Repository, svc *daemonapp.Service, actions *daemonActions, observationRuntime *executionObservationRuntime, evidenceRuntime *executionEvidenceRuntime) error {
+	actions.repro = reproapp.New(store)
+	observationRuntime.startMaterialization(ctx)
+	evidenceRuntime.startRecovery(ctx)
+	if err := reconcilePersistentDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
+	if err := reconcileDelegatedDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
+	if err := reconcileHandoffDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
+	_, err := svc.ReconcileContextExec(startupCtx)
+	return err
+}
+
+func bindReadyDaemonDecisionRuntime(store *storeadapter.Repository, actions *daemonActions, workspaceObserver *workspaceapp.Observer, evidenceRuntime *executionEvidenceRuntime) error {
+	decisionEvidence := verificationadapter.NewEvidenceSource(evidenceRuntime.inspector, store)
+	return bindDecisionProtocolRuntime(store, actions, actions.workspace, workspaceObserver, actions, decisionEvidence)
 }
 
 func startDaemonServer(server *ipcadapter.Server, cancelStartup context.CancelFunc) <-chan error {
@@ -316,6 +337,8 @@ type daemonActions struct {
 	mutationScopes mutationScopeCoordinator
 	checkpoints    *checkpointapp.Service
 	inputTrace     *inputtraceapp.Inspector
+	verification   daemonVerificationCoordinator
+	decision       *decisionProtocolRuntime
 }
 
 func (a *daemonActions) BootstrapLocalHuman(ctx context.Context, id string) (handoffapp.LocalBootstrap, error) {
@@ -427,6 +450,7 @@ func (a *daemonActions) InspectRepro(ctx context.Context, reproID string) (repro
 
 func daemonCatalog(limits capability.Limits) capability.Catalog {
 	return capability.Baseline(limits).
+		WithVerificationSemantics(verificationSemanticsSupport()).
 		WithProjectReadiness(projectapp.DefaultReadinessTTL.Milliseconds(), projectapp.DefaultReadinessMaxEntries).
 		WithEvidence(
 			coreevidence.MaxInspectRecords, coreevidence.MaxExpectedOutputs, coreevidence.MaxArtifactMetadataBytes,
@@ -434,10 +458,11 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 		).
 		WithEventJournal(observationapp.MaxInspectEvents, observationapp.MaxEventCursorBytes, observationcore.MaxSnapshotFacts, true).
 		WithStructuredResults(
-			[]string{"go-test-json", "go-vet-json"},
+			[]string{"go-test-json", "go-vet-json", structuredapp.PytestJUnitAdapterID, structuredapp.JestJSONAdapterID},
 			[]string{"diagnostic", "test_case", "test_suite", "artifact_result"},
 			structuredapp.MaxListRecords, true,
 		).
+		WithStructuredArtifactInputs(structuredapp.DefaultMaxArtifactBlobBytes, structuredapp.DefaultPinnedArtifactHandlesGlobal, structuredapp.DefaultMaterializationQueueDepth, structuredapp.MaxTerminalAcquireDuration.Milliseconds()).
 		WithExecutionTelemetry(
 			telemetryMaxSamples, telemetryMetadataBytes, telemetryMaxKeys, telemetryMaxKeysPerRepository,
 			telemetryMaxSamplesPerKey, telemetryRetentionAge.Milliseconds(), telemetryapp.MaxInspectSamples,

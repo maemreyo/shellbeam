@@ -17,6 +17,13 @@ const (
 	OperationConflict                 Code = "operation_conflict"
 	OperationMetadataConflict         Code = "operation_metadata_conflict"
 	WorkspaceNotFound                 Code = "workspace_not_found"
+	DecisionContextUnavailable        Code = "decision_context_unavailable"
+	DecisionEpisodeNotFound           Code = "decision_episode_not_found"
+	DecisionCandidateNotFound         Code = "decision_candidate_not_found"
+	DecisionExperimentNotFound        Code = "decision_experiment_not_found"
+	DecisionProtocolRejected          Code = "decision_protocol_rejected"
+	WorkspaceStale                    Code = "workspace_stale"
+	WorkspaceRootMissing              Code = "workspace_root_missing"
 	ActivityNotFound                  Code = "activity_not_found"
 	WorkspaceAddressEscape            Code = "workspace_address_escape"
 	ManifestInvalid                   Code = "manifest_invalid"
@@ -120,6 +127,7 @@ const (
 	ContextHelperLost                 Code = "context_helper_lost"
 	ContextExecAmbiguous              Code = "context_exec_ambiguous"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
+	RuntimeVersionMismatch            Code = "runtime_version_mismatch"
 	MediaPathNotFound                 Code = "media_path_not_found"
 	MediaPathUnsafe                   Code = "media_path_unsafe"
 	MediaNotRegular                   Code = "media_not_regular"
@@ -183,6 +191,13 @@ var publicSpecs = map[Code]publicSpec{
 	OperationConflict:                 {message: "operation conflicts with an existing intent", details: keys("operation_id")},
 	OperationMetadataConflict:         {message: "operation metadata conflicts with existing metadata", details: keys("operation_id", "field")},
 	WorkspaceNotFound:                 {message: "workspace not found", details: keys("workspace_id")},
+	DecisionContextUnavailable:        {message: "decision context unavailable"},
+	DecisionEpisodeNotFound:           {message: "decision episode not found"},
+	DecisionCandidateNotFound:         {message: "decision candidate not found"},
+	DecisionExperimentNotFound:        {message: "decision experiment not found"},
+	DecisionProtocolRejected:          {message: "decision protocol rejected", details: keys("reason")},
+	WorkspaceStale:                    {message: "workspace registration is stale", details: keys("workspace_id", "reason")},
+	WorkspaceRootMissing:              {message: "workspace root is missing", details: keys("workspace_id", "reason")},
 	ActivityNotFound:                  {message: "activity not found", details: keys("activity_id")},
 	WorkspaceAddressEscape:            {message: "workspace address escapes registered root", details: keys("workspace_id", "cwd")},
 	ManifestInvalid:                   {message: "project manifest is invalid", details: keys("field", "reason")},
@@ -286,6 +301,7 @@ var publicSpecs = map[Code]publicSpec{
 	ContextHelperLost:                 {message: "context helper lost", retryable: true, details: keys("context_exec_id", "session_id", "reason")},
 	ContextExecAmbiguous:              {message: "context execution outcome ambiguous", details: keys("context_exec_id", "session_id", "reason")},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
+	RuntimeVersionMismatch:            {message: "ShellBeam MCP and daemon builds do not match", details: keys("mcp_revision", "daemon_revision", "reason", "recovery")},
 	MediaPathNotFound:                 {message: "media path not found"},
 	MediaPathUnsafe:                   {message: "media path is unsafe"},
 	MediaNotRegular:                   {message: "media path is not a regular file"},

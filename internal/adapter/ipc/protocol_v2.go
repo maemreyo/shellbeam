@@ -25,6 +25,7 @@ import (
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/media"
@@ -56,6 +57,7 @@ type RequestV2 struct {
 	RestoreID                string                                   `json:"restore_id,omitempty"`
 	CheckpointID             string                                   `json:"checkpoint_id,omitempty"`
 	OperationID              string                                   `json:"operation_id,omitempty"`
+	ExperimentID             string                                   `json:"experiment_id,omitempty"`
 	WorkspaceID              string                                   `json:"workspace_id,omitempty"`
 	ActivityID               string                                   `json:"activity_id,omitempty"`
 	CodeQuery                *codeintel.Query                         `json:"code_query,omitempty"`
@@ -67,6 +69,7 @@ type RequestV2 struct {
 	Argv                     []string                                 `json:"argv,omitempty"`
 	Intent                   *operation.DeclaredIntent                `json:"intent,omitempty"`
 	Evidence                 *coreevidence.Contract                   `json:"evidence,omitempty"`
+	VerificationAttempt      *coreevidence.VerificationAttemptIntent  `json:"verification_attempt,omitempty"`
 	Freshness                environmentcore.Freshness                `json:"freshness,omitempty"`
 	Execution                *environmentcore.ExecutionContext        `json:"execution,omitempty"`
 	ProcessTarget            *processcore.Target                      `json:"process_target,omitempty"`
@@ -81,6 +84,7 @@ type RequestV2 struct {
 	TimeoutMode              operation.TimeoutMode                    `json:"timeout_mode,omitempty"`
 	TraceMode                trace.Mode                               `json:"trace_mode,omitempty"`
 	ResourceLimits           *operation.ResourceLimits                `json:"limits,omitempty"`
+	Hermetic                 *hermeticcore.Request                    `json:"hermetic,omitempty"`
 	YieldMS                  int64                                    `json:"yield_time_ms,omitempty"`
 	MaxOutputBytes           int                                      `json:"max_output_bytes,omitempty"`
 	SessionID                string                                   `json:"session_id,omitempty"`
@@ -118,10 +122,12 @@ type RequestV2 struct {
 	Paths                    []string                                 `json:"paths,omitempty"`
 	TTLMS                    int64                                    `json:"ttl_ms,omitempty"`
 	HandoffID                string                                   `json:"handoff_id,omitempty"`
-	HandoffReason            handoff.Reason                           `json:"reason,omitempty"`
+	Reason                   string                                   `json:"reason,omitempty"`
 	HandoffPrivacy           handoff.Privacy                          `json:"privacy,omitempty"`
 	HandoffCompletion        *handoff.Completion                      `json:"completion,omitempty"`
 	TerminalAffinity         *terminalpresentation.BridgeAffinityHint `json:"terminal_affinity,omitempty"`
+	VerificationRequestV2Fields
+	Decision *DecisionRequestV1 `json:"decision,omitempty"`
 }
 
 type ResponseV2 struct {
@@ -163,7 +169,9 @@ type ResponseV2 struct {
 	ContextExec                      *contextcore.PublicState            `json:"context_exec,omitempty"`
 	Handoff                          *handoff.PublicState                `json:"handoff,omitempty"`
 	HandoffTimedOut                  bool                                `json:"handoff_timed_out,omitempty"`
-	Error                            *Error                              `json:"error,omitempty"`
+	VerificationResponseV2Fields
+	Error    *Error              `json:"error,omitempty"`
+	Decision *DecisionResponseV1 `json:"decision,omitempty"`
 }
 
 type v2Header struct {
@@ -197,6 +205,17 @@ func decodeRequestV2(r io.Reader) (RequestV2, error) {
 	}
 	if err := validateV2FieldSet(data, header.Action); err != nil {
 		return partial, err
+	}
+	if isDecisionProtocolActionV2(header.Action) {
+		var envelope struct {
+			Decision json.RawMessage `json:"decision"`
+		}
+		if err := json.Unmarshal(data, &envelope); err != nil {
+			return partial, failure.New(failure.InvalidInput, map[string]string{"field": "decision"}, err)
+		}
+		if err := validateDecisionRawFieldsV2(envelope.Decision, header.Action); err != nil {
+			return partial, err
+		}
 	}
 	var out RequestV2
 	if err := strictDecodeV2(data, &out); err != nil {
@@ -241,141 +260,16 @@ func validateRequestV2(v RequestV2) error {
 	if !isSupportedV2Action(v.Action) {
 		return failure.New(failure.InvalidInput, map[string]string{"field": "action"}, fmt.Errorf("unknown v2 action"))
 	}
+	if bridgeVerificationActionV2(v.Action) {
+		return validateVerificationRequestV2(v)
+	}
+	if isDecisionProtocolActionV2(v.Action) {
+		return validateDecisionEnvelopeV2(v)
+	}
 	if v.Action == "capabilities.negotiate" || v.Action == "read_media" {
 		return validateMediaRequestV2(v)
 	}
-	switch v.Action {
-	case "start":
-		return validateStartRequestV2(v)
-	case "context.exec":
-		req := contextcore.Request{ContextExecID: v.ContextExecID, SessionID: v.SessionID, AuthorityEpoch: v.AuthorityEpoch, Argv: append([]string(nil), v.Argv...), TimeoutMS: v.TimeoutMS, MaxOutputBytes: int64(v.MaxOutputBytes)}
-		if err := req.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "context_exec"}, err)
-		}
-	case "poll":
-		if v.SessionID == "" {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "session_id"}, fmt.Errorf("missing session id"))
-		}
-	case "read_output":
-		if v.Selector == nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "selector"}, fmt.Errorf("output selector missing"))
-		}
-		if err := (outputview.Request{SessionID: v.SessionID, Selector: *v.Selector, Continuation: v.Continuation}).Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "read_output"}, err)
-		}
-	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
-		return validateHandoffRequestV2(v)
-	case "write":
-		if v.SessionID == "" || (v.Chars == "" && !v.EOF) || (v.Chars != "" && v.EOF) {
-			return failure.New(failure.InvalidInput, map[string]string{"reason": "invalid_write"}, fmt.Errorf("invalid write request"))
-		}
-	case "inspect.project", "inspect.workspace", "inspect.readiness":
-		if _, err := workspace.ParseWorkspaceID(v.WorkspaceID); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, err)
-		}
-	case "inspect.activity":
-		if _, err := activity.ParseID(v.ActivityID); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
-		}
-	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
-		return validateCheckpointRequestV2(v)
-	case "inspect.sessions":
-		return validateSessionInspectV2(v)
-	case "mutation_scope.set", "mutation_scope.release", "inspect.mutation_scopes":
-		return validateMutationScopeRequestV2(v)
-	case "inspect.structured":
-		return validateStructuredInspectV2(v)
-	case "inspect.evidence":
-		return validateEvidenceInspectV2(v)
-	case "inspect.environment":
-		return validateEnvironmentInspectV2(v)
-	case "inspect.process":
-		return validateProcessInspectV2(v)
-	case "inspect.telemetry", "repro.create", "inspect.repro":
-		return validateA4RequestV2(v)
-	case "inspect.trace":
-		return validateInputTraceRequestV2(v)
-	case "inspect.code":
-		return validateCodeInspectV2(v)
-	case "inspect.events":
-		return validateEventInspectV2(v)
-	case "kill":
-		if v.SessionID == "" || v.KillID == "" {
-			return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_kill_field"}, fmt.Errorf("missing kill field"))
-		}
-	}
-	return nil
-}
-
-func validateStartRequestV2(v RequestV2) error {
-	if err := validateDelegatedStartRequestV2(v); err != nil {
-		return err
-	}
-	if v.ResourceLimits != nil {
-		if err := v.ResourceLimits.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "limits"}, err)
-		}
-	}
-	if v.OperationID == "" {
-		return failure.New(failure.InvalidInput, map[string]string{"reason": "missing_start_field"}, fmt.Errorf("missing start field"))
-	}
-	if _, err := operation.ParseID(v.OperationID); err != nil {
-		return failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
-	}
-	typed := v.ProjectCommandID != "" || v.Params != nil
-	if typed {
-		if v.ProjectCommandID == "" || v.WorkspaceID == "" {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command requires workspace and command id"))
-		}
-		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, fmt.Errorf("typed project command conflicts with raw execution fields"))
-		}
-		intent := operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Persistent: v.Persistent, SessionMode: v.SessionMode, SessionName: v.SessionName, StdinMode: v.StdinMode, TimeoutMode: v.TimeoutMode, TraceMode: v.TraceMode, ResourceLimits: v.ResourceLimits.Clone()}
-		if err := intent.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "project_command_id"}, err)
-		}
-	} else {
-		if _, err := (operation.Intent{Command: v.Command, Argv: v.Argv}).ExecutionMode(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "command"}, err)
-		}
-		address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
-		if err := address.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "cwd"}, err)
-		}
-	}
-	if v.Evidence != nil {
-		if _, err := v.Evidence.Normalize(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, err)
-		}
-		if typed {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, fmt.Errorf("typed project commands use frozen manifest evidence"))
-		}
-	}
-	if v.Intent != nil {
-		if err := v.Intent.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
-		}
-	}
-	if v.WorkspaceHint != nil {
-		if err := v.WorkspaceHint.Validate(); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_hint"}, err)
-		}
-	}
-	if v.ActivityID != "" {
-		if _, err := activity.ParseID(v.ActivityID); err != nil {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "activity_id"}, err)
-		}
-	}
-	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
-		return failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
-	}
-	if v.SessionName != "" && !v.Persistent && v.SessionMode != delegated.ModeDelegatedInteractive {
-		return failure.New(failure.InvalidInput, map[string]string{"field": "session_name"}, fmt.Errorf("session_name requires persistent or delegated interactive"))
-	}
-	if _, err := trace.NormalizeMode(v.TraceMode); err != nil {
-		return failure.New(failure.InvalidInput, map[string]string{"field": "trace_mode"}, err)
-	}
-	return nil
+	return validateActionRequestV2(v)
 }
 
 func validateA4RequestV2(v RequestV2) error {

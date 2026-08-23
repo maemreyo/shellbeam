@@ -18,40 +18,81 @@ import (
 )
 
 func NewNegotiated(ctx context.Context, client DaemonClient, consumer capability.MediaSupport) (*Handler, error) {
-	identity, err := client.Forward(ctx, Request{ProtocolVersion: 2, Action: "inspect.server"})
-	if err != nil {
+	h := &Handler{client: client, consumer: consumer.Clone(), hasConsumer: true}
+	if _, err := h.RefreshEffectiveCatalog(ctx); err != nil {
 		return nil, err
 	}
+	return h, nil
+}
+
+// RefreshEffectiveCatalog re-reads daemon capabilities on demand. It performs
+// no background polling. Rich-local-media is intentionally absent from the
+// legacy-compatible inspect.server catalog, so each actual refresh repeats the
+// private consumer negotiation. The MCP adapter bounds that refresh frequency.
+func (h *Handler) RefreshEffectiveCatalog(ctx context.Context) (bool, error) {
+	if h == nil || h.client == nil {
+		return false, failure.New(failure.InvalidDaemonResponse, nil, errors.New("daemon client missing"))
+	}
+	identity, err := h.client.Forward(ctx, Request{ProtocolVersion: 2, Action: "inspect.server"})
+	if err != nil {
+		return false, err
+	}
 	if identity.Code != "" {
-		return nil, failure.New(failure.Code(identity.Code), nil, nil)
+		return false, failure.New(failure.Code(identity.Code), nil, nil)
 	}
 	if identity.Server == nil {
-		return nil, failure.New(failure.InvalidDaemonResponse, nil, errors.New("server catalog missing"))
+		return false, failure.New(failure.InvalidDaemonResponse, nil, errors.New("server catalog missing"))
 	}
+
 	effective := identity.Server.Clone()
 	if effective.Features == nil {
 		effective.Features = map[capability.Feature]capability.Availability{}
 	}
+	// inspect.server is deliberately legacy-compatible and therefore never
+	// grants media capability authority. Only the private negotiation below can.
 	effective.Media = nil
 	effective.Features[capability.FeatureRichLocalMedia] = capability.Unavailable
-	h := &Handler{client: client, effective: effective, hasEffective: true}
 
-	declared := consumer.Clone()
-	negotiation, err := client.Forward(ctx, Request{ProtocolVersion: 2, Action: "capabilities.negotiate", ConsumerMedia: &declared})
-	if err != nil || negotiation.Code != "" {
-		return h, nil
+	h.mu.RLock()
+	hasConsumer := h.hasConsumer
+	consumer := h.consumer.Clone()
+	h.mu.RUnlock()
+
+	var negotiated *capability.NegotiatedMedia
+	if hasConsumer {
+		declared := consumer.Clone()
+		response, negotiateErr := h.client.Forward(ctx, Request{ProtocolVersion: 2, Action: "capabilities.negotiate", ConsumerMedia: &declared})
+		if negotiateErr == nil && response.Code == "" {
+			if response.NegotiatedMedia == nil || !validNegotiatedMedia(consumer, *response.NegotiatedMedia) {
+				return false, failure.New(failure.InvalidDaemonResponse, nil, errors.New("invalid media negotiation"))
+			}
+			copy := *response.NegotiatedMedia
+			copy.Contract = copy.Contract.Clone()
+			negotiated = &copy
+		}
 	}
-	if negotiation.NegotiatedMedia == nil || !validNegotiatedMedia(consumer, *negotiation.NegotiatedMedia) {
-		return nil, failure.New(failure.InvalidDaemonResponse, nil, errors.New("invalid media negotiation"))
+	if negotiated != nil {
+		support := negotiated.Contract.Clone()
+		effective.Media = &support
+		effective.Features[capability.FeatureRichLocalMedia] = capability.Available
 	}
-	h.consumer = consumer.Clone()
-	negotiated := *negotiation.NegotiatedMedia
-	negotiated.Contract = negotiated.Contract.Clone()
-	h.negotiated = &negotiated
-	support := negotiated.Contract.Clone()
-	h.effective.Media = &support
-	h.effective.Features[capability.FeatureRichLocalMedia] = capability.Available
-	return h, nil
+
+	h.mu.Lock()
+	changed := !h.hasEffective || !reflect.DeepEqual(h.effective, effective) || !reflect.DeepEqual(h.negotiated, negotiated)
+	h.effective = effective
+	h.hasEffective = true
+	h.negotiated = cloneNegotiatedMediaPtr(negotiated)
+	h.mu.Unlock()
+	return changed, nil
+}
+
+func cloneNegotiatedMediaPtr(value *capability.NegotiatedMedia) *capability.NegotiatedMedia {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	copy.Contract = value.Contract.Clone()
+	return &copy
 }
 
 func validNegotiatedMedia(consumer capability.MediaSupport, got capability.NegotiatedMedia) bool {
@@ -60,14 +101,20 @@ func validNegotiatedMedia(consumer capability.MediaSupport, got capability.Negot
 }
 
 func (h *Handler) EffectiveCatalog() capability.Catalog {
-	if h == nil || !h.hasEffective {
+	if h == nil {
+		return capability.Baseline(capability.Limits{})
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if !h.hasEffective {
 		return capability.Baseline(capability.Limits{})
 	}
 	return h.effective.Clone()
 }
 
 func (h *Handler) handleMedia(ctx context.Context, req Request) (Response, error) {
-	if !h.mediaAvailable() || req.Media == nil {
+	consumer, negotiated, support, ok := h.mediaSnapshot()
+	if !ok || req.Media == nil {
 		return publicFailureResponse(failure.FeatureUnavailable), nil
 	}
 	expected, err := expectedMediaAddress(*req.Media)
@@ -75,10 +122,9 @@ func (h *Handler) handleMedia(ctx context.Context, req Request) (Response, error
 		return publicFailureResponse(failure.InvalidInput), nil
 	}
 	forward := req
-	consumer := h.consumer.Clone()
 	mediaReq := *req.Media
 	forward.ConsumerMedia = &consumer
-	forward.MediaContractFingerprint = h.negotiated.Fingerprint
+	forward.MediaContractFingerprint = negotiated.Fingerprint
 	forward.Media = &mediaReq
 	response, err := h.client.Forward(ctx, forward)
 	if err != nil {
@@ -87,7 +133,7 @@ func (h *Handler) handleMedia(ctx context.Context, req Request) (Response, error
 	if response.Code != "" {
 		return normalizeMediaFailureResponse(response), nil
 	}
-	if response.Media == nil || validateDaemonMedia(*response.Media, expected, *h.effective.Media) != nil {
+	if response.Media == nil || validateDaemonMedia(*response.Media, expected, support) != nil {
 		return publicFailureResponse(failure.InvalidDaemonResponse), nil
 	}
 	copyResult := *response.Media
@@ -97,7 +143,24 @@ func (h *Handler) handleMedia(ctx context.Context, req Request) (Response, error
 }
 
 func (h *Handler) mediaAvailable() bool {
-	return h != nil && h.hasEffective && h.negotiated != nil && h.effective.Media != nil && h.effective.Features[capability.FeatureRichLocalMedia] == capability.Available
+	_, _, _, ok := h.mediaSnapshot()
+	return ok
+}
+
+func (h *Handler) mediaSnapshot() (capability.MediaSupport, capability.NegotiatedMedia, capability.MediaSupport, bool) {
+	if h == nil {
+		return capability.MediaSupport{}, capability.NegotiatedMedia{}, capability.MediaSupport{}, false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if !h.hasEffective || h.negotiated == nil || h.effective.Media == nil || h.effective.Features[capability.FeatureRichLocalMedia] != capability.Available {
+		return capability.MediaSupport{}, capability.NegotiatedMedia{}, capability.MediaSupport{}, false
+	}
+	consumer := h.consumer.Clone()
+	negotiated := *h.negotiated
+	negotiated.Contract = h.negotiated.Contract.Clone()
+	support := h.effective.Media.Clone()
+	return consumer, negotiated, support, true
 }
 
 func expectedMediaAddress(req daemonapp.MediaRequest) (media.DisplayAddress, error) {
@@ -126,10 +189,11 @@ func publicFailureResponse(code failure.Code) Response {
 }
 
 func normalizeMediaFailureResponse(response Response) Response {
-	public := failure.Public(errors.New(response.Code))
+	public := failure.Public(failure.New(failure.Code(response.Code), response.Details, nil))
 	response.Code = string(public.Code)
 	response.Message = public.Message
 	response.Retryable = public.Retryable
+	response.Details = public.Details
 	response.Media = nil
 	return response
 }

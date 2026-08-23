@@ -4,6 +4,7 @@ package ipc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -51,6 +52,9 @@ func TestManifestIPCV2InspectProjectRequiresWorkspaceID(t *testing.T) {
 func TestProjectInspectionDoesNotExecuteManifestCommandThroughIPC(t *testing.T) {
 	root := t.TempDir()
 	sentinel := filepath.Join(root, "SENTINEL")
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("# Agent bootstrap\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(root, ".shellbeam"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -83,6 +87,18 @@ func TestProjectInspectionDoesNotExecuteManifestCommandThroughIPC(t *testing.T) 
 	}
 	if !got.OK || got.Project == nil || got.Project.Status != coreproject.StatusReviewDue {
 		t.Fatalf("response=%#v", got)
+	}
+	encoded, err := json.Marshal(got.Project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var project map[string]any
+	if err := json.Unmarshal(encoded, &project); err != nil {
+		t.Fatal(err)
+	}
+	bootstrap, ok := project["agent_bootstrap"].(map[string]any)
+	if !ok || bootstrap["path"] != "AGENTS.md" || bootstrap["provenance"] != "workspace_convention" {
+		t.Fatalf("agent_bootstrap=%#v project=%#v", bootstrap, project)
 	}
 	if _, err := os.Stat(sentinel); !os.IsNotExist(err) {
 		t.Fatalf("manifest command executed through IPC inspect: %v", err)

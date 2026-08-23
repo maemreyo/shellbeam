@@ -90,3 +90,23 @@ func TestReceiptV2PersistsRawEvidenceContractAndV3RejectsCompetingRawEvidence(t 
 		t.Fatal("v3 typed receipt accepted competing raw evidence contract")
 	}
 }
+
+func TestReceiptResourceEvidenceRequiresHonestMetricQuality(t *testing.T) {
+	value := int64(12)
+	valid := ResourceEvidence{
+		CPUUserMS:        ResourceMetric{Quality: ResourcePlatformReported, Value: &value},
+		CPUSystemMS:      ResourceMetric{Quality: ResourcePlatformReported, Value: &value},
+		MaxRSSBytes:      ResourceMetric{Quality: ResourcePlatformReported, Value: &value},
+		ReadBytes:        ResourceMetric{Quality: ResourceUnavailable},
+		WriteBytes:       ResourceMetric{Quality: ResourceUnavailable},
+		ProcessCountPeak: ResourceMetric{Quality: ResourceSampled, Value: &value},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid resource evidence rejected: %v", err)
+	}
+	invalid := valid
+	invalid.ReadBytes.Value = &value
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("unavailable resource metric accepted a value")
+	}
+}

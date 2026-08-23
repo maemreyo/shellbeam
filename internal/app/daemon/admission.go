@@ -2,10 +2,13 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
+	workspaceapp "github.com/maemreyo/shellbeam/internal/app/workspace"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	decisionprotocol "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
@@ -48,7 +51,10 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 	if err != nil {
 		return View{}, true, err
 	}
-	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, Intent: req.Intent, StructuredAdapter: structuredAdapter, Evidence: req.Evidence}).Fingerprint()
+	if structuredAdapter == "" && stored.StructuredAdapter == structuredapp.PytestJUnitAdapterID && structuredapp.PytestCandidateArgv(req.Argv) {
+		structuredAdapter = structuredapp.PytestJUnitAdapterID
+	}
+	observationFingerprint, err := (operation.ObservationBinding{ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, Intent: req.Intent, StructuredAdapter: structuredAdapter, StructuredCaptureDigest: stored.StructuredCaptureDigest, Evidence: req.Evidence, VerificationAttempt: req.VerificationAttempt}).Fingerprint()
 	if err != nil {
 		return View{}, true, invalidIntentFailure(err)
 	}
@@ -78,8 +84,8 @@ func (s *Service) lookupV2Replay(ctx context.Context, req StartRequest, id opera
 }
 
 func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (operation.Intent, error) {
-	intent := operation.Intent{Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), SessionMode: req.SessionMode}
-	if req.ProtocolVersion != 2 || req.WorkspaceID == "" {
+	intent := operation.Intent{ExperimentID: req.ExperimentID, Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
+	if req.ProtocolVersion != 2 {
 		intent.ResolvedCWD = req.CWD
 		return intent, nil
 	}
@@ -88,18 +94,78 @@ func (s *Service) resolveStartIntent(ctx context.Context, req StartRequest) (ope
 		return operation.Intent{}, invalidIntentFailure(err)
 	}
 	if s.resolver == nil {
-		return operation.Intent{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "workspace_addressing"}, nil)
+		if req.WorkspaceID != "" {
+			return operation.Intent{}, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "workspace_addressing"}, nil)
+		}
+		intent.ResolvedCWD = req.CWD
+		return intent, nil
 	}
-	resolved, err := s.resolver.ResolveAddress(ctx, address)
+	var (
+		resolved workspace.ResolvedAddress
+		err      error
+	)
+	if req.WorkspaceID != "" {
+		resolved, err = s.resolver.ResolveAddress(ctx, address)
+	} else {
+		admissionResolver, ok := s.resolver.(AdmissionWorkspaceResolver)
+		if !ok {
+			intent.ResolvedCWD = req.CWD
+			return intent, nil
+		}
+		resolved, err = admissionResolver.ResolveAdmissionAddress(ctx, address)
+	}
 	if err != nil {
-		return operation.Intent{}, failure.Normalize(err)
+		return operation.Intent{}, normalizeWorkspaceResolutionFailure(err)
 	}
-	if resolved.WorkspaceID != address.WorkspaceID || resolved.CWD == "" {
+	if resolved.CWD == "" {
+		return operation.Intent{}, failure.New(failure.Internal, nil, fmt.Errorf("workspace resolver returned empty cwd"))
+	}
+	if req.WorkspaceID != "" && resolved.WorkspaceID != address.WorkspaceID {
 		return operation.Intent{}, failure.New(failure.Internal, nil, fmt.Errorf("workspace resolver identity mismatch"))
 	}
-	intent.CWD = resolved.LogicalCWD
+	if resolved.WorkspaceID != "" {
+		intent.WorkspaceID = string(resolved.WorkspaceID)
+		intent.CWD = resolved.LogicalCWD
+	}
 	intent.ResolvedCWD = resolved.CWD
 	return intent, nil
+}
+
+func normalizeWorkspaceResolutionFailure(err error) error {
+	var stateErr *workspaceapp.WorkspaceStateError
+	if !errors.As(err, &stateErr) {
+		return failure.Normalize(err)
+	}
+	code := failure.WorkspaceStale
+	if errors.Is(stateErr, workspaceapp.ErrWorkspaceRootMissing) {
+		code = failure.WorkspaceRootMissing
+	}
+	return failure.New(code, map[string]string{
+		"workspace_id": string(stateErr.WorkspaceID),
+		"reason":       stateErr.Reason,
+	}, err)
+}
+
+func validateHermeticAdmission(catalog capability.Catalog, runtime HermeticRuntime, req StartRequest) error {
+	if req.Hermetic == nil {
+		return nil
+	}
+	if runtime == nil || catalog.Features[capability.FeatureHermeticBoundaryV1] != capability.Available || catalog.HermeticBoundary == nil || !catalog.HermeticBoundary.ValidV1() {
+		return failure.New(failure.FeatureUnavailable, map[string]string{"feature": string(capability.FeatureHermeticBoundaryV1)}, nil)
+	}
+	if req.ProtocolVersion != 2 {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, fmt.Errorf("hermetic execution requires protocol v2"))
+	}
+	if err := req.Hermetic.Validate(); err != nil {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, err)
+	}
+	if req.WorkspaceID == "" {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("hermetic execution requires registered workspace"))
+	}
+	if req.TTY || req.Persistent || (req.StdinMode != "" && req.StdinMode != operation.StdinModeClosed) {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "hermetic"}, fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin"))
+	}
+	return nil
 }
 
 func validateResourceLimits(catalog capability.Catalog, req StartRequest) error {
@@ -173,16 +239,24 @@ func validateStartMetadata(req StartRequest) error {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "intent"}, err)
 		}
 	}
+	if req.VerificationAttempt != nil {
+		if req.ProtocolVersion != 2 {
+			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "verification_attempt", "required_version": "2"}, nil)
+		}
+		if err := req.VerificationAttempt.Validate(); err != nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, err)
+		}
+		if !wantsProjectCommand(req) && req.Evidence == nil {
+			return failure.New(failure.InvalidInput, map[string]string{"field": "verification_attempt"}, fmt.Errorf("raw verification attempt requires evidence contract"))
+		}
+	}
 	if req.Evidence != nil {
 		if req.ProtocolVersion != 2 {
 			return failure.New(failure.FeatureUnavailable, map[string]string{"feature": "evidence", "required_version": "2"}, nil)
 		}
-		normalized, err := req.Evidence.Normalize()
+		_, err := req.Evidence.Normalize()
 		if err != nil {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, err)
-		}
-		if len(normalized.ExpectedOutputs) > 0 && req.WorkspaceID == "" {
-			return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("evidence expected outputs require workspace"))
 		}
 		if wantsProjectCommand(req) {
 			return failure.New(failure.InvalidInput, map[string]string{"field": "evidence"}, fmt.Errorf("typed project commands use frozen project evidence metadata"))
@@ -191,9 +265,37 @@ func validateStartMetadata(req StartRequest) error {
 	return nil
 }
 
+func evidenceExpectedOutputsRequireWorkspace(req StartRequest) bool {
+	if req.Evidence == nil {
+		return false
+	}
+	normalized, err := req.Evidence.Normalize()
+	return err == nil && len(normalized.ExpectedOutputs) > 0
+}
+
+func (s *Service) validatePreResolutionWorkspaceRequirements(req StartRequest) error {
+	if !evidenceExpectedOutputsRequireWorkspace(req) || req.WorkspaceID != "" {
+		return nil
+	}
+	if _, ok := s.resolver.(AdmissionWorkspaceResolver); ok {
+		return nil
+	}
+	return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("evidence expected outputs require workspace"))
+}
+
+func validateResolvedWorkspaceRequirements(req StartRequest, intent operation.Intent) error {
+	if evidenceExpectedOutputsRequireWorkspace(req) && intent.WorkspaceID == "" {
+		return failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("evidence expected outputs require workspace"))
+	}
+	return nil
+}
+
 func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest, id operation.ID) (operation.Reservation, operation.ExecutionSpec, error) {
 	intent, err := s.resolveStartIntent(ctx, req)
 	if err != nil {
+		return operation.Reservation{}, operation.ExecutionSpec{}, err
+	}
+	if err := validateResolvedWorkspaceRequirements(req, intent); err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, err
 	}
 	mode, err := intent.ExecutionMode()
@@ -226,6 +328,16 @@ func normalizedStructuredAdapterForArgv(req StartRequest, argv []string) (string
 		if !operation.ValidStructuredAdapterID(req.StructuredAdapter) {
 			return "", failure.New(failure.InvalidInput, map[string]string{"field": "structured_adapter"}, fmt.Errorf("invalid structured adapter"))
 		}
+		selection := structuredapp.SelectAdapter(req.StructuredAdapter, nil)
+		if selection.Status != structuredapp.SelectionSelected {
+			return req.StructuredAdapter, nil
+		}
+		if !structuredapp.AdapterAcceptsArgv(req.StructuredAdapter, argv) {
+			return "", failure.New(failure.InvalidInput, map[string]string{
+				"field": "structured_adapter", "adapter": req.StructuredAdapter,
+				"reason": "producer_mode_mismatch", "required": structuredAdapterRequirement(req.StructuredAdapter),
+			}, fmt.Errorf("structured adapter %q requires matching direct argv with native JSON output enabled", req.StructuredAdapter))
+		}
 		return req.StructuredAdapter, nil
 	}
 	selection := structuredapp.SelectAdapter("", argv)
@@ -235,6 +347,21 @@ func normalizedStructuredAdapterForArgv(req StartRequest, argv []string) (string
 	return "", nil
 }
 
+func structuredAdapterRequirement(adapter string) string {
+	switch adapter {
+	case "go-test-json":
+		return "argv: go test -json ..."
+	case "go-vet-json":
+		return "argv: go vet -json ..."
+	case structuredapp.PytestJUnitAdapterID:
+		return "direct pytest argv with explicit JUnit XML, junit_family=xunit2, addopts=, no argfile/PYTEST_ADDOPTS"
+	case structuredapp.JestJSONAdapterID:
+		return "direct jest argv with --json and explicit --outputFile, no excluded flags/@token/JEST_JASMINE"
+	default:
+		return "matching direct argv with native machine-readable output"
+	}
+}
+
 func (s *Service) waitReservedStart(ctx context.Context, req StartRequest, stored operation.Reservation, sessionID string) (View, error) {
 	view, err := s.waitView(ctx, stored, sessionID, 0, req.YieldMS, req.MaxOutputBytes)
 	if err == nil {
@@ -242,4 +369,42 @@ func (s *Service) waitReservedStart(ctx context.Context, req StartRequest, store
 		s.enrichStructuredAdapterAvailability(&view, stored)
 	}
 	return view, err
+}
+
+func (s *Service) resolveAdmissionSessionID(ctx context.Context, req StartRequest, operationID operation.ID) (operation.SessionID, error) {
+	if req.ExperimentID == "" {
+		return operation.SessionID(newSessionID()), nil
+	}
+	store, ok := s.store.(DecisionExperimentAdmissionStore)
+	if !ok {
+		return "", failure.New(failure.FeatureUnavailable, map[string]string{"feature": "decision_protocol"}, nil)
+	}
+	sessionID, found, err := store.ResolveExperimentAdmissionSession(ctx, decisionprotocol.ExperimentID(req.ExperimentID), operationID)
+	if err != nil {
+		return "", failure.Normalize(err)
+	}
+	if found {
+		return sessionID, nil
+	}
+	return operation.SessionID(newSessionID()), nil
+}
+
+func (s *Service) rawReservationCommitter(req StartRequest) (reservationCommitter, error) {
+	if req.ExperimentID == "" {
+		return s.store.ReserveOperation, nil
+	}
+	if req.ProtocolVersion != 2 || req.Persistent {
+		return nil, failure.New(failure.InvalidInput, map[string]string{"field": "experiment_id"}, fmt.Errorf("decision experiment execution requires protocol v2 and non-persistent start"))
+	}
+	store, ok := s.store.(DecisionExperimentAdmissionStore)
+	if !ok {
+		return nil, failure.New(failure.FeatureUnavailable, map[string]string{"feature": "decision_protocol"}, nil)
+	}
+	return func(ctx context.Context, reservation operation.Reservation) (operation.Reservation, bool, StoreResult) {
+		if reservation.WorkspaceID == "" {
+			return operation.Reservation{}, false, StoreResult{Err: failure.New(failure.InvalidInput, map[string]string{"field": "workspace_id"}, fmt.Errorf("decision experiment execution requires durable workspace binding"))}
+		}
+		stored, _, created, result := store.ReserveExperimentOperation(ctx, reservation, decisionprotocol.ExperimentExecutionLink{ExperimentID: decisionprotocol.ExperimentID(req.ExperimentID)})
+		return stored, created, result
+	}, nil
 }

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	core "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -64,6 +66,10 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 	if err != nil {
 		return core.Record{}, false, err
 	}
+	provenScope, err := provenInputScopeFromReceipt(authority)
+	if err != nil {
+		return core.Record{}, false, err
+	}
 	terminal := core.TerminalResult{Authoritative: true, Outcome: authority.Outcome}
 	source := sourceBinding(authority, reservation)
 	record := core.Record{
@@ -75,6 +81,7 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 		Terminal: terminal, Result: core.DeriveResult(terminal, artifacts), Source: source,
 		Artifacts: artifacts, CompletedAt: snapshot.UpdatedAt.UTC(),
 		EnvironmentBinding: cloneEnvironmentBinding(reservation.EnvironmentBinding),
+		ProvenInputScope:   provenScope,
 	}
 	if record.WorkspaceID == "" {
 		record.WorkspaceID = reservation.WorkspaceID
@@ -153,10 +160,49 @@ func receiptReservationConsistent(rec receipt.Receipt, reservation operation.Res
 		if reservation.RequestFingerprint != rec.RequestFingerprint || reservation.ExecutionFingerprint != rec.ExecutionFingerprint || reservation.ObservationBindingFingerprint != rec.ObservationBindingFingerprint {
 			return fmt.Errorf("receipt reservation fingerprint mismatch")
 		}
+		if err := hermeticAuthorityConsistent(reservation.HermeticBoundary, rec.HermeticBinding); err != nil {
+			return err
+		}
 	} else if reservation.Fingerprint != rec.Fingerprint {
 		return fmt.Errorf("legacy receipt reservation fingerprint mismatch")
 	}
 	return nil
+}
+
+func hermeticAuthorityConsistent(reservation, receiptBinding *hermetic.BoundaryBinding) error {
+	if reservation == nil && receiptBinding == nil {
+		return nil
+	}
+	if reservation == nil || receiptBinding == nil {
+		return fmt.Errorf("receipt reservation hermetic authority mismatch")
+	}
+	if err := reservation.Validate(); err != nil {
+		return err
+	}
+	if err := receiptBinding.Validate(); err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(reservation, receiptBinding) {
+		return fmt.Errorf("receipt reservation hermetic authority mismatch")
+	}
+	return nil
+}
+
+func provenInputScopeFromReceipt(rec receipt.Receipt) (*hermetic.ProvenInputScope, error) {
+	if rec.HermeticBinding == nil {
+		return nil, nil
+	}
+	if rec.HermeticResult == nil {
+		return nil, fmt.Errorf("hermetic boundary result missing")
+	}
+	scope, authoritative, err := hermetic.ProvenInputScopeFromCompletion(*rec.HermeticBinding, *rec.HermeticResult)
+	if err != nil {
+		return nil, err
+	}
+	if !authoritative {
+		return nil, nil
+	}
+	return &scope, nil
 }
 
 func contractFromReservation(reservation operation.Reservation) (core.Contract, bool, error) {

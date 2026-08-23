@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	MaxStructuredRecords         = 1024
-	maxStructuredRecordFileBytes = 8 << 20
+	MaxStructuredRecords         = 8192
+	maxStructuredRecordFileBytes = 128 << 20
 )
 
 var ErrStructuredRecordsCompacted = errors.New("structured records compacted")
@@ -56,18 +56,30 @@ func (r *Repository) PutRecords(ctx context.Context, key string, records []core.
 	if err != nil {
 		return err
 	}
+	setSchema := core.SchemaVersion
+	for _, record := range records {
+		switch record.SchemaVersion {
+		case core.SchemaVersion:
+		case core.RecordSchemaVersionV3:
+			setSchema = core.RecordSchemaVersionV3
+		default:
+			return fmt.Errorf("structured_record_write_requires_supported_schema")
+		}
+	}
 	if err := validateRecordsForDerivation(records, derivation); err != nil {
 		return err
 	}
-	set := structuredRecordSet{SchemaVersion: 1, DerivationKey: key, Records: append([]core.Record(nil), records...)}
+	set := structuredRecordSet{SchemaVersion: setSchema, DerivationKey: key, Records: append([]core.Record(nil), records...)}
 	path := r.recordPath(key)
-	var current structuredRecordSet
-	if err := readPrivateJSON(path, maxStructuredRecordFileBytes, &current); err == nil {
+	if current, err := readStructuredRecordSet(path, derivation); err == nil {
 		if err := validateStructuredRecordSet(current, derivation); err != nil {
 			return err
 		}
-		if !reflect.DeepEqual(current, set) {
+		if !sameRecordSetReplay(current, set) {
 			return fmt.Errorf("structured_records_conflict")
+		}
+		if err := r.ensureFailureExcerptRetentionMarkersUnlocked(ctx, key, records); err != nil {
+			return err
 		}
 		return r.ensureStructuredSummaryUnlocked(set)
 	} else if !errors.Is(err, ErrNotFound) {
@@ -75,6 +87,9 @@ func (r *Repository) PutRecords(ctx context.Context, key string, records []core.
 	}
 	if derivation.Lifecycle != core.LifecycleProcessing {
 		return fmt.Errorf("structured_records_require_processing")
+	}
+	if err := r.ensureFailureExcerptRetentionMarkersUnlocked(ctx, key, records); err != nil {
+		return err
 	}
 	if result := r.writer.Create(path, set); result.Err != nil {
 		return result.Err
@@ -98,13 +113,10 @@ func (r *Repository) ListRecords(ctx context.Context, key string, query structur
 	if derivation.Completeness == core.CompletenessCompacted {
 		return nil, ErrStructuredRecordsCompacted
 	}
-	var set structuredRecordSet
-	if err := readPrivateJSON(r.recordPath(key), maxStructuredRecordFileBytes, &set); errors.Is(err, ErrNotFound) {
+	set, err := readStructuredRecordSet(r.recordPath(key), derivation)
+	if errors.Is(err, ErrNotFound) {
 		return []core.Record{}, nil
 	} else if err != nil {
-		return nil, err
-	}
-	if err := validateStructuredRecordSet(set, derivation); err != nil {
 		return nil, err
 	}
 	if query.Offset > len(set.Records) {
@@ -115,25 +127,74 @@ func (r *Repository) ListRecords(ctx context.Context, key string, query structur
 }
 
 func (r *Repository) CompactRecords(ctx context.Context, key string) error {
-	derivation, err := r.GetDerivation(ctx, key)
+	return r.CompactDerivationDetail(ctx, key)
+}
+
+func (r *Repository) CompactDerivationDetail(ctx context.Context, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !validStructuredKey(key) {
+		return fmt.Errorf("invalid_derivation_key")
+	}
+	r.structuredMu.Lock()
+	defer r.structuredMu.Unlock()
+	return r.compactDerivationDetailUnlocked(ctx, key)
+}
+
+func (r *Repository) compactDerivationDetailUnlocked(ctx context.Context, key string) error {
+	derivation, err := r.readDerivationUnlocked(key)
 	if err != nil {
 		return err
 	}
 	if derivation.Lifecycle != core.LifecycleTerminal {
 		return fmt.Errorf("structured_compaction_requires_terminal")
 	}
-	if derivation.Completeness == core.CompletenessCompacted {
-		return nil
+	if derivation.Completeness != core.CompletenessCompacted {
+		if err := r.markStructuredSummaryCompactedUnlocked(key); err != nil {
+			return err
+		}
+		next := derivation
+		if derivation.SchemaVersion != core.DerivationSchemaVersionV3 {
+			next.SchemaVersion = core.SchemaVersion
+		}
+		next.Completeness = core.CompletenessCompacted
+		if err := r.replaceDerivation(ctx, r.derivationPath(key), next, structuredTransitionObservable(derivation, next)); err != nil {
+			return err
+		}
+		derivation = next
 	}
-	if err := r.markStructuredSummaryCompacted(ctx, key); err != nil {
+	if err := r.removeStructuredRecordsUnlocked(key); err != nil {
 		return err
 	}
-	derivation.Completeness = core.CompletenessCompacted
-	if err := r.PutDerivation(ctx, derivation); err != nil {
+	artifacts, err := r.releaseDerivationBlobRefsUnlocked(derivation)
+	if err != nil {
 		return err
 	}
-	if err := os.Remove(r.recordPath(key)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	for _, ref := range artifacts {
+		if _, err := r.retireArtifactBlobIfUnownedUnlocked(ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Repository) removeStructuredRecordsUnlocked(key string) error {
+	path := r.recordPath(key)
+	info, err := os.Stat(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if syncErr := syncPrivateDirectory(r.structuredRecordDir()); syncErr != nil {
+			return syncErr
+		}
+		if info != nil {
+			r.addStateBytes(-info.Size())
+		}
 	}
 	return nil
 }
@@ -157,6 +218,10 @@ func (r *Repository) markStructuredSummaryCompacted(ctx context.Context, key str
 	}
 	r.structuredMu.Lock()
 	defer r.structuredMu.Unlock()
+	return r.markStructuredSummaryCompactedUnlocked(key)
+}
+
+func (r *Repository) markStructuredSummaryCompactedUnlocked(key string) error {
 	var summary structuredSummary
 	err := readPrivateJSON(r.summaryPath(key), maxStructuredMetadataBytes, &summary)
 	if errors.Is(err, ErrNotFound) {

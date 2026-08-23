@@ -26,17 +26,19 @@ type boundSourceView struct {
 }
 
 type openDocument struct {
-	URI       uri.URI
-	Version   int32
-	SourceRef core.SourceRefID
-	Bytes     []byte
-	lastUsed  uint64
+	URI         uri.URI
+	Version     int32
+	SourceRef   core.SourceRefID
+	LogicalPath string
+	Bytes       []byte
+	lastUsed    uint64
 }
 
 type synchronizedDocument struct {
 	URI             uri.URI
 	Version         int32
 	SourceRef       core.SourceRefID
+	LogicalPath     string
 	Bytes           []byte
 	DiagnosticAfter uint64
 }
@@ -139,7 +141,7 @@ func (s *documentSync) synchronizeSource(ctx context.Context, workspace workspac
 	}
 	sequence := latestSequence(s.session, documentURI)
 	opened := &openDocument{
-		URI: documentURI, Version: 1, SourceRef: source.Ref.ID,
+		URI: documentURI, Version: 1, SourceRef: source.Ref.ID, LogicalPath: source.Ref.LogicalPath,
 		Bytes: append([]byte(nil), source.Bytes...), lastUsed: s.clock,
 	}
 	if err := s.session.DidOpen(ctx, &protocol.DidOpenTextDocumentParams{TextDocument: protocol.TextDocumentItem{
@@ -172,6 +174,7 @@ func (s *documentSync) changeDocument(ctx context.Context, current *openDocument
 	s.totalBytes -= len(current.Bytes)
 	current.Version = newVersion
 	current.SourceRef = source.Ref.ID
+	current.LogicalPath = source.Ref.LogicalPath
 	current.Bytes = append(current.Bytes[:0], source.Bytes...)
 	current.lastUsed = s.clock
 	s.totalBytes += len(current.Bytes)
@@ -314,7 +317,7 @@ func latestSequence(session semanticSession, documentURI uri.URI) uint64 {
 
 func snapshotDocument(document *openDocument, after uint64) synchronizedDocument {
 	return synchronizedDocument{
-		URI: document.URI, Version: document.Version, SourceRef: document.SourceRef,
+		URI: document.URI, Version: document.Version, SourceRef: document.SourceRef, LogicalPath: document.LogicalPath,
 		Bytes: append([]byte(nil), document.Bytes...), DiagnosticAfter: after,
 	}
 }

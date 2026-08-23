@@ -217,3 +217,36 @@ func TestRefreshChangesToolchainFingerprintWhenNormalizedVersionChanges(t *testi
 		t.Fatal("normalized toolchain version change did not change fingerprint")
 	}
 }
+
+func TestInspectWorkspaceWithoutManifestReturnsHostBaselineWithoutBindingAuthority(t *testing.T) {
+	host := &fakeHostObserver{}
+	manifest := &fakeManifestProvider{view: ManifestView{}}
+	execution := core.ExecutionContext{Mode: "shell", Identity: "/bin/sh"}
+	svc := NewService(host, manifest, &fakeToolchainProber{}, Options{
+		MaxEntries:       4,
+		Now:              func() time.Time { return time.Date(2026, 8, 18, 3, 0, 0, 0, time.UTC) },
+		DefaultExecution: execution,
+	})
+
+	got, err := svc.Inspect(context.Background(), InspectRequest{WorkspaceID: "ws_unonboarded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.EnvironmentFingerprint == "" || got.Quality != core.QualityComplete {
+		t.Fatalf("baseline snapshot=%#v", got)
+	}
+	if !reflect.DeepEqual(host.names[0], []string{"CI", "SHELL", "TERM"}) {
+		t.Fatalf("baseline environment names=%v", host.names[0])
+	}
+	if len(got.Toolchains) != len(core.SupportedToolchains()) || got.ToolchainFingerprint == "" {
+		t.Fatalf("manifest-free baseline omitted bounded host toolchains: %#v", got)
+	}
+	for _, observed := range got.Toolchains {
+		if observed.RequestedIdentity != "host" {
+			t.Fatalf("manifest-free toolchain was not host-derived: %#v", observed)
+		}
+	}
+	if _, ok := svc.CachedBinding(BindingRequest{WorkspaceID: "ws_unonboarded", ManifestDigest: "", Execution: execution}); ok {
+		t.Fatal("manifest-free baseline became a typed-command environment binding")
+	}
+}

@@ -19,6 +19,7 @@ import (
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	mutationcore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
@@ -32,77 +33,82 @@ import (
 )
 
 type input struct {
-	Action              string                            `json:"action"`
-	ContextExecID       string                            `json:"context_exec_id,omitempty"`
-	CheckpointCreateID  string                            `json:"checkpoint_create_id,omitempty"`
-	RestoreID           string                            `json:"restore_id,omitempty"`
-	CheckpointID        string                            `json:"checkpoint_id,omitempty"`
-	OperationID         string                            `json:"operation_id,omitempty"`
-	WorkspaceID         string                            `json:"workspace_id,omitempty"`
-	ActivityID          string                            `json:"activity_id,omitempty"`
-	CodeQuery           *codeintel.Query                  `json:"code_query,omitempty"`
-	WorkspaceHint       *workspace.Hint                   `json:"workspace_hint,omitempty"`
-	StructuredAdapter   string                            `json:"structured_adapter,omitempty"`
-	ProjectCommandID    string                            `json:"project_command_id,omitempty"`
-	Params              map[string]string                 `json:"params,omitempty"`
-	Command             string                            `json:"command,omitempty"`
-	Argv                []string                          `json:"argv,omitempty"`
-	Intent              *operation.DeclaredIntent         `json:"intent,omitempty"`
-	Evidence            *coreevidence.Contract            `json:"evidence,omitempty"`
-	Freshness           environmentcore.Freshness         `json:"freshness,omitempty"`
-	Execution           *environmentcore.ExecutionContext `json:"execution,omitempty"`
-	ProcessTarget       *processcore.Target               `json:"process_target,omitempty"`
-	IncludePorts        bool                              `json:"include_ports,omitempty"`
-	CWD                 string                            `json:"cwd,omitempty"`
-	TTY                 bool                              `json:"tty,omitempty"`
-	Persistent          bool                              `json:"persistent,omitempty"`
-	SessionMode         string                            `json:"session_mode,omitempty"`
-	SessionName         string                            `json:"session_name,omitempty"`
-	YieldMS             int64                             `json:"yield_time_ms,omitempty"`
-	TimeoutMS           int64                             `json:"timeout_ms,omitempty"`
-	StdinMode           operation.StdinMode               `json:"stdin_mode,omitempty"`
-	TimeoutMode         operation.TimeoutMode             `json:"timeout_mode,omitempty"`
-	TraceMode           trace.Mode                        `json:"trace_mode,omitempty"`
-	ResourceLimits      *operation.ResourceLimits         `json:"limits,omitempty"`
-	MaxOutputBytes      int                               `json:"max_output_bytes,omitempty"`
-	SessionID           string                            `json:"session_id,omitempty"`
-	AuthorityEpoch      delegated.AuthorityEpoch          `json:"authority_epoch,omitempty"`
-	Selector            *outputview.Selector              `json:"selector,omitempty"`
-	Cursor              int64                             `json:"cursor,omitempty"`
-	InputOffset         int64                             `json:"input_offset,omitempty"`
-	Chars               string                            `json:"chars,omitempty"`
-	EOF                 bool                              `json:"eof,omitempty"`
-	KillID              string                            `json:"kill_id,omitempty"`
-	Signal              string                            `json:"signal,omitempty"`
-	Target              *observationcore.Target           `json:"target,omitempty"`
-	AfterEventCursor    string                            `json:"after_event_cursor,omitempty"`
-	MaxEvents           int                               `json:"max_events,omitempty"`
-	RecordKind          structuredcore.RecordKind         `json:"record_kind,omitempty"`
-	Severity            structuredcore.Severity           `json:"severity,omitempty"`
-	Path                string                            `json:"path,omitempty"`
-	TestStatus          structuredcore.TestStatus         `json:"test_status,omitempty"`
-	State               string                            `json:"state,omitempty"`
-	PersistentOnly      *bool                             `json:"persistent_only,omitempty"`
-	Continuation        string                            `json:"continuation,omitempty"`
-	MaxRecords          int                               `json:"max_records,omitempty"`
-	EvidenceID          string                            `json:"evidence_id,omitempty"`
-	VerificationKind    coreevidence.VerificationKind     `json:"verification_kind,omitempty"`
-	EvidenceResult      coreevidence.Result               `json:"result,omitempty"`
-	RevalidateArtifacts bool                              `json:"revalidate_artifacts,omitempty"`
-	MaxSamples          int                               `json:"max_samples,omitempty"`
-	MaxResources        int                               `json:"max_resources,omitempty"`
-	ReproCreateID       string                            `json:"repro_create_id,omitempty"`
-	CapturePolicy       *reprocore.CapturePolicy          `json:"capture_policy,omitempty"`
-	ReproID             string                            `json:"repro_id,omitempty"`
-	MutationID          string                            `json:"mutation_id,omitempty"`
-	ScopeID             string                            `json:"scope_id,omitempty"`
-	Mode                mutationcore.Mode                 `json:"mode,omitempty"`
-	Paths               []string                          `json:"paths,omitempty"`
-	TTLMS               int64                             `json:"ttl_ms,omitempty"`
-	HandoffID           string                            `json:"handoff_id,omitempty"`
-	HandoffReason       handoff.Reason                    `json:"reason,omitempty"`
-	HandoffPrivacy      handoff.Privacy                   `json:"privacy,omitempty"`
-	HandoffCompletion   *handoff.Completion               `json:"completion,omitempty"`
+	Action              string                                  `json:"action"`
+	ContextExecID       string                                  `json:"context_exec_id,omitempty"`
+	CheckpointCreateID  string                                  `json:"checkpoint_create_id,omitempty"`
+	RestoreID           string                                  `json:"restore_id,omitempty"`
+	CheckpointID        string                                  `json:"checkpoint_id,omitempty"`
+	OperationID         string                                  `json:"operation_id,omitempty"`
+	ExperimentID        string                                  `json:"experiment_id,omitempty"`
+	WorkspaceID         string                                  `json:"workspace_id,omitempty"`
+	ActivityID          string                                  `json:"activity_id,omitempty"`
+	CodeQuery           *codeintel.Query                        `json:"code_query,omitempty"`
+	WorkspaceHint       *workspace.Hint                         `json:"workspace_hint,omitempty"`
+	StructuredAdapter   string                                  `json:"structured_adapter,omitempty"`
+	ProjectCommandID    string                                  `json:"project_command_id,omitempty"`
+	Params              map[string]string                       `json:"params,omitempty"`
+	Command             string                                  `json:"command,omitempty"`
+	Argv                []string                                `json:"argv,omitempty"`
+	Intent              *operation.DeclaredIntent               `json:"intent,omitempty"`
+	Evidence            *coreevidence.Contract                  `json:"evidence,omitempty"`
+	VerificationAttempt *coreevidence.VerificationAttemptIntent `json:"verification_attempt,omitempty"`
+	Freshness           environmentcore.Freshness               `json:"freshness,omitempty"`
+	Execution           *environmentcore.ExecutionContext       `json:"execution,omitempty"`
+	ProcessTarget       *processcore.Target                     `json:"process_target,omitempty"`
+	IncludePorts        bool                                    `json:"include_ports,omitempty"`
+	CWD                 string                                  `json:"cwd,omitempty"`
+	TTY                 bool                                    `json:"tty,omitempty"`
+	Persistent          bool                                    `json:"persistent,omitempty"`
+	SessionMode         string                                  `json:"session_mode,omitempty"`
+	SessionName         string                                  `json:"session_name,omitempty"`
+	YieldMS             int64                                   `json:"yield_time_ms,omitempty"`
+	TimeoutMS           int64                                   `json:"timeout_ms,omitempty"`
+	StdinMode           operation.StdinMode                     `json:"stdin_mode,omitempty"`
+	TimeoutMode         operation.TimeoutMode                   `json:"timeout_mode,omitempty"`
+	TraceMode           trace.Mode                              `json:"trace_mode,omitempty"`
+	ResourceLimits      *operation.ResourceLimits               `json:"limits,omitempty"`
+	Hermetic            *hermeticcore.Request                   `json:"hermetic,omitempty"`
+	MaxOutputBytes      int                                     `json:"max_output_bytes,omitempty"`
+	SessionID           string                                  `json:"session_id,omitempty"`
+	AuthorityEpoch      delegated.AuthorityEpoch                `json:"authority_epoch,omitempty"`
+	Selector            *outputview.Selector                    `json:"selector,omitempty"`
+	Cursor              int64                                   `json:"cursor,omitempty"`
+	InputOffset         int64                                   `json:"input_offset,omitempty"`
+	Chars               string                                  `json:"chars,omitempty"`
+	EOF                 bool                                    `json:"eof,omitempty"`
+	KillID              string                                  `json:"kill_id,omitempty"`
+	Signal              string                                  `json:"signal,omitempty"`
+	Target              *observationcore.Target                 `json:"target,omitempty"`
+	AfterEventCursor    string                                  `json:"after_event_cursor,omitempty"`
+	MaxEvents           int                                     `json:"max_events,omitempty"`
+	RecordKind          structuredcore.RecordKind               `json:"record_kind,omitempty"`
+	Severity            structuredcore.Severity                 `json:"severity,omitempty"`
+	Path                string                                  `json:"path,omitempty"`
+	TestStatus          structuredcore.TestStatus               `json:"test_status,omitempty"`
+	State               string                                  `json:"state,omitempty"`
+	PersistentOnly      *bool                                   `json:"persistent_only,omitempty"`
+	Continuation        string                                  `json:"continuation,omitempty"`
+	MaxRecords          int                                     `json:"max_records,omitempty"`
+	EvidenceID          string                                  `json:"evidence_id,omitempty"`
+	VerificationKind    coreevidence.VerificationKind           `json:"verification_kind,omitempty"`
+	EvidenceResult      coreevidence.Result                     `json:"result,omitempty"`
+	RevalidateArtifacts bool                                    `json:"revalidate_artifacts,omitempty"`
+	MaxSamples          int                                     `json:"max_samples,omitempty"`
+	MaxResources        int                                     `json:"max_resources,omitempty"`
+	ReproCreateID       string                                  `json:"repro_create_id,omitempty"`
+	CapturePolicy       *reprocore.CapturePolicy                `json:"capture_policy,omitempty"`
+	ReproID             string                                  `json:"repro_id,omitempty"`
+	MutationID          string                                  `json:"mutation_id,omitempty"`
+	ScopeID             string                                  `json:"scope_id,omitempty"`
+	Mode                mutationcore.Mode                       `json:"mode,omitempty"`
+	Paths               []string                                `json:"paths,omitempty"`
+	TTLMS               int64                                   `json:"ttl_ms,omitempty"`
+	HandoffID           string                                  `json:"handoff_id,omitempty"`
+	Reason              string                                  `json:"reason,omitempty"`
+	HandoffPrivacy      handoff.Privacy                         `json:"privacy,omitempty"`
+	HandoffCompletion   *handoff.Completion                     `json:"completion,omitempty"`
+	Decision            *DecisionRequest                        `json:"decision,omitempty"`
+	VerificationInputFields
 }
 
 func bytesReader(b []byte) io.Reader { return bytes.NewReader(b) }
@@ -128,6 +134,9 @@ func validateForVersion(version int, v input, raw []byte) error {
 		if err := validateV2FieldSet(v.Action, raw); err != nil {
 			return err
 		}
+		if isDecisionProtocolMCPAction(v.Action) {
+			return validateDecisionMCPInput(v, raw)
+		}
 		if (v.Action == "write" || v.Action == "kill") && hasField(raw, "authority_epoch") && v.AuthorityEpoch < 1 {
 			return fmt.Errorf("authority_epoch must be positive")
 		}
@@ -136,11 +145,17 @@ func validateForVersion(version int, v input, raw []byte) error {
 	if v.Action == "context.exec" || hasField(raw, "context_exec_id") {
 		return fmt.Errorf("context execution requires modern protocol")
 	}
+	if hasField(raw, "verification_attempt") {
+		return fmt.Errorf("verification attempt requires modern protocol")
+	}
 	if v.Action == "inspect.trace" || hasField(raw, "trace_mode") || hasField(raw, "max_resources") {
 		return fmt.Errorf("input tracing requires modern protocol")
 	}
 	if hasField(raw, "limits") {
 		return fmt.Errorf("resource limits require modern protocol")
+	}
+	if hasField(raw, "hermetic") {
+		return fmt.Errorf("hermetic execution requires modern protocol")
 	}
 	if hasField(raw, "session_mode") || hasField(raw, "authority_epoch") {
 		return fmt.Errorf("delegated sessions require modern protocol")
@@ -160,12 +175,12 @@ func validateForVersion(version int, v input, raw []byte) error {
 }
 
 func validateV2(v input) error {
-	if v.Action == "start" && v.ResourceLimits != nil {
-		if err := v.ResourceLimits.Validate(); err != nil {
-			return err
-		}
+	if err := validateStartEnvelopeV2(v); err != nil {
+		return err
 	}
 	switch v.Action {
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		return validateVerificationInput(v)
 	case "read_media":
 		return validateMediaInput(v)
 	case "context.exec":
@@ -238,6 +253,31 @@ func validateV2(v input) error {
 	return validateStartV2(v)
 }
 
+func validateStartEnvelopeV2(v input) error {
+	if v.Action != "start" {
+		return nil
+	}
+	if v.ResourceLimits != nil {
+		if err := v.ResourceLimits.Validate(); err != nil {
+			return err
+		}
+	}
+	return validateDecisionStartEnvelope(v)
+}
+
+func validateHermeticStartInput(v input) error {
+	if v.Hermetic == nil {
+		return nil
+	}
+	if err := v.Hermetic.Validate(); err != nil {
+		return err
+	}
+	if v.TTY || v.Persistent || (v.StdinMode != "" && v.StdinMode != operation.StdinModeClosed) {
+		return fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin")
+	}
+	return nil
+}
+
 func validateDelegatedRequestShape(mode string, tty, persistent bool) error {
 	if mode == "" {
 		return nil
@@ -269,7 +309,7 @@ func validateStartV2(v input) error {
 		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
 			return fmt.Errorf("typed project command conflicts with raw execution fields")
 		}
-		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Persistent: v.Persistent, SessionMode: v.SessionMode, SessionName: v.SessionName, StdinMode: v.StdinMode, TimeoutMode: v.TimeoutMode, TraceMode: v.TraceMode, ResourceLimits: v.ResourceLimits.Clone()}).Validate(); err != nil {
+		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Persistent: v.Persistent, SessionMode: v.SessionMode, SessionName: v.SessionName, StdinMode: v.StdinMode, TimeoutMode: v.TimeoutMode, TraceMode: v.TraceMode, ResourceLimits: v.ResourceLimits.Clone(), Hermetic: v.Hermetic, VerificationAttempt: v.VerificationAttempt}).Validate(); err != nil {
 			return err
 		}
 	} else {
@@ -279,6 +319,14 @@ func validateStartV2(v input) error {
 		address := workspace.Address{WorkspaceID: workspace.WorkspaceID(v.WorkspaceID), CWD: v.CWD}
 		if err := address.Validate(); err != nil {
 			return err
+		}
+	}
+	if v.VerificationAttempt != nil {
+		if err := v.VerificationAttempt.Validate(); err != nil {
+			return err
+		}
+		if !typed && v.Evidence == nil {
+			return fmt.Errorf("raw verification attempt requires evidence contract")
 		}
 	}
 	if v.Evidence != nil {
@@ -388,62 +436,6 @@ func validateA4Input(v input) error {
 		}
 	}
 	return nil
-}
-
-func validateV1(v input) error {
-	switch v.Action {
-	case "start":
-		if v.ProjectCommandID != "" || v.Params != nil {
-			return fmt.Errorf("typed project commands require modern protocol")
-		}
-		if v.OperationID == "" || v.Command == "" || len(v.CWD) == 0 || v.CWD[0] != '/' {
-			return fmt.Errorf("start requires operation_id, command, and absolute cwd")
-		}
-		if _, err := operation.ParseID(v.OperationID); err != nil {
-			return err
-		}
-		if v.SessionID != "" || v.Chars != "" || v.EOF || v.KillID != "" {
-			return fmt.Errorf("cross-action field")
-		}
-	case "poll":
-		if v.SessionID == "" || v.OperationID != "" || v.Command != "" || v.Chars != "" || v.KillID != "" {
-			return fmt.Errorf("invalid poll fields")
-		}
-		if _, err := operation.ParseSessionID(v.SessionID); err != nil {
-			return err
-		}
-	case "write":
-		if v.SessionID == "" || v.InputOffset < 0 || (v.Chars == "") == (!v.EOF) {
-			return fmt.Errorf("write requires exactly chars or eof")
-		}
-		if _, err := operation.ParseSessionID(v.SessionID); err != nil {
-			return err
-		}
-		if v.OperationID != "" || v.Command != "" || v.KillID != "" {
-			return fmt.Errorf("cross-action field")
-		}
-	case "inspect.server":
-		return validateNonNegative(v)
-	case "kill":
-		if v.SessionID == "" || v.KillID == "" {
-			return fmt.Errorf("kill requires session_id and kill_id")
-		}
-		if _, err := operation.ParseSessionID(v.SessionID); err != nil {
-			return err
-		}
-		if _, err := operation.ParseID(v.KillID); err != nil {
-			return err
-		}
-		if v.Signal != "" && v.Signal != "INT" && v.Signal != "TERM" && v.Signal != "KILL" {
-			return fmt.Errorf("invalid signal")
-		}
-		if v.OperationID != "" || v.Command != "" || v.Chars != "" || v.EOF {
-			return fmt.Errorf("cross-action field")
-		}
-	default:
-		return fmt.Errorf("unknown action")
-	}
-	return validateNonNegative(v)
 }
 
 func validateNonNegative(v input) error {

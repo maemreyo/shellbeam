@@ -83,6 +83,26 @@ func TestFailureLegacyMappingAndRetryability(t *testing.T) {
 	}
 }
 
+func TestWorkspaceStateFailureCodesAreStableAndSecretSafe(t *testing.T) {
+	for _, code := range []Code{WorkspaceStale, WorkspaceRootMissing} {
+		public := Public(New(code, map[string]string{
+			"workspace_id": "ws_01K00000000000000000000000",
+			"reason":       "root_mismatch",
+			"path":         "/Users/alice/private",
+		}, errors.New("private /Users/alice/private")))
+		if public.Code != code || public.Message == "" || public.Details["workspace_id"] == "" || public.Details["reason"] == "" {
+			t.Fatalf("public=%#v", public)
+		}
+		data, err := json.Marshal(public)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(data), "/Users/alice/private") {
+			t.Fatalf("workspace state failure leaked path: %s", data)
+		}
+	}
+}
+
 func TestFailurePublicCodeSet(t *testing.T) {
 	for _, code := range []Code{
 		InvalidInput,
@@ -286,5 +306,38 @@ func TestMediaFailureCodesAreStableSafeAndRetryableAsSpecified(t *testing.T) {
 				t.Fatalf("%q leaked in %s", secret, b)
 			}
 		}
+	}
+}
+
+func TestEveryRegisteredPublicCodeRoundTripsWithoutUnexpectedInternalCollapse(t *testing.T) {
+	for code := range publicSpecs {
+		got := Public(errors.New(string(code)))
+		if got.Code != code {
+			t.Fatalf("registered code %q projected as %q", code, got.Code)
+		}
+		if got.Message == "" {
+			t.Fatalf("registered code %q has empty public message", code)
+		}
+	}
+
+	unknown := Public(errors.New("private /Users/test/key token=secret"))
+	if unknown.Code != Internal || len(unknown.Details) != 0 {
+		t.Fatalf("unknown projection=%#v", unknown)
+	}
+}
+
+func TestRuntimeVersionMismatchFailureIsStableAndSafe(t *testing.T) {
+	public := Public(New(RuntimeVersionMismatch, map[string]string{
+		"mcp_revision":    "aaaaaaaa",
+		"daemon_revision": "bbbbbbbb",
+		"reason":          "binary_identity_mismatch",
+		"recovery":        "restart_daemon",
+		"path":            "/Users/alice/private/shellbeam",
+	}, errors.New("private /Users/alice/private/shellbeam")))
+	if public.Code != RuntimeVersionMismatch || public.Message != "ShellBeam MCP and daemon builds do not match" || public.Retryable {
+		t.Fatalf("public=%#v", public)
+	}
+	if public.Details["mcp_revision"] != "aaaaaaaa" || public.Details["daemon_revision"] != "bbbbbbbb" || public.Details["reason"] != "binary_identity_mismatch" || public.Details["recovery"] != "restart_daemon" || public.Details["path"] != "" {
+		t.Fatalf("details=%#v", public.Details)
 	}
 }

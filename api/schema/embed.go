@@ -11,6 +11,7 @@ type Name string
 const (
 	MCPInputV1           Name = "mcp-input-v1.json"
 	MCPInputV2           Name = "mcp-input-v2.json"
+	MCPToolInputV2       Name = "mcp-tool-input-v2.json"
 	MCPOutputV1          Name = "mcp-output-v1.json"
 	MCPOutputV2          Name = "mcp-output-v2.json"
 	MCPReadMediaInputV1  Name = "mcp-read-media-input-v1.json"
@@ -33,7 +34,7 @@ const ProjectManifestV1 Name = "project-manifest-v1.json"
 var files embed.FS
 
 func Names() []Name {
-	return []Name{MCPInputV1, MCPInputV2, MCPOutputV1, MCPOutputV2, MCPReadMediaInputV1, MCPReadMediaOutputV1, IPCV1, IPCV2, ReceiptV1, ReceiptV2, ReceiptV3, ConfigV1, OperationV1, OperationV2, OperationV3, SessionV1, ProjectManifestV1}
+	return []Name{MCPInputV1, MCPInputV2, MCPToolInputV2, MCPOutputV1, MCPOutputV2, MCPReadMediaInputV1, MCPReadMediaOutputV1, IPCV1, IPCV2, ReceiptV1, ReceiptV2, ReceiptV3, ConfigV1, OperationV1, OperationV2, OperationV3, SessionV1, ProjectManifestV1}
 }
 
 func Load(name Name) ([]byte, error) {

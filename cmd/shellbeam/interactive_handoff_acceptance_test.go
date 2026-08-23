@@ -47,7 +47,7 @@ func TestInteractiveHandoffNativeDaemonCrashReconcilesFencedPendingAuthority(t *
 	completion := handoff.Completion{Kind: handoff.CompletionManualReady}
 	requested := callB1NativeDaemon(t, first, ipcadapter.RequestV2{
 		Action: "handoff.request", HandoffID: "handoff-task8-native-restart", SessionID: sessionID,
-		HandoffReason: handoff.ReasonManualIntervention, HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion,
+		Reason: string(handoff.ReasonManualIntervention), HandoffPrivacy: handoff.PrivacyStandard, HandoffCompletion: &completion,
 	})
 	if requested.Handoff == nil || requested.Handoff.Status != handoff.StatusHumanConnecting || requested.Handoff.AuthorityEpoch != agentEpoch+1 || requested.Handoff.AgentIngress != handoff.IngressFenced || requested.Handoff.HumanIngress != handoff.IngressFenced {
 		first.hardKill(t)

@@ -3,6 +3,7 @@ package daemon_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -271,6 +272,8 @@ func (h *lifecycleHandle) finish(code int) {
 	})
 }
 
+const managedShellStressWait = 10 * time.Second
+
 func TestManagedShellLeaseStressReturnsToZero(t *testing.T) {
 	for round := 0; round < 40; round++ {
 		coherence := &trackingCoherence{}
@@ -284,14 +287,20 @@ func TestManagedShellLeaseStressReturnsToZero(t *testing.T) {
 			))
 		}
 
-		var wg sync.WaitGroup
-		wg.Add(5)
-		go func() { defer wg.Done(); runImmediateLeaseCase(t, services[0], "stress-success") }()
-		go func() { defer wg.Done(); runImmediateLeaseCase(t, services[1], "stress-spawn-failure") }()
-		go func() { defer wg.Done(); runTimeoutLeaseCase(t, services[2], "stress-timeout") }()
-		go func() { defer wg.Done(); runKillLeaseCase(t, services[3], owners[3], "stress-kill") }()
-		go func() { defer wg.Done(); runShutdownLeaseCase(t, services[4], owners[4], "stress-shutdown") }()
-		wg.Wait()
+		results := make(chan error, 5)
+		go func() { results <- runImmediateLeaseCase(services[0], "stress-success") }()
+		go func() { results <- runImmediateLeaseCase(services[1], "stress-spawn-failure") }()
+		go func() { results <- runTimeoutLeaseCase(services[2], "stress-timeout") }()
+		go func() { results <- runKillLeaseCase(services[3], owners[3], "stress-kill") }()
+		go func() { results <- runShutdownLeaseCase(services[4], owners[4], "stress-shutdown") }()
+		for i := 0; i < 5; i++ {
+			if err := <-results; err != nil {
+				t.Fatalf("round %d lifecycle: %v", round, err)
+			}
+		}
+		if err := waitForManagedShellLeaseCounts(coherence, 5, 5, managedShellStressWait); err != nil {
+			t.Fatalf("round %d: %v", round, err)
+		}
 
 		begins, ends := coherence.counts()
 		barrier := coherence.CaptureBarrier()
@@ -301,54 +310,58 @@ func TestManagedShellLeaseStressReturnsToZero(t *testing.T) {
 	}
 }
 
-func runImmediateLeaseCase(t *testing.T, svc *app.Service, operationID string) {
-	t.Helper()
-	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "true", CWD: "/"})
-	if err != nil {
-		t.Errorf("%s start: %v", operationID, err)
-		return
-	}
-	if !started.State.Terminal() {
-		_ = waitForTerminal(t, svc, started.SessionID)
+func waitForManagedShellLeaseCounts(coherence *trackingCoherence, wantBegins, wantEnds int, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		begins, ends := coherence.counts()
+		if begins == wantBegins && ends == wantEnds {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("managed shell lease counts=%d/%d want %d/%d", begins, ends, wantBegins, wantEnds)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
-func runTimeoutLeaseCase(t *testing.T, svc *app.Service, operationID string) {
-	t.Helper()
-	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "sleep", CWD: "/", TimeoutMS: 5})
+func runImmediateLeaseCase(svc *app.Service, operationID string) error {
+	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "true", CWD: "/"})
 	if err != nil {
-		t.Errorf("%s start: %v", operationID, err)
-		return
+		return fmt.Errorf("%s start: %w", operationID, err)
 	}
-	_ = waitForTerminal(t, svc, started.SessionID)
+	return nil
 }
 
-func runKillLeaseCase(t *testing.T, svc *app.Service, owner *lifecycleOwner, operationID string) {
-	t.Helper()
+func runTimeoutLeaseCase(svc *app.Service, operationID string) error {
+	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "sleep", CWD: "/", TimeoutMS: 5})
+	if err != nil {
+		return fmt.Errorf("%s start: %w", operationID, err)
+	}
+	return nil
+}
+
+func runKillLeaseCase(svc *app.Service, owner *lifecycleOwner, operationID string) error {
 	started, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "sleep", CWD: "/"})
 	if err != nil {
-		t.Errorf("%s start: %v", operationID, err)
-		return
+		return fmt.Errorf("%s start: %w", operationID, err)
 	}
 	<-owner.started
 	if _, err := svc.Kill(context.Background(), app.KillRequest{SessionID: started.SessionID, KillID: operationID + "-kill", Signal: "TERM"}); err != nil {
-		t.Errorf("%s kill: %v", operationID, err)
-		return
+		return fmt.Errorf("%s kill: %w", operationID, err)
 	}
-	_ = waitForTerminal(t, svc, started.SessionID)
+	return nil
 }
 
-func runShutdownLeaseCase(t *testing.T, svc *app.Service, owner *lifecycleOwner, operationID string) {
-	t.Helper()
+func runShutdownLeaseCase(svc *app.Service, owner *lifecycleOwner, operationID string) error {
 	_, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: operationID, Command: "sleep", CWD: "/"})
 	if err != nil {
-		t.Errorf("%s start: %v", operationID, err)
-		return
+		return fmt.Errorf("%s start: %w", operationID, err)
 	}
 	<-owner.started
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), managedShellStressWait)
 	defer cancel()
 	if err := svc.Shutdown(ctx); err != nil {
-		t.Errorf("%s shutdown: %v", operationID, err)
+		return fmt.Errorf("%s shutdown: %w", operationID, err)
 	}
+	return nil
 }

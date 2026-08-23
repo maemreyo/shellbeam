@@ -166,14 +166,53 @@ func evidenceAvailablePayload() map[string]any {
 					"result":              "pass",
 					"source":              map[string]any{"observation_quality": "fast"},
 					"environment_binding": map[string]any{"snapshot_id": "env_" + strings.Repeat("a", 64), "environment_fingerprint": strings.Repeat("b", 64), "environment_fingerprint_version": 1.0, "captured_at": "2026-08-15T12:00:00Z"},
-					"completed_at":        "2026-08-15T08:00:00Z",
+					"proven_input_scope": map[string]any{
+						"schema_version": 1.0, "repo_inputs": []any{"go.mod"},
+						"capture_manifest_sha256": strings.Repeat("d", 64), "capture_content_sha256": strings.Repeat("e", 64),
+						"provider":    map[string]any{"provider": "bubblewrap", "version": "0.11.2", "binary_sha256": strings.Repeat("f", 64), "runtime_manifest_sha256": strings.Repeat("1", 64)},
+						"toolchain":   map[string]any{"id": "go-1.26.6-linux-amd64", "manifest_sha256": strings.Repeat("2", 64)},
+						"environment": "fixed_allowlist", "stdin": "closed", "network": "off", "ambient_inputs": []any{"clock", "randomness"},
+					},
+					"completed_at": "2026-08-15T08:00:00Z",
 				},
 				"validity": map[string]any{
-					"source_match": "unknown", "freshness": "unknown", "artifact_match": "not_required", "policy_match": "unknown",
+					"source_match": "proven_scope", "freshness": "current", "artifact_match": "not_required", "policy_match": "unknown",
 				},
 				"current_source": map[string]any{"quality": "unknown"},
 			},
 		},
 		"index_generation": 1.0,
+	}
+}
+
+func TestVerificationAttemptStartSchemas(t *testing.T) {
+	hex64 := strings.Repeat("a", 64)
+	attempt := map[string]any{
+		"rerun_of_evidence_id": "ev_" + hex64,
+		"rerun_reason":         "diagnose_flake",
+	}
+	mcpRaw := map[string]any{"action": "start", "operation_id": "attempt-schema", "workspace_id": "ws_01K00000000000000000000000", "command": "true", "cwd": ".", "evidence": evidenceContractPayload(), "verification_attempt": attempt}
+	mcpTyped := map[string]any{"action": "start", "operation_id": "attempt-schema-typed", "workspace_id": "ws_01K00000000000000000000000", "project_command_id": "build", "verification_attempt": attempt}
+	for _, payload := range []map[string]any{mcpRaw, mcpTyped} {
+		if err := resolvedSchema(t, MCPInputV2).Validate(payload); err != nil {
+			t.Fatalf("valid MCP attempt rejected: %v", err)
+		}
+	}
+	ipcRaw := map[string]any{"ipc_version": 2.0, "kind": "request", "request_id": "attempt", "action": "start", "operation_id": "attempt-schema", "workspace_id": "ws_01K00000000000000000000000", "command": "true", "cwd": ".", "evidence": evidenceContractPayload(), "verification_attempt": attempt}
+	ipcTyped := map[string]any{"ipc_version": 2.0, "kind": "request", "request_id": "attempt-typed", "action": "start", "operation_id": "attempt-schema-typed", "workspace_id": "ws_01K00000000000000000000000", "project_command_id": "build", "verification_attempt": attempt}
+	for _, payload := range []map[string]any{ipcRaw, ipcTyped} {
+		if err := resolvedSchema(t, IPCV2).Validate(payload); err != nil {
+			t.Fatalf("valid IPC attempt rejected: %v", err)
+		}
+	}
+	invalid := []map[string]any{
+		{"action": "start", "operation_id": "attempt-no-evidence", "workspace_id": "ws_01K00000000000000000000000", "command": "true", "cwd": ".", "verification_attempt": attempt},
+		{"action": "start", "operation_id": "attempt-empty", "workspace_id": "ws_01K00000000000000000000000", "project_command_id": "build", "verification_attempt": map[string]any{}},
+		{"action": "start", "operation_id": "attempt-bad-reason", "workspace_id": "ws_01K00000000000000000000000", "project_command_id": "build", "verification_attempt": map[string]any{"rerun_of_evidence_id": "ev_" + hex64, "rerun_reason": "ordinary"}},
+	}
+	for _, payload := range invalid {
+		if err := resolvedSchema(t, MCPInputV2).Validate(payload); err == nil {
+			t.Fatalf("invalid MCP attempt accepted: %#v", payload)
+		}
 	}
 }

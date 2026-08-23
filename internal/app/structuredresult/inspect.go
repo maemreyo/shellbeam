@@ -16,6 +16,7 @@ const inspectScanChunk = 64
 
 type InspectStatus string
 type DetailsStatus string
+type InputSourceState string
 
 const (
 	InspectNotFound   InspectStatus = "not_found"
@@ -26,6 +27,10 @@ const (
 	DetailsAvailable   DetailsStatus = "available"
 	DetailsUnavailable DetailsStatus = "unavailable"
 	DetailsCompacted   DetailsStatus = "compacted"
+
+	InputSourceRetained    InputSourceState = "retained"
+	InputSourceCompacted   InputSourceState = "compacted"
+	InputSourceUnavailable InputSourceState = "unavailable"
 )
 
 type RecordFilter struct {
@@ -72,22 +77,31 @@ type InspectSummary struct {
 }
 
 type InspectResult struct {
-	SchemaVersion int               `json:"schema_version"`
-	OperationID   string            `json:"operation_id"`
-	Status        InspectStatus     `json:"status"`
-	DerivationKey string            `json:"derivation_key,omitempty"`
-	Producer      *core.Producer    `json:"producer,omitempty"`
-	ParseOutcome  core.ParseOutcome `json:"parse_outcome,omitempty"`
-	Completeness  core.Completeness `json:"completeness,omitempty"`
-	Summary       InspectSummary    `json:"summary"`
-	Records       []core.Record     `json:"records,omitempty"`
-	Continuation  string            `json:"continuation,omitempty"`
+	SchemaVersion      int                             `json:"schema_version"`
+	OperationID        string                          `json:"operation_id"`
+	Status             InspectStatus                   `json:"status"`
+	DerivationKey      string                          `json:"derivation_key,omitempty"`
+	Producer           *core.Producer                  `json:"producer,omitempty"`
+	ParseOutcome       core.ParseOutcome               `json:"parse_outcome,omitempty"`
+	Completeness       core.Completeness               `json:"completeness,omitempty"`
+	CompletenessReason core.CompletenessReason         `json:"completeness_reason,omitempty"`
+	ObservedEntries    *core.ObservedEntryCounts       `json:"observed_entries,omitempty"`
+	SourceKind         core.StructuredInputKind        `json:"source_kind,omitempty"`
+	SourceState        InputSourceState                `json:"source_state,omitempty"`
+	SemanticsCoverage  *core.ProducerSemanticsCoverage `json:"semantics_coverage,omitempty"`
+	Summary            InspectSummary                  `json:"summary"`
+	Records            []core.Record                   `json:"records,omitempty"`
+	Continuation       string                          `json:"continuation,omitempty"`
 }
 
 type InspectionRepository interface {
 	FindOperationDerivation(context.Context, string) (core.Derivation, bool, error)
 	GetRecordSummary(context.Context, string) (RecordSummary, bool, error)
 	ListRecords(context.Context, string, RecordQuery) ([]core.Record, error)
+}
+
+type ArtifactInputStateResolver interface {
+	ResolveArtifactInputState(context.Context, core.ArtifactBlobRef) (InputSourceState, error)
 }
 
 type OperationDerivationBinder interface {
@@ -159,6 +173,24 @@ func (s *Inspector) Inspect(ctx context.Context, request InspectRequest) (Inspec
 		return InspectResult{SchemaVersion: 1, OperationID: request.OperationID, Status: InspectNotFound, Summary: InspectSummary{DetailsStatus: DetailsUnavailable}}, nil
 	}
 	result := inspectFromDerivation(request.OperationID, derivation)
+	if len(derivation.SourceAuthorityRefs) == 1 {
+		result.SourceKind = derivation.SourceAuthorityRefs[0].Kind
+		if artifact, ok := derivation.SourceAuthorityRefs[0].ArtifactBlob, derivation.SourceAuthorityRefs[0].Kind == core.StructuredInputArtifactBlob; ok && artifact != nil {
+			if resolver, supported := s.repository.(ArtifactInputStateResolver); supported {
+				state, stateErr := resolver.ResolveArtifactInputState(ctx, *artifact)
+				if stateErr != nil {
+					return InspectResult{}, stateErr
+				}
+				result.SourceState = state
+			}
+		}
+	}
+	if derivation.SemanticsCoverage != nil {
+		coverage := *derivation.SemanticsCoverage
+		coverage.MechanicallyObservable = append([]string(nil), derivation.SemanticsCoverage.MechanicallyObservable...)
+		coverage.Unavailable = append([]string(nil), derivation.SemanticsCoverage.Unavailable...)
+		result.SemanticsCoverage = &coverage
+	}
 	if derivation.Lifecycle != core.LifecycleTerminal {
 		return result, nil
 	}
@@ -241,7 +273,11 @@ func inspectFromDerivation(operationID string, d core.Derivation) InspectResult 
 		status = InspectTerminal
 	}
 	producer := d.Producer
-	return InspectResult{SchemaVersion: 1, OperationID: operationID, Status: status, DerivationKey: d.DerivationKey, Producer: &producer, ParseOutcome: d.ParseOutcome, Completeness: d.Completeness, Summary: InspectSummary{DetailsStatus: DetailsUnavailable}}
+	return InspectResult{
+		SchemaVersion: 1, OperationID: operationID, Status: status, DerivationKey: d.DerivationKey, Producer: &producer,
+		ParseOutcome: d.ParseOutcome, Completeness: d.Completeness, CompletenessReason: d.CompletenessReason,
+		ObservedEntries: cloneObservedEntries(d.ObservedEntries), Summary: InspectSummary{DetailsStatus: DetailsUnavailable},
+	}
 }
 func applyStoredSummary(out *InspectSummary, in RecordSummary) {
 	out.Errors = in.Errors

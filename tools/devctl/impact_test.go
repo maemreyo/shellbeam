@@ -180,3 +180,48 @@ func TestRepositoryImpactConfigParses(t *testing.T) {
 		t.Fatalf("devctl impact=%#v", got)
 	}
 }
+
+func TestTestSelectionEscalatesDeletedFallbackPackageToFull(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "dev"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "dev", "test-impact.toml"), []byte("version = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+
+	got, err := testSelection([]string{"test", "--dirty"}, []string{"internal/adapter/vanished/x.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != "global" || !reflect.DeepEqual(got.Suites, []string{"./..."}) {
+		t.Fatalf("deleted package selection = %#v, want full fallback", got)
+	}
+}
+
+func TestTestSelectionKeepsExistingFallbackPackageFocused(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "dev"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "dev", "test-impact.toml"), []byte("version = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkgDir := filepath.Join(repo, "internal", "adapter", "live")
+	if err := os.MkdirAll(pkgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkgDir, "x.go"), []byte("package live\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(repo)
+
+	got, err := testSelection([]string{"test", "--dirty"}, []string{"internal/adapter/live/x.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Mode != "affected" || !reflect.DeepEqual(got.Suites, []string{"./internal/adapter/live"}) {
+		t.Fatalf("existing package selection = %#v", got)
+	}
+}

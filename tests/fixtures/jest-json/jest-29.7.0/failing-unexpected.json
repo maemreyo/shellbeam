@@ -1,0 +1,63 @@
+{
+  "numFailedTestSuites": 1,
+  "numFailedTests": 1,
+  "numPassedTestSuites": 0,
+  "numPassedTests": 0,
+  "numPendingTestSuites": 0,
+  "numPendingTests": 0,
+  "numRuntimeErrorTestSuites": 0,
+  "numTodoTests": 0,
+  "numTotalTestSuites": 1,
+  "numTotalTests": 1,
+  "openHandles": [],
+  "snapshot": {
+    "added": 0,
+    "didUpdate": false,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0
+  },
+  "startTime": 0,
+  "success": false,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": [],
+          "duration": 0,
+          "failureDetails": [
+            {
+              "message": "Failing test passed even though it was supposed to fail. Remove `.failing` to remove error."
+            }
+          ],
+          "failureMessages": [
+            "Error: Failing test passed even though it was supposed to fail. Remove `.failing` to remove error.\n    at Object.<anonymous> (/private/jest-fixture/failing_unexpected.test.js:1:39)\n    at Runtime._execModule (/private/jest-install/node_modules/jest-runtime/build/index.js:1439:24)\n    at Runtime._loadModule (/private/jest-install/node_modules/jest-runtime/build/index.js:1022:12)\n    at Runtime.requireModule (/private/jest-install/node_modules/jest-runtime/build/index.js:882:12)\n    at jestAdapter (/private/jest-install/node_modules/jest-circus/build/legacy-code-todo-rewrite/jestAdapter.js:77:13)\n    at runTestInternal (/private/jest-install/node_modules/jest-runner/build/runTest.js:367:16)\n    at runTest (/private/jest-install/node_modules/jest-runner/build/runTest.js:444:34)"
+          ],
+          "fullName": "unexpected pass",
+          "invocations": 1,
+          "location": null,
+          "numPassingAsserts": 1,
+          "retryReasons": [],
+          "status": "failed",
+          "title": "unexpected pass"
+        }
+      ],
+      "endTime": 0,
+      "message": "  ● unexpected pass\n\n    Failing test passed even though it was supposed to fail. Remove `.failing` to remove error.\n\n    > 1 | test.failing('unexpected pass', () => {\n        |                                       ^\n      2 |   expect('same').toBe('same')\n      3 | })\n      4 |\n\n      at Object.<anonymous> (failing_unexpected.test.js:1:39)\n",
+      "name": "/private/jest-fixture/failing_unexpected.test.js",
+      "startTime": 0,
+      "status": "failed",
+      "summary": ""
+    }
+  ],
+  "wasInterrupted": false
+}

@@ -14,12 +14,19 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 	var in input
 	var err error
 	if version == 2 {
+		action, issue := preflightV2Input(req.Params.Arguments)
+		if issue != nil {
+			return invalidInputV2(action, issue), nil
+		}
 		in, err = decodeInputV2(req.Params.Arguments)
+		if err != nil {
+			return invalidInputV2(action, classifyV2DecodeFailure(req.Params.Arguments)), nil
+		}
 	} else {
 		in, err = decodeInput(req.Params.Arguments)
-	}
-	if err != nil {
-		return versionedToolError(version, "", "invalid_request", "invalid request", false), nil
+		if err != nil {
+			return versionedToolError(version, "", "invalid_request", "invalid request", false), nil
+		}
 	}
 	if version == 2 && isDeferredAction(in.Action) {
 		return toolErrorV2(in.Action, "feature_unavailable", "feature unavailable", false), nil
@@ -28,6 +35,9 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		return toolErrorV2(in.Action, "feature_unavailable", "feature unavailable", false), nil
 	}
 	if err := validateForVersion(version, in, req.Params.Arguments); err != nil {
+		if version == 2 {
+			return invalidInputV2(in.Action, classifyV2ValidationFailure(in.Action, err)), nil
+		}
 		return versionedToolError(version, in.Action, "invalid_request", err.Error(), false), nil
 	}
 	request := requestFromInput(version, in, req.Params.Arguments)
@@ -36,7 +46,7 @@ func call(ctx context.Context, h *bridge.Handler, req *mcpgo.CallToolRequest) (*
 		return versionedToolError(version, in.Action, "daemon_unavailable", "daemon request failed", true), nil
 	}
 	if out.Code != "" {
-		return versionedToolError(version, in.Action, out.Code, out.Message, out.Retryable), nil
+		return versionedToolErrorDetails(version, in.Action, out.Code, out.Message, out.Retryable, out.Details), nil
 	}
 	if version == 2 {
 		if in.Action == "read_media" {
@@ -77,6 +87,14 @@ func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
 	action := in.Action
 	body := map[string]any{"schema_version": 2, "ok": true, "action": action}
 	summary := action
+	if isDecisionProtocolMCPAction(action) {
+		var failed *mcpgo.CallToolResult
+		summary, failed = decisionProtocolSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
+		}
+		return toolSuccess(summary, body)
+	}
 	switch action {
 	case "context.exec":
 		if out.ContextExec == nil {
@@ -111,6 +129,12 @@ func successV2(in input, out bridge.Response) *mcpgo.CallToolResult {
 	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
 		var failed *mcpgo.CallToolResult
 		summary, failed = checkpointSuccessV2(action, out, body)
+		if failed != nil {
+			return failed
+		}
+	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
+		var failed *mcpgo.CallToolResult
+		summary, failed = verificationSuccessV2(action, out, body)
 		if failed != nil {
 			return failed
 		}
@@ -322,8 +346,12 @@ func toolSuccess(summary string, body map[string]any) *mcpgo.CallToolResult {
 }
 
 func versionedToolError(version int, action, code, message string, retryable bool) *mcpgo.CallToolResult {
+	return versionedToolErrorDetails(version, action, code, message, retryable, nil)
+}
+
+func versionedToolErrorDetails(version int, action, code, message string, retryable bool, details map[string]string) *mcpgo.CallToolResult {
 	if version == 2 {
-		return toolErrorV2(action, code, message, retryable)
+		return toolErrorV2Details(action, code, message, retryable, details)
 	}
 	return toolError(code, message, retryable)
 }
@@ -334,6 +362,18 @@ func toolError(code, message string, retryable bool) *mcpgo.CallToolResult {
 }
 
 func toolErrorV2(action, code, message string, retryable bool) *mcpgo.CallToolResult {
-	body := map[string]any{"schema_version": 2, "ok": false, "action": action, "error": map[string]any{"code": code, "message": message, "retryable": retryable}}
+	return toolErrorV2Details(action, code, message, retryable, nil)
+}
+
+func toolErrorV2Details(action, code, message string, retryable bool, details map[string]string) *mcpgo.CallToolResult {
+	errorBody := map[string]any{"code": code, "message": message, "retryable": retryable}
+	if len(details) != 0 {
+		copyDetails := make(map[string]string, len(details))
+		for key, value := range details {
+			copyDetails[key] = value
+		}
+		errorBody["details"] = copyDetails
+	}
+	body := map[string]any{"schema_version": 2, "ok": false, "action": action, "error": errorBody}
 	return &mcpgo.CallToolResult{IsError: true, Content: []mcpgo.Content{&mcpgo.TextContent{Text: code + ": " + message}}, StructuredContent: body}
 }

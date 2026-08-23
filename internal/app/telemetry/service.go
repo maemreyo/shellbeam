@@ -65,6 +65,10 @@ type terminalAuthority struct {
 }
 
 func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt) (core.PerformanceRecord, error) {
+	return s.DeriveTerminalWithResources(ctx, scheduled, nil)
+}
+
+func (s *Service) DeriveTerminalWithResources(ctx context.Context, scheduled receipt.Receipt, resources *receipt.ResourceEvidence) (core.PerformanceRecord, error) {
 	if s == nil || s.repository == nil {
 		return core.PerformanceRecord{}, fmt.Errorf("telemetry repository unavailable")
 	}
@@ -80,7 +84,10 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 	if err != nil {
 		return core.PerformanceRecord{}, err
 	}
-	unavailable := core.IntMetric{Quality: core.MetricUnavailable}
+	resourceMetrics, err := telemetryResources(resources)
+	if err != nil {
+		return core.PerformanceRecord{}, err
+	}
 	record := core.PerformanceRecord{
 		SchemaVersion: core.SchemaVersion, DerivationKey: derivationKey, DerivationSchemaVersion: derivationSchemaVersion,
 		DerivationConfigDigest: s.configDigest, Producer: s.producer,
@@ -92,10 +99,13 @@ func (s *Service) DeriveTerminal(ctx context.Context, scheduled receipt.Receipt)
 		WallMS: wallMS, OutputBytes: authority.receipt.OutputBytes, InputAcceptedBytes: authority.receipt.InputAcceptedBytes, InputDeliveredBytes: authority.receipt.InputDeliveredBytes,
 		TerminalOutcome: authority.receipt.Outcome, TimedOut: authority.receipt.Outcome == session.Timeout, CapturedAt: authority.snapshot.UpdatedAt,
 		Lifecycle: core.LifecycleTerminal, Completeness: core.CompletenessPartial,
-		Resources: core.ResourceMetrics{
-			CPUUserMS: unavailable, CPUSystemMS: unavailable, MaxRSSBytes: unavailable,
-			ReadBytes: unavailable, WriteBytes: unavailable, ProcessCountPeak: unavailable,
-		},
+		Resources: resourceMetrics,
+	}
+	if binding := authority.reservation.EnvironmentBinding; binding != nil {
+		record.EnvironmentFingerprint = binding.EnvironmentFingerprint
+		record.EnvironmentSchemaVersion = binding.EnvironmentFingerprintVersion
+		record.ToolchainFingerprint = binding.ToolchainFingerprint
+		record.ToolchainSchemaVersion = binding.ToolchainFingerprintVersion
 	}
 	if err := record.Validate(); err != nil {
 		return core.PerformanceRecord{}, err
@@ -181,6 +191,58 @@ func (s *Service) loadTerminalAuthority(ctx context.Context, scheduled receipt.R
 	}, nil
 }
 
+func telemetryResources(evidence *receipt.ResourceEvidence) (core.ResourceMetrics, error) {
+	unavailable := core.IntMetric{Quality: core.MetricUnavailable}
+	metrics := core.ResourceMetrics{
+		CPUUserMS: unavailable, CPUSystemMS: unavailable, MaxRSSBytes: unavailable,
+		ReadBytes: unavailable, WriteBytes: unavailable, ProcessCountPeak: unavailable,
+	}
+	if evidence == nil {
+		return metrics, nil
+	}
+	if err := evidence.Validate(); err != nil {
+		return core.ResourceMetrics{}, fmt.Errorf("invalid receipt resource evidence: %w", err)
+	}
+	var err error
+	if metrics.CPUUserMS, err = telemetryResourceMetric(evidence.CPUUserMS); err != nil {
+		return core.ResourceMetrics{}, err
+	}
+	if metrics.CPUSystemMS, err = telemetryResourceMetric(evidence.CPUSystemMS); err != nil {
+		return core.ResourceMetrics{}, err
+	}
+	if metrics.MaxRSSBytes, err = telemetryResourceMetric(evidence.MaxRSSBytes); err != nil {
+		return core.ResourceMetrics{}, err
+	}
+	if metrics.ReadBytes, err = telemetryResourceMetric(evidence.ReadBytes); err != nil {
+		return core.ResourceMetrics{}, err
+	}
+	if metrics.WriteBytes, err = telemetryResourceMetric(evidence.WriteBytes); err != nil {
+		return core.ResourceMetrics{}, err
+	}
+	if metrics.ProcessCountPeak, err = telemetryResourceMetric(evidence.ProcessCountPeak); err != nil {
+		return core.ResourceMetrics{}, err
+	}
+	return metrics, nil
+}
+
+func telemetryResourceMetric(metric receipt.ResourceMetric) (core.IntMetric, error) {
+	quality := map[receipt.ResourceQuality]core.MetricQuality{
+		receipt.ResourceExact:            core.MetricExact,
+		receipt.ResourcePlatformReported: core.MetricPlatformReported,
+		receipt.ResourceSampled:          core.MetricSampled,
+		receipt.ResourceUnavailable:      core.MetricUnavailable,
+	}[metric.Quality]
+	if quality == "" {
+		return core.IntMetric{}, fmt.Errorf("invalid receipt resource quality %q", metric.Quality)
+	}
+	var value *int64
+	if metric.Value != nil {
+		copy := *metric.Value
+		value = &copy
+	}
+	return core.IntMetric{Quality: quality, Value: value}, nil
+}
+
 func telemetryProjectCommandAuthority(reservation operation.Reservation, rec receipt.Receipt) (core.ScopeClass, string, string, string, error) {
 	if rec.ProjectCommand == nil {
 		if reservation.ProjectCommand != nil {
@@ -250,9 +312,10 @@ func telemetryConfigDigest(platform, architecture string) (string, error) {
 		SchemaVersion       int    `json:"schema_version"`
 		WallClockAuthority  string `json:"wall_clock_authority"`
 		ResourceObservation string `json:"resource_observation"`
+		EnvironmentBinding  string `json:"environment_binding"`
 		Platform            string `json:"platform"`
 		Architecture        string `json:"architecture"`
-	}{1, "reservation_created_to_terminal_session_updated", "unavailable", platform, architecture})
+	}{1, "reservation_created_to_terminal_session_updated", "process_exit_resource_sidecar_v1", "frozen_reservation_binding_v1", platform, architecture})
 	if err != nil {
 		return "", err
 	}

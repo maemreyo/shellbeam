@@ -9,6 +9,8 @@ func TestOnboardingInstructionsRequireReviewWorkflow(t *testing.T) {
 	text := strings.ToLower(projectOnboardingInstructions)
 	required := []string{
 		"inspect.project",
+		"agent_bootstrap",
+		"before making repository-specific changes",
 		"do not auto-trust",
 		"do not automatically write",
 		"user approval",

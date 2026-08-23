@@ -2,15 +2,19 @@ package mcp
 
 import (
 	"fmt"
+
 	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 )
 
 func v2ActionFields(action string) []string {
+	if isDecisionProtocolMCPAction(action) {
+		return []string{"decision", "workspace_id"}
+	}
 	switch action {
 	case "start":
-		return []string{"operation_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "cwd", "tty", "persistent", "session_mode", "session_name", "yield_time_ms", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "max_output_bytes"}
+		return []string{"operation_id", "experiment_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_mode", "session_name", "yield_time_ms", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "hermetic", "max_output_bytes"}
 	case "context.exec":
 		return []string{"context_exec_id", "session_id", "authority_epoch", "argv", "timeout_ms", "max_output_bytes"}
 	case "poll":
@@ -37,6 +41,16 @@ func v2ActionFields(action string) []string {
 		return []string{"checkpoint_id"}
 	case "inspect.server":
 		return nil
+	case "inspect.verification":
+		return []string{"workspace_id", "activity_id", "phase"}
+	case "verification.policy.preview":
+		return []string{"workspace_id", "profile"}
+	case "verification.policy.activate":
+		return []string{"workspace_id", "activation_id", "proposed_policy_digest", "expected_previous_policy_digest", "proposal_generation", "authority", "actor"}
+	case "verification.waiver.set":
+		return []string{"workspace_id", "waiver_id", "policy_digest", "rule_id", "phase", "generation", "checkpoint_id", "authority", "actor", "reason", "expires_at", "expires_phase"}
+	case "verification.waiver.revoke":
+		return []string{"workspace_id", "waiver_id", "authority", "actor"}
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
 		return []string{"workspace_id"}
 	case "inspect.activity":
@@ -85,6 +99,12 @@ func validateDelegatedStartInputV2(v input) error {
 	}
 	if v.SessionMode != delegated.ModeDelegatedInteractive {
 		return nil
+	}
+	if v.Hermetic != nil {
+		return fmt.Errorf("delegated hermetic execution is not qualified")
+	}
+	if v.VerificationAttempt != nil {
+		return fmt.Errorf("delegated verification attempt is not qualified")
 	}
 	if v.Evidence != nil || v.ResourceLimits != nil {
 		return fmt.Errorf("delegated ordinary evidence/resource limits are not qualified in H1")

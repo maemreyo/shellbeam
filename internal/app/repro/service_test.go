@@ -2,6 +2,7 @@ package repro
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -26,6 +28,8 @@ type memoryReproRepository struct {
 	structuredFound bool
 	telemetry       telemetry.PerformanceRecord
 	telemetryFound  bool
+	inputTrace      inputtrace.Record
+	inputTraceFound bool
 	creates         map[string]memoryReproCreate
 }
 
@@ -69,6 +73,15 @@ func (r *memoryReproRepository) FindPerformanceByOperation(ctx context.Context, 
 		return telemetry.PerformanceRecord{}, false, nil
 	}
 	return r.telemetry, true, nil
+}
+func (r *memoryReproRepository) LoadInputTraceByOperation(ctx context.Context, operationID string) (inputtrace.Record, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return inputtrace.Record{}, false, err
+	}
+	if operationID != string(r.reservation.OperationID) || !r.inputTraceFound {
+		return inputtrace.Record{}, false, nil
+	}
+	return r.inputTrace, true, nil
 }
 func (r *memoryReproRepository) CreateRepro(ctx context.Context, fingerprint string, capsule core.Capsule) (core.Capsule, bool, error) {
 	if err := ctx.Err(); err != nil {
@@ -186,7 +199,7 @@ func structuredFixture(t *testing.T, lifecycle structured.Lifecycle, completenes
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := structured.Derivation{SchemaVersion: 1, DerivationKey: key, SourceAuthorityRefs: []structured.RawOutputRef{ref}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("2", 64), Lifecycle: lifecycle, Completeness: completeness}
+	d := structured.Derivation{SchemaVersion: 1, DerivationKey: key, SourceAuthorityRefs: []structured.StructuredInputRef{structured.RawInputRef(ref)}, Producer: producer, DerivationSchemaVersion: 1, DerivationConfigDigest: strings.Repeat("2", 64), Lifecycle: lifecycle, Completeness: completeness}
 	if lifecycle == structured.LifecycleTerminal {
 		d.ParseOutcome = structured.ParseComplete
 	}
@@ -281,4 +294,61 @@ func reproProjectCommandBinding(t *testing.T) project.CommandBinding {
 		t.Fatal(err)
 	}
 	return binding
+}
+
+func TestCreateFreezesInputTraceAsOpaqueDerivedReferenceWithoutResourcePaths(t *testing.T) {
+	repo := reproFixture(t)
+	repo.inputTrace, repo.inputTraceFound = inputTraceFixtureForRepro(t, repo.receipt), true
+	capsule, err := New(repo).Create(context.Background(), core.CreateRequest{CreateID: "repro-trace-1", OperationID: "op-repro-1", Policy: core.CapturePolicy{DependentDerivations: core.CaptureCurrent}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *core.ReferenceDescriptor
+	for i := range capsule.Results {
+		if capsule.Results[i].RecordKind == "input_trace" {
+			found = &capsule.Results[i]
+			break
+		}
+	}
+	if found == nil || found.RefID != "input-trace:"+repo.inputTrace.DerivationKey || found.Digest != repo.inputTrace.DerivationKey || found.ProducerID != repo.inputTrace.Provider.ID || found.ProducerVersion != repo.inputTrace.Provider.Version || found.OriginalAvailability != core.AvailabilityTerminal {
+		t.Fatalf("input trace reference=%#v", found)
+	}
+	encoded, err := json.Marshal(capsule)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"internal/private.go", "/Users/private", "DYLD_INSERT_LIBRARIES"} {
+		if strings.Contains(string(encoded), forbidden) {
+			t.Fatalf("capsule leaked input trace resource %q: %s", forbidden, encoded)
+		}
+	}
+}
+
+func inputTraceFixtureForRepro(t *testing.T, rec receipt.Receipt) inputtrace.Record {
+	t.Helper()
+	digest, err := receipt.Digest(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 8, 15, 1, 0, 0, 0, time.UTC)
+	record := inputtrace.Record{
+		SchemaVersion: inputtrace.SchemaVersion, DerivationKey: strings.Repeat("6", 64), TraceID: "trace_01K00000000000000000000000",
+		OperationID: rec.OperationID, SessionID: rec.SessionID, ReceiptDigest: digest, Mode: inputtrace.ModeBestEffort,
+		Provider: inputtrace.ProviderIdentity{ID: "dyld-interpose", Version: 1, CapabilityVersion: 1}, Platform: "darwin",
+		InstrumentationFingerprint: strings.Repeat("7", 64), InstrumentationEffect: inputtrace.EffectEnvironmentAffecting,
+		Authority: inputtrace.AuthorityAdvisory, ScopeKind: inputtrace.ScopeObservedInput, MayHaveUnobservedDependencies: true,
+		CaptureStart: now, CaptureEnd: now.Add(time.Second),
+		Coverage: inputtrace.CoverageMatrix{
+			FilesystemReads: inputtrace.CoveragePartial, FilesystemMetadataQueries: inputtrace.CoveragePartial, DirectoryEnumerations: inputtrace.CoveragePartial,
+			FilesystemWrites: inputtrace.CoveragePartial, ExecutedBinaries: inputtrace.CoveragePartial, LoadedLibraries: inputtrace.CoveragePartial,
+			EnvironmentNamesObserved: inputtrace.CoverageUnsupported, NetworkAttempts: inputtrace.CoverageUnsupported, ChildProcesses: inputtrace.CoveragePartial,
+		},
+		Outcome:   inputtrace.OutcomePartial,
+		Resources: []inputtrace.Resource{{ObservationClass: inputtrace.ClassFilesystemReads, PathClass: inputtrace.PathRepoRelative, Identity: "internal/private.go"}},
+		Summary:   inputtrace.Summary{ResourcesReturned: 1, ResourcesObserved: 1},
+	}
+	if err := record.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return record
 }
