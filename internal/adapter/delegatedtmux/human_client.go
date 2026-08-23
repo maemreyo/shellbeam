@@ -335,16 +335,23 @@ func attachEnvironment(env []string) []string {
 		return nil
 	}
 	out := append([]string(nil), env...)
+	termIndex := -1
+	hasTerminfo := false
 	for i, entry := range out {
-		if entry == "TERM=xterm-ghostty" {
-			out[i] = "TERM=xterm-256color"
-			return out
-		}
-		if strings.HasPrefix(entry, "TERM=") {
-			return out
+		switch {
+		case strings.HasPrefix(entry, "TERMINFO=") || strings.HasPrefix(entry, "TERMINFO_DIRS="):
+			hasTerminfo = true
+		case strings.HasPrefix(entry, "TERM="):
+			termIndex = i
 		}
 	}
-	return append(out, "TERM=xterm-256color")
+	if termIndex < 0 {
+		return append(out, "TERM=xterm-256color")
+	}
+	if out[termIndex] == "TERM=xterm-ghostty" && !hasTerminfo {
+		out[termIndex] = "TERM=xterm-256color"
+	}
+	return out
 }
 
 func providerIdentityMismatch(state privateState, reason string) error {

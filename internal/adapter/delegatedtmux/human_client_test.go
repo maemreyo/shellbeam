@@ -151,7 +151,7 @@ func waitHumanDone(t *testing.T, done <-chan error) {
 	}
 }
 
-func TestAttachEnvironmentDowngradesGhosttyTermForTmuxCompatibility(t *testing.T) {
+func TestAttachEnvironmentDowngradesGhosttyTermWithoutTerminfo(t *testing.T) {
 	env := attachEnvironment([]string{"PATH=/usr/bin:/bin", "TERM=xterm-ghostty"})
 	for _, entry := range env {
 		if strings.HasPrefix(entry, "TERM=") {
@@ -162,4 +162,17 @@ func TestAttachEnvironmentDowngradesGhosttyTermForTmuxCompatibility(t *testing.T
 		}
 	}
 	t.Fatal("attach environment omitted TERM")
+}
+
+func TestAttachEnvironmentPreservesGhosttyTermWithTerminfo(t *testing.T) {
+	env := attachEnvironment([]string{
+		"PATH=/usr/bin:/bin",
+		"TERM=xterm-ghostty",
+		"TERMINFO=/Applications/Ghostty.app/Contents/Resources/terminfo",
+	})
+	for _, entry := range env {
+		if strings.HasPrefix(entry, "TERM=") && entry != "TERM=xterm-ghostty" {
+			t.Fatalf("TERM=%q want native Ghostty terminal when terminfo is available", entry)
+		}
+	}
 }
