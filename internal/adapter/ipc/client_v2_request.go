@@ -14,13 +14,26 @@ func requestV2FromBridge(in bridge.Request) RequestV2 {
 	return req
 }
 
+func applyBridgeContextExecV2(req *RequestV2, in bridge.Request) {
+	req.ContextExecID = in.ContextExec.ContextExecID
+	req.SessionID = in.ContextExec.SessionID
+	req.AuthorityEpoch = in.ContextExec.AuthorityEpoch
+	req.Argv = append([]string(nil), in.ContextExec.Argv...)
+	req.TimeoutMS = in.ContextExec.TimeoutMS
+	req.MaxOutputBytes = int(in.ContextExec.MaxOutputBytes)
+}
+
 func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	switch in.Action {
+	case "context.exec":
+		applyBridgeContextExecV2(req, in)
 	case "decision.policy.snapshot", "decision.policy.activate", "decision.create", "decision.inspect", "decision.evaluate", "decision.close_unresolved", "decision.candidate.create", "decision.candidate.revise", "decision.experiment.define", "decision.prediction.bind", "decision.experiment.seal", "decision.experiment.close", "decision.experiment.abort", "decision.assessment.record", "decision.selection.propose", "decision.override.create", "decision.selection.commit", "decision.authority.materialize":
 		req.WorkspaceID = in.WorkspaceID
 		req.Decision = decisionRequestV2FromBridge(in.Decision)
 	case "start":
 		applyStartV2(req, in)
+	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+		applyBridgeHandoffV2(req, in)
 	case "poll":
 		req.SessionID = in.Poll.SessionID
 		req.Cursor = in.Poll.Cursor
@@ -34,10 +47,7 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	case "checkpoint_create", "checkpoint_restore", "checkpoint_inspect":
 		applyCheckpointBridgeRequestV2(req, in)
 	case "write":
-		req.SessionID = in.Write.SessionID
-		req.InputOffset = in.Write.InputOffset
-		req.Chars = in.Write.Chars
-		req.EOF = in.Write.EOF
+		applyBridgeWriteV2(req, in)
 	case "inspect.verification", "verification.policy.preview", "verification.policy.activate", "verification.waiver.set", "verification.waiver.revoke":
 		applyVerificationBridgeRequestV2(req, in)
 	case "inspect.project", "inspect.workspace", "inspect.readiness":
@@ -86,11 +96,45 @@ func applyBridgeRequestV2(req *RequestV2, in bridge.Request) {
 	case "inspect.repro":
 		req.ReproID = in.ReproID
 	case "kill":
-		req.SessionID = in.Kill.SessionID
-		req.KillID = in.Kill.KillID
-		req.Signal = in.Kill.Signal
+		applyBridgeKillV2(req, in)
 	}
 
+}
+
+func applyBridgeHandoffV2(req *RequestV2, in bridge.Request) {
+	switch in.Action {
+	case "handoff.request":
+		req.HandoffID = in.HandoffRequest.HandoffID
+		req.SessionID = in.HandoffRequest.SessionID
+		req.Reason = string(in.HandoffRequest.Reason)
+		req.HandoffPrivacy = in.HandoffRequest.Privacy
+		completion := in.HandoffRequest.Completion
+		req.HandoffCompletion = &completion
+		if in.TerminalAffinity != nil {
+			copy := *in.TerminalAffinity
+			req.TerminalAffinity = &copy
+		}
+	case "handoff.wait":
+		req.HandoffID = in.HandoffWait.HandoffID
+		req.YieldMS = in.HandoffWait.Yield.Milliseconds()
+	case "handoff.abort", "inspect.handoff":
+		req.HandoffID = in.HandoffID
+	}
+}
+
+func applyBridgeWriteV2(req *RequestV2, in bridge.Request) {
+	req.SessionID = in.Write.SessionID
+	req.AuthorityEpoch = in.Write.AuthorityEpoch
+	req.InputOffset = in.Write.InputOffset
+	req.Chars = in.Write.Chars
+	req.EOF = in.Write.EOF
+}
+
+func applyBridgeKillV2(req *RequestV2, in bridge.Request) {
+	req.SessionID = in.Kill.SessionID
+	req.AuthorityEpoch = in.Kill.AuthorityEpoch
+	req.KillID = in.Kill.KillID
+	req.Signal = in.Kill.Signal
 }
 
 func applySessionInspectV2(req *RequestV2, in bridge.Request) {

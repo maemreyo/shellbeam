@@ -94,6 +94,38 @@ const (
 	PersistentInputHistoryExhausted   Code = "persistent_input_history_exhausted"
 	PersistentKillHistoryExhausted    Code = "persistent_kill_history_exhausted"
 	PersistenceAmbiguous              Code = "persistence_ambiguous"
+	StaleControlGeneration            Code = "stale_control_generation"
+	SessionControlNotOwned            Code = "session_control_not_owned"
+	DelegatedSessionUnavailable       Code = "delegated_session_unavailable"
+	DelegatedProviderLost             Code = "delegated_provider_lost"
+	DelegatedProviderMismatch         Code = "delegated_provider_mismatch"
+	DelegatedReconcileBlocked         Code = "delegated_reconcile_blocked"
+	HandoffConflict                   Code = "handoff_conflict"
+	HandoffNotPending                 Code = "handoff_not_pending"
+	HandoffExpired                    Code = "handoff_expired"
+	HandoffClientLost                 Code = "handoff_client_lost"
+	HandoffReclaimBlocked             Code = "handoff_reclaim_blocked"
+	TerminalLauncherUnavailable       Code = "terminal_launcher_unavailable"
+	TerminalLaunchFailed              Code = "terminal_launch_failed"
+	TerminalLaunchUnknown             Code = "terminal_launch_unknown"
+	TerminalIdentityAmbiguous         Code = "terminal_identity_ambiguous"
+	HumanControlUnreachable           Code = "human_control_unreachable"
+	HumanClientNotProven              Code = "human_client_not_proven"
+	PrivateOutputBarrierFailed        Code = "private_output_barrier_failed"
+	PrivacyReleaseUnproven            Code = "privacy_release_unproven"
+	ShellIntegrationUnavailable       Code = "shell_integration_unavailable"
+	ShellIntegrationLost              Code = "shell_integration_lost"
+	RequirementUnsupported            Code = "requirement_unsupported"
+	RequirementNotSatisfied           Code = "requirement_not_satisfied"
+	ShellIdentityChanged              Code = "shell_identity_changed"
+	ContextExecUnavailable            Code = "context_exec_unavailable"
+	ContextExecStaleGeneration        Code = "context_exec_stale_generation"
+	ContextExecNotAgentOwned          Code = "context_exec_not_agent_owned"
+	ContextExecPrivacyBlocked         Code = "context_exec_privacy_blocked"
+	ContextExecBoundaryUnproven       Code = "context_exec_boundary_unproven"
+	ContextHelperAuthFailed           Code = "context_helper_auth_failed"
+	ContextHelperLost                 Code = "context_helper_lost"
+	ContextExecAmbiguous              Code = "context_exec_ambiguous"
 	InvalidDaemonResponse             Code = "invalid_daemon_response"
 	RuntimeVersionMismatch            Code = "runtime_version_mismatch"
 	MediaPathNotFound                 Code = "media_path_not_found"
@@ -236,6 +268,38 @@ var publicSpecs = map[Code]publicSpec{
 	PersistentInputHistoryExhausted:   {message: "persistent input history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistentKillHistoryExhausted:    {message: "persistent kill history capacity exhausted", retryable: true, details: keys("session_id", "reason")},
 	PersistenceAmbiguous:              {message: "persistence result is ambiguous", retryable: true},
+	StaleControlGeneration:            {message: "stale delegated session control generation", details: keys("session_id", "expected_epoch", "current_epoch")},
+	SessionControlNotOwned:            {message: "delegated session control is not owned by the caller", details: keys("session_id", "owner", "required_owner", "current_epoch")},
+	DelegatedSessionUnavailable:       {message: "delegated session unavailable", retryable: true, details: keys("session_id", "platform", "reason")},
+	DelegatedProviderLost:             {message: "delegated session provider lost", retryable: true, details: keys("session_id", "provider_id", "provider_version", "reason")},
+	DelegatedProviderMismatch:         {message: "delegated session provider mismatch", details: keys("session_id", "provider_id", "provider_version", "expected_provider_id", "expected_provider_version")},
+	DelegatedReconcileBlocked:         {message: "delegated session reconciliation blocked", retryable: true, details: keys("session_id", "provider_id", "current_epoch", "reason")},
+	HandoffConflict:                   {message: "handoff conflicts with existing state", details: keys("handoff_id", "control_id", "phase")},
+	HandoffNotPending:                 {message: "handoff action is not pending", details: keys("handoff_id", "phase")},
+	HandoffExpired:                    {message: "handoff expired", details: keys("handoff_id")},
+	HandoffClientLost:                 {message: "handoff human client lost", retryable: true, details: keys("handoff_id", "reason")},
+	HandoffReclaimBlocked:             {message: "handoff reclaim blocked", retryable: true, details: keys("handoff_id", "reason", "phase")},
+	TerminalLauncherUnavailable:       {message: "terminal launcher unavailable", details: keys("provider_id", "reason")},
+	TerminalLaunchFailed:              {message: "terminal launch failed", details: keys("provider_id", "reason")},
+	TerminalLaunchUnknown:             {message: "terminal launch outcome unknown", retryable: true, details: keys("provider_id", "reason")},
+	TerminalIdentityAmbiguous:         {message: "terminal identity is ambiguous", details: keys("provider_id", "reason")},
+	HumanControlUnreachable:           {message: "human control is unreachable", retryable: true, details: keys("handoff_id", "reason")},
+	HumanClientNotProven:              {message: "human client identity not proven", retryable: true, details: keys("handoff_id", "reason")},
+	PrivateOutputBarrierFailed:        {message: "private output barrier failed", retryable: true, details: keys("handoff_id", "reason")},
+	PrivacyReleaseUnproven:            {message: "privacy release unproven", retryable: true, details: keys("handoff_id", "reason")},
+	ShellIntegrationUnavailable:       {message: "shell integration unavailable", details: keys("handoff_id", "shell", "reason")},
+	ShellIntegrationLost:              {message: "shell integration lost", retryable: true, details: keys("handoff_id", "shell", "reason")},
+	RequirementUnsupported:            {message: "shell requirement unsupported", details: keys("handoff_id", "kind", "shell", "reason")},
+	RequirementNotSatisfied:           {message: "shell requirement not satisfied", details: keys("handoff_id", "kind", "shell", "reason")},
+	ShellIdentityChanged:              {message: "shell identity changed", retryable: true, details: keys("handoff_id", "shell", "reason")},
+	ContextExecUnavailable:            {message: "context execution unavailable", details: keys("context_exec_id", "session_id", "reason")},
+	ContextExecStaleGeneration:        {message: "context execution generation is stale", retryable: true, details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextExecNotAgentOwned:          {message: "context execution requires agent ownership", details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextExecPrivacyBlocked:         {message: "context execution blocked by privacy state", retryable: true, details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextExecBoundaryUnproven:       {message: "context execution boundary unproven", retryable: true, details: keys("context_exec_id", "session_id", "authority_epoch", "reason")},
+	ContextHelperAuthFailed:           {message: "context helper authentication failed", details: keys("context_exec_id", "session_id", "reason")},
+	ContextHelperLost:                 {message: "context helper lost", retryable: true, details: keys("context_exec_id", "session_id", "reason")},
+	ContextExecAmbiguous:              {message: "context execution outcome ambiguous", details: keys("context_exec_id", "session_id", "reason")},
 	InvalidDaemonResponse:             {message: "invalid daemon response"},
 	RuntimeVersionMismatch:            {message: "ShellBeam MCP and daemon builds do not match", details: keys("mcp_revision", "daemon_revision", "reason", "recovery")},
 	MediaPathNotFound:                 {message: "media path not found"},

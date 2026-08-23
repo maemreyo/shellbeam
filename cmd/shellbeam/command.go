@@ -16,7 +16,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/config"
 )
 
-const topLevelUsage = "usage: shellbeam <daemon|mcp|workspace|project|browser-host|install|uninstall|status|doctor|version>"
+const topLevelUsage = "usage: shellbeam <daemon|mcp|workspace|project|session|browser-host|install|uninstall|status|doctor|version>"
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -35,6 +35,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runVersion(args[1:], stdout, stderr)
 	case "__supervisor":
 		err = runSupervisor(ctx, args[1:])
+	case "__handoff_notify":
+		err = runHandoffNotify(ctx, args[1:])
+	case "__context_exec_helper":
+		err = runContextExecHelper(ctx, args[1:])
+	case "__context_exec_fdexec":
+		err = runContextExecFDExec(args[1:])
 	case "daemon":
 		err = runDaemon(ctx, args[1:])
 	case "mcp":
@@ -43,6 +49,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runWorkspace(ctx, args[1:], stdout)
 	case "project":
 		err = runProject(ctx, args[1:], stdout)
+	case "session":
+		err = runSession(ctx, args[1:], stdout, stderr)
 	case "browser-host":
 		err = runBrowserHost(ctx, args[1:], stdout)
 	case "install":

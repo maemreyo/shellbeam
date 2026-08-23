@@ -23,6 +23,7 @@ type Intent struct {
 	TTY            bool     `json:"tty"`
 	TimeoutMS      int64    `json:"timeout_ms"`
 	Persistent     bool     `json:"persistent,omitempty"`
+	SessionMode    string   `json:"session_mode,omitempty"`
 	SessionName    string   `json:"session_name,omitempty"`
 	YieldMS        int64    `json:"-"`
 	MaxOutputBytes int      `json:"-"`
@@ -88,7 +89,9 @@ func (i Intent) RequestFingerprint() (string, error) {
 	}
 	logicalCWD := address.LogicalCWD()
 	var base string
-	if i.Persistent {
+	if i.SessionMode != "" {
+		base, err = i.delegatedRequestFingerprint(mode, logicalCWD)
+	} else if i.Persistent {
 		base, err = i.persistentRequestFingerprint(mode, logicalCWD)
 	} else if mode == ExecutionModeShell {
 		base, err = hashIntent(2, "request", i.Command, i.WorkspaceID, logicalCWD, i.TTY, i.TimeoutMS, "", i.requestPolicy())
@@ -128,7 +131,9 @@ func (i Intent) ExecutionFingerprint(effectiveExecutable string) (string, error)
 		return "", fmt.Errorf("resolved cwd must be absolute")
 	}
 	var base string
-	if i.Persistent {
+	if i.SessionMode != "" {
+		base, err = i.delegatedExecutionFingerprint(mode, cwd, effectiveExecutable)
+	} else if i.Persistent {
 		base, err = i.persistentExecutionFingerprint(mode, cwd, effectiveExecutable)
 	} else if mode == ExecutionModeShell {
 		base, err = hashIntent(2, "execution", i.Command, "", cwd, i.TTY, i.TimeoutMS, effectiveExecutable, i.executionPolicy())
@@ -195,7 +200,7 @@ func (i Intent) validateCommon() error {
 			return fmt.Errorf("hermetic v1 requires non-tty, non-persistent, closed stdin")
 		}
 	}
-	if err := i.validatePersistent(); err != nil {
+	if err := i.validateSessionContract(); err != nil {
 		return err
 	}
 	return nil

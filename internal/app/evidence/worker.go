@@ -70,6 +70,9 @@ func (w *Worker) ScheduleTerminal(ctx context.Context, rec receipt.Receipt) erro
 	if !rec.State.Terminal() {
 		return fmt.Errorf("evidence requires terminal receipt")
 	}
+	if err := core.ValidateMechanicalReceiptAuthority(rec.EvidenceAuthority); err != nil {
+		return nil
+	}
 	select {
 	case <-w.stop:
 		return fmt.Errorf("evidence worker stopped")
@@ -130,6 +133,12 @@ func (w *Worker) Recover(ctx context.Context) error {
 		}
 		if rec.OperationID != string(reservation.OperationID) || rec.SessionID != string(reservation.SessionID) || !rec.State.Terminal() {
 			return fmt.Errorf("evidence recovery authority mismatch")
+		}
+		if err := core.ValidateMechanicalReceiptAuthority(rec.EvidenceAuthority); err != nil {
+			if err := w.recovery.ClearEvidenceCandidate(ctx, id); err != nil {
+				return err
+			}
+			continue
 		}
 		if err := w.ScheduleTerminal(ctx, rec); err != nil {
 			return err

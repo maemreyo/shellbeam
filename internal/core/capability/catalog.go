@@ -35,6 +35,9 @@ const (
 	FeatureRichLocalMedia         Feature = "rich_local_media"
 	FeatureInputTracing           Feature = "input_tracing"
 	FeatureResourceEnforcement    Feature = "resource_enforcement"
+	FeatureDelegatedInteractive   Feature = "delegated_interactive"
+	FeatureInteractiveHandoff     Feature = "interactive_handoff"
+	FeatureContextExec            Feature = "context_exec"
 	FeatureHermeticBoundaryV1     Feature = "hermetic_boundary_v1"
 	FeatureVerificationSemantics  Feature = "verification_semantics"
 )
@@ -135,6 +138,15 @@ type Limits struct {
 	InputTraceWorkerQueueDepth           int   `json:"input_trace_worker_queue_depth,omitempty"`
 }
 
+type DelegatedInteractiveSupport struct {
+	ProviderID              string `json:"provider_id"`
+	ProviderVersion         int    `json:"provider_version"`
+	Platform                string `json:"platform"`
+	MaxMutationRecords      int    `json:"max_mutation_records"`
+	DaemonRestartContinuity bool   `json:"daemon_restart_continuity"`
+	HostRebootContinuity    bool   `json:"host_reboot_continuity"`
+}
+
 type Catalog struct {
 	ProtocolVersion                   int                           `json:"shellbeam_protocol_version"`
 	ReceiptSchemaVersions             []int                         `json:"receipt_schema_versions"`
@@ -178,6 +190,9 @@ type Catalog struct {
 	SafetyCheckpoints                 *CheckpointSupport            `json:"safety_checkpoints,omitempty"`
 	Media                             *MediaSupport                 `json:"media,omitempty"`
 	InputTracing                      *InputTracingSupport          `json:"input_tracing,omitempty"`
+	DelegatedInteractive              *DelegatedInteractiveSupport  `json:"delegated_interactive,omitempty"`
+	InteractiveHandoff                *InteractiveHandoffSupport    `json:"interactive_handoff,omitempty"`
+	ContextExec                       *ContextExecSupport           `json:"context_exec,omitempty"`
 	Runtime                           *RuntimeIdentity              `json:"runtime,omitempty"`
 	Features                          map[Feature]Availability      `json:"features"`
 	Limits                            Limits                        `json:"limits"`
@@ -209,6 +224,9 @@ var targetFeatures = []Feature{
 	FeatureRichLocalMedia,
 	FeatureInputTracing,
 	FeatureResourceEnforcement,
+	FeatureDelegatedInteractive,
+	FeatureInteractiveHandoff,
+	FeatureContextExec,
 	FeatureHermeticBoundaryV1,
 	FeatureVerificationSemantics,
 	FeatureDecisionProtocol,
@@ -265,6 +283,15 @@ func (c Catalog) Clone() Catalog {
 	out.TypedCommandVersions = append([]int(nil), c.TypedCommandVersions...)
 	out.TypedCommandParameterKinds = append([]string(nil), c.TypedCommandParameterKinds...)
 	out.TypedCommandPackageProviders = append([]string(nil), c.TypedCommandPackageProviders...)
+	cloneCatalogSupports(&out, c)
+	out.Features = make(map[Feature]Availability, len(c.Features))
+	for feature, availability := range c.Features {
+		out.Features[feature] = availability
+	}
+	return out
+}
+
+func cloneCatalogSupports(out *Catalog, c Catalog) {
 	if c.ResourceObservation != nil {
 		resource := *c.ResourceObservation
 		out.ResourceObservation = &resource
@@ -296,15 +323,22 @@ func (c Catalog) Clone() Catalog {
 		support.SchemaVersions = append([]int(nil), c.InputTracing.SchemaVersions...)
 		out.InputTracing = &support
 	}
+	if c.DelegatedInteractive != nil {
+		support := *c.DelegatedInteractive
+		out.DelegatedInteractive = &support
+	}
+	if c.InteractiveHandoff != nil {
+		support := c.InteractiveHandoff.Clone()
+		out.InteractiveHandoff = &support
+	}
+	if c.ContextExec != nil {
+		support := c.ContextExec.Clone()
+		out.ContextExec = &support
+	}
 	if c.Runtime != nil {
 		runtime := c.Runtime.Clone()
 		out.Runtime = &runtime
 	}
-	out.Features = make(map[Feature]Availability, len(c.Features))
-	for feature, availability := range c.Features {
-		out.Features[feature] = availability
-	}
-	return out
 }
 
 func (c Catalog) WithRuntime(identity RuntimeIdentity) Catalog {
@@ -457,43 +491,5 @@ func (c Catalog) WithProjectReadiness(ttlMS int64, maxEntries int) Catalog {
 	out.ReadinessRequirementKinds = []string{"toolchain", "executable", "environment_presence"}
 	out.Limits.ReadinessCacheTTLMS = ttlMS
 	out.Limits.ReadinessCacheEntries = maxEntries
-	return out
-}
-
-func (c Catalog) WithTypedProjectCommands(packageProviders []string) Catalog {
-	out := c.Clone()
-	if len(packageProviders) == 0 {
-		return out
-	}
-	for _, provider := range packageProviders {
-		if provider == "" {
-			return out
-		}
-	}
-	out.Features[FeatureTypedProjectCommands] = Available
-	out.TypedCommandVersions = []int{1}
-	out.TypedCommandManifestVersion = 2
-	out.TypedCommandParameterKinds = []string{"string", "enum", "integer", "repo_path", "repo_package"}
-	out.TypedCommandPackageProviders = append([]string(nil), packageProviders...)
-	foundV3 := false
-	for _, version := range out.ReceiptSchemaVersions {
-		foundV3 = foundV3 || version == 3
-	}
-	if !foundV3 {
-		out.ReceiptSchemaVersions = append(out.ReceiptSchemaVersions, 3)
-	}
-	return out
-}
-
-func (c Catalog) WithReproductionCapsules(maxCapsules, maxReferences, metadataBytes int) Catalog {
-	out := c.Clone()
-	if maxCapsules < 1 || maxReferences < 1 || metadataBytes < 1 {
-		return out
-	}
-	out.Features[FeatureReproductionCapsules] = Available
-	out.ReproSchemaVersions = []int{1}
-	out.Limits.ReproMaxCapsules = maxCapsules
-	out.Limits.ReproMaxReferences = maxReferences
-	out.Limits.ReproMetadataBytes = metadataBytes
 	return out
 }

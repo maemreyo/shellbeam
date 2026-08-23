@@ -1,0 +1,345 @@
+package main
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestReportRequiresEveryP0ThroughP15ExactlyOnce(t *testing.T) {
+	got := validateReport(Report{Results: []ProbeResult{{ID: "P0", Status: StatusPass}}})
+	if got == nil {
+		t.Fatal("partial report accepted")
+	}
+
+	r := passingReport("darwin", "arm64")
+	r.Results = append(r.Results, ProbeResult{ID: "P0", Status: StatusPass})
+	if err := validateReport(r); err == nil {
+		t.Fatal("duplicate probe id accepted")
+	}
+
+	r = passingReport("darwin", "arm64")
+	r.Results[0].ID = "P16"
+	if err := validateReport(r); err == nil {
+		t.Fatal("unknown probe id accepted")
+	}
+}
+
+func TestVerdictFailsOnGateFailureAndNotRunOnMissingNativeLane(t *testing.T) {
+	results := passingResults()
+	results[indexOf(results, "P14")].Status = StatusFail
+	if got := verdict(results); got != StatusFail {
+		t.Fatalf("verdict=%q want FAIL", got)
+	}
+
+	results = passingResults()
+	results[indexOf(results, "P8")].Status = StatusNotRun
+	if got := verdict(results); got != StatusNotRun {
+		t.Fatalf("verdict=%q want NOT_RUN", got)
+	}
+}
+
+func TestVerifyGateRejectsCallerForgedH1Allowed(t *testing.T) {
+	reports := passingNativeReports(t)
+	reports[0].Report.Results[indexOf(reports[0].Report.Results, "P3")].Status = StatusFail
+	reports[0] = bindReport(t, reports[0].Report)
+	gate := gateFromReports(reports)
+	gate.H1Allowed = true
+	if err := verifyGate(gate, reports); err == nil {
+		t.Fatal("forged h1_allowed accepted")
+	}
+}
+
+func TestVerifyGateRejectsUnboundPlatformReportDigest(t *testing.T) {
+	reports := passingNativeReports(t)
+	gate := gateFromReports(reports)
+	gate.PlatformReports[0].ReportSHA256 = strings.Repeat("0", 64)
+	if err := verifyGate(gate, reports); err == nil {
+		t.Fatal("unbound platform report digest accepted")
+	}
+}
+
+func TestGateDoesNotAllowH1WithoutQualifiedFenceAndObservationTopology(t *testing.T) {
+	reports := passingNativeReports(t)
+	gate := gateFromReports(reports)
+	if gate.H1Allowed {
+		t.Fatal("h1 allowed without qualified provider mechanism/topology facts")
+	}
+}
+
+func TestGateDoesNotAllowH1WhenProviderFactsDisagreeAcrossPlatforms(t *testing.T) {
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	qualifyProviderFacts(&reports[1].Report, candidateSharedDaemonDemux)
+	reports[0] = bindReport(t, reports[0].Report)
+	reports[1] = bindReport(t, reports[1].Report)
+	gate := gateFromReports(reports)
+	if gate.H1Allowed || gate.ObservationTopology != "unqualified" {
+		t.Fatalf("cross-platform topology disagreement accepted: %#v", gate)
+	}
+}
+
+func TestGateUsesFinalQualifiedTopologyNotP4MeasurementPlaceholder(t *testing.T) {
+	reports := passingNativeReports(t)
+	for i := range reports {
+		qualifyProviderFacts(&reports[i].Report, candidatePerSessionObserver)
+		reports[i] = bindReport(t, reports[i].Report)
+	}
+	gate := gateFromReports(reports)
+	if gate.ObservationTopology != candidatePerSessionObserver || !gate.H1Allowed {
+		t.Fatalf("gate=%#v", gate)
+	}
+}
+
+func qualifyProviderFacts(report *Report, candidate string) {
+	report.Results[indexOf(report.Results, "P3")].Facts = map[string]string{"input_fence_mechanism": "same_client_readonly_fence"}
+	for _, probeID := range []string{"P4", "P5", "P6", "P14", "P15"} {
+		result := &report.Results[indexOf(report.Results, probeID)]
+		if result.Facts == nil {
+			result.Facts = map[string]string{}
+		}
+		result.Facts["candidate."+candidate+"."+strings.ToLower(probeID)] = "PASS"
+	}
+	report.Results[indexOf(report.Results, "P4")].Facts["observation_topology"] = "unqualified"
+}
+
+func TestWrapperQualificationIsAdvisoryAndDoesNotChangeMachineGate(t *testing.T) {
+	reports := passingNativeReports(t)
+	for i := range reports {
+		qualifyProviderFacts(&reports[i].Report, candidatePerSessionObserver)
+		reports[i] = bindReport(t, reports[i].Report)
+	}
+	gate := gateFromReports(reports)
+	if !gate.H1Allowed || gate.ControlAdapter != "raw_control_mode" {
+		t.Fatalf("raw machine gate changed by wrapper advisory: %#v", gate)
+	}
+	markdown, err := renderMarkdown(gate, reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(markdown)
+	for _, want := range []string{wrapperCandidate, wrapperVerdict, wrapperReason, wrapperRecommendation, "advisory; not part of `H1_ALLOWED`"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("markdown missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestGateJSONRoundTripIsDeterministic(t *testing.T) {
+	reports := passingNativeReports(t)
+	gate := gateFromReports(reports)
+	first, err := marshalDeterministic(gate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := marshalDeterministic(gate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) != string(second) {
+		t.Fatal("gate rendering is not deterministic")
+	}
+	var decoded QualificationGate
+	if err := json.Unmarshal(first, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyGate(decoded, reports); err != nil {
+		t.Fatalf("round-tripped gate invalid: %v", err)
+	}
+}
+
+func passingResults() []ProbeResult {
+	out := make([]ProbeResult, 0, 16)
+	for i := 0; i < 16; i++ {
+		out = append(out, ProbeResult{ID: probeID(i), Status: StatusPass, Summary: "pass"})
+	}
+	return out
+}
+
+func indexOf(results []ProbeResult, id string) int {
+	for i := range results {
+		if results[i].ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+func passingReport(goos, goarch string) Report {
+	return Report{
+		SchemaVersion: 1,
+		GitHead:       strings.Repeat("a", 40),
+		GOOS:          goos,
+		GOARCH:        goarch,
+		GoVersion:     "go1.26.6",
+		TmuxPath:      "/usr/bin/tmux",
+		TmuxVersion:   "tmux 3.6a",
+		TmuxSHA256:    strings.Repeat("b", 64),
+		Results:       passingResults(),
+		Verdict:       StatusPass,
+	}
+}
+
+func passingNativeReports(t *testing.T) []BoundReport {
+	t.Helper()
+	return []BoundReport{
+		bindReport(t, passingReport("darwin", "arm64")),
+		bindReport(t, passingReport("linux", "amd64")),
+	}
+}
+
+func bindReport(t *testing.T, report Report) BoundReport {
+	t.Helper()
+	b, err := marshalDeterministic(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(b)
+	return BoundReport{Report: report, ReportSHA256: hex.EncodeToString(sum[:]), Path: filepath.Join(".build", report.GOOS, "report.json")}
+}
+
+func TestWriteFileAtomicProducesExactBytes(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gate.json")
+	want := []byte("hello\n")
+	if err := writeFileAtomic(path, want, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+func TestRenderMarkdownSurfacesQualificationDecisionAndLoadBearingFacts(t *testing.T) {
+	reports := passingNativeReports(t)
+	for i := range reports {
+		qualifyProviderFacts(&reports[i].Report, candidatePerSessionObserver)
+		p7 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P7")]
+		p7.Facts = map[string]string{"negative_control_without_E": "mutated", "attach_with_E": "preserved", "switch_with_E": "preserved", "control_reconnect_with_E": "preserved"}
+		p8 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P8")]
+		p8.Facts = map[string]string{"signal_transport": "tmux_wait-for", "foreground_child_received_key": "false"}
+		p9 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P9")]
+		p9.Facts = map[string]string{"detach_while_readonly": "reachable", "ingress_proxy_introduced": "false"}
+		p12 := &reports[i].Report.Results[indexOf(reports[i].Report.Results, "P12")]
+		p12.Facts = map[string]string{"all_control_clients_off_backpressures": "true", "human_display_prevents_backpressure": "true", "cross_client_total_ordering_claimed": "false"}
+		reports[i] = bindReport(t, reports[i].Report)
+	}
+	gate := gateFromReports(reports)
+	markdown, err := renderMarkdown(gate, reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(markdown)
+	for _, want := range []string{
+		"Final H0 verdict: `PASS`",
+		"Input fence mechanism: `same_client_readonly_fence`",
+		"Observation topology: `per_session_observer`",
+		"negative control without `-E`: `mutated`",
+		"attach with `-E`: `preserved`",
+		"OOB transport: `tmux_wait-for`",
+		"read-only detach to local control: `reachable`",
+		"all-control-off backpressure: `true`",
+		"human display prevents backpressure: `true`",
+		reports[0].Path,
+		reports[1].Path,
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("markdown missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestRenderMarkdownReportsMissingNativeLaneAsNotRun(t *testing.T) {
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	reports[0] = bindReport(t, reports[0].Report)
+	for i := range reports[1].Report.Results {
+		reports[1].Report.Results[i].Status = StatusNotRun
+		reports[1].Report.Results[i].Summary = "native Linux runner unavailable"
+		reports[1].Report.Results[i].Facts = nil
+	}
+	reports[1].Report.Verdict = StatusNotRun
+	reports[1] = bindReport(t, reports[1].Report)
+	gate := gateFromReports(reports)
+	if gate.H1Allowed {
+		t.Fatal("H1 allowed with Linux NOT_RUN")
+	}
+	markdown, err := renderMarkdown(gate, reports)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(markdown)
+	for _, want := range []string{
+		"Final H0 verdict: `NOT_RUN`",
+		"H1_ALLOWED: `false`",
+		"H1_ALLOWED_DARWIN: `true`",
+		"H1_ALLOWED_LINUX: `false`",
+		"Darwin-only experimental H1 may advance",
+		"Darwin platform fence: `same_client_readonly_fence`",
+		"Darwin platform topology: `per_session_observer`",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("markdown missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestGateAllowsQualifiedDarwinWhileLinuxRemainsNotRun(t *testing.T) {
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	reports[0] = bindReport(t, reports[0].Report)
+	for i := range reports[1].Report.Results {
+		reports[1].Report.Results[i].Status = StatusNotRun
+		reports[1].Report.Results[i].Summary = "native Linux runner unavailable"
+		reports[1].Report.Results[i].Facts = nil
+	}
+	reports[1].Report.Verdict = StatusNotRun
+	reports[1] = bindReport(t, reports[1].Report)
+
+	gate := gateFromReports(reports)
+	if gate.H1Allowed {
+		t.Fatal("cross-platform H1 unexpectedly allowed")
+	}
+	darwin, ok := platformH1Qualification(gate, "darwin")
+	if !ok || !darwin.Allowed {
+		t.Fatalf("Darwin scoped H1 not allowed: %#v", gate.PlatformH1)
+	}
+	if darwin.InputFenceMechanism != "same_client_readonly_fence" || darwin.ObservationTopology != candidatePerSessionObserver {
+		t.Fatalf("Darwin qualification lost provider facts: %#v", darwin)
+	}
+	linux, ok := platformH1Qualification(gate, "linux")
+	if !ok || linux.Allowed || linux.InputFenceMechanism != "unqualified" || linux.ObservationTopology != "unqualified" {
+		t.Fatalf("Linux inherited unqualified facts: %#v", linux)
+	}
+	if err := verifyH1ForPlatform(gate, reports, "darwin"); err != nil {
+		t.Fatalf("Darwin scoped H1 rejected: %v", err)
+	}
+	if err := verifyH1ForPlatform(gate, reports, "linux"); err == nil {
+		t.Fatal("Linux scoped H1 allowed while native lane is NOT_RUN")
+	}
+}
+
+func TestVerifyGateRejectsForgedDarwinPlatformAllow(t *testing.T) {
+	reports := passingNativeReports(t)
+	qualifyProviderFacts(&reports[0].Report, candidatePerSessionObserver)
+	reports[0].Report.Results[indexOf(reports[0].Report.Results, "P3")].Status = StatusFail
+	reports[0].Report.Verdict = StatusFail
+	reports[0] = bindReport(t, reports[0].Report)
+	gate := gateFromReports(reports)
+	for i := range gate.PlatformH1 {
+		if gate.PlatformH1[i].GOOS == "darwin" {
+			gate.PlatformH1[i].Allowed = true
+		}
+	}
+	if err := verifyGate(gate, reports); err == nil {
+		t.Fatal("forged Darwin platform allow accepted")
+	}
+}

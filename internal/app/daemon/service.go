@@ -3,11 +3,11 @@ package daemon
 import (
 	"context"
 	"crypto/rand"
-	"fmt"
 	"sync"
 	"time"
 
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/failure"
 	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/media"
@@ -40,6 +40,8 @@ type Service struct {
 	mediaReadBudget      time.Duration
 	mediaAfter           func(time.Duration) <-chan time.Time
 	mediaWorkerDone      chan struct{}
+	handoff              handoffCoordinator
+	contextExec          ContextExecService
 }
 
 // timeoutSource values name who chose the bound a receipt reports.
@@ -93,6 +95,15 @@ type liveSession struct {
 	persistentReattached    bool
 	persistentCancel        context.CancelFunc
 	persistentReconcileDone chan struct{}
+	delegated               bool
+	delegatedRef            delegated.ProviderRef
+	delegatedBinding        delegated.Binding
+	delegatedObserverBase   int64
+	delegatedCaptureGap     bool
+	delegatedCancel         context.CancelFunc
+	delegatedWaitDone       chan struct{}
+	delegatedStartMu        sync.Mutex
+	delegatedMutationMu     sync.Mutex
 }
 type inputJob struct {
 	data []byte
@@ -115,10 +126,13 @@ func NewService(store Store, owner ProcessOwner, options Options) *Service {
 	if mediaBudget <= 0 {
 		mediaBudget = media.AcquisitionBudget
 	}
-	return &Service{
+	service := &Service{
 		store: store, owner: owner, options: options, contextLast: map[workspace.WorkspaceID]workspace.FastSnapshot{}, contextSeen: map[string]struct{}{}, live: map[string]*liveSession{},
 		mediaSlots: make(chan struct{}, media.MaxConcurrentReads), mediaReadBudget: mediaBudget, mediaAfter: time.After,
+		contextExec: options.ContextExec,
 	}
+	configureHandoffCoordinator(service)
+	return service
 }
 
 func NewServiceWithExecutionContext(store Store, owner ProcessOwner, resolver WorkspaceResolver, observer WorkspaceObserver, tracker ActivityTracker, options Options) *Service {
@@ -138,17 +152,6 @@ func (s *Service) InspectServer(context.Context) (ServerInfo, error) {
 func newSessionID() string                    { return ulid.MustNew(ulid.Timestamp(time.Now()), rand.Reader).String() }
 func (s *Service) get(id string) *liveSession { s.mu.RLock(); defer s.mu.RUnlock(); return s.live[id] }
 
-func invalidIntentFailure(err error) error {
-	field := "command"
-	switch err.Error() {
-	case "cwd must be absolute":
-		field = "cwd"
-	case "timeout must be non-negative":
-		field = "timeout_ms"
-	}
-	return failure.New(failure.InvalidInput, map[string]string{"field": field}, err)
-}
-
 func (s *Service) put(v *liveSession) { s.mu.Lock(); s.live[v.sessionID] = v; s.mu.Unlock() }
 func (s *Service) remove(id string)   { s.mu.Lock(); delete(s.live, id); s.mu.Unlock() }
 func (l *liveSession) notify()        { close(l.changed); l.changed = make(chan struct{}) }
@@ -161,11 +164,17 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if err != nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"field": "operation_id"}, err)
 	}
+	delegatedMode, err := s.validateDelegatedStart(ctx, req)
+	if err != nil {
+		return View{}, err
+	}
 	if err := validateStartMetadata(req); err != nil {
 		return View{}, err
 	}
-	if err := validateResourceLimits(s.options.Capabilities, req); err != nil {
-		return View{}, err
+	if !delegatedMode {
+		if err := validateResourceLimits(s.options.Capabilities, req); err != nil {
+			return View{}, err
+		}
 	}
 	if err := validateHermeticAdmission(s.options.Capabilities, s.options.HermeticRuntime, req); err != nil {
 		return View{}, err
@@ -176,7 +185,7 @@ func (s *Service) Start(ctx context.Context, req StartRequest) (View, error) {
 	if wantsProjectCommand(req) {
 		return s.startProjectCommand(ctx, req, id)
 	}
-	logicalIntent := operation.Intent{ExperimentID: req.ExperimentID, Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
+	logicalIntent := operation.Intent{ExperimentID: req.ExperimentID, Command: req.Command, Argv: append([]string(nil), req.Argv...), WorkspaceID: req.WorkspaceID, CWD: req.CWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, StdinMode: req.StdinMode, TimeoutMode: req.TimeoutMode, TraceMode: req.TraceMode, ResourceLimits: req.ResourceLimits.Clone(), Hermetic: req.Hermetic.Clone()}
 	if view, handled, lookupErr := s.lookupV2Replay(ctx, req, id, logicalIntent); handled {
 		return view, lookupErr
 	}
@@ -470,29 +479,4 @@ func (s *Service) timeoutLoop(l *liveSession, d time.Duration) {
 		}()
 	}
 	l.mu.Unlock()
-}
-
-func (s *Service) writeLoop(l *liveSession) {
-	defer close(l.writerDone)
-	for job := range l.jobs {
-		var err error
-		if job.eof {
-			err = l.handle.CloseStdin()
-		} else {
-			err = l.handle.Write(job.data)
-		}
-		l.mu.Lock()
-		if err != nil {
-			if l.captureErr == nil {
-				l.captureErr = fmt.Errorf("input_delivery_failed")
-			}
-			l.handle.Signal("TERM")
-			l.terminalTarget = session.Killed
-		} else if !job.eof {
-			l.delivered += int64(len(job.data))
-			l.input.Delivered(len(job.data))
-		}
-		l.notify()
-		l.mu.Unlock()
-	}
 }

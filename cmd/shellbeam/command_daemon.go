@@ -9,15 +9,16 @@ import (
 	gitadapter "github.com/maemreyo/shellbeam/internal/adapter/git"
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	processadapter "github.com/maemreyo/shellbeam/internal/adapter/process"
-	projectadapter "github.com/maemreyo/shellbeam/internal/adapter/project"
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
 	verificationadapter "github.com/maemreyo/shellbeam/internal/adapter/verification"
 	activityapp "github.com/maemreyo/shellbeam/internal/app/activity"
 	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
+	delegatedapp "github.com/maemreyo/shellbeam/internal/app/delegatedsession"
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
 	processapp "github.com/maemreyo/shellbeam/internal/app/process"
@@ -32,6 +33,7 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
+	handoffcore "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	processcore "github.com/maemreyo/shellbeam/internal/core/process"
@@ -93,6 +95,7 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		ctx, cfg.ExperimentalHermeticBoundary, paths.StateDir, paths.RuntimeDir,
 		newHermeticWorkspaceSource(workspaceSvc, workspaceObserver), processOwner, catalog, nil,
 	)
+	delegatedRuntime, handoffReadiness, terminalRuntime, catalog := composeInteractiveDaemonRuntimes(ctx, paths.StateDir, paths.RuntimeDir, store, catalog)
 	activitySvc := activityapp.New(store, deltaSampler, activitycore.MaxOperationHistory)
 	codeRuntime, err := composeCodeIntelligenceRuntime(workspaceSvc, deltaSampler, activitySvc, coherence, providerFactory, providerResolver)
 	if err != nil {
@@ -100,18 +103,10 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	}
 	defer codeRuntime.Close()
 	structuredScheduler, structuredCapture, telemetryScheduler, evidenceScheduler := &structuredWorkerProxy{}, &structuredCaptureProxy{}, &telemetryWorkerProxy{}, &evidenceWorkerProxy{}
-	projectLoader := projectadapter.NewLoader()
-	projectBinder := projectapp.NewBinder(store, projectLoader, projectadapter.NewRepoPathValidator(), projectadapter.NewGoPackageValidator())
-	hostReadiness := projectadapter.NewHostReadiness()
-	projectSvc := projectapp.NewWithReadiness(
-		store, projectLoader, store, projectapp.ReadinessObservers{Executable: hostReadiness, Environment: hostReadiness, Toolchain: hostReadiness},
-		projectapp.ReadinessOptions{},
+	contextExecService, catalog := composeContextExecServiceCapability(ctx, store, delegatedRuntime, paths.RuntimeDir, incarnation, structuredScheduler, telemetryScheduler, evidenceScheduler, catalog)
+	projectBinder, projectSvc, environmentSvc, verificationRuntime := composeDaemonProjectVerificationRuntime(
+		store, cfg, workspaceSvc, workspaceObserver, deltaSampler, activitySvc,
 	)
-	environmentSvc := environmentapp.NewService(
-		environmentadapter.NewHost(), projectEnvironmentManifestProvider{project: projectSvc}, environmentadapter.NewHostProber(),
-		environmentapp.Options{DefaultExecution: environmentcore.ExecutionContext{Mode: "shell", Identity: cfg.Shell}},
-	)
-	verificationRuntime := composeVerificationRuntime(store, workspaceSvc, workspaceObserver, deltaSampler, activitySvc, projectSvc, projectBinder, verificationadapter.NewEnvironmentSource(environmentSvc))
 	svc := daemonapp.NewServiceWithExecutionContextAndCoherence(store, processOwner, workspaceSvc, workspaceObserver, activitySvc, daemonCoherenceAdapter{tracker: coherence}, daemonapp.Options{
 		Incarnation: incarnation, Shell: cfg.Shell,
 		DefaultTimeoutMS:          cfg.DefaultTimeoutMS,
@@ -126,6 +121,10 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		EvidenceWorker:            evidenceScheduler,
 		ProjectCommandBinder:      projectBinder,
 		PersistentRuntime:         persistentRuntime,
+		DelegatedRuntime:          delegatedRuntime,
+		ContextExec:               contextExecService,
+		HandoffReadiness:          handoffReadiness,
+		HandoffPresenterFactory:   terminalRuntime.PresenterFactory,
 		MediaReader:               daemonMediaReader(),
 		InputTracePreparer:        inputTraceRuntime.Preparer,
 		InputTraceWorker:          inputTraceRuntime.Worker,
@@ -137,7 +136,22 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 	svc.SetEnvironmentBindingProvider(daemonEnvironmentBindingProvider{environment: environmentSvc})
 	svc.SetObservationInspectors(environmentSvc, processSvc)
 	actions := &daemonActions{Actions: svc, observation: svc, workspace: workspaceSvc, activity: activitySvc, project: projectSvc, code: codeRuntime.Service, mutationScopes: mutationScopeSvc, checkpoints: checkpointSvc, inputTrace: inputTraceRuntime.Inspector, verification: verificationRuntime}
+	startTerminalPresentationRuntime(ctx, terminalRuntime)
 	return serveDaemonRuntime(ctx, paths.RuntimeDir, stateLease, time.Duration(cfg.TerminationGraceMS)*time.Millisecond, newHousekeeping(cfg, paths), store, incarnation, svc, actions, workspaceObserver, structuredScheduler, structuredCapture, telemetryScheduler, evidenceScheduler)
+}
+
+func composeInteractiveDaemonRuntimes(ctx context.Context, stateDir, runtimeDir string, store *storeadapter.Repository, catalog capability.Catalog) (daemonapp.DelegatedRuntime, handoffapp.ReadinessPreparer, terminalPresentationRuntime, capability.Catalog) {
+	delegatedRuntime, catalog := composeDelegatedInteractiveRuntime(ctx, stateDir, runtimeDir, catalog)
+	readiness := composeDelegatedHandoffReadiness(delegatedRuntime, runtimeDir)
+	catalog = composeInteractiveHandoffCapability(catalog, delegatedRuntime, readiness != nil)
+	terminalRuntime := composeHostTerminalPresentationRuntime(ctx, catalog, store)
+	return delegatedRuntime, readiness, terminalRuntime, terminalRuntime.Catalog
+}
+
+func startTerminalPresentationRuntime(ctx context.Context, runtime terminalPresentationRuntime) {
+	if runtime.Start != nil {
+		go func() { _ = runtime.Start(ctx) }()
+	}
 }
 
 // openOwnedDaemonState claims durable authority before opening the store. The
@@ -233,7 +247,7 @@ func serveDaemonRuntime(
 		return err
 	}
 	server.MarkReady()
-	startHousekeeping(ctx, store, keep)
+	startHousekeeping(ctx, store, svc, keep)
 	go shutdownDaemonOnContext(ctx, svc, server, terminationGrace)
 	return <-serveDone
 }
@@ -242,7 +256,17 @@ func prepareReadyDaemonState(ctx, startupCtx context.Context, store *storeadapte
 	actions.repro = reproapp.New(store)
 	observationRuntime.startMaterialization(ctx)
 	evidenceRuntime.startRecovery(ctx)
-	return reconcilePersistentDaemonStartup(startupCtx, store, svc)
+	if err := reconcilePersistentDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
+	if err := reconcileDelegatedDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
+	if err := reconcileHandoffDaemonStartup(startupCtx, store, svc); err != nil {
+		return err
+	}
+	_, err := svc.ReconcileContextExec(startupCtx)
+	return err
 }
 
 func bindReadyDaemonDecisionRuntime(store *storeadapter.Repository, actions *daemonActions, workspaceObserver *workspaceapp.Observer, evidenceRuntime *executionEvidenceRuntime) error {
@@ -315,6 +339,27 @@ type daemonActions struct {
 	inputTrace     *inputtraceapp.Inspector
 	verification   daemonVerificationCoordinator
 	decision       *decisionProtocolRuntime
+}
+
+func (a *daemonActions) BootstrapLocalHuman(ctx context.Context, id string) (handoffapp.LocalBootstrap, error) {
+	if a == nil || a.observation == nil {
+		return handoffapp.LocalBootstrap{}, fmt.Errorf("interactive handoff unavailable")
+	}
+	return a.observation.BootstrapLocalHuman(ctx, id)
+}
+
+func (a *daemonActions) BindLocalHuman(ctx context.Context, id string, client delegatedapp.ProviderClientRef) (handoffcore.State, error) {
+	if a == nil || a.observation == nil {
+		return handoffcore.State{}, fmt.Errorf("interactive handoff unavailable")
+	}
+	return a.observation.BindLocalHuman(ctx, id, client)
+}
+
+func (a *daemonActions) HandoffHumanControl(ctx context.Context, signal handoffcore.ControlSignal) (handoffapp.ControlResult, error) {
+	if a == nil || a.observation == nil {
+		return handoffapp.ControlResult{}, fmt.Errorf("interactive handoff unavailable")
+	}
+	return a.observation.HandoffHumanControl(ctx, signal)
 }
 
 func (a daemonActions) InspectEnvironment(ctx context.Context, request ipcadapter.EnvironmentRequest) (ipcadapter.EnvironmentResponse, error) {

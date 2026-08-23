@@ -3,7 +3,12 @@ package daemon
 
 import (
 	"context"
+	"time"
+
+	contextexec "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	decisionprotocol "github.com/maemreyo/shellbeam/internal/core/decisionprotocol"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -38,6 +43,49 @@ type Store interface {
 	AppendOutput(context.Context, operation.SessionID, []byte) (int, StoreResult)
 	ReadOutput(context.Context, operation.SessionID, int64, int) ([]byte, int64, error)
 	Compact(context.Context, operation.SessionID) StoreResult
+}
+
+type DelegatedRecoveryState struct {
+	NextInputOffset int64
+}
+
+type DelegatedSessionStore interface {
+	ReserveDelegatedBinding(context.Context, delegated.Binding, delegated.ProviderRef) (delegated.Binding, bool, StoreResult)
+	AdvanceDelegatedBinding(context.Context, delegated.Binding) StoreResult
+	LoadDelegatedBinding(context.Context, operation.SessionID) (delegated.Binding, error)
+	LoadDelegatedProviderRef(context.Context, operation.SessionID) (delegated.ProviderRef, error)
+	LookupDelegatedMutation(context.Context, delegated.MutationIdentity) (delegated.MutationRecord, bool, error)
+	ReserveDelegatedMutation(context.Context, delegated.MutationIdentity) (delegated.MutationRecord, bool, StoreResult)
+	CompleteDelegatedMutation(context.Context, delegated.MutationIdentity, delegated.MutationState, string) (delegated.MutationRecord, StoreResult)
+	ListDelegatedRecoveryCandidates(context.Context) ([]delegated.Binding, error)
+	LoadDelegatedRecoveryState(context.Context, operation.SessionID) (DelegatedRecoveryState, error)
+	DelegatedOutputBytes(context.Context, operation.SessionID) (int64, error)
+	LoadDelegatedCaptureTruth(context.Context, operation.SessionID) (receipt.CaptureTruth, error)
+	MarkDelegatedCaptureReason(context.Context, operation.SessionID, receipt.CaptureReason) (receipt.CaptureTruth, StoreResult)
+}
+
+type ContextExecStore interface {
+	ReserveContextExec(context.Context, operation.ContextExecState) (operation.ContextExecState, bool, StoreResult)
+	LookupContextExec(context.Context, string) (operation.ContextExecState, bool, error)
+	AdvanceContextExec(context.Context, string, operation.ContextExecTransition) (operation.ContextExecState, StoreResult)
+	BindHelperGeneration(context.Context, string, contextexec.HelperBinding, contextexec.ContextBinding, time.Time, string) (operation.ContextExecState, StoreResult)
+	AcquireContextExecLease(context.Context, operation.SessionID, delegated.AuthorityEpoch, string, string) (operation.ContextExecLease, bool, StoreResult)
+	ReleaseContextExecLease(context.Context, operation.ContextExecLease) StoreResult
+	FindContextExecLease(context.Context, operation.SessionID, delegated.AuthorityEpoch) (operation.ContextExecLease, bool, error)
+	ListContextExecRecoveryCandidates(context.Context) ([]operation.ContextExecState, error)
+}
+
+type InteractiveHandoffStore interface {
+	ReserveHandoff(context.Context, handoff.Request, handoff.State) (handoff.State, bool, StoreResult)
+	AdvanceHandoff(context.Context, handoff.State) StoreResult
+	LoadHandoff(context.Context, string) (handoff.Request, handoff.State, error)
+	RecoverHandoff(context.Context, string) (handoff.State, StoreResult)
+	FindHandoff(context.Context, string) (handoff.Request, handoff.State, bool, error)
+	ReserveControlSignal(context.Context, handoff.ControlSignal) (handoff.ControlSignal, string, bool, StoreResult)
+	CompleteControlSignal(context.Context, handoff.ControlSignal, string) (string, StoreResult)
+	ListHandoffRecoveryCandidates(context.Context) ([]handoff.State, error)
+	MarkHumanWriteAuthorityGranted(context.Context, operation.SessionID) StoreResult
+	LoadInputAuthorityProvenance(context.Context, operation.SessionID) (string, error)
 }
 
 type DecisionExperimentAdmissionStore interface {

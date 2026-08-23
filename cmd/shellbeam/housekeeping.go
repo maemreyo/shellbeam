@@ -6,6 +6,7 @@ import (
 	"context"
 
 	storeadapter "github.com/maemreyo/shellbeam/internal/adapter/store"
+	daemonapp "github.com/maemreyo/shellbeam/internal/app/daemon"
 	"github.com/maemreyo/shellbeam/internal/config"
 )
 
@@ -31,8 +32,9 @@ func newHousekeeping(cfg config.Config, paths config.Paths) housekeeping {
 }
 
 // startHousekeeping begins collecting expired history and reporting free space.
-func startHousekeeping(ctx context.Context, store *storeadapter.Repository, keep housekeeping) {
+func startHousekeeping(ctx context.Context, store *storeadapter.Repository, svc *daemonapp.Service, keep housekeeping) {
 	startRetention(ctx, store, keep.terminalRetentionHours)
 	startObservationRetention(ctx, store)
+	startHandoffExpiry(ctx, store, svc)
 	startFreeSpaceWatch(ctx, keep.stateDir, keep.minFreeSpaceBytes)
 }

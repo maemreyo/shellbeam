@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
@@ -14,19 +15,7 @@ import (
 )
 
 func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation string) error {
-	// Structured recovery owns blob retirement barriers and claim/ref handoff.
-	// Run it before ordinary session reconciliation so bulk-session repair/GC
-	// never races ahead of recoverable structured authority.
-	if err := r.RecoverStructuredArtifacts(ctx); err != nil {
-		return err
-	}
-	if result := r.reconcileMutationScopePending(ctx); result.Err != nil {
-		return result.Err
-	}
-	if err := r.reconcilePreparedExecutionObservations(ctx); err != nil {
-		return err
-	}
-	if err := r.repairCommittedOperations(ctx); err != nil {
+	if err := r.reconcileStartupPrerequisites(ctx); err != nil {
 		return err
 	}
 	entries, err := os.ReadDir(filepath.Join(r.root, "sessions"))
@@ -63,6 +52,15 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 		if loadErr != nil && !errors.Is(loadErr, ErrNotFound) {
 			return loadErr
 		}
+		if loadErr == nil && reservation.SchemaVersion == 5 && reservation.SessionMode == delegated.ModeDelegatedInteractive {
+			deferToDelegated, delegatedErr := r.deferDelegatedCrashRecovery(ctx, reservation)
+			if delegatedErr != nil {
+				return delegatedErr
+			}
+			if deferToDelegated {
+				continue
+			}
+		}
 		if loadErr == nil && reservation.Persistent {
 			// A persistent reservation only has something to reattach to once a
 			// binding was written; that is what marks the point the supervisor
@@ -86,6 +84,52 @@ func (r *Repository) AbandonUnresolved(ctx context.Context, newIncarnation strin
 	// the admission index is re-derived from the state store itself. Every
 	// later admission reads the counters instead of rescanning.
 	return r.ReconcileAdmission()
+}
+
+func (r *Repository) reconcileStartupPrerequisites(ctx context.Context) error {
+	// Structured recovery owns blob retirement barriers and claim/ref handoff.
+	// Run it before ordinary session reconciliation so bulk-session repair/GC
+	// never races ahead of recoverable structured authority.
+	if err := r.RecoverStructuredArtifacts(ctx); err != nil {
+		return err
+	}
+	if result := r.reconcileMutationScopePending(ctx); result.Err != nil {
+		return result.Err
+	}
+	if err := r.reconcileHandoffTransactions(ctx); err != nil {
+		return err
+	}
+	if err := r.reconcilePreparedExecutionObservations(ctx); err != nil {
+		return err
+	}
+	return r.repairCommittedOperations(ctx)
+}
+
+func (r *Repository) deferDelegatedCrashRecovery(ctx context.Context, reservation operation.Reservation) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	sid := reservation.SessionID
+	r.delegatedSessionMu.Lock()
+	defer r.delegatedSessionMu.Unlock()
+	marker, markerErr := r.loadDelegatedRecoveryMarkerLocked(sid)
+	if markerErr == nil {
+		if marker.Binding.OperationID != string(reservation.OperationID) || marker.Binding.SessionID != string(sid) {
+			return false, delegatedStateConflict(marker.Binding, "recovery_identity", nil)
+		}
+		return true, nil
+	}
+	if !errors.Is(markerErr, ErrNotFound) {
+		return false, markerErr
+	}
+	binding, bindingErr := r.loadDelegatedBindingLocked(sid)
+	if bindingErr == nil {
+		return false, delegatedStateConflict(binding, "recovery_marker_missing", nil)
+	}
+	if !errors.Is(bindingErr, ErrNotFound) {
+		return false, bindingErr
+	}
+	return false, nil
 }
 
 func (r *Repository) repairCommittedOperations(ctx context.Context) error {
@@ -164,6 +208,14 @@ func abandonedReceipt(snap session.Snapshot, reservation operation.Reservation, 
 		}
 		if reservation.SchemaVersion == 4 && reservation.ProjectCommand == nil {
 			rec.Evidence = reservation.Evidence
+		}
+		if reservation.SchemaVersion == 5 {
+			rec.SessionMode = reservation.SessionMode
+			rec.AuthorityEpoch = reservation.AuthorityEpoch
+			rec.EvidenceAuthority = receipt.EvidenceAuthoritySessionLifecycleOnly
+			rec.InputAuthorityProvenance = receipt.InputAuthorityAgentOnly
+			rec.CaptureQuality = receipt.CaptureIncomplete
+			rec.CaptureReasons = []receipt.CaptureReason{receipt.CaptureReasonTransportGap}
 		}
 		return rec
 	}

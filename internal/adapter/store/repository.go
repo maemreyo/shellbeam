@@ -38,6 +38,7 @@ type Limits struct {
 	MaxReproAge                   time.Duration
 	MaxMutationScopesPerActivity  int
 	MaxMutationScopesPerWorkspace int
+	MaxDelegatedMutationRecords   int
 }
 type Repository struct {
 	root                     string
@@ -56,6 +57,7 @@ type Repository struct {
 	checkpointMu             sync.Mutex
 	mutationScopeMu          sync.Mutex
 	persistentSessionMu      sync.Mutex
+	delegatedSessionMu       sync.Mutex
 	evidenceMu               sync.Mutex
 	evidenceValidityMu       sync.Mutex
 	verificationMu           sync.Mutex
@@ -102,11 +104,14 @@ const (
 	defaultMaxReproBytes                 int64 = 16 << 20
 )
 
+const DefaultMaxDelegatedMutationRecords = 4096
+
 const (
 	defaultMaxTelemetryAge               = 30 * 24 * time.Hour
 	defaultMaxReproAge                   = 30 * 24 * time.Hour
 	defaultMaxMutationScopesPerActivity  = 16
 	defaultMaxMutationScopesPerWorkspace = 64
+	defaultMaxDelegatedMutationRecords   = DefaultMaxDelegatedMutationRecords
 )
 
 func normalizeTelemetryLimits(limits Limits) Limits {
@@ -143,6 +148,9 @@ func normalizeTelemetryLimits(limits Limits) Limits {
 	if limits.MaxMutationScopesPerWorkspace == 0 {
 		limits.MaxMutationScopesPerWorkspace = defaultMaxMutationScopesPerWorkspace
 	}
+	if limits.MaxDelegatedMutationRecords == 0 {
+		limits.MaxDelegatedMutationRecords = defaultMaxDelegatedMutationRecords
+	}
 	return limits
 }
 
@@ -151,7 +159,7 @@ func Open(root string, limits Limits) (*Repository, error) {
 	if !filepath.IsAbs(root) {
 		return nil, fmt.Errorf("state root must be absolute")
 	}
-	if limits.MaxSessions < 1 || limits.ControlReserve < 1 || limits.MaxTelemetrySamples < 1 || limits.MaxTelemetryBytes < 1 || limits.MaxTelemetryKeys < 1 || limits.MaxTelemetryKeysPerRepository < 1 || limits.MaxTelemetrySamplesPerKey < 1 || limits.MaxTelemetryAge < 0 || limits.MaxReproCapsules < 1 || limits.MaxReproBytes < 1 || limits.MaxReproAge < 0 || limits.MaxMutationScopesPerActivity < 1 || limits.MaxMutationScopesPerWorkspace < limits.MaxMutationScopesPerActivity {
+	if limits.MaxSessions < 1 || limits.ControlReserve < 1 || limits.MaxTelemetrySamples < 1 || limits.MaxTelemetryBytes < 1 || limits.MaxTelemetryKeys < 1 || limits.MaxTelemetryKeysPerRepository < 1 || limits.MaxTelemetrySamplesPerKey < 1 || limits.MaxTelemetryAge < 0 || limits.MaxReproCapsules < 1 || limits.MaxReproBytes < 1 || limits.MaxReproAge < 0 || limits.MaxMutationScopesPerActivity < 1 || limits.MaxMutationScopesPerWorkspace < limits.MaxMutationScopesPerActivity || limits.MaxDelegatedMutationRecords < 1 {
 		return nil, fmt.Errorf("invalid limits")
 	}
 	if info, err := os.Lstat(root); err == nil {
@@ -180,46 +188,59 @@ func Open(root string, limits Limits) (*Repository, error) {
 	}
 	repository := &Repository{root: root, limits: limits, locks: map[operation.ID]*sync.Mutex{}, observationWake: make(chan struct{}, 1), observationRetries: map[uint64]observationTransitionRetry{}, observationRetryWake: make(chan struct{}, 1), now: func() time.Time { return time.Now().UTC() }, activityOperations: map[string]map[operation.ID]struct{}{}, blobReservations: map[string]int64{}}
 	repository.writer = atomicWriter{onBytes: repository.addStateBytes}
-	if err := repository.initObservationStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initEventStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initStructuredResultStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.RecoverStructuredArtifacts(context.Background()); err != nil {
-		return nil, err
-	}
-	if err := repository.initTelemetryStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initInputTraceStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initReproStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initEvidenceStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initMutationScopeStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initPersistentSessionStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initVerificationStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initDecisionProtocolStore(); err != nil {
-		return nil, err
-	}
-	if err := repository.initAdmissionLedger(); err != nil {
+	if err := repository.initializeStores(context.Background()); err != nil {
 		return nil, err
 	}
 	return repository, nil
+}
+
+func (r *Repository) initializeStores(ctx context.Context) error {
+	if err := r.initObservationStore(); err != nil {
+		return err
+	}
+	if err := r.initEventStore(); err != nil {
+		return err
+	}
+	if err := r.initStructuredResultStore(); err != nil {
+		return err
+	}
+	if err := r.RecoverStructuredArtifacts(ctx); err != nil {
+		return err
+	}
+	if err := r.initTelemetryStore(); err != nil {
+		return err
+	}
+	if err := r.initInputTraceStore(); err != nil {
+		return err
+	}
+	if err := r.initReproStore(); err != nil {
+		return err
+	}
+	if err := r.initEvidenceStore(); err != nil {
+		return err
+	}
+	if err := r.initMutationScopeStore(); err != nil {
+		return err
+	}
+	if err := r.initPersistentSessionStore(); err != nil {
+		return err
+	}
+	if err := r.initDelegatedSessionStore(); err != nil {
+		return err
+	}
+	if err := r.initInteractiveHandoffStore(); err != nil {
+		return err
+	}
+	if err := r.initVerificationStore(); err != nil {
+		return err
+	}
+	if err := r.initDecisionProtocolStore(); err != nil {
+		return err
+	}
+	if err := r.initAdmissionLedger(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (r *Repository) lock(id operation.ID) func() {

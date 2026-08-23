@@ -229,6 +229,8 @@ func openTelemetryRepositoryAt(t *testing.T, root string, limits Limits) *Reposi
 	if err != nil {
 		t.Fatal(err)
 	}
+	fixtureNow := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	r.now = func() time.Time { return fixtureNow }
 	return r
 }
 

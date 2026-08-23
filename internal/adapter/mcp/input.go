@@ -15,10 +15,13 @@ import (
 	telemetryapp "github.com/maemreyo/shellbeam/internal/app/telemetry"
 	activity "github.com/maemreyo/shellbeam/internal/core/activity"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
 	coreevidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	mutationcore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	observationcore "github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -31,6 +34,7 @@ import (
 
 type input struct {
 	Action              string                                  `json:"action"`
+	ContextExecID       string                                  `json:"context_exec_id,omitempty"`
 	CheckpointCreateID  string                                  `json:"checkpoint_create_id,omitempty"`
 	RestoreID           string                                  `json:"restore_id,omitempty"`
 	CheckpointID        string                                  `json:"checkpoint_id,omitempty"`
@@ -55,6 +59,7 @@ type input struct {
 	CWD                 string                                  `json:"cwd,omitempty"`
 	TTY                 bool                                    `json:"tty,omitempty"`
 	Persistent          bool                                    `json:"persistent,omitempty"`
+	SessionMode         string                                  `json:"session_mode,omitempty"`
 	SessionName         string                                  `json:"session_name,omitempty"`
 	YieldMS             int64                                   `json:"yield_time_ms,omitempty"`
 	TimeoutMS           int64                                   `json:"timeout_ms,omitempty"`
@@ -65,6 +70,7 @@ type input struct {
 	Hermetic            *hermeticcore.Request                   `json:"hermetic,omitempty"`
 	MaxOutputBytes      int                                     `json:"max_output_bytes,omitempty"`
 	SessionID           string                                  `json:"session_id,omitempty"`
+	AuthorityEpoch      delegated.AuthorityEpoch                `json:"authority_epoch,omitempty"`
 	Selector            *outputview.Selector                    `json:"selector,omitempty"`
 	Cursor              int64                                   `json:"cursor,omitempty"`
 	InputOffset         int64                                   `json:"input_offset,omitempty"`
@@ -97,6 +103,10 @@ type input struct {
 	Mode                mutationcore.Mode                       `json:"mode,omitempty"`
 	Paths               []string                                `json:"paths,omitempty"`
 	TTLMS               int64                                   `json:"ttl_ms,omitempty"`
+	HandoffID           string                                  `json:"handoff_id,omitempty"`
+	Reason              string                                  `json:"reason,omitempty"`
+	HandoffPrivacy      handoff.Privacy                         `json:"privacy,omitempty"`
+	HandoffCompletion   *handoff.Completion                     `json:"completion,omitempty"`
 	Decision            *DecisionRequest                        `json:"decision,omitempty"`
 	VerificationInputFields
 }
@@ -127,7 +137,13 @@ func validateForVersion(version int, v input, raw []byte) error {
 		if isDecisionProtocolMCPAction(v.Action) {
 			return validateDecisionMCPInput(v, raw)
 		}
+		if (v.Action == "write" || v.Action == "kill") && hasField(raw, "authority_epoch") && v.AuthorityEpoch < 1 {
+			return fmt.Errorf("authority_epoch must be positive")
+		}
 		return validateV2(v)
+	}
+	if v.Action == "context.exec" || hasField(raw, "context_exec_id") {
+		return fmt.Errorf("context execution requires modern protocol")
 	}
 	if hasField(raw, "verification_attempt") {
 		return fmt.Errorf("verification attempt requires modern protocol")
@@ -141,8 +157,14 @@ func validateForVersion(version int, v input, raw []byte) error {
 	if hasField(raw, "hermetic") {
 		return fmt.Errorf("hermetic execution requires modern protocol")
 	}
+	if hasField(raw, "session_mode") || hasField(raw, "authority_epoch") {
+		return fmt.Errorf("delegated sessions require modern protocol")
+	}
 	if v.Action == "inspect.sessions" || hasField(raw, "persistent") || hasField(raw, "session_name") || hasField(raw, "persistent_only") {
 		return fmt.Errorf("persistent sessions require modern protocol")
+	}
+	if isPublicHandoffAction(v.Action) || hasField(raw, "handoff_id") || hasField(raw, "privacy") || hasField(raw, "completion") || hasField(raw, "reason") {
+		return fmt.Errorf("interactive handoff requires modern protocol")
 	}
 	if v.Action == "inspect.server" {
 		if err := validateV2FieldSet(v.Action, raw); err != nil {
@@ -161,6 +183,10 @@ func validateV2(v input) error {
 		return validateVerificationInput(v)
 	case "read_media":
 		return validateMediaInput(v)
+	case "context.exec":
+		return (contextcore.Request{ContextExecID: v.ContextExecID, SessionID: v.SessionID, AuthorityEpoch: v.AuthorityEpoch, Argv: append([]string(nil), v.Argv...), TimeoutMS: v.TimeoutMS, MaxOutputBytes: int64(v.MaxOutputBytes)}).Validate()
+	case "handoff.request", "handoff.wait", "handoff.abort", "inspect.handoff":
+		return validateHandoffInputV2(v)
 	case "read_output":
 		if v.Selector == nil {
 			return fmt.Errorf("read_output requires selector")
@@ -252,7 +278,23 @@ func validateHermeticStartInput(v input) error {
 	return nil
 }
 
+func validateDelegatedRequestShape(mode string, tty, persistent bool) error {
+	if mode == "" {
+		return nil
+	}
+	if err := delegated.ValidateMode(mode); err != nil {
+		return err
+	}
+	if mode == delegated.ModeDelegatedInteractive && (tty || persistent) {
+		return fmt.Errorf("delegated interactive conflicts with legacy tty/persistent fields")
+	}
+	return nil
+}
+
 func validateStartV2(v input) error {
+	if err := validateDelegatedStartInputV2(v); err != nil {
+		return err
+	}
 	if v.OperationID == "" {
 		return fmt.Errorf("start requires operation_id")
 	}
@@ -267,7 +309,7 @@ func validateStartV2(v input) error {
 		if v.Command != "" || len(v.Argv) != 0 || v.CWD != "" {
 			return fmt.Errorf("typed project command conflicts with raw execution fields")
 		}
-		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Hermetic: v.Hermetic, VerificationAttempt: v.VerificationAttempt}).Validate(); err != nil {
+		if err := (operation.TypedRequestIntent{WorkspaceID: v.WorkspaceID, ProjectCommandID: v.ProjectCommandID, Params: v.Params, TTY: v.TTY, TimeoutMS: v.TimeoutMS, Persistent: v.Persistent, SessionMode: v.SessionMode, SessionName: v.SessionName, StdinMode: v.StdinMode, TimeoutMode: v.TimeoutMode, TraceMode: v.TraceMode, ResourceLimits: v.ResourceLimits.Clone(), Hermetic: v.Hermetic, VerificationAttempt: v.VerificationAttempt}).Validate(); err != nil {
 			return err
 		}
 	} else {
@@ -314,8 +356,8 @@ func validateStartV2(v input) error {
 		return fmt.Errorf("invalid structured adapter")
 	}
 	if v.SessionName != "" {
-		if !v.Persistent {
-			return fmt.Errorf("session_name requires persistent")
+		if !v.Persistent && v.SessionMode != delegated.ModeDelegatedInteractive {
+			return fmt.Errorf("session_name requires persistent or delegated interactive")
 		}
 		if err := persistent.ValidateSessionName(v.SessionName); err != nil {
 			return err
@@ -394,62 +436,6 @@ func validateA4Input(v input) error {
 		}
 	}
 	return nil
-}
-
-func validateV1(v input) error {
-	switch v.Action {
-	case "start":
-		if v.ProjectCommandID != "" || v.Params != nil {
-			return fmt.Errorf("typed project commands require modern protocol")
-		}
-		if v.OperationID == "" || v.Command == "" || len(v.CWD) == 0 || v.CWD[0] != '/' {
-			return fmt.Errorf("start requires operation_id, command, and absolute cwd")
-		}
-		if _, err := operation.ParseID(v.OperationID); err != nil {
-			return err
-		}
-		if v.SessionID != "" || v.Chars != "" || v.EOF || v.KillID != "" {
-			return fmt.Errorf("cross-action field")
-		}
-	case "poll":
-		if v.SessionID == "" || v.OperationID != "" || v.Command != "" || v.Chars != "" || v.KillID != "" {
-			return fmt.Errorf("invalid poll fields")
-		}
-		if _, err := operation.ParseSessionID(v.SessionID); err != nil {
-			return err
-		}
-	case "write":
-		if v.SessionID == "" || v.InputOffset < 0 || (v.Chars == "") == (!v.EOF) {
-			return fmt.Errorf("write requires exactly chars or eof")
-		}
-		if _, err := operation.ParseSessionID(v.SessionID); err != nil {
-			return err
-		}
-		if v.OperationID != "" || v.Command != "" || v.KillID != "" {
-			return fmt.Errorf("cross-action field")
-		}
-	case "inspect.server":
-		return validateNonNegative(v)
-	case "kill":
-		if v.SessionID == "" || v.KillID == "" {
-			return fmt.Errorf("kill requires session_id and kill_id")
-		}
-		if _, err := operation.ParseSessionID(v.SessionID); err != nil {
-			return err
-		}
-		if _, err := operation.ParseID(v.KillID); err != nil {
-			return err
-		}
-		if v.Signal != "" && v.Signal != "INT" && v.Signal != "TERM" && v.Signal != "KILL" {
-			return fmt.Errorf("invalid signal")
-		}
-		if v.OperationID != "" || v.Command != "" || v.Chars != "" || v.EOF {
-			return fmt.Errorf("cross-action field")
-		}
-	default:
-		return fmt.Errorf("unknown action")
-	}
-	return validateNonNegative(v)
 }
 
 func validateNonNegative(v input) error {

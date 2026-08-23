@@ -1,6 +1,9 @@
 package daemon
 
-import "github.com/maemreyo/shellbeam/internal/core/operation"
+import (
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+)
 
 // resolveExecutionPolicy turns what a caller asked for into what will run.
 //
@@ -13,7 +16,7 @@ func (s *Service) resolveExecutionPolicy(req StartRequest) (operation.ResolvedEx
 		TimeoutMode: req.TimeoutMode,
 		TimeoutMS:   req.TimeoutMS,
 		TTY:         req.TTY,
-		Persistent:  req.Persistent,
+		Persistent:  req.Persistent || req.SessionMode == delegated.ModeDelegatedInteractive,
 		LongRunning: req.Intent != nil && req.Intent.Kind == operation.IntentKindLongRunning,
 		// Callers on the protocol version that predates these settings had no
 		// way to name either one, so they keep what they were written against.

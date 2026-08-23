@@ -16,7 +16,6 @@ import (
 	inputtrace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
-	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 )
 
@@ -204,7 +203,17 @@ func (r *Repository) replayReservation(want, existing operation.Reservation) (op
 			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.ProjectCommandBindingConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 		}
 	}
-	if existing.Persistent != want.Persistent || existing.SessionName != want.SessionName {
+	if existing.ContextExec != nil || want.ContextExec != nil {
+		if existing.ContextExec == nil || want.ContextExec == nil || existing.SchemaVersion != operation.ContextExecReservationSchemaVersion || want.SchemaVersion != operation.ContextExecReservationSchemaVersion || existing.SessionID != want.SessionID || existing.ExecutionFingerprint != want.ExecutionFingerprint || existing.Executable != want.Executable || existing.CWD != want.CWD || existing.TimeoutMS != want.TimeoutMS || !slices.Equal(existing.Argv, want.Argv) {
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
+		}
+		existingDigest, existingErr := existing.ContextExec.Digest()
+		wantDigest, wantErr := want.ContextExec.Digest()
+		if existingErr != nil || wantErr != nil || existingDigest != wantDigest {
+			return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
+		}
+	}
+	if existing.Persistent != want.Persistent || existing.SessionMode != want.SessionMode || existing.AuthorityEpoch != want.AuthorityEpoch || existing.SessionName != want.SessionName {
 		return existing, false, app.StoreResult{Durability: app.DurableChange, Err: failure.New(failure.OperationConflict, map[string]string{"operation_id": string(existing.OperationID)}, nil)}
 	}
 	return existing, false, r.ensureSessionMetadata(existing)
@@ -232,6 +241,22 @@ func validateReservation(v operation.Reservation) error {
 	if err := validateHermeticReservation(v); err != nil {
 		return err
 	}
+	if v.SchemaVersion != 5 && (v.SessionMode != "" || v.AuthorityEpoch != 0) {
+		return fmt.Errorf("invalid reservation")
+	}
+	if v.SchemaVersion != operation.ContextExecReservationSchemaVersion && v.ContextExec != nil {
+		return fmt.Errorf("invalid reservation")
+	}
+	if err := validateReservationSchema(v); err != nil {
+		return err
+	}
+	if err := validateReservationObservationMetadata(v); err != nil {
+		return err
+	}
+	return validateReservationBindings(v)
+}
+
+func validateReservationSchema(v operation.Reservation) error {
 	switch v.SchemaVersion {
 	case 1:
 		if v.Fingerprint == "" || v.ProjectCommand != nil || v.Intent != nil || v.EnvironmentBinding != nil || v.Trace != nil || v.VerificationAttempt != nil || v.StructuredCaptureDigest != "" {
@@ -283,13 +308,18 @@ func validateReservation(v operation.Reservation) error {
 		if err := validatePersistentReservation(v); err != nil {
 			return err
 		}
+	case 5:
+		if err := validateDelegatedReservation(v); err != nil {
+			return err
+		}
+	case operation.ContextExecReservationSchemaVersion:
+		if err := validateContextExecReservation(v); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("invalid reservation")
 	}
-	if err := validateReservationObservationMetadata(v); err != nil {
-		return err
-	}
-	return validateReservationBindings(v)
+	return nil
 }
 
 func validateReservationBindings(v operation.Reservation) error {
@@ -417,52 +447,22 @@ func ensurePrivateDir(path string) error {
 	return nil
 }
 
-func validatePersistentReservation(v operation.Reservation) error {
-	if err := validatePersistentPolicyReservation(v); err != nil {
-		return err
+func validateContextExecReservation(v operation.Reservation) error {
+	if v.ContextExec == nil || v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
+		return fmt.Errorf("invalid context exec reservation")
 	}
-	if !v.Persistent || v.RequestFingerprint == "" || v.ExecutionFingerprint == "" {
-		return fmt.Errorf("invalid persistent reservation")
+	if err := v.ContextExec.Validate(); err != nil || v.ContextExec.RequestFingerprint != v.RequestFingerprint {
+		return fmt.Errorf("invalid context exec reservation binding")
 	}
-	if v.TTY {
-		return fmt.Errorf("invalid persistent reservation")
+	if v.Persistent || v.TTY || v.SessionMode != "" || v.AuthorityEpoch != 0 || v.ProjectCommand != nil || v.Intent != nil || v.Evidence != nil || v.VerificationAttempt != nil || v.EnvironmentBinding != nil || v.Trace != nil || v.ResourceLimits != nil || v.StructuredAdapter != "" || v.StructuredCaptureDigest != "" || v.WorkspaceID != "" || v.LogicalCWD != "" || v.ExperimentID != "" || v.HermeticBoundary != nil {
+		return fmt.Errorf("invalid context exec reservation")
 	}
-	if v.SessionName != "" {
-		if err := persistentsession.ValidateSessionName(v.SessionName); err != nil {
-			return fmt.Errorf("invalid persistent reservation: %w", err)
-		}
+	if v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || !filepath.IsAbs(v.Executable) || len(v.Argv) == 0 || v.Argv[0] == "" || v.CWD == "" || !filepath.IsAbs(v.CWD) || v.TimeoutMS < 0 {
+		return fmt.Errorf("invalid context exec reservation execution")
 	}
-	if v.StructuredAdapter != "" && !operation.ValidStructuredAdapterID(v.StructuredAdapter) {
-		return fmt.Errorf("invalid persistent reservation")
-	}
-	if v.ProjectCommand != nil {
-		if v.Intent != nil || v.Evidence != nil || v.ExecutionMode != operation.ExecutionModeArgv || v.Command != "" || v.Shell != "" || v.Executable == "" || len(v.Argv) == 0 || v.Argv[0] == "" {
-			return fmt.Errorf("invalid persistent typed reservation")
-		}
-		if err := v.ProjectCommand.Validate(); err != nil {
-			return fmt.Errorf("invalid persistent typed reservation: %w", err)
-		}
-		if !slices.Equal(v.Argv, v.ProjectCommand.ResolvedArgv) || v.CWD != v.ProjectCommand.ResolvedCWD || v.LogicalCWD != v.ProjectCommand.LogicalCWD || v.WorkspaceID == "" {
-			return fmt.Errorf("invalid persistent typed reservation")
-		}
-		return nil
-	}
-	if v.Intent != nil {
-		if err := v.Intent.Validate(); err != nil {
-			return fmt.Errorf("invalid persistent reservation: %w", err)
-		}
-	}
-	switch v.ExecutionMode {
-	case operation.ExecutionModeShell:
-		if v.Command == "" || len(v.Argv) != 0 || v.Shell == "" || v.Executable == "" {
-			return fmt.Errorf("invalid persistent reservation")
-		}
-	case operation.ExecutionModeArgv:
-		if len(v.Argv) == 0 || v.Argv[0] == "" || v.Command != "" || v.Shell != "" || v.Executable == "" {
-			return fmt.Errorf("invalid persistent reservation")
-		}
-	default:
-		return fmt.Errorf("invalid persistent reservation")
+	want, err := v.ContextExec.ExecutionFingerprint(v.CWD, v.Executable)
+	if err != nil || want != v.ExecutionFingerprint {
+		return fmt.Errorf("invalid context exec execution fingerprint")
 	}
 	return nil
 }

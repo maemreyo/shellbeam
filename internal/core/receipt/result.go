@@ -3,6 +3,7 @@ package receipt
 import (
 	"fmt"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/session"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -43,24 +44,31 @@ type ChildResult struct {
 }
 
 type OutputResult struct {
-	CanonicalStream string `json:"canonical_stream"`
-	Preview         string `json:"preview,omitempty"`
-	RawBytes        int64  `json:"raw_bytes"`
-	ReturnedBytes   int64  `json:"returned_bytes"`
-	Cursor          int64  `json:"cursor"`
-	NextCursor      int64  `json:"next_cursor"`
-	Truncated       bool   `json:"truncated"`
-	OutputComplete  bool   `json:"output_complete"`
+	CanonicalStream string          `json:"canonical_stream"`
+	Preview         string          `json:"preview,omitempty"`
+	RawBytes        int64           `json:"raw_bytes"`
+	ReturnedBytes   int64           `json:"returned_bytes"`
+	Cursor          int64           `json:"cursor"`
+	NextCursor      int64           `json:"next_cursor"`
+	Truncated       bool            `json:"truncated"`
+	OutputComplete  bool            `json:"output_complete"`
+	CaptureQuality  CaptureQuality  `json:"capture_quality,omitempty"`
+	CaptureReasons  []CaptureReason `json:"capture_reasons,omitempty"`
 }
 
 type Result struct {
-	SchemaVersion int                      `json:"schema_version"`
-	Operation     OperationResult          `json:"operation"`
-	Child         *ChildResult             `json:"child,omitempty"`
-	Output        OutputResult             `json:"output"`
-	ContextEvents []workspace.ContextEvent `json:"context_events,omitempty"`
-	Advisories    []workspace.Advisory     `json:"advisories,omitempty"`
-	Receipt       *Receipt                 `json:"receipt,omitempty"`
+	SchemaVersion            int                      `json:"schema_version"`
+	SessionMode              string                   `json:"session_mode,omitempty"`
+	AuthorityEpoch           delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
+	EvidenceAuthority        string                   `json:"evidence_authority,omitempty"`
+	InputAuthorityProvenance string                   `json:"input_authority_provenance,omitempty"`
+	ContextExec              *ContextExecProvenance   `json:"context_exec,omitempty"`
+	Operation                OperationResult          `json:"operation"`
+	Child                    *ChildResult             `json:"child,omitempty"`
+	Output                   OutputResult             `json:"output"`
+	ContextEvents            []workspace.ContextEvent `json:"context_events,omitempty"`
+	Advisories               []workspace.Advisory     `json:"advisories,omitempty"`
+	Receipt                  *Receipt                 `json:"receipt,omitempty"`
 	// Failure is the receipt interpreted: which stage failed, what kind of
 	// failure it was, and whether repeating the request could differ. It is
 	// derived from the receipt's evidence rather than stored alongside it, so
@@ -69,20 +77,22 @@ type Result struct {
 }
 
 type ResultInput struct {
-	OperationID   string
-	ActivityID    string
-	WorkspaceID   string
-	SessionID     string
-	ContextEvents []workspace.ContextEvent
-	Advisories    []workspace.Advisory
-	State         session.State
-	Outcome       session.Outcome
-	Preview       string
-	RawBytes      int64
-	Cursor        int64
-	NextCursor    int64
-	Truncated     bool
-	Receipt       *Receipt
+	OperationID    string
+	ActivityID     string
+	WorkspaceID    string
+	SessionID      string
+	SessionMode    string
+	AuthorityEpoch delegated.AuthorityEpoch
+	ContextEvents  []workspace.ContextEvent
+	Advisories     []workspace.Advisory
+	State          session.State
+	Outcome        session.Outcome
+	Preview        string
+	RawBytes       int64
+	Cursor         int64
+	NextCursor     int64
+	Truncated      bool
+	Receipt        *Receipt
 }
 
 func NewResult(in ResultInput) (Result, error) {
@@ -95,6 +105,17 @@ func NewResult(in ResultInput) (Result, error) {
 	}
 	if in.NextCursor < in.Cursor || in.RawBytes < in.NextCursor {
 		return Result{}, fmt.Errorf("invalid output accounting")
+	}
+	if in.SessionMode == "" && in.AuthorityEpoch != 0 {
+		return Result{}, fmt.Errorf("authority epoch without delegated session mode")
+	}
+	if in.SessionMode != "" {
+		if in.SessionMode != delegated.ModeDelegatedInteractive {
+			return Result{}, fmt.Errorf("invalid delegated session mode")
+		}
+		if err := in.AuthorityEpoch.Validate(); err != nil {
+			return Result{}, err
+		}
 	}
 	result := Result{
 		SchemaVersion: 2,
@@ -113,6 +134,12 @@ func NewResult(in ResultInput) (Result, error) {
 		Receipt:       in.Receipt,
 		Failure:       in.Receipt.failureOf(),
 	}
+	if in.SessionMode == delegated.ModeDelegatedInteractive {
+		result.SessionMode = in.SessionMode
+		result.AuthorityEpoch = in.AuthorityEpoch
+		result.EvidenceAuthority = EvidenceAuthoritySessionLifecycleOnly
+		result.InputAuthorityProvenance = InputAuthorityAgentOnly
+	}
 	if in.Receipt != nil {
 		if in.Receipt.OperationID != in.OperationID || in.Receipt.SessionID != in.SessionID {
 			return Result{}, fmt.Errorf("receipt identity mismatch")
@@ -121,6 +148,23 @@ func NewResult(in ResultInput) (Result, error) {
 			return Result{}, err
 		}
 		result.Output.OutputComplete = in.Receipt.OutputComplete
+		if in.Receipt.SchemaVersion == 5 {
+			if in.SessionMode != "" && (in.SessionMode != in.Receipt.SessionMode || in.AuthorityEpoch != in.Receipt.AuthorityEpoch) {
+				return Result{}, fmt.Errorf("delegated live/receipt authority mismatch")
+			}
+			result.SessionMode = in.Receipt.SessionMode
+			result.AuthorityEpoch = in.Receipt.AuthorityEpoch
+			result.EvidenceAuthority = in.Receipt.EvidenceAuthority
+			result.InputAuthorityProvenance = in.Receipt.InputAuthorityProvenance
+			result.Output.CaptureQuality = in.Receipt.CaptureQuality
+			result.Output.CaptureReasons = append([]CaptureReason(nil), in.Receipt.CaptureReasons...)
+		}
+		if in.Receipt.SchemaVersion == 6 {
+			contextExec := *in.Receipt.ContextExec
+			result.AuthorityEpoch = in.Receipt.AuthorityEpoch
+			result.EvidenceAuthority = in.Receipt.EvidenceAuthority
+			result.ContextExec = &contextExec
+		}
 		result.Child = childFromReceipt(*in.Receipt)
 		return result, nil
 	}
@@ -161,7 +205,7 @@ func childFromReceipt(rec Receipt) *ChildResult {
 		child.State = ChildUnknown
 	case rec.Spawn.Attempted && !rec.Spawn.Succeeded:
 		child.State = ChildSpawnFailed
-	case rec.Exit.Reaped:
+	case rec.Exit.Reaped || (rec.SchemaVersion == 5 && rec.Exit.Code != nil):
 		child.State = ChildExited
 		child.ExitCode = rec.Exit.Code
 		child.Signal = rec.Exit.Signal

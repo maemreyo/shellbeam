@@ -14,7 +14,6 @@ import (
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
-	persistentsession "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
@@ -33,7 +32,10 @@ type TypedRequestIntent struct {
 	TTY                 bool                                `json:"tty"`
 	TimeoutMS           int64                               `json:"timeout_ms"`
 	Persistent          bool                                `json:"persistent,omitempty"`
+	SessionMode         string                              `json:"session_mode,omitempty"`
 	SessionName         string                              `json:"session_name,omitempty"`
+	StdinMode           StdinMode                           `json:"stdin_mode,omitempty"`
+	TimeoutMode         TimeoutMode                         `json:"timeout_mode,omitempty"`
 	TraceMode           trace.Mode                          `json:"trace_mode,omitempty"`
 	ResourceLimits      *ResourceLimits                     `json:"resource_limits,omitempty"`
 	Hermetic            *hermeticcore.Request               `json:"hermetic,omitempty"`
@@ -63,6 +65,12 @@ func (i TypedRequestIntent) Validate() error {
 	if i.TimeoutMS < 0 {
 		return fmt.Errorf("timeout must be non-negative")
 	}
+	if err := i.StdinMode.Validate(); err != nil {
+		return err
+	}
+	if err := i.TimeoutMode.Validate(); err != nil {
+		return err
+	}
 	if _, err := trace.NormalizeMode(i.TraceMode); err != nil {
 		return err
 	}
@@ -84,16 +92,8 @@ func (i TypedRequestIntent) Validate() error {
 			return fmt.Errorf("invalid verification attempt: %w", err)
 		}
 	}
-	if !i.Persistent && i.SessionName != "" {
-		return fmt.Errorf("session name requires persistent execution")
-	}
-	if i.Persistent && i.TTY {
-		return fmt.Errorf("persistent tty unsupported")
-	}
-	if i.SessionName != "" {
-		if err := persistentsession.ValidateSessionName(i.SessionName); err != nil {
-			return err
-		}
+	if err := validateSessionContract(i.SessionMode, i.TTY, i.Persistent, i.SessionName); err != nil {
+		return err
 	}
 	if len(i.Params) > maxTypedParams {
 		return fmt.Errorf("typed parameter limit exceeded")
@@ -115,6 +115,17 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 		params = append(params, typedParam{ID: id, Value: value})
 	}
 	sort.Slice(params, func(a, b int) bool { return params[a].ID < params[b].ID })
+	if i.SessionMode != "" {
+		base, err := i.delegatedTypedRequestFingerprint(params)
+		if err != nil {
+			return "", err
+		}
+		base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
+		if err != nil {
+			return "", err
+		}
+		return bindTraceRequestFingerprint(base, i.TraceMode)
+	}
 	var payload any
 	if i.Persistent {
 		payload = struct {
@@ -143,6 +154,18 @@ func (i TypedRequestIntent) Fingerprint() (string, error) {
 	}
 	sum := sha256.Sum256(encoded)
 	base := hex.EncodeToString(sum[:])
+	if policy := RequestPolicyDigest(i.StdinMode, i.TimeoutMode); policy != nil {
+		encodedPolicy, policyErr := json.Marshal(struct {
+			Version int           `json:"version"`
+			Base    string        `json:"base"`
+			Policy  *policyDigest `json:"policy"`
+		}{1, base, policy})
+		if policyErr != nil {
+			return "", policyErr
+		}
+		sum = sha256.Sum256(encodedPolicy)
+		base = hex.EncodeToString(sum[:])
+	}
 	base, err = bindResourceFingerprint("request", base, i.ResourceLimits)
 	if err != nil {
 		return "", err

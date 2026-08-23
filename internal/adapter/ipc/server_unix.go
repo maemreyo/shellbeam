@@ -140,6 +140,7 @@ func listenWithReadiness(runtime string, actions Actions, lease RuntimeLease, di
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/local-shell", s.handle)
 	mux.HandleFunc("POST /v2/local-shell", s.handleV2)
+	mux.HandleFunc("POST /local/handoff", s.handleHandoffLocal)
 	s.http = &http.Server{Handler: mux, ConnContext: trustedPeerConnContext, ReadHeaderTimeout: 2 * time.Second, ReadTimeout: 35 * time.Second, WriteTimeout: 35 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
 	if ready {
 		s.MarkReady()
@@ -239,7 +240,7 @@ func (s *Server) handle(w http.ResponseWriter, r *http.Request) {
 	default:
 		err = fmt.Errorf("unknown_action")
 	}
-	resp := Response{IPVersion: 1, RequestID: req.RequestID, OK: err == nil, View: view}
+	resp := Response{IPVersion: 1, RequestID: req.RequestID, OK: err == nil, View: legacyResponseView(view)}
 	if err != nil {
 		resp.Error = errorEnvelope(err)
 	}

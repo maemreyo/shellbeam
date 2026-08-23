@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -122,8 +123,8 @@ func TestE27InputTraceProviderLossPersistsUnavailableWithoutChangingReceipt(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Outcome != core.OutcomeUnavailable || got.Truncated || len(got.Resources) != 0 || repo.receipt != before || provider.cleanups != 1 {
-		t.Fatalf("record=%#v receipt_changed=%v cleanups=%d", got, repo.receipt != before, provider.cleanups)
+	if got.Outcome != core.OutcomeUnavailable || got.Truncated || len(got.Resources) != 0 || !reflect.DeepEqual(repo.receipt, before) || provider.cleanups != 1 {
+		t.Fatalf("record=%#v receipt_changed=%v cleanups=%d", got, !reflect.DeepEqual(repo.receipt, before), provider.cleanups)
 	}
 }
 

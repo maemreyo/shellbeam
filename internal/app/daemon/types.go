@@ -3,8 +3,10 @@ package daemon
 import (
 	"context"
 	traceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	structuredapp "github.com/maemreyo/shellbeam/internal/app/structuredresult"
 	"github.com/maemreyo/shellbeam/internal/core/capability"
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	"github.com/maemreyo/shellbeam/internal/core/evidence"
 	hermeticcore "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
@@ -33,11 +35,16 @@ type Options struct {
 	EvidenceWorker            EvidenceWorker
 	ProjectCommandBinder      ProjectCommandBinder
 	PersistentRuntime         PersistentRuntime
+	DelegatedRuntime          DelegatedRuntime
+	HandoffPresenter          handoffapp.Presenter
+	HandoffReadiness          handoffapp.ReadinessPreparer
+	HandoffPresenterFactory   func(handoffapp.ExactClientProver) handoffapp.Presenter
 	MediaReader               MediaReader
 	MediaReadBudget           time.Duration
 	InputTracePreparer        traceapp.Preparer
 	InputTraceWorker          InputTraceWorker
 	HermeticRuntime           HermeticRuntime
+	ContextExec               ContextExecService
 }
 type StartRequest struct {
 	ProtocolVersion     int                                 `json:"-"`
@@ -58,6 +65,7 @@ type StartRequest struct {
 	ResourceLimits      *operation.ResourceLimits           `json:"limits,omitempty"`
 	Hermetic            *hermeticcore.Request               `json:"hermetic,omitempty"`
 	Persistent          bool                                `json:"persistent,omitempty"`
+	SessionMode         string                              `json:"session_mode,omitempty"`
 	SessionName         string                              `json:"session_name,omitempty"`
 	YieldMS             int64                               `json:"yield_time_ms"`
 	MaxOutputBytes      int                                 `json:"max_output_bytes"`
@@ -121,15 +129,17 @@ type PollRequest struct {
 	MaxOutputBytes int    `json:"max_output_bytes"`
 }
 type WriteRequest struct {
-	SessionID   string `json:"session_id"`
-	InputOffset int64  `json:"input_offset"`
-	Chars       string `json:"chars,omitempty"`
-	EOF         bool   `json:"eof,omitempty"`
+	SessionID      string                   `json:"session_id"`
+	AuthorityEpoch delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
+	InputOffset    int64                    `json:"input_offset"`
+	Chars          string                   `json:"chars,omitempty"`
+	EOF            bool                     `json:"eof,omitempty"`
 }
 type KillRequest struct {
-	SessionID string `json:"session_id"`
-	KillID    string `json:"kill_id"`
-	Signal    string `json:"signal"`
+	SessionID      string                   `json:"session_id"`
+	AuthorityEpoch delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
+	KillID         string                   `json:"kill_id"`
+	Signal         string                   `json:"signal"`
 }
 type View struct {
 	OperationID        string                   `json:"operation_id,omitempty"`
@@ -138,6 +148,7 @@ type View struct {
 	ContextEvents      []workspace.ContextEvent `json:"context_events,omitempty"`
 	Advisories         []workspace.Advisory     `json:"advisories,omitempty"`
 	SessionID          string                   `json:"session_id"`
+	AuthorityEpoch     delegated.AuthorityEpoch `json:"authority_epoch,omitempty"`
 	State              session.State            `json:"state"`
 	Outcome            session.Outcome          `json:"outcome"`
 	Output             string                   `json:"output,omitempty"`
@@ -161,9 +172,14 @@ type ServerInfo struct {
 }
 
 func (v View) StructuredResult() (receipt.Result, error) {
-	return receipt.NewResult(receipt.ResultInput{
+	input := receipt.ResultInput{
 		OperationID: v.OperationID, ActivityID: v.ActivityID, WorkspaceID: v.WorkspaceID, SessionID: v.SessionID, ContextEvents: v.ContextEvents, Advisories: v.Advisories, State: v.State, Outcome: v.Outcome,
 		Preview: v.Output, RawBytes: v.RawOutputBytes, Cursor: v.Cursor, NextCursor: v.NextCursor,
 		Truncated: v.Truncated, Receipt: v.Receipt,
-	})
+	}
+	if v.AuthorityEpoch > 0 {
+		input.SessionMode = delegated.ModeDelegatedInteractive
+		input.AuthorityEpoch = v.AuthorityEpoch
+	}
+	return receipt.NewResult(input)
 }

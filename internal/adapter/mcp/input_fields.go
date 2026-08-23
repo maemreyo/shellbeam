@@ -1,22 +1,38 @@
 package mcp
 
+import (
+	"fmt"
+
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+)
+
 func v2ActionFields(action string) []string {
 	if isDecisionProtocolMCPAction(action) {
 		return []string{"decision", "workspace_id"}
 	}
 	switch action {
 	case "start":
-		return []string{"operation_id", "experiment_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_name", "yield_time_ms", "timeout_ms", "trace_mode", "limits", "hermetic", "max_output_bytes"}
+		return []string{"operation_id", "experiment_id", "workspace_id", "activity_id", "workspace_hint", "structured_adapter", "project_command_id", "params", "command", "argv", "intent", "evidence", "verification_attempt", "cwd", "tty", "persistent", "session_mode", "session_name", "yield_time_ms", "timeout_ms", "stdin_mode", "timeout_mode", "trace_mode", "limits", "hermetic", "max_output_bytes"}
+	case "context.exec":
+		return []string{"context_exec_id", "session_id", "authority_epoch", "argv", "timeout_ms", "max_output_bytes"}
 	case "poll":
 		return []string{"session_id", "cursor", "yield_time_ms", "max_output_bytes"}
+	case "handoff.request":
+		return []string{"handoff_id", "session_id", "reason", "privacy", "completion"}
+	case "handoff.wait":
+		return []string{"handoff_id", "yield_time_ms"}
+	case "handoff.abort", "inspect.handoff":
+		return []string{"handoff_id"}
 	case "read_output":
 		return []string{"session_id", "selector", "continuation"}
 	case "read_media":
 		return []string{"workspace_id", "cwd", "path"}
 	case "write":
-		return []string{"session_id", "input_offset", "chars", "eof"}
+		return []string{"session_id", "authority_epoch", "input_offset", "chars", "eof"}
 	case "kill":
-		return []string{"session_id", "kill_id", "signal"}
+		return []string{"session_id", "authority_epoch", "kill_id", "signal"}
 	case "checkpoint_create":
 		return []string{"checkpoint_create_id", "workspace_id", "activity_id", "paths"}
 	case "checkpoint_restore":
@@ -70,4 +86,38 @@ func v2ActionFields(action string) []string {
 	default:
 		return nil
 	}
+}
+func validateDelegatedStartInputV2(v input) error {
+	if err := validateDelegatedRequestShape(v.SessionMode, v.TTY, v.Persistent); err != nil {
+		return err
+	}
+	if err := v.StdinMode.Validate(); err != nil {
+		return err
+	}
+	if err := v.TimeoutMode.Validate(); err != nil {
+		return err
+	}
+	if v.SessionMode != delegated.ModeDelegatedInteractive {
+		return nil
+	}
+	if v.Hermetic != nil {
+		return fmt.Errorf("delegated hermetic execution is not qualified")
+	}
+	if v.VerificationAttempt != nil {
+		return fmt.Errorf("delegated verification attempt is not qualified")
+	}
+	if v.Evidence != nil || v.ResourceLimits != nil {
+		return fmt.Errorf("delegated ordinary evidence/resource limits are not qualified in H1")
+	}
+	if v.StdinMode == operation.StdinModeClosed {
+		return fmt.Errorf("delegated interactive requires stream stdin in H1")
+	}
+	if v.TimeoutMS != 0 || v.TimeoutMode == operation.TimeoutModeFinite || v.TimeoutMode == operation.TimeoutModeDefault {
+		return fmt.Errorf("bounded delegated timeout is not qualified in H1")
+	}
+	mode, err := trace.NormalizeMode(v.TraceMode)
+	if err != nil || mode != trace.ModeOff {
+		return fmt.Errorf("delegated input trace is not qualified in H1")
+	}
+	return nil
 }

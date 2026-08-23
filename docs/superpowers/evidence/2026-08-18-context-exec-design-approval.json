@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "approval_kind": "human_design_review",
+  "spec_path": "docs/superpowers/specs/2026-08-18-delegated-context-exec-evidence-design.md",
+  "spec_sha256": "b3b10c5481fee65118c5fc062255e6f43b7f357d15a17e1069b1f15abf52a32c",
+  "verdict": "APPROVED",
+  "context_exec_implementation_allowed": true
+}

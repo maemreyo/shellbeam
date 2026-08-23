@@ -3,6 +3,8 @@ package daemon
 import (
 	"fmt"
 
+	delegated "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
+
 	evidence "github.com/maemreyo/shellbeam/internal/core/evidence"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
@@ -27,18 +29,14 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 	if err != nil {
 		return operation.Reservation{}, err
 	}
-	var frozenEvidence = req.Evidence
-	if req.Evidence != nil {
-		normalized, normalizeErr := req.Evidence.Normalize()
-		if normalizeErr != nil {
-			return operation.Reservation{}, normalizeErr
-		}
-		frozenEvidence = &normalized
+	frozenEvidence, err := normalizedStartEvidence(req.Evidence)
+	if err != nil {
+		return operation.Reservation{}, err
 	}
 	base := operation.Reservation{
 		OperationID: id, ActivityID: req.ActivityID, ExperimentID: req.ExperimentID, WorkspaceID: intent.WorkspaceID, LogicalCWD: logicalCWD, StructuredAdapter: structuredAdapter, Evidence: frozenEvidence, VerificationAttempt: cloneVerificationAttempt(req.VerificationAttempt), Intent: cloneDeclaredIntent(req.Intent),
 		ExecutionMode: spec.Mode, Executable: spec.Executable, Command: req.Command, Argv: append([]string(nil), req.Argv...),
-		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionName: req.SessionName, Shell: shell, DaemonIncarnation: s.options.Incarnation,
+		CWD: resolvedCWD, TTY: req.TTY, TimeoutMS: req.TimeoutMS, Persistent: req.Persistent, SessionMode: req.SessionMode, SessionName: req.SessionName, Shell: shell, DaemonIncarnation: s.options.Incarnation,
 		ResourceLimits: req.ResourceLimits.Clone(),
 	}
 	switch req.ProtocolVersion {
@@ -69,7 +67,10 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 		if err != nil {
 			return operation.Reservation{}, err
 		}
-		if req.Persistent {
+		if req.SessionMode == delegated.ModeDelegatedInteractive {
+			base.SchemaVersion = 5
+			base.AuthorityEpoch = 1
+		} else if req.Persistent {
 			if intent.Resolved == nil || intent.TimeoutSource == "" {
 				return operation.Reservation{}, fmt.Errorf("persistent execution policy was not resolved")
 			}
@@ -88,6 +89,17 @@ func (s *Service) reservationForStart(req StartRequest, id operation.ID, intent 
 	default:
 		return operation.Reservation{}, fmt.Errorf("unsupported protocol version")
 	}
+}
+
+func normalizedStartEvidence(value *evidence.Contract) (*evidence.Contract, error) {
+	if value == nil {
+		return nil, nil
+	}
+	normalized, err := value.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	return &normalized, nil
 }
 
 func (s *Service) receiptFor(l *liveSession, state session.State, outcome session.Outcome) receipt.Receipt {
@@ -126,6 +138,12 @@ func (s *Service) receiptFor(l *liveSession, state session.State, outcome sessio
 		}
 	} else {
 		rec.Fingerprint = l.reservation.Fingerprint
+	}
+	if rec.SchemaVersion == 5 {
+		rec.SessionMode = l.reservation.SessionMode
+		rec.AuthorityEpoch = l.delegatedBinding.AuthorityEpoch
+		rec.EvidenceAuthority = receipt.EvidenceAuthoritySessionLifecycleOnly
+		rec.InputAuthorityProvenance = receipt.InputAuthorityAgentOnly
 	}
 	return rec
 }

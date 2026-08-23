@@ -46,6 +46,14 @@ const (
 	EventCheckpointExpired           EventKind = "checkpoint_expired"
 	EventInputTraceRecorded          EventKind = "input_trace_recorded"
 	EventInputTraceTruncated         EventKind = "input_trace_truncated"
+	EventHandoffRequested            EventKind = "handoff_requested"
+	EventHandoffAttached             EventKind = "handoff_attached"
+	EventHandoffHumanOwned           EventKind = "handoff_human_owned"
+	EventHandoffReclaimStarted       EventKind = "handoff_reclaim_started"
+	EventHandoffReclaimed            EventKind = "handoff_reclaimed"
+	EventHandoffAborted              EventKind = "handoff_aborted"
+	EventHandoffClientLost           EventKind = "handoff_client_lost"
+	EventHandoffExpired              EventKind = "handoff_expired"
 
 	ContinuityComplete         Continuity = "complete"
 	ContinuitySnapshotRequired Continuity = "snapshot_required"
@@ -74,7 +82,7 @@ type Event struct {
 }
 
 func InitialEventKinds() []EventKind {
-	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded, EventMutationScopeChanged, EventPersistentSessionStarted, EventPersistentSessionReattached, EventPersistentSessionTerminal, EventPersistentSessionLost, EventCheckpointCreated, EventCheckpointRestoreStarted, EventCheckpointRestoreCompleted, EventCheckpointExpired, EventInputTraceRecorded, EventInputTraceTruncated}
+	return []EventKind{EventWorkspaceGenerationChanged, EventOperationAdmitted, EventProcessStarted, EventOutputAvailable, EventProcessTerminal, EventEvidenceRecorded, EventEvidenceValidityChanged, EventArtifactObserved, EventManifestStatusChanged, EventSessionHealthChanged, EventStructuredChanged, EventCodeDiagnosticsChanged, EventTelemetryChanged, EventReproRecorded, EventMutationScopeChanged, EventPersistentSessionStarted, EventPersistentSessionReattached, EventPersistentSessionTerminal, EventPersistentSessionLost, EventCheckpointCreated, EventCheckpointRestoreStarted, EventCheckpointRestoreCompleted, EventCheckpointExpired, EventInputTraceRecorded, EventInputTraceTruncated, EventHandoffRequested, EventHandoffAttached, EventHandoffHumanOwned, EventHandoffReclaimStarted, EventHandoffReclaimed, EventHandoffAborted, EventHandoffClientLost, EventHandoffExpired}
 }
 
 func (e Event) Validate() error {

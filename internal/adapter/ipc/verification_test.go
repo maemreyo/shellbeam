@@ -70,8 +70,8 @@ func TestVerificationV2DispatchPreservesTypedRequests(t *testing.T) {
 		{Action: "inspect.verification", WorkspaceID: "ws_01K00000000000000000000000", ActivityID: "activity-1", VerificationRequestV2Fields: VerificationRequestV2Fields{Phase: verificationcore.PhaseCheckpoint}},
 		{Action: "verification.policy.preview", WorkspaceID: "ws_01K00000000000000000000000", VerificationRequestV2Fields: VerificationRequestV2Fields{Profile: "team"}},
 		{Action: "verification.policy.activate", WorkspaceID: "ws_01K00000000000000000000000", VerificationRequestV2Fields: VerificationRequestV2Fields{ActivationID: "act_one", ProposedPolicyDigest: "pol_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ExpectedPreviousPolicyDigest: "absent", ProposalGeneration: "gen_1111111111111111111111111111111111111111111111111111111111111111", Authority: "explicit_caller", Actor: "tester"}},
-		{Action: "verification.waiver.set", WorkspaceID: "ws_01K00000000000000000000000", CheckpointID: "chk_01K00000000000000000000000", VerificationRequestV2Fields: VerificationRequestV2Fields{WaiverID: "wv_one", PolicyDigest: "pol_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", RuleID: "r1", Phase: verificationcore.PhaseCheckpoint, Generation: "gen_1111111111111111111111111111111111111111111111111111111111111111", Authority: "explicit_caller", Actor: "tester", Reason: "CI only", ExpiresAt: &expires, ExpiresPhase: verificationcore.PhasePreMerge}},
-		{Action: "verification.waiver.revoke", WorkspaceID: "ws_01K00000000000000000000000", VerificationRequestV2Fields: VerificationRequestV2Fields{WaiverID: "wv_one", Authority: "explicit_caller", Actor: "tester"}},
+		{Action: "verification.waiver.set", WorkspaceID: "ws_01K00000000000000000000000", CheckpointID: "chk_01K00000000000000000000000", Reason: "CI only", VerificationRequestV2Fields: VerificationRequestV2Fields{WaiverID: "wv_one", PolicyDigest: "pol_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", RuleID: "r1", Phase: verificationcore.PhaseCheckpoint, Generation: "gen_1111111111111111111111111111111111111111111111111111111111111111", Authority: "explicit_caller", Actor: "tester", ExpiresAt: &expires, ExpiresPhase: verificationcore.PhasePreMerge}},
+		{Action: "verification.waiver.revoke", WorkspaceID: "ws_01K00000000000000000000000", Reason: "CI only", VerificationRequestV2Fields: VerificationRequestV2Fields{WaiverID: "wv_one", Authority: "explicit_caller", Actor: "tester"}},
 	}
 	for _, req := range cases {
 		resp := ResponseV2{}
@@ -131,7 +131,7 @@ func TestVerificationIPCNonWaiverRequestOmitsZeroExpiresAt(t *testing.T) {
 
 func TestVerificationIPCWaiverExpiryRoundTripsOnlyWhenDeclared(t *testing.T) {
 	expires := time.Unix(200, 0).UTC()
-	request := requestV2FromBridge(bridge.Request{ProtocolVersion: 2, Action: "verification.waiver.set", VerificationWaiverSet: verificationapp.SetWaiverRequest{WaiverID: "wv_one", WorkspaceID: "ws_01K00000000000000000000000", PolicyDigest: "pol_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", RuleID: "r1", Phase: verificationcore.PhaseCheckpoint, Authority: "explicit_caller", Actor: "tester", Reason: "CI only", ExpiresAt: expires}})
+	request := requestV2FromBridge(bridge.Request{ProtocolVersion: 2, Action: "verification.waiver.set", VerificationWaiverSet: verificationapp.SetWaiverRequest{WaiverID: "wv_one", WorkspaceID: "ws_01K00000000000000000000000", PolicyDigest: "pol_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", RuleID: "r1", Phase: verificationcore.PhaseCheckpoint, Authority: "explicit_caller", Actor: "tester", ExpiresAt: expires}})
 	encoded, err := json.Marshal(request)
 	if err != nil {
 		t.Fatal(err)

@@ -90,6 +90,7 @@ func doctorReport(args []string) (control.Report, error) {
 	} else {
 		report.Checks = append(report.Checks, control.Check{ID: "tunnel_client", Status: control.Warn, Message: "tunnel-client not found", Hint: "install OpenAI Secure MCP Tunnel client separately"})
 	}
+	report.Checks = appendInteractiveHandoffDoctorChecks(report.Checks, socket, paths.Socket)
 	report.Checks = append(report.Checks, doctorFreeSpaceCheck(paths.StateDir, cfg.MinFreeSpaceBytes))
 	if home, homeErr := os.UserHomeDir(); homeErr == nil {
 		report.Checks = append(report.Checks, browserBridgeCheck(runtime.GOOS, home))

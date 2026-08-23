@@ -26,7 +26,6 @@ type VerificationRequestV2Fields struct {
 	PolicyDigest                 string                 `json:"policy_digest,omitempty"`
 	RuleID                       string                 `json:"rule_id,omitempty"`
 	Generation                   string                 `json:"generation,omitempty"`
-	Reason                       string                 `json:"reason,omitempty"`
 	ExpiresAt                    *time.Time             `json:"expires_at,omitempty"`
 	ExpiresPhase                 verificationcore.Phase `json:"expires_phase,omitempty"`
 }

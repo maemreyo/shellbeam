@@ -1,6 +1,7 @@
 package operation
 
 import (
+	delegatedsession "github.com/maemreyo/shellbeam/internal/core/delegatedsession"
 	environment "github.com/maemreyo/shellbeam/internal/core/environment"
 	hermetic "github.com/maemreyo/shellbeam/internal/core/hermetic"
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
@@ -35,6 +36,8 @@ type Reservation struct {
 	TimeoutSource                 string                              `json:"timeout_source,omitempty"`
 	StdinModeSource               string                              `json:"stdin_mode_source,omitempty"`
 	Persistent                    bool                                `json:"persistent,omitempty"`
+	SessionMode                   string                              `json:"session_mode,omitempty"`
+	AuthorityEpoch                delegatedsession.AuthorityEpoch     `json:"authority_epoch,omitempty"`
 	SessionName                   string                              `json:"session_name,omitempty"`
 	Shell                         string                              `json:"shell"`
 	DaemonIncarnation             string                              `json:"daemon_incarnation"`
@@ -48,6 +51,7 @@ type Reservation struct {
 	Trace                         *trace.InstrumentationBinding       `json:"input_trace,omitempty"`
 	ResourceLimits                *ResourceLimits                     `json:"resource_limits,omitempty"`
 	HermeticBoundary              *hermetic.BoundaryBinding           `json:"hermetic_boundary,omitempty"`
+	ContextExec                   *ContextExecBinding                 `json:"context_exec,omitempty"`
 }
 
 func (r Reservation) EffectiveRequestFingerprint() string {

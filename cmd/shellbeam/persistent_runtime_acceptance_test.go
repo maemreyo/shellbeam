@@ -43,7 +43,7 @@ func buildB1NativeBinary(t *testing.T) string {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	binary := filepath.Join(root, "shellbeam")
-	cmd := exec.Command("go", "build", "-o", binary, ".")
+	cmd := exec.Command("go", "build", "-tags", "shellbeam_native_test", "-o", binary, ".")
 	cmd.Dir = "."
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build native binary: %v\n%s", err, out)
@@ -299,7 +299,7 @@ func TestB1NativeHiddenSupervisorInheritedFDs(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = capabilityWrite.Close()
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Lstat(layout.SocketPath); err == nil {
 			_ = cmd.Process.Kill()

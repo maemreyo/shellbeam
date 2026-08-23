@@ -8,6 +8,8 @@ func clearResponseV2Payload(resp *ResponseV2) {
 	resp.ActiveMutationScopes, resp.MutationScopeAdvisories = nil, nil
 	resp.MutationScopesTruncated, resp.MutationScopeAdvisoriesTruncated = false, false
 	resp.Telemetry, resp.Capsule, resp.Repro, resp.Code, resp.OutputView, resp.Sessions, resp.InputTrace = nil, nil, nil, nil, nil, nil, nil
+	resp.ContextExec = nil
+	resp.Handoff, resp.HandoffTimedOut = nil, false
 	resp.Verification, resp.VerificationPolicyPreview, resp.VerificationActivation, resp.VerificationWaiver, resp.VerificationRevocation = nil, nil, nil, nil, nil
 }
 

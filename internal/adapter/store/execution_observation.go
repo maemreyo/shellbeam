@@ -232,7 +232,7 @@ func (r *Repository) reconcilePreparedExecutionObservations(ctx context.Context)
 
 func reconcilableObservationKind(kind observation.EventKind) bool {
 	switch kind {
-	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved, observation.EventEvidenceValidityChanged, observation.EventMutationScopeChanged, observation.EventPersistentSessionStarted, observation.EventPersistentSessionReattached, observation.EventPersistentSessionTerminal, observation.EventPersistentSessionLost, observation.EventCheckpointCreated, observation.EventCheckpointRestoreStarted, observation.EventCheckpointRestoreCompleted, observation.EventCheckpointExpired, observation.EventInputTraceRecorded, observation.EventInputTraceTruncated:
+	case observation.EventOperationAdmitted, observation.EventProcessStarted, observation.EventOutputAvailable, observation.EventProcessTerminal, observation.EventStructuredChanged, observation.EventTelemetryChanged, observation.EventReproRecorded, observation.EventEvidenceRecorded, observation.EventArtifactObserved, observation.EventEvidenceValidityChanged, observation.EventMutationScopeChanged, observation.EventPersistentSessionStarted, observation.EventPersistentSessionReattached, observation.EventPersistentSessionTerminal, observation.EventPersistentSessionLost, observation.EventCheckpointCreated, observation.EventCheckpointRestoreStarted, observation.EventCheckpointRestoreCompleted, observation.EventCheckpointExpired, observation.EventInputTraceRecorded, observation.EventInputTraceTruncated, observation.EventHandoffRequested, observation.EventHandoffAttached, observation.EventHandoffHumanOwned, observation.EventHandoffReclaimStarted, observation.EventHandoffReclaimed, observation.EventHandoffAborted, observation.EventHandoffClientLost, observation.EventHandoffExpired:
 		return true
 	default:
 		return false
@@ -269,6 +269,8 @@ func (r *Repository) observationSubjectPresent(ctx context.Context, obligation o
 		return r.checkpointObservationSubjectPresent(ctx, obligation)
 	case observation.EventInputTraceRecorded, observation.EventInputTraceTruncated:
 		return r.inputTraceSubjectPresent(ctx, obligation.SubjectRef)
+	case observation.EventHandoffRequested, observation.EventHandoffAttached, observation.EventHandoffHumanOwned, observation.EventHandoffReclaimStarted, observation.EventHandoffReclaimed, observation.EventHandoffAborted, observation.EventHandoffClientLost, observation.EventHandoffExpired:
+		return r.handoffObservationSubjectPresent(ctx, obligation)
 	default:
 		return false, nil
 	}

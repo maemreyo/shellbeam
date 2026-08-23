@@ -9,6 +9,7 @@ import (
 	environmentapp "github.com/maemreyo/shellbeam/internal/app/environment"
 	evidenceapp "github.com/maemreyo/shellbeam/internal/app/evidence"
 	inputtraceapp "github.com/maemreyo/shellbeam/internal/app/inputtrace"
+	handoffapp "github.com/maemreyo/shellbeam/internal/app/interactivehandoff"
 	mutationscopeapp "github.com/maemreyo/shellbeam/internal/app/mutationscope"
 	observationapp "github.com/maemreyo/shellbeam/internal/app/observation"
 	"github.com/maemreyo/shellbeam/internal/app/outputview"
@@ -21,7 +22,9 @@ import (
 	"github.com/maemreyo/shellbeam/internal/core/capability"
 	checkpointcore "github.com/maemreyo/shellbeam/internal/core/checkpoint"
 	codeintel "github.com/maemreyo/shellbeam/internal/core/codeintel"
+	contextcore "github.com/maemreyo/shellbeam/internal/core/contextexec"
 	environmentcore "github.com/maemreyo/shellbeam/internal/core/environment"
+	handoff "github.com/maemreyo/shellbeam/internal/core/interactivehandoff"
 	"github.com/maemreyo/shellbeam/internal/core/media"
 	mutationscopecore "github.com/maemreyo/shellbeam/internal/core/mutationscope"
 	persistent "github.com/maemreyo/shellbeam/internal/core/persistentsession"
@@ -29,6 +32,7 @@ import (
 	project "github.com/maemreyo/shellbeam/internal/core/project"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	reprocore "github.com/maemreyo/shellbeam/internal/core/repro"
+	terminalpresentation "github.com/maemreyo/shellbeam/internal/core/terminalpresentation"
 	verificationcore "github.com/maemreyo/shellbeam/internal/core/verification"
 	workspace "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
@@ -39,6 +43,7 @@ type DaemonClient interface {
 type Request struct {
 	ProtocolVersion           int
 	Action                    string
+	ContextExec               contextcore.Request
 	WorkspaceID               string
 	ActivityID                string
 	CodeQuery                 *codeintel.Query
@@ -66,6 +71,10 @@ type Request struct {
 	CheckpointRestore         checkpointcore.RestoreRequest
 	CheckpointID              string
 	InputTraceInspect         inputtraceapp.InspectRequest
+	HandoffRequest            handoff.Request
+	TerminalAffinity          *terminalpresentation.BridgeAffinityHint
+	HandoffWait               handoffapp.WaitRequest
+	HandoffID                 string
 	VerificationInspect       verificationapp.InspectRequest
 	VerificationPolicyPreview verificationapp.PreviewPolicyRequest
 	VerificationActivate      verificationapp.ActivateRequest
@@ -101,6 +110,9 @@ type Response struct {
 	Sessions                  *persistent.InspectPage
 	NegotiatedMedia           *capability.NegotiatedMedia
 	Media                     *media.Result
+	ContextExec               *contextcore.PublicState
+	Handoff                   *handoff.PublicState
+	HandoffTimedOut           bool
 	Verification              *verificationapp.Inspection
 	VerificationPolicyPreview *verificationapp.PolicyPreview
 	VerificationActivation    *verificationcore.ActivationWriteResult

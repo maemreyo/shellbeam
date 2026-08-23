@@ -93,7 +93,7 @@ func (c *Client) forwardV2(ctx context.Context, in bridge.Request) (bridge.Respo
 }
 
 func bridgeResponseFromV2(out ResponseV2) bridge.Response {
-	return bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, InputTrace: out.InputTrace, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media, Verification: out.Verification, VerificationPolicyPreview: out.VerificationPolicyPreview, VerificationActivation: out.VerificationActivation, VerificationWaiver: out.VerificationWaiver, VerificationRevocation: out.VerificationRevocation, Decision: (*bridge.DecisionResponse)(out.Decision)}
+	return bridge.Response{Result: out.Result, Checkpoint: out.Checkpoint, Restore: out.Restore, CheckpointInspection: out.CheckpointInspection, Server: out.Server, Project: out.Project, Readiness: out.Readiness, Workspace: out.Workspace, Activity: out.Activity, Events: out.Events, Structured: out.Structured, Evidence: out.Evidence, Environment: out.Environment, Process: out.Process, Mutation: out.Mutation, MutationScopes: out.MutationScopes, Telemetry: out.Telemetry, InputTrace: out.InputTrace, Capsule: out.Capsule, Repro: out.Repro, CodeResult: out.Code, OutputView: out.OutputView, Sessions: out.Sessions, NegotiatedMedia: out.NegotiatedMedia, Media: out.Media, ContextExec: out.ContextExec, Handoff: out.Handoff, HandoffTimedOut: out.HandoffTimedOut, Verification: out.Verification, VerificationPolicyPreview: out.VerificationPolicyPreview, VerificationActivation: out.VerificationActivation, VerificationWaiver: out.VerificationWaiver, VerificationRevocation: out.VerificationRevocation, Decision: (*bridge.DecisionResponse)(out.Decision)}
 }
 
 func applyMutationScopeV2(req *RequestV2, in bridge.Request) {
@@ -125,8 +125,11 @@ func applyStartV2(req *RequestV2, in bridge.Request) {
 	req.CWD = in.Start.CWD
 	req.TTY = in.Start.TTY
 	req.Persistent = in.Start.Persistent
+	req.SessionMode = in.Start.SessionMode
 	req.SessionName = in.Start.SessionName
 	req.TimeoutMS = in.Start.TimeoutMS
+	req.StdinMode = in.Start.StdinMode
+	req.TimeoutMode = in.Start.TimeoutMode
 	req.ResourceLimits = in.Start.ResourceLimits.Clone()
 	req.Hermetic = in.Start.Hermetic.Clone()
 	req.YieldMS = in.Start.YieldMS

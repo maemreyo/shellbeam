@@ -72,3 +72,13 @@ func decodeRequest(r io.Reader) (Request, error) {
 	}
 	return v, nil
 }
+
+func legacyResponseView(view app.View) app.View {
+	out := view
+	out.AuthorityEpoch = 0
+	if out.Receipt != nil && out.Receipt.SchemaVersion > 2 {
+		out.Receipt = nil
+		out.Failure = nil
+	}
+	return out
+}
