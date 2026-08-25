@@ -12,6 +12,29 @@ import (
 	trace "github.com/maemreyo/shellbeam/internal/core/inputtrace"
 )
 
+func TestE27CollectorActivationHandshakeDistinguishesInactiveFromEmptyTrace(t *testing.T) {
+	newTrace := func(id string) *collector {
+		root := filepath.Join(e27PrivateState(t), id)
+		if err := os.Mkdir(root, 0700); err != nil {
+			t.Fatal(err)
+		}
+		c, err := newCollector(root, e27TestSocketRoot(t), "trace_01K00000000000000000000000", defaultCollectorLimits())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	inactive := newTrace("inactive")
+	if got := inactive.finalize(); got.GapReason != "instrumentation_inactive" || got.RawEventCount != 0 {
+		t.Fatalf("inactive snapshot=%#v", got)
+	}
+	active := newTrace("active")
+	active.ingest(encodeEvent(eventInstrumentationActive, 10, ""))
+	if got := active.finalize(); got.GapReason != "" || got.RawEventCount != 0 || len(got.Resources) != 0 {
+		t.Fatalf("active empty snapshot=%#v", got)
+	}
+}
+
 func TestE27CollectorFinalizeDrainsAcceptedSocketDatagrams(t *testing.T) {
 	root := filepath.Join(e27PrivateState(t), "trace")
 	if err := os.Mkdir(root, 0700); err != nil {

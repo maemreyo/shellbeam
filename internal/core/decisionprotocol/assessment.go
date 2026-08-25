@@ -60,12 +60,12 @@ type VerifierAssessment struct {
 	DeclaredProviderIdentity string                `json:"declared_provider_identity,omitempty"`
 	PreferredCandidates      []CandidateID         `json:"preferred_candidates"`
 	SemanticRejections       []CandidateID         `json:"semantic_rejections,omitempty"`
-	Rationale                string                `json:"rationale"`
+	Rationale                string                `json:"rationale,omitempty"`
 	CreatedAt                time.Time             `json:"created_at"`
 }
 
 func (a VerifierAssessment) Validate() error {
-	if !boundedToken(a.AssessmentID, 192) || !validID(a.EpisodeID) || !boundedToken(a.ActorRef, 192) || a.DeclaredContextClass.ValidateDeclared() != nil || len(a.PreferredCandidates) == 0 || !boundedToken(a.Rationale, 8192) || !validTime(a.CreatedAt) {
+	if !boundedToken(a.AssessmentID, 192) || !validID(a.EpisodeID) || !boundedToken(a.ActorRef, 192) || a.DeclaredContextClass.ValidateDeclared() != nil || len(a.PreferredCandidates) == 0 || (a.Rationale != "" && !boundedToken(a.Rationale, 8192)) || !validTime(a.CreatedAt) {
 		return fmt.Errorf("invalid verifier assessment")
 	}
 	if a.DeclaredProviderIdentity != "" && !boundedToken(a.DeclaredProviderIdentity, 256) {

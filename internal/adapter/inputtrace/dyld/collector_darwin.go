@@ -28,22 +28,23 @@ func defaultCollectorLimits() collectorLimits {
 }
 
 type collector struct {
-	mu           sync.Mutex
-	conn         *net.UnixConn
-	raw          *os.File
-	socketPath   string
-	rawPath      string
-	traceID      string
-	startedAt    time.Time
-	limits       collectorLimits
-	closed       bool
-	truncated    bool
-	rawEvents    int
-	malformed    int
-	privateBytes int64
-	resources    map[string]traceapp.ProviderResource
-	wg           sync.WaitGroup
-	finalizeMu   sync.Mutex
+	mu                    sync.Mutex
+	conn                  *net.UnixConn
+	raw                   *os.File
+	socketPath            string
+	rawPath               string
+	traceID               string
+	startedAt             time.Time
+	limits                collectorLimits
+	closed                bool
+	truncated             bool
+	rawEvents             int
+	malformed             int
+	privateBytes          int64
+	instrumentationActive bool
+	resources             map[string]traceapp.ProviderResource
+	wg                    sync.WaitGroup
+	finalizeMu            sync.Mutex
 }
 
 func newCollector(traceDir, socketDir, traceID string, limits collectorLimits) (*collector, error) {
@@ -109,6 +110,10 @@ func (c *collector) ingest(raw []byte) {
 		c.malformed++
 		return
 	}
+	if event.class == eventInstrumentationActive {
+		c.instrumentationActive = true
+		return
+	}
 	if c.rawEvents >= c.limits.maxEvents {
 		c.truncated = true
 		return
@@ -154,7 +159,11 @@ func (c *collector) snapshotLocked(end time.Time) traceapp.ProviderSnapshot {
 		}
 		return resources[i].Path < resources[j].Path
 	})
-	return traceapp.ProviderSnapshot{TraceID: c.traceID, CaptureStart: c.startedAt, CaptureEnd: end, Coverage: providerCoverage(), Truncated: c.truncated, Resources: resources, RawEventCount: c.rawEvents}
+	gapReason := ""
+	if !c.instrumentationActive {
+		gapReason = "instrumentation_inactive"
+	}
+	return traceapp.ProviderSnapshot{TraceID: c.traceID, CaptureStart: c.startedAt, CaptureEnd: end, Coverage: providerCoverage(), Truncated: c.truncated, GapReason: gapReason, Resources: resources, RawEventCount: c.rawEvents}
 }
 
 func (c *collector) finalize() traceapp.ProviderSnapshot {

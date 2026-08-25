@@ -166,6 +166,21 @@ func TestE27InputTraceValidSnapshotHonorsFrozenPreExecCoverage(t *testing.T) {
 	}
 }
 
+func TestE27InputTraceInactiveInstrumentationPersistsExplicitGap(t *testing.T) {
+	repo, provider, scheduled := materializeFixture(t)
+	provider.snapshot = ProviderSnapshot{
+		TraceID: repo.reservation.Trace.TraceID, CaptureStart: time.Now().Add(-time.Second), CaptureEnd: time.Now(),
+		Coverage: repo.reservation.Trace.Coverage, GapReason: "instrumentation_inactive",
+	}
+	got, err := NewMaterializer(repo, provider, nil).MaterializeTerminal(context.Background(), scheduled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Outcome != core.OutcomePartial || string(got.GapReason) != "instrumentation_inactive" || !got.MayHaveUnobservedDependencies {
+		t.Fatalf("inactive instrumentation gap=%#v", got)
+	}
+}
+
 func TestE27InputTraceRestartOwnershipLossIsExplicitPartial(t *testing.T) {
 	repo, provider, scheduled := materializeFixture(t)
 	provider.finalErr = failure.New(failure.InputTraceNotFound, map[string]string{"trace_id": repo.reservation.Trace.TraceID}, nil)

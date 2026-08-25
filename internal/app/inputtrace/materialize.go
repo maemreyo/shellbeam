@@ -172,6 +172,10 @@ func (m *Materializer) applySnapshot(ctx context.Context, record *core.Record, r
 	record.CaptureStart = snapshot.CaptureStart
 	record.CaptureEnd = snapshot.CaptureEnd
 	record.Coverage = conservativeCoverage(record.Coverage, snapshot.Coverage)
+	if snapshot.GapReason == string(core.GapInstrumentationInactive) {
+		record.GapReason = core.GapInstrumentationInactive
+		record.Coverage = downgradeCoverageForGap(record.Coverage)
+	}
 	root := ""
 	if reservation.WorkspaceID != "" && m.workspace != nil {
 		root, _ = m.workspace.ResolveInputTraceWorkspace(ctx, reservation.WorkspaceID)
@@ -213,7 +217,8 @@ func traceDerivationKey(receiptDigest string, binding core.InstrumentationBindin
 	return hex.EncodeToString(sum[:]), nil
 }
 func validSnapshot(binding core.InstrumentationBinding, s ProviderSnapshot) bool {
-	return s.TraceID == binding.TraceID && !s.CaptureStart.IsZero() && !s.CaptureEnd.IsZero() && !s.CaptureEnd.Before(s.CaptureStart) && s.CaptureEnd.Sub(s.CaptureStart) <= core.MaxTraceCaptureDuration && s.Coverage.Validate(binding.PreExecCoverageEstablished) == nil
+	validGap := s.GapReason == "" || s.GapReason == string(core.GapInstrumentationInactive)
+	return validGap && s.TraceID == binding.TraceID && !s.CaptureStart.IsZero() && !s.CaptureEnd.IsZero() && !s.CaptureEnd.Before(s.CaptureStart) && s.CaptureEnd.Sub(s.CaptureStart) <= core.MaxTraceCaptureDuration && s.Coverage.Validate(binding.PreExecCoverageEstablished) == nil
 }
 func coverageComplete(m core.CoverageMatrix) bool {
 	for _, v := range []core.Coverage{m.FilesystemReads, m.FilesystemMetadataQueries, m.DirectoryEnumerations, m.FilesystemWrites, m.ExecutedBinaries, m.LoadedLibraries, m.EnvironmentNamesObserved, m.NetworkAttempts, m.ChildProcesses} {

@@ -77,6 +77,21 @@ func NewFactory(config Config) (*Factory, error) {
 	return newFactory(config, factoryDeps{})
 }
 
+// Available performs the same bounded executable qualification used by Resolve
+// without starting gopls. It lets the daemon advertise semantic code
+// intelligence only when the local provider can actually be launched.
+func (f *Factory) Available() bool {
+	if f == nil {
+		return false
+	}
+	path, err := f.deps.lookPath(f.config.Executable)
+	if err != nil {
+		return false
+	}
+	_, err = f.deps.executableIdentity(path)
+	return err == nil
+}
+
 func newFactory(config Config, deps factoryDeps) (*Factory, error) {
 	config = normalizeConfig(config)
 	if err := config.Validate(); err != nil {

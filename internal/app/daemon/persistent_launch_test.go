@@ -33,6 +33,25 @@ func TestOrdinaryStartDoesNotCallPersistentRuntime(t *testing.T) {
 	waitForTerminal(t, svc, view.SessionID)
 }
 
+func TestPersistentArgvStartCarriesModeQualifiedExecutionBinding(t *testing.T) {
+	store := openPersistentLaunchStore(t)
+	handle := &persistentControlFakeHandle{persistentFakeHandle: persistentFakeHandle{pid: 4242}}
+	runtime := &fakePersistentRuntime{launch: app.PersistentLaunch{Handle: handle, Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: true}, PID: 4242}}
+	svc := app.NewService(store, &fakeOwner{}, app.Options{Incarnation: "persistent-argv", Shell: "/bin/sh", MaxQueuedInputBytes: 100, PersistentRuntime: runtime})
+	cleanupPersistentTestService(t, svc)
+	view, err := svc.Start(context.Background(), app.StartRequest{ProtocolVersion: 2, OperationID: "persistent-argv", Argv: []string{"/bin/sleep", "60"}, CWD: "/", Persistent: true, SessionName: "argv"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.SessionID == "" {
+		t.Fatalf("persistent argv start=%#v", view)
+	}
+	spec := runtime.lastSpec
+	if spec.Mode != operation.ExecutionModeArgv || spec.Shell != "" || spec.Command != "" || spec.Executable != "/bin/sleep" || len(spec.Argv) != 2 {
+		t.Fatalf("persistent argv execution spec=%#v", spec)
+	}
+}
+
 func TestPersistentStartUsesRuntimeAfterDurableReservationAndRetriesWithoutRelaunch(t *testing.T) {
 	store := openPersistentLaunchStore(t)
 	owner := &fakeOwner{}
@@ -228,10 +247,12 @@ type fakePersistentRuntime struct {
 	launch   app.PersistentLaunch
 	err      error
 	onEnsure func(operation.Reservation)
+	lastSpec operation.ExecutionSpec
 }
 
-func (f *fakePersistentRuntime) Ensure(_ context.Context, reservation operation.Reservation, _ operation.ExecutionSpec) (app.PersistentLaunch, error) {
+func (f *fakePersistentRuntime) Ensure(_ context.Context, reservation operation.Reservation, spec operation.ExecutionSpec) (app.PersistentLaunch, error) {
 	f.calls.Add(1)
+	f.lastSpec = spec
 	if f.onEnsure != nil {
 		f.onEnsure(reservation)
 	}

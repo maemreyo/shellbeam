@@ -190,6 +190,14 @@ func validAbort() ExperimentAbort {
 func validAssessment() VerifierAssessment {
 	return VerifierAssessment{AssessmentID: "assess-1", EpisodeID: "ep-1", ActorRef: "actor-1", DeclaredContextClass: ContextSameContext, PreferredCandidates: []CandidateID{"cand-1"}, Rationale: "prefer", CreatedAt: fixedTime()}
 }
+
+func TestVerifierAssessmentAllowsOmittedRationale(t *testing.T) {
+	a := validAssessment()
+	a.Rationale = ""
+	if err := a.Validate(); err != nil {
+		t.Fatalf("omitted optional rationale rejected: %v", err)
+	}
+}
 func validProposal() SelectionProposal {
 	return SelectionProposal{ProposalID: "proposal-1", EpisodeID: "ep-1", CandidateID: "cand-1", ActorRef: "actor-1", CreatedAt: fixedTime()}
 }

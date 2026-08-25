@@ -68,6 +68,20 @@ func assessmentService(t *testing.T, qualifier VerifierContextQualifier) (*Servi
 	return svc, ledger
 }
 
+func TestRecordAssessmentAllowsTransportOptionalRationale(t *testing.T) {
+	svc, _ := assessmentService(t, nil)
+	got, err := svc.RecordAssessment(context.Background(), RecordAssessmentRequest{
+		AssessmentID: "as-no-rationale", EpisodeID: "ep-assess", ActorRef: "actor",
+		DeclaredContextClass: core.ContextSameContext, PreferredCandidates: []core.CandidateID{"a"},
+	})
+	if err != nil {
+		t.Fatalf("record assessment without rationale: %v", err)
+	}
+	if got.Rationale != "" || got.AssessmentID != "as-no-rationale" {
+		t.Fatalf("assessment=%#v", got)
+	}
+}
+
 func TestCallerDeclaredHumanRemainsUnqualifiedWithoutTrustedQualifier(t *testing.T) {
 	svc, _ := assessmentService(t, nil)
 	got, err := svc.RecordAssessment(context.Background(), RecordAssessmentRequest{AssessmentID: "as-1", EpisodeID: "ep-assess", ActorRef: "actor", DeclaredContextClass: core.ContextHuman, PreferredCandidates: []core.CandidateID{"a"}, Rationale: "prefer A"})

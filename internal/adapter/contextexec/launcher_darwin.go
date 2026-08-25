@@ -123,9 +123,9 @@ func (p *darwinPreparedExecution) Start() (*ChildProcess, error) {
 		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
 		return nil, err
 	}
-	if err := syscall.PtraceDetach(cmd.Process.Pid); err != nil {
+	if err := resumeAndDetachDarwinChild(cmd.Process.Pid); err != nil {
 		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
-		return nil, fmt.Errorf("detach qualified context child: %w", err)
+		return nil, err
 	}
 	wait := darwinChildWaiter(cmd)
 	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
@@ -181,6 +181,49 @@ func waitForDarwinExecStop(pid int) error {
 	}
 	if got != pid || !status.Stopped() || status.StopSignal() != syscall.SIGTRAP {
 		return fmt.Errorf("context child did not stop at exec boundary")
+	}
+	return nil
+}
+
+// resumeAndDetachDarwinChild suppresses the exec-boundary SIGTRAP before
+// detaching. Newer Darwin kernels can otherwise re-deliver that trap after
+// PT_DETACH and terminate the qualified workload before its first instruction.
+// Queueing SIGSTOP while the tracee is already stopped gives us a second
+// kernel boundary: PT_CONTINUE suppresses SIGTRAP, the pending SIGSTOP is
+// observed before user-space resumes, and PT_DETACH can then release the child.
+func resumeAndDetachDarwinChild(pid int) error {
+	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
+		return fmt.Errorf("queue qualified context child stop: %w", err)
+	}
+	if err := ptraceContinueDarwin(pid, 0); err != nil {
+		return fmt.Errorf("suppress context child exec trap: %w", err)
+	}
+	var status syscall.WaitStatus
+	got, err := syscall.Wait4(pid, &status, syscall.WUNTRACED, nil)
+	if err != nil {
+		return fmt.Errorf("wait for qualified context child stop: %w", err)
+	}
+	// On BSD/Darwin syscall.WaitStatus reports a SIGSTOP wait record through
+	// Continued(), not Stopped(); the raw record is still the required kernel
+	// stop boundary for ptrace detachment.
+	if got != pid || !status.Continued() {
+		return fmt.Errorf("context child did not reach detach boundary")
+	}
+	if err := syscall.PtraceDetach(pid); err != nil {
+		return fmt.Errorf("detach qualified context child: %w", err)
+	}
+	if err := syscall.Kill(pid, syscall.SIGCONT); err != nil && err != syscall.ESRCH {
+		return fmt.Errorf("resume detached context child: %w", err)
+	}
+	return nil
+}
+
+func ptraceContinueDarwin(pid int, signal syscall.Signal) error {
+	_, _, errno := syscall.RawSyscall6(
+		syscall.SYS_PTRACE, uintptr(syscall.PT_CONTINUE), uintptr(pid), uintptr(1), uintptr(signal), 0, 0,
+	)
+	if errno != 0 {
+		return errno
 	}
 	return nil
 }

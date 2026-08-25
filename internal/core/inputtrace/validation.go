@@ -138,7 +138,7 @@ func (r Record) Validate() error {
 	default:
 		return fmt.Errorf("invalid input trace outcome")
 	}
-	if r.GapReason != "" && r.GapReason != GapOwnershipLost {
+	if r.GapReason != "" && r.GapReason != GapOwnershipLost && r.GapReason != GapInstrumentationInactive {
 		return fmt.Errorf("invalid input trace gap reason")
 	}
 	if r.GapReason != "" && r.Outcome != OutcomePartial {

@@ -70,6 +70,7 @@ func PreparePrivateState(runtimeRoot, sessionID, generationID string, capability
 	if _, err := operation.ParseSessionID(sessionID); err != nil || !validOpaque(generationID) {
 		return Layout{}, privateStateFailure("identity")
 	}
+	layout := layoutFor(runtimeRoot, sessionID)
 	if err := ensurePrivateDirectory(runtimeRoot); err != nil {
 		return Layout{}, privateStateFailure("runtime_root")
 	}
@@ -81,7 +82,6 @@ func PreparePrivateState(runtimeRoot, sessionID, generationID string, capability
 	if err := ensurePrivateDirectory(sessionDir); err != nil {
 		return Layout{}, privateStateFailure("session_dir")
 	}
-	layout := layoutFor(runtimeRoot, sessionID)
 	if err := createOrMatchPrivateFile(layout.CapabilityPath, capability.bytes()); err != nil {
 		return Layout{}, privateStateFailure("capability_file")
 	}
@@ -144,6 +144,13 @@ func validateLayout(layout Layout) error {
 	}
 	if filepath.Base(layout.SessionDir) != metadata.SessionID || layout.CapabilityPath != filepath.Join(layout.SessionDir, "capability.bin") || layout.MetadataPath != filepath.Join(layout.SessionDir, "metadata.json") || layout.SocketPath != filepath.Join(layout.SessionDir, "control.sock") || layout.TerminalPath != filepath.Join(layout.SessionDir, "terminal.json") {
 		return privateStateFailure("layout")
+	}
+	return nil
+}
+
+func validateControlSocketPath(path string) error {
+	if !filepath.IsAbs(path) || len([]byte(path)) >= len(unix.RawSockaddrUnix{}.Path) {
+		return privateStateFailure("socket_path")
 	}
 	return nil
 }

@@ -21,10 +21,15 @@ func (l *Launcher) Reattach(ctx context.Context, binding core.Binding) (persiste
 	if err := binding.Validate(); err != nil || binding.Lifecycle == core.LifecycleTerminal || binding.Lifecycle == core.LifecycleLost {
 		return nil, persistentapp.Status{}, failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": binding.SessionID, "reason": "binding"}, err)
 	}
-	layout, err := OpenPrivateState(l.options.RuntimeRoot, binding.SessionID, binding.SupervisorGenerationID)
+	layout := layoutFor(l.options.RuntimeRoot, binding.SessionID)
+	if err := validateControlSocketPath(layout.SocketPath); err != nil {
+		return nil, persistentapp.Status{}, err
+	}
+	opened, err := OpenPrivateState(l.options.RuntimeRoot, binding.SessionID, binding.SupervisorGenerationID)
 	if err != nil {
 		return nil, persistentapp.Status{}, err
 	}
+	layout = opened
 	capability, err := LoadCapability(layout)
 	if err != nil {
 		return nil, persistentapp.Status{}, err

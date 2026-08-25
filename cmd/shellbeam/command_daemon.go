@@ -102,6 +102,9 @@ func runDaemonWithProviders(ctx context.Context, args []string, providerFactory 
 		return err
 	}
 	defer codeRuntime.Close()
+	if codeRuntime.Available() {
+		catalog = catalog.WithCodeIntelligence()
+	}
 	structuredScheduler, structuredCapture, telemetryScheduler, evidenceScheduler := &structuredWorkerProxy{}, &structuredCaptureProxy{}, &telemetryWorkerProxy{}, &evidenceWorkerProxy{}
 	contextExecService, catalog := composeContextExecServiceCapability(ctx, store, delegatedRuntime, paths.RuntimeDir, incarnation, structuredScheduler, telemetryScheduler, evidenceScheduler, catalog)
 	projectBinder, projectSvc, environmentSvc, verificationRuntime := composeDaemonProjectVerificationRuntime(
@@ -477,7 +480,6 @@ func daemonCatalog(limits capability.Limits) capability.Catalog {
 			processcore.MaxDescendants, processcore.MaxTraversalDepth, processcore.MaxObservationBytes,
 			processcore.MaxObservationDuration.Milliseconds(), processcore.MaxPortRecords, true,
 		).
-		WithCodeIntelligence().
 		WithTypedProjectCommands([]string{"go"}).
 		WithOutputViews(
 			outputview.MaxReturnBytes, outputview.MaxWorkBytes, outputview.MaxLines,

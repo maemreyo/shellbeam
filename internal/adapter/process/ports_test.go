@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"errors"
+	"os/exec"
 	"reflect"
 	"testing"
 
@@ -62,6 +63,21 @@ func TestPortInspectorBoundsRecordsAndClassifiesUnavailable(t *testing.T) {
 			t.Fatalf("err=%v", err)
 		}
 	})
+}
+
+func TestHostPortRunnerTreatsEmptyExitOneAsNoListeners(t *testing.T) {
+	if _, err := exec.LookPath("/bin/sh"); err != nil {
+		t.Skip("/bin/sh unavailable")
+	}
+	got, err := (hostPortRunner{}).Run(context.Background(), []string{"/bin/sh", "-c", "exit 1"}, 1024)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("empty no-match result=%q err=%v", got, err)
+	}
+
+	_, err = (hostPortRunner{}).Run(context.Background(), []string{"/bin/sh", "-c", "printf diagnostic >&2; exit 1"}, 1024)
+	if err == nil {
+		t.Fatal("non-empty exit-one diagnostic was accepted as no listeners")
+	}
 }
 
 func TestParseLsofPortsRejectsRemoteOrMalformedFacts(t *testing.T) {

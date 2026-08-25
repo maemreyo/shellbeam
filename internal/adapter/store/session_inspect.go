@@ -206,18 +206,21 @@ func (r *Repository) canonicalSessionSummary(ctx context.Context, reservation op
 	if reservation.Persistent {
 		summary.SessionName = reservation.SessionName
 		binding, err := r.LoadPersistentBinding(ctx, reservation.SessionID)
-		if err != nil {
-			return persistent.Summary{}, err
-		}
-		switch binding.Lifecycle {
-		case persistent.LifecycleLost:
-			summary.OwnershipStatus = persistent.OwnershipLost
-		case persistent.LifecycleTerminal:
+		if errors.Is(err, ErrNotFound) && snapshot.State.Terminal() {
 			summary.OwnershipStatus = persistent.OwnershipTerminal
-		case persistent.LifecycleProvisioning, persistent.LifecycleLive:
-			summary.OwnershipStatus = persistent.OwnershipLost
-		default:
-			return persistent.Summary{}, failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": summary.SessionID, "reason": "inspect_lifecycle"}, nil)
+		} else if err != nil {
+			return persistent.Summary{}, err
+		} else {
+			switch binding.Lifecycle {
+			case persistent.LifecycleLost:
+				summary.OwnershipStatus = persistent.OwnershipLost
+			case persistent.LifecycleTerminal:
+				summary.OwnershipStatus = persistent.OwnershipTerminal
+			case persistent.LifecycleProvisioning, persistent.LifecycleLive:
+				summary.OwnershipStatus = persistent.OwnershipLost
+			default:
+				return persistent.Summary{}, failure.New(failure.SupervisorStateConflict, map[string]string{"session_id": summary.SessionID, "reason": "inspect_lifecycle"}, nil)
+			}
 		}
 	} else if snapshot.State.Terminal() {
 		summary.OwnershipStatus = persistent.OwnershipTerminal

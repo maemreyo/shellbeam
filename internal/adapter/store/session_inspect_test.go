@@ -221,6 +221,31 @@ func TestListSessionSummariesFiltersPaginationFrozenCutAndCursorBinding(t *testi
 	}
 }
 
+func TestListSessionSummariesTerminalPersistentReservationWithoutBindingIsInspectable(t *testing.T) {
+	r := openRecoveryRepository(t, t.TempDir()+"/state")
+	base := time.Date(2026, 8, 16, 6, 30, 0, 0, time.UTC)
+	binding := persistentBinding("persistent-terminal-no-binding", "persistent-terminal-no-binding-op", "failed-before-binding", base)
+	reservePersistentOperationWithMetadata(t, r, binding, base)
+	rec := receipt.Receipt{
+		SchemaVersion: 4, OperationID: binding.OperationID, SessionID: binding.SessionID,
+		RequestFingerprint: strings.Repeat("a", 64), ExecutionFingerprint: strings.Repeat("b", 64),
+		ObservationBindingFingerprint: strings.Repeat("c", 64), DaemonIncarnation: "daemon-terminal",
+		ExecutionMode: string(operation.ExecutionModeShell), Executable: "/bin/sh", Shell: "/bin/sh", CWD: "/tmp",
+		State: session.Failed, Outcome: session.Failure, Persistent: true, SessionName: binding.SessionName, OutputComplete: true,
+		Spawn: receipt.SpawnEvidence{Attempted: true, Succeeded: false},
+	}
+	if result := r.PublishTerminal(context.Background(), rec); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	page, err := r.ListSessionSummaries(context.Background(), persistent.InspectRequest{SessionName: binding.SessionName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Sessions) != 1 || page.Sessions[0].OwnershipStatus != persistent.OwnershipTerminal || page.Sessions[0].State != string(session.Failed) {
+		t.Fatalf("terminal no-binding summary=%#v", page.Sessions)
+	}
+}
+
 func TestListSessionSummariesProjectsTerminalReceiptCounters(t *testing.T) {
 	r := openRecoveryRepository(t, t.TempDir()+"/state")
 	base := time.Date(2026, 8, 16, 7, 0, 0, 0, time.UTC)

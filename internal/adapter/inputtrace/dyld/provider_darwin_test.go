@@ -55,6 +55,9 @@ func TestE27InterposeNativeCapturesRepresentativePartialClasses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if snapshot.GapReason != "" {
+		t.Fatalf("native fixture did not prove instrumentation activation: %#v", snapshot)
+	}
 	classes := map[trace.ObservationClass]bool{}
 	for _, resource := range snapshot.Resources {
 		classes[resource.ObservationClass] = true

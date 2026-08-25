@@ -23,6 +23,7 @@ const (
 	eventFilesystemWrite
 	eventExecutedBinary
 	eventLoadedLibrary
+	eventInstrumentationActive
 )
 
 type wireEvent struct {
@@ -48,10 +49,16 @@ func decodeEvent(raw []byte) (wireEvent, error) {
 		return wireEvent{}, fmt.Errorf("invalid input trace datagram")
 	}
 	class := eventClass(raw[1])
+	length := int(binary.LittleEndian.Uint32(raw[8:12]))
+	if class == eventInstrumentationActive {
+		if length != 0 || len(raw) != wireHeaderBytes {
+			return wireEvent{}, fmt.Errorf("invalid input trace activation event")
+		}
+		return wireEvent{class: class, flags: binary.LittleEndian.Uint16(raw[2:4]), pid: binary.LittleEndian.Uint32(raw[4:8])}, nil
+	}
 	if _, ok := observationClass(class); !ok {
 		return wireEvent{}, fmt.Errorf("unknown input trace event class")
 	}
-	length := int(binary.LittleEndian.Uint32(raw[8:12]))
 	if length < 1 || length > maxRawPathBytes || wireHeaderBytes+length != len(raw) {
 		return wireEvent{}, fmt.Errorf("invalid input trace path length")
 	}

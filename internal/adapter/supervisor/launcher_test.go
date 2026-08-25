@@ -19,6 +19,7 @@ import (
 	core "github.com/maemreyo/shellbeam/internal/core/persistentsession"
 	"github.com/maemreyo/shellbeam/internal/core/receipt"
 	"github.com/maemreyo/shellbeam/internal/core/session"
+	"golang.org/x/sys/unix"
 )
 
 func TestLauncherClaimsDurableMarkerBeforeExactlyOneSpawnAndRetryOnlyAttaches(t *testing.T) {
@@ -116,6 +117,31 @@ func TestLauncherConcurrentEnsureSpawnsAtMostOnce(t *testing.T) {
 	}
 	if spawns.Load() != 1 {
 		t.Fatalf("concurrent ensures spawned=%d", spawns.Load())
+	}
+}
+
+func TestLauncherRejectsUnusableControlSocketPathBeforePrivateStateOrSpawn(t *testing.T) {
+	base := t.TempDir()
+	request := launcherRequest("01M0VH1CQH8VV2V0N7MJSXHWN9", "launcher-op-long-socket", "generation-long-socket")
+	component := "runtime"
+	for len([]byte(layoutFor(filepath.Join(base, component), request.Binding.SessionID).SocketPath)) < len(unix.RawSockaddrUnix{}.Path) {
+		component += "x"
+	}
+	runtimeRoot := filepath.Join(base, component)
+	launcher, err := NewLauncher(LauncherOptions{RuntimeRoot: runtimeRoot, Executable: "/bin/echo", HandshakeTimeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var spawns atomic.Int32
+	launcher.spawnSupervisor = func(Bootstrap, Capability) error { spawns.Add(1); return nil }
+	if _, _, err := launcher.Ensure(context.Background(), request); err == nil {
+		t.Fatal("unusable supervisor control socket path accepted")
+	}
+	if spawns.Load() != 0 {
+		t.Fatalf("unusable socket path spawned=%d", spawns.Load())
+	}
+	if _, err := os.Lstat(runtimeRoot); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unusable socket path created private state: %v", err)
 	}
 }
 

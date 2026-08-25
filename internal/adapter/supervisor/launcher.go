@@ -161,6 +161,9 @@ func (l *Launcher) bootstrapFor(request persistentapp.LaunchRequest) (Bootstrap,
 
 func (l *Launcher) ensurePrivateState(sessionID, generationID string) (Layout, Capability, error) {
 	layout := layoutFor(l.options.RuntimeRoot, sessionID)
+	if err := validateControlSocketPath(layout.SocketPath); err != nil {
+		return Layout{}, Capability{}, err
+	}
 	if _, err := os.Lstat(layout.SessionDir); err == nil {
 		opened, openErr := OpenPrivateState(l.options.RuntimeRoot, sessionID, generationID)
 		if openErr != nil {

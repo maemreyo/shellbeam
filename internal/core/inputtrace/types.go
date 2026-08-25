@@ -124,7 +124,10 @@ const ScopeObservedInput ScopeKind = "observed_input_scope"
 
 type GapReason string
 
-const GapOwnershipLost GapReason = "ownership_lost"
+const (
+	GapOwnershipLost           GapReason = "ownership_lost"
+	GapInstrumentationInactive GapReason = "instrumentation_inactive"
+)
 
 type Outcome string
 

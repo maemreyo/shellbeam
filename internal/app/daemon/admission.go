@@ -311,7 +311,11 @@ func (s *Service) prepareStartReservation(ctx context.Context, req StartRequest,
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)
 	}
 	intent.Resolved, intent.TimeoutSource = &resolved, timeoutSourceOf(resolved)
-	spec := bindExecution(s.owner, operation.ExecutionSpec{Mode: mode, Shell: s.options.Shell, Command: req.Command, Argv: append([]string(nil), req.Argv...), CWD: executionCWD, TTY: req.TTY, TimeoutMS: resolved.TimeoutMS, StdinMode: resolved.StdinMode, ResourceLimits: req.ResourceLimits.Clone()})
+	executionShell := ""
+	if mode == operation.ExecutionModeShell {
+		executionShell = s.options.Shell
+	}
+	spec := bindExecution(s.owner, operation.ExecutionSpec{Mode: mode, Shell: executionShell, Command: req.Command, Argv: append([]string(nil), req.Argv...), CWD: executionCWD, TTY: req.TTY, TimeoutMS: resolved.TimeoutMS, StdinMode: resolved.StdinMode, ResourceLimits: req.ResourceLimits.Clone()})
 	reservation, err := s.reservationForStart(req, id, intent, spec)
 	if err != nil {
 		return operation.Reservation{}, operation.ExecutionSpec{}, invalidIntentFailure(err)

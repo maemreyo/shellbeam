@@ -23,10 +23,10 @@ import (
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
 )
 
-func TestDaemonCatalogAdvertisesCodeIntelligence(t *testing.T) {
+func TestDaemonCatalogDefersCodeIntelligenceUntilProviderQualification(t *testing.T) {
 	catalog := daemonCatalog(capability.Limits{})
-	if got := catalog.Features[capability.FeatureCodeIntelligence]; got != capability.Available {
-		t.Fatalf("code intelligence availability=%q", got)
+	if got := catalog.Features[capability.FeatureCodeIntelligence]; got != capability.Unavailable {
+		t.Fatalf("unqualified code intelligence availability=%q", got)
 	}
 }
 
@@ -290,8 +290,8 @@ func TestDaemonCodeProviderUnavailableDoesNotBreakOrdinaryPaths(t *testing.T) {
 	if provider.startCount() != 0 {
 		t.Fatalf("unavailable provider unexpectedly started=%d", provider.startCount())
 	}
-	if daemonCatalog(capability.Limits{}).Features[capability.FeatureCodeIntelligence] != capability.Available {
-		t.Fatal("ordinary capability path became unhealthy after provider failure")
+	if daemonCatalog(capability.Limits{}).Features[capability.FeatureCodeIntelligence] != capability.Unavailable {
+		t.Fatal("base catalog advertised unqualified code intelligence")
 	}
 }
 

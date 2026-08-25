@@ -3,6 +3,7 @@ package process
 import (
 	"bytes"
 	"context"
+	"errors"
 	"net"
 	"os/exec"
 	"sort"
@@ -176,6 +177,14 @@ func (hostPortRunner) Run(ctx context.Context, argv []string, maxBytes int) ([]b
 	cmd.Stdout = buffer
 	cmd.Stderr = buffer
 	if err := cmd.Run(); err != nil {
+		// lsof exits 1 when the bounded selector has no matching listening
+		// sockets. Empty output is therefore a complete empty observation, not
+		// provider unavailability. Non-empty diagnostics and other exit codes
+		// remain fail-closed.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 && len(buffer.Bytes()) == 0 {
+			return nil, nil
+		}
 		return nil, err
 	}
 	return buffer.Bytes(), nil

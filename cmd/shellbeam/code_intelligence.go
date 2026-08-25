@@ -27,6 +27,15 @@ type daemonCodeInspector interface {
 type codeIntelligenceRuntime struct {
 	Service   *appcodeintel.Service
 	providers *appcodeintel.ProviderManager
+	available bool
+}
+
+type codeProviderReadiness interface {
+	Available() bool
+}
+
+func (r *codeIntelligenceRuntime) Available() bool {
+	return r != nil && r.available
 }
 
 func composeCodeIntelligenceRuntime(
@@ -93,7 +102,11 @@ func newCodeIntelligenceRuntimeWithProvider(
 		_ = providers.Close()
 		return nil, err
 	}
-	return &codeIntelligenceRuntime{Service: service, providers: providers}, nil
+	available := true
+	if readiness, ok := factory.(codeProviderReadiness); ok {
+		available = readiness.Available()
+	}
+	return &codeIntelligenceRuntime{Service: service, providers: providers, available: available}, nil
 }
 
 func (r *codeIntelligenceRuntime) Close() error {
@@ -107,5 +120,9 @@ func (a *daemonActions) InspectCode(ctx context.Context, workspaceID, activityID
 	if a.code == nil {
 		return corecodeintel.Result{}, fmt.Errorf("code intelligence unavailable")
 	}
-	return a.code.Inspect(ctx, appcodeintel.InspectRequest{WorkspaceID: workspaceID, ActivityID: activityID, Query: query})
+	result, err := a.code.Inspect(ctx, appcodeintel.InspectRequest{WorkspaceID: workspaceID, ActivityID: activityID, Query: query})
+	if err != nil && appcodeintel.ErrorCode(err) == appcodeintel.CodeProviderUnavailable {
+		return corecodeintel.Result{Status: corecodeintel.StatusUnavailable, Query: query}, nil
+	}
+	return result, err
 }
