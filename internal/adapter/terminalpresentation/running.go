@@ -117,6 +117,9 @@ func runBoundedCommand(ctx context.Context, timeout time.Duration, path string, 
 	cmd.Stdout = buffer
 	cmd.Stderr = buffer
 	if err := cmd.Run(); err != nil {
+		if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("lsappinfo command timed out: %w", probeCtx.Err())
+		}
 		return nil, fmt.Errorf("lsappinfo command failed: %w", err)
 	}
 	if buffer.truncated {

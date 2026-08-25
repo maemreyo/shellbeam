@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -242,6 +243,10 @@ func startExecutionObservationDaemon(t *testing.T, stateDir, runtimeDir string) 
 
 func TestExecutionObservationNativeGoStructuredResultsPreserveChildTruth(t *testing.T) {
 	stateDir, runtimeDir := a1RuntimeDirs(t)
+	goPath, err := exec.LookPath("go")
+	if err != nil {
+		t.Fatal(err)
+	}
 	moduleDir := t.TempDir()
 	writeTestFile(t, filepath.Join(moduleDir, "go.mod"), "module example.com/a22\n\ngo 1.23\n")
 	writeTestFile(t, filepath.Join(moduleDir, "calc.go"), "package a22\n\nfunc Add(a, b int) int { return a + b }\n")
@@ -256,7 +261,7 @@ func TestFail(t *testing.T) { if Add(1, 2) != 4 { t.Fatal("intentional failure")
 
 	testResult := callA1Terminal(t, client, ipcadapter.RequestV2{
 		Action: "start", OperationID: "a22-go-test", CWD: moduleDir,
-		Argv: []string{"go", "test", "-json", "./..."},
+		Argv: []string{goPath, "test", "-json", "./..."}, StructuredAdapter: "go-test-json",
 	})
 	assertChildFailureWithOutput(t, testResult)
 	testRaw := readTerminalOutput(t, client, testResult)
@@ -288,7 +293,7 @@ func VetProblem() { fmt.Printf("%d", "text") }
 `)
 	vetResult := callA1Terminal(t, client, ipcadapter.RequestV2{
 		Action: "start", OperationID: "a22-go-vet", CWD: moduleDir,
-		Argv: []string{"go", "vet", "-json", "./..."},
+		Argv: []string{goPath, "vet", "-json", "./..."}, StructuredAdapter: "go-vet-json",
 	})
 	assertA1ChildSuccess(t, vetResult)
 	if vetResult.Receipt == nil || vetResult.Receipt.OutputBytes < 1 || !vetResult.Receipt.OutputComplete {

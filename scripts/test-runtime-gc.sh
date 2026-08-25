@@ -36,8 +36,10 @@ if [ -d "$owner_dir" ]; then
 fi
 pass "the launcher owner record is never proposed for removal"
 
-# Every worktree git still has registered under the tmp root must survive. These
-# hold real branches; collecting one would destroy work, not reclaim garbage.
+# Every registered worktree that still exists under the tmp root must survive.
+# Git can retain prunable metadata after an external owner has already removed
+# a temporary worktree directory; that stale record is not work for this GC to
+# preserve, and a dry run must not be blamed for a path missing before it ran.
 git -C "$ROOT" worktree list --porcelain 2>/dev/null |
   awk '/^worktree /{print substr($0, 10)}' |
   while IFS= read -r wt; do
@@ -45,13 +47,14 @@ git -C "$ROOT" worktree list --porcelain 2>/dev/null |
     /private/tmp/* | /tmp/*) ;;
     *) continue ;;
     esac
+    [ -d "$wt" ] || continue
     plain=${wt#/private}
     if printf '%s\n' "$plan" | grep -Fq "would remove: $plain"; then
       fail "dry run proposed removing a registered worktree: $wt"
     fi
     [ -d "$wt" ] || fail "dry run removed a registered worktree: $wt"
   done
-pass "registered worktrees under the tmp root are never proposed for removal"
+pass "existing registered worktrees under the tmp root are never proposed for removal"
 
 # The cache is expensive to rebuild, so it is collected on a threshold rather
 # than on every invocation. Either decision is valid; silence is not.

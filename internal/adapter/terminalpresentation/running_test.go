@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,7 +28,7 @@ esac
 		testRunningIdentity("ghostty", "com.mitchellh.ghostty"),
 		testRunningIdentity("wezterm", "com.github.wez.wezterm"),
 	}
-	source, err := NewRunningSource(RunningConfig{QueryPath: path, Providers: providers, CommandTimeout: time.Second})
+	source, err := NewRunningSource(RunningConfig{QueryPath: path, Providers: providers, CommandTimeout: maxCommandTimeout})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,5 +64,17 @@ func TestRunningSourceFailsClosedOnUnexpectedQueryShape(t *testing.T) {
 	}
 	if _, err := source.Running(context.Background()); err == nil {
 		t.Fatal("unexpected query output accepted as running identity")
+	}
+}
+
+func TestRunBoundedCommandReportsTimeoutExplicitly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "slow-lsappinfo-fixture")
+	body := "#!/bin/sh\nsleep 1\n"
+	if err := os.WriteFile(path, []byte(body), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runBoundedCommand(context.Background(), 10*time.Millisecond, path, "find", "bundleid=com.mitchellh.ghostty")
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("timeout error=%v", err)
 	}
 }

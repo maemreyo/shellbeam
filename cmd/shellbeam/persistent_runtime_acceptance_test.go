@@ -20,6 +20,7 @@ import (
 
 	ipcadapter "github.com/maemreyo/shellbeam/internal/adapter/ipc"
 	supervisoradapter "github.com/maemreyo/shellbeam/internal/adapter/supervisor"
+	"github.com/maemreyo/shellbeam/internal/core/failure"
 	"github.com/maemreyo/shellbeam/internal/core/observation"
 	"github.com/maemreyo/shellbeam/internal/core/operation"
 	persistentcore "github.com/maemreyo/shellbeam/internal/core/persistentsession"
@@ -190,6 +191,48 @@ func waitB1NativeTerminal(t *testing.T, client *ipcadapter.Client, sessionID str
 	}
 	t.Fatalf("session %s did not become terminal", sessionID)
 	return nil
+}
+
+func TestB1NativeUnusableSupervisorSocketPathCanonicalizesPrebindingFailure(t *testing.T) {
+	binary := buildB1NativeBinary(t)
+	root, err := os.MkdirTemp("/tmp", "sb-bnd-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	runtimeDir := filepath.Join(root, strings.Repeat("r", 33))
+	daemon := startB1NativeDaemon(t, binary, filepath.Join(root, "state"), runtimeDir)
+	defer daemon.hardKill(t)
+
+	response, callErr := daemon.client.CallV2(context.Background(), ipcadapter.RequestV2{
+		IPVersion: 2, Kind: "request", RequestID: "b1-long-socket", Action: "start",
+		OperationID: "b1-long-socket", Argv: []string{"/bin/sleep", "30"}, CWD: "/tmp",
+		Persistent: true, SessionName: "b1-long-socket", YieldMS: 100, MaxOutputBytes: 4096,
+	})
+	if callErr != nil || response.OK || response.Error == nil || response.Error.Code != string(failure.SupervisorStateConflict) || response.Error.Details["reason"] != "socket_path" {
+		t.Fatalf("start response=%#v err=%v", response, callErr)
+	}
+
+	filtered := callB1Native(t, daemon.client, ipcadapter.RequestV2{Action: "inspect.sessions", SessionName: "b1-long-socket", MaxRecords: 10})
+	if filtered.Sessions == nil || len(filtered.Sessions.Sessions) != 1 {
+		t.Fatalf("filtered sessions=%#v", filtered.Sessions)
+	}
+	summary := filtered.Sessions.Sessions[0]
+	if summary.State != "failed" || summary.Outcome != "failure" || !summary.Persistent || summary.OwnershipStatus == persistentcore.OwnershipCurrent {
+		t.Fatalf("prebinding summary=%#v", summary)
+	}
+	terminal := waitB1NativeTerminal(t, daemon.client, summary.SessionID)
+	if terminal.Receipt == nil || terminal.Receipt.State != "failed" || terminal.Receipt.Outcome != "failure" || terminal.Receipt.Spawn.Attempted || terminal.Receipt.Spawn.Succeeded {
+		t.Fatalf("prebinding terminal=%#v", terminal)
+	}
+	broad := callB1Native(t, daemon.client, ipcadapter.RequestV2{Action: "inspect.sessions", MaxRecords: 100})
+	if broad.Sessions == nil || len(broad.Sessions.Sessions) == 0 {
+		t.Fatalf("broad sessions=%#v", broad.Sessions)
+	}
+	matches, err := filepath.Glob(filepath.Join(runtimeDir, "supervisors", "*"))
+	if err != nil || len(matches) != 0 {
+		t.Fatalf("unexpected supervisor private state=%v err=%v", matches, err)
+	}
 }
 
 func TestB1NativeDaemonCrashReattachesPersistentAndAbandonsDirect(t *testing.T) {

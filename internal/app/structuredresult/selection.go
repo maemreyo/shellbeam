@@ -1,6 +1,10 @@
 package structuredresult
 
-import "github.com/maemreyo/shellbeam/internal/core/operation"
+import (
+	"path/filepath"
+
+	"github.com/maemreyo/shellbeam/internal/core/operation"
+)
 
 type SelectionStatus string
 
@@ -27,7 +31,7 @@ func SelectAdapter(explicit string, argv []string) AdapterSelection {
 		}
 		return AdapterSelection{Status: SelectionUnsupported, AdapterID: explicit, Source: "explicit", ObservationCode: "structured_adapter_unsupported"}
 	}
-	if len(argv) >= 3 && argv[0] == "go" && argv[2] == "-json" {
+	if len(argv) >= 3 && isGoExecutable(argv[0]) && argv[2] == "-json" {
 		switch argv[1] {
 		case "test":
 			return AdapterSelection{Status: SelectionSelected, AdapterID: "go-test-json", Source: "direct_argv"}
@@ -100,7 +104,7 @@ func AdapterAcceptsArgv(adapter string, argv []string) bool {
 	case JestJSONAdapterID:
 		return JestCandidateArgv(argv)
 	}
-	if len(argv) < 3 || argv[0] != "go" || !hasJSONOutputFlag(argv[2:]) {
+	if len(argv) < 3 || !isGoExecutable(argv[0]) || !hasJSONOutputFlag(argv[2:]) {
 		return false
 	}
 	switch adapter {
@@ -111,6 +115,10 @@ func AdapterAcceptsArgv(adapter string, argv []string) bool {
 	default:
 		return false
 	}
+}
+
+func isGoExecutable(value string) bool {
+	return value == "go" || filepath.Base(value) == "go"
 }
 
 func hasJSONOutputFlag(args []string) bool {

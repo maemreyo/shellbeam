@@ -31,9 +31,13 @@ func TestExplicitStructuredAdapterRejectsIncompatibleProducerBeforeExecution(t *
 }
 
 func TestExplicitStructuredAdapterAcceptsMatchingDirectArgv(t *testing.T) {
-	req := StartRequest{ProtocolVersion: 2, Argv: []string{"go", "test", "./...", "-json"}, StructuredAdapter: "go-test-json"}
-	got, err := normalizedStructuredAdapter(req)
-	if err != nil || got != "go-test-json" {
-		t.Fatalf("adapter=%q err=%v", got, err)
+	for _, executable := range []string{"go", "/opt/homebrew/bin/go"} {
+		t.Run(executable, func(t *testing.T) {
+			req := StartRequest{ProtocolVersion: 2, Argv: []string{executable, "test", "./...", "-json"}, StructuredAdapter: "go-test-json"}
+			got, err := normalizedStructuredAdapter(req)
+			if err != nil || got != "go-test-json" {
+				t.Fatalf("adapter=%q err=%v", got, err)
+			}
+		})
 	}
 }
