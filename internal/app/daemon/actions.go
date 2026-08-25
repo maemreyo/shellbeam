@@ -174,6 +174,9 @@ func (s *Service) Write(ctx context.Context, req WriteRequest) (View, error) {
 }
 
 func (s *Service) Kill(ctx context.Context, req KillRequest) (View, error) {
+	if replay, handled, err := s.replayPersistentKill(ctx, req); handled || err != nil {
+		return replay, err
+	}
 	l := s.get(req.SessionID)
 	if l == nil {
 		return View{}, failure.New(failure.InvalidInput, map[string]string{"reason": "session_not_live"}, fmt.Errorf("session_not_live"))
@@ -184,23 +187,8 @@ func (s *Service) Kill(ctx context.Context, req KillRequest) (View, error) {
 		return s.killDelegated(ctx, l, req)
 	}
 	if l.persistent {
-		state, handle := l.state, l.handle
 		l.mu.Unlock()
-		control, ok := handle.(persistentapp.ControlAttachment)
-		if !ok {
-			return View{}, failure.New(failure.SupervisorUnavailable, map[string]string{"session_id": req.SessionID, "reason": "ownership_proof"}, nil)
-		}
-		attempt, err := control.SignalWithID(ctx, req.KillID, req.Signal)
-		if err != nil {
-			return View{}, failure.Normalize(err)
-		}
-		evidence := receipt.SignalEvidence{Requested: attempt.Signal, Attempted: attempt.Attempted, Succeeded: attempt.Succeeded}
-		l.mu.Lock()
-		l.signal = evidence
-		l.notify()
-		state = l.state
-		l.mu.Unlock()
-		return View{SessionID: req.SessionID, State: state, KillID: attempt.KillID, Signal: attempt.Signal, SignalAttempt: evidence}, nil
+		return s.killPersistent(ctx, l, req)
 	}
 	defer l.mu.Unlock()
 	attempt, send, err := l.kills.Admit(req.KillID, req.Signal, l.state.Terminal())

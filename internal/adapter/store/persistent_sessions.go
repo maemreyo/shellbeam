@@ -51,7 +51,7 @@ func (c persistentNameClaim) validate() error {
 }
 
 func (r *Repository) initPersistentSessionStore() error {
-	for _, path := range []string{r.persistentSessionDir(), r.persistentBindingDir(), r.persistentNameDir(), r.persistentRecoveryDir()} {
+	for _, path := range []string{r.persistentSessionDir(), r.persistentBindingDir(), r.persistentNameDir(), r.persistentKillRootDir(), r.persistentRecoveryDir()} {
 		if err := ensurePrivateDir(path); err != nil {
 			return fmt.Errorf("persistent sessions: %w", err)
 		}

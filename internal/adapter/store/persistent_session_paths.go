@@ -38,6 +38,14 @@ func (r *Repository) persistentNameDir() string {
 	return filepath.Join(r.persistentSessionDir(), "names")
 }
 
+func (r *Repository) persistentKillRootDir() string {
+	return filepath.Join(r.persistentSessionDir(), "kills")
+}
+
+func (r *Repository) persistentKillDir(sessionID operation.SessionID) string {
+	return filepath.Join(r.persistentKillRootDir(), string(sessionID))
+}
+
 func (r *Repository) persistentBindingPath(sessionID operation.SessionID) string {
 	return filepath.Join(r.persistentBindingDir(), string(sessionID)+".json")
 }
@@ -45,4 +53,9 @@ func (r *Repository) persistentBindingPath(sessionID operation.SessionID) string
 func (r *Repository) persistentNamePath(name string) string {
 	sum := sha256.Sum256([]byte(name))
 	return filepath.Join(r.persistentNameDir(), hex.EncodeToString(sum[:])+".json")
+}
+
+func (r *Repository) persistentKillPath(sessionID operation.SessionID, killID string) string {
+	sum := sha256.Sum256([]byte(killID))
+	return filepath.Join(r.persistentKillDir(sessionID), hex.EncodeToString(sum[:])+".json")
 }

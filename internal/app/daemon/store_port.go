@@ -104,6 +104,12 @@ type PersistentSessionStore interface {
 	AbandonPersistentSession(context.Context, persistent.Binding, string, string) StoreResult
 }
 
+type PersistentKillStore interface {
+	LookupPersistentKill(context.Context, operation.SessionID, string) (persistent.KillRecord, bool, error)
+	ReservePersistentKill(context.Context, operation.SessionID, string, string, bool) (persistent.KillRecord, bool, StoreResult)
+	CompletePersistentKill(context.Context, persistent.KillRecord) (persistent.KillRecord, StoreResult)
+}
+
 type processObservationStore interface {
 	PrepareProcessStartedObservation(context.Context, string, string) StoreResult
 	CommitObservationSequence(context.Context, uint64) StoreResult
