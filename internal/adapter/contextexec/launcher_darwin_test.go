@@ -51,29 +51,57 @@ func TestDarwinPlatformLauncherExecutesOnlyAfterMappedExecutableIdentityMatches(
 }
 
 func TestDarwinPlatformLauncherOutputRemainsReadableAfterWait(t *testing.T) {
-	launcher := NewPlatformLauncher()
-	prepared, err := launcher.Prepare(ChildSpec{Argv: []string{"/bin/echo", "owned-output"}, CWD: t.TempDir(), Env: os.Environ()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer prepared.Close()
-	child, err := prepared.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
-	exit, err := child.Wait()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !exit.Reaped {
-		t.Fatalf("exit=%#v", exit)
-	}
-	data, err := io.ReadAll(child.Stdout)
-	if err != nil {
-		t.Fatalf("stdout after wait: %v", err)
-	}
-	if string(data) != "owned-output\n" {
-		t.Fatalf("stdout=%q", data)
+	for i := 0; i < 20; i++ {
+		launcher := NewPlatformLauncher()
+		prepared, err := launcher.Prepare(ChildSpec{Argv: []string{"/bin/echo", "owned-output"}, CWD: t.TempDir(), Env: os.Environ()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := prepared.Start()
+		if err != nil {
+			_ = prepared.Close()
+			t.Fatal(err)
+		}
+		type waitResult struct {
+			exit ChildExit
+			err  error
+		}
+		waited := make(chan waitResult, 1)
+		go func() {
+			exit, err := child.Wait()
+			waited <- waitResult{exit: exit, err: err}
+		}()
+		var result waitResult
+		select {
+		case result = <-waited:
+		case <-time.After(2 * time.Second):
+			if child.KillGroup != nil {
+				_ = child.KillGroup()
+			}
+			result = <-waited
+			_ = prepared.Close()
+			t.Fatalf("qualified child remained stopped after detach on iteration %d", i)
+		}
+		if result.err != nil {
+			_ = prepared.Close()
+			t.Fatal(result.err)
+		}
+		if !result.exit.Reaped {
+			_ = prepared.Close()
+			t.Fatalf("exit=%#v", result.exit)
+		}
+		data, err := io.ReadAll(child.Stdout)
+		if err != nil {
+			_ = prepared.Close()
+			t.Fatalf("stdout after wait: %v", err)
+		}
+		if string(data) != "owned-output\n" {
+			_ = prepared.Close()
+			t.Fatalf("stdout=%q", data)
+		}
+		if err := prepared.Close(); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

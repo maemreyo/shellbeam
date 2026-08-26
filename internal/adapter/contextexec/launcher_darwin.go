@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
 	"sync"
 	"syscall"
@@ -89,47 +88,23 @@ func (p *darwinPreparedExecution) Start() (*ChildProcess, error) {
 		return nil, fmt.Errorf("prepared context executable is not startable")
 	}
 	p.started = true
-	cmd := &exec.Cmd{
-		Path: p.targetPath,
-		Args: append([]string(nil), p.spec.Argv...),
-		Dir:  p.spec.CWD,
-		Env:  append([]string(nil), p.spec.Env...),
-		SysProcAttr: &syscall.SysProcAttr{
-			Ptrace:  true,
-			Setpgid: true,
-		},
-	}
-	pipes, err := attachChildOutputPipes(cmd)
+	child, err := spawnSuspendedDarwinChild(p.targetPath, p.spec)
 	if err != nil {
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		_ = pipes.closeAll()
-		return nil, err
-	}
-	if err := pipes.closeParentWriters(); err != nil {
-		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
-		return nil, fmt.Errorf("close parent context child output writers: %w", err)
-	}
-	if err := waitForDarwinExecStop(cmd.Process.Pid); err != nil {
-		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
 		return nil, err
 	}
 	verify := p.launcher.verifyMappedExecutable
 	if verify == nil {
 		verify = verifyDarwinMappedExecutable
 	}
-	if err := verify(cmd.Process.Pid, p.identity); err != nil {
-		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
+	if err := verify(child.pid, p.identity); err != nil {
+		child.failClosed()
 		return nil, err
 	}
-	if err := resumeAndDetachDarwinChild(cmd.Process.Pid); err != nil {
-		failClosedDarwinChild(cmd, pipes.stdoutR, pipes.stderrR)
+	if err := child.resume(); err != nil {
+		child.failClosed()
 		return nil, err
 	}
-	wait := darwinChildWaiter(cmd)
-	kill := func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	return &ChildProcess{ResolvedExecutable: p.targetPath, Stdout: pipes.stdoutR, Stderr: pipes.stderrR, Wait: wait, KillGroup: kill}, nil
+	return child.publicProcess(p.targetPath), nil
 }
 
 func (p *darwinPreparedExecution) Close() error {
@@ -171,61 +146,6 @@ func openedDarwinExecutableIdentity(target *os.File) (darwinExecutableIdentity, 
 		return darwinExecutableIdentity{}, err
 	}
 	return darwinExecutableIdentity{Device: uint32(stat.Dev), Inode: stat.Ino, Generation: stat.Gen}, nil
-}
-
-func waitForDarwinExecStop(pid int) error {
-	var status syscall.WaitStatus
-	got, err := syscall.Wait4(pid, &status, syscall.WUNTRACED, nil)
-	if err != nil {
-		return fmt.Errorf("wait for traced context child: %w", err)
-	}
-	if got != pid || !status.Stopped() || status.StopSignal() != syscall.SIGTRAP {
-		return fmt.Errorf("context child did not stop at exec boundary")
-	}
-	return nil
-}
-
-// resumeAndDetachDarwinChild suppresses the exec-boundary SIGTRAP before
-// detaching. Newer Darwin kernels can otherwise re-deliver that trap after
-// PT_DETACH and terminate the qualified workload before its first instruction.
-// Queueing SIGSTOP while the tracee is already stopped gives us a second
-// kernel boundary: PT_CONTINUE suppresses SIGTRAP, the pending SIGSTOP is
-// observed before user-space resumes, and PT_DETACH can then release the child.
-func resumeAndDetachDarwinChild(pid int) error {
-	if err := syscall.Kill(pid, syscall.SIGSTOP); err != nil {
-		return fmt.Errorf("queue qualified context child stop: %w", err)
-	}
-	if err := ptraceContinueDarwin(pid, 0); err != nil {
-		return fmt.Errorf("suppress context child exec trap: %w", err)
-	}
-	var status syscall.WaitStatus
-	got, err := syscall.Wait4(pid, &status, syscall.WUNTRACED, nil)
-	if err != nil {
-		return fmt.Errorf("wait for qualified context child stop: %w", err)
-	}
-	// On BSD/Darwin syscall.WaitStatus reports a SIGSTOP wait record through
-	// Continued(), not Stopped(); the raw record is still the required kernel
-	// stop boundary for ptrace detachment.
-	if got != pid || !status.Continued() {
-		return fmt.Errorf("context child did not reach detach boundary")
-	}
-	if err := syscall.PtraceDetach(pid); err != nil {
-		return fmt.Errorf("detach qualified context child: %w", err)
-	}
-	if err := syscall.Kill(pid, syscall.SIGCONT); err != nil && err != syscall.ESRCH {
-		return fmt.Errorf("resume detached context child: %w", err)
-	}
-	return nil
-}
-
-func ptraceContinueDarwin(pid int, signal syscall.Signal) error {
-	_, _, errno := syscall.RawSyscall6(
-		syscall.SYS_PTRACE, uintptr(syscall.PT_CONTINUE), uintptr(pid), uintptr(1), uintptr(signal), 0, 0,
-	)
-	if errno != 0 {
-		return errno
-	}
-	return nil
 }
 
 func verifyDarwinMappedExecutable(pid int, expected darwinExecutableIdentity) error {
@@ -277,46 +197,6 @@ func readDarwinRegion(pid int, address uint64) ([]byte, error) {
 		return nil, fmt.Errorf("short proc region observation: %d", returned)
 	}
 	return region, nil
-}
-
-func failClosedDarwinChild(cmd *exec.Cmd, stdout, stderr io.ReadCloser) {
-	if cmd != nil && cmd.Process != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = syscall.PtraceDetach(cmd.Process.Pid)
-		_, _ = cmd.Process.Wait()
-	}
-	if stdout != nil {
-		_ = stdout.Close()
-	}
-	if stderr != nil {
-		_ = stderr.Close()
-	}
-}
-
-func darwinChildWaiter(cmd *exec.Cmd) func() (ChildExit, error) {
-	var once sync.Once
-	var exit ChildExit
-	var waitErr error
-	return func() (ChildExit, error) {
-		once.Do(func() {
-			err := cmd.Wait()
-			if err != nil {
-				var exitErr *exec.ExitError
-				if !errors.As(err, &exitErr) {
-					waitErr = err
-					return
-				}
-			}
-			exit.Reaped = true
-			if code := cmd.ProcessState.ExitCode(); code >= 0 {
-				exit.Code = &code
-			}
-			if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-				exit.Signal = status.Signal().String()
-			}
-		})
-		return exit, waitErr
-	}
 }
 
 func ExecveatFD(int, []string, []string) error { return fmt.Errorf("execveat unavailable on darwin") }

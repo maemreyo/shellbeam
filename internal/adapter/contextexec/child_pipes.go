@@ -13,7 +13,7 @@ type childOutputPipes struct {
 	stderrW *os.File
 }
 
-func attachChildOutputPipes(cmd *exec.Cmd) (*childOutputPipes, error) {
+func newChildOutputPipes() (*childOutputPipes, error) {
 	stdoutR, stdoutW, err := os.Pipe()
 	if err != nil {
 		return nil, err
@@ -24,9 +24,16 @@ func attachChildOutputPipes(cmd *exec.Cmd) (*childOutputPipes, error) {
 		_ = stdoutW.Close()
 		return nil, err
 	}
-	pipes := &childOutputPipes{stdoutR: stdoutR, stdoutW: stdoutW, stderrR: stderrR, stderrW: stderrW}
-	cmd.Stdout = stdoutW
-	cmd.Stderr = stderrW
+	return &childOutputPipes{stdoutR: stdoutR, stdoutW: stdoutW, stderrR: stderrR, stderrW: stderrW}, nil
+}
+
+func attachChildOutputPipes(cmd *exec.Cmd) (*childOutputPipes, error) {
+	pipes, err := newChildOutputPipes()
+	if err != nil {
+		return nil, err
+	}
+	cmd.Stdout = pipes.stdoutW
+	cmd.Stderr = pipes.stderrW
 	return pipes, nil
 }
 
