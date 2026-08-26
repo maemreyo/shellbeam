@@ -582,6 +582,9 @@ func assertE26PublicTreePrivate(t *testing.T, stateDir, logPath, secret string) 
 			return nil
 		}
 		raw, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) && strings.HasPrefix(entry.Name(), ".shellbeam-") {
+			return nil
+		}
 		if err != nil {
 			return err
 		}

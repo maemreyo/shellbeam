@@ -21,6 +21,10 @@ type FreshSnapshotSource interface {
 	SnapshotFresh(context.Context, core.Workspace) core.FastSnapshot
 }
 
+type BudgetedFreshSnapshotSource interface {
+	SnapshotFreshWithin(context.Context, core.Workspace, time.Duration) core.FastSnapshot
+}
+
 // Discoverer finds the repository a path belongs to.
 //
 // A caller that has not registered anything still knows where it is working,
@@ -76,9 +80,15 @@ func (o *Observer) ObserveCached(ctx context.Context, cwd string) core.FastSnaps
 }
 
 func (o *Observer) ObserveFresh(ctx context.Context, cwd string) core.FastSnapshot {
+	return o.observeFresh(ctx, cwd, 0)
+}
+
+func (o *Observer) ObserveFreshWithin(ctx context.Context, cwd string, budget time.Duration) core.FastSnapshot {
+	return o.observeFresh(ctx, cwd, budget)
+}
+
+func (o *Observer) observeFresh(ctx context.Context, cwd string, budget time.Duration) core.FastSnapshot {
 	now := o.now().UTC()
-	// A fresh observation is something a caller asked for explicitly, so this is
-	// where looking at an unregistered directory is warranted.
 	workspace, ok, diagnostic := o.resolve(ctx, cwd, withDiscovery)
 	if !ok {
 		return observerUnavailable(now, diagnostic)
@@ -87,7 +97,9 @@ func (o *Observer) ObserveFresh(ctx context.Context, cwd string) core.FastSnapsh
 		return boundObserverUnavailable(workspace, now, "workspace_observer_unavailable")
 	}
 	var got core.FastSnapshot
-	if source, ok := o.source.(FreshSnapshotSource); ok {
+	if source, ok := o.source.(BudgetedFreshSnapshotSource); ok && budget > 0 {
+		got = source.SnapshotFreshWithin(ctx, workspace, budget)
+	} else if source, ok := o.source.(FreshSnapshotSource); ok {
 		got = source.SnapshotFresh(ctx, workspace)
 	} else {
 		got = o.source.Snapshot(ctx, workspace)

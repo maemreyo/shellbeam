@@ -29,10 +29,12 @@ func (f *checkpointWorkspaceLookupFake) Inspect(_ context.Context, id string) (w
 type checkpointFreshObserverFake struct {
 	snapshots []workspacecore.FastSnapshot
 	calls     []string
+	budgets   []time.Duration
 }
 
-func (f *checkpointFreshObserverFake) ObserveFresh(_ context.Context, root string) workspacecore.FastSnapshot {
+func (f *checkpointFreshObserverFake) ObserveFreshWithin(_ context.Context, root string, budget time.Duration) workspacecore.FastSnapshot {
 	f.calls = append(f.calls, root)
+	f.budgets = append(f.budgets, budget)
 	if len(f.snapshots) == 0 {
 		return workspacecore.FastSnapshot{}
 	}
@@ -57,12 +59,12 @@ func TestCheckpointWorkspaceSourceResolvesOnlyFreshBoundGeneration(t *testing.T)
 	if got.WorkspaceID != string(record.ID) || got.RepositoryID != string(record.RepositoryID) || got.Root != record.Root || got.SourceGeneration != "gen_"+strings.Repeat("a", 64) {
 		t.Fatalf("workspace context=%#v", got)
 	}
-	if !reflect.DeepEqual(lookup.calls, []string{string(record.ID)}) || !reflect.DeepEqual(observer.calls, []string{record.Root}) {
-		t.Fatalf("lookup=%v observe=%v", lookup.calls, observer.calls)
+	if !reflect.DeepEqual(lookup.calls, []string{string(record.ID)}) || !reflect.DeepEqual(observer.calls, []string{record.Root}) || !reflect.DeepEqual(observer.budgets, []time.Duration{checkpointFreshObservationBudget}) {
+		t.Fatalf("lookup=%v observe=%v budgets=%v", lookup.calls, observer.calls, observer.budgets)
 	}
 }
 
-func TestCheckpointWorkspaceSourceRetriesOneFreshObservationBudgetFailure(t *testing.T) {
+func TestCheckpointWorkspaceSourceRetriesOneBudgetedFreshObservationFailure(t *testing.T) {
 	record := checkpointWorkspaceRecord()
 	budgetExceeded := checkpointFreshSnapshot(record, "e")
 	budgetExceeded.Quality = workspacecore.QualityStale
@@ -72,8 +74,7 @@ func TestCheckpointWorkspaceSourceRetriesOneFreshObservationBudgetFailure(t *tes
 		checkpointFreshSnapshot(record, "f"),
 	}}
 	source := newCheckpointWorkspaceSource(
-		&checkpointWorkspaceLookupFake{record: record},
-		observer,
+		&checkpointWorkspaceLookupFake{record: record}, observer,
 		workspaceapp.NewCoherenceTracker("daemon-test"),
 	)
 
@@ -84,8 +85,30 @@ func TestCheckpointWorkspaceSourceRetriesOneFreshObservationBudgetFailure(t *tes
 	if got.SourceGeneration != "gen_"+strings.Repeat("f", 64) {
 		t.Fatalf("fresh generation=%q", got.SourceGeneration)
 	}
-	if !reflect.DeepEqual(observer.calls, []string{record.Root, record.Root}) {
-		t.Fatalf("fresh observation calls=%v", observer.calls)
+	if len(observer.calls) != checkpointFreshObservationAttempts || !reflect.DeepEqual(observer.budgets, []time.Duration{checkpointFreshObservationBudget, checkpointFreshObservationBudget}) {
+		t.Fatalf("fresh observation calls=%v budgets=%v", observer.calls, observer.budgets)
+	}
+}
+
+func TestCheckpointWorkspaceSourceStopsAfterBudgetedFreshObservationBound(t *testing.T) {
+	record := checkpointWorkspaceRecord()
+	budgetExceeded := checkpointFreshSnapshot(record, "e")
+	budgetExceeded.Quality = workspacecore.QualityStale
+	budgetExceeded.DiagnosticCode = "observation_budget_exceeded"
+	observer := &checkpointFreshObserverFake{snapshots: []workspacecore.FastSnapshot{
+		budgetExceeded, budgetExceeded,
+		checkpointFreshSnapshot(record, "f"),
+	}}
+	source := newCheckpointWorkspaceSource(
+		&checkpointWorkspaceLookupFake{record: record}, observer,
+		workspaceapp.NewCoherenceTracker("daemon-test"),
+	)
+
+	if _, err := source.ResolveFresh(context.Background(), string(record.ID)); err == nil {
+		t.Fatal("repeated fresh observation budget exhaustion was accepted")
+	}
+	if len(observer.calls) != checkpointFreshObservationAttempts || !reflect.DeepEqual(observer.budgets, []time.Duration{checkpointFreshObservationBudget, checkpointFreshObservationBudget}) {
+		t.Fatalf("fresh observation calls=%v budgets=%v", observer.calls, observer.budgets)
 	}
 }
 

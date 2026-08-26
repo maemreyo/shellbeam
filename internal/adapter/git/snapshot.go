@@ -16,11 +16,18 @@ import (
 )
 
 func (r *Repository) Snapshot(ctx context.Context, workspace core.Workspace) core.FastSnapshot {
-	return r.snapshot(ctx, workspace, true)
+	return r.snapshot(ctx, workspace, true, r.snapshotOptions.Budget)
 }
 
 func (r *Repository) SnapshotFresh(ctx context.Context, workspace core.Workspace) core.FastSnapshot {
-	return r.snapshot(ctx, workspace, false)
+	return r.snapshot(ctx, workspace, false, r.snapshotOptions.Budget)
+}
+
+func (r *Repository) SnapshotFreshWithin(ctx context.Context, workspace core.Workspace, budget time.Duration) core.FastSnapshot {
+	if budget <= 0 {
+		budget = r.snapshotOptions.Budget
+	}
+	return r.snapshot(ctx, workspace, false, budget)
 }
 
 func (r *Repository) SnapshotCached(_ context.Context, workspace core.Workspace) core.FastSnapshot {
@@ -35,7 +42,7 @@ func (r *Repository) SnapshotCached(_ context.Context, workspace core.Workspace)
 	return cached
 }
 
-func (r *Repository) snapshot(ctx context.Context, workspace core.Workspace, allowWarmCache bool) core.FastSnapshot {
+func (r *Repository) snapshot(ctx context.Context, workspace core.Workspace, allowWarmCache bool, budget time.Duration) core.FastSnapshot {
 	now := r.snapshotOptions.Now().UTC()
 	if err := workspace.Validate(); err != nil {
 		return unavailableSnapshot(workspace, now, "workspace_invalid")
@@ -47,7 +54,7 @@ func (r *Repository) snapshot(ctx context.Context, workspace core.Workspace, all
 	}
 
 	flight, leader := r.snapshots.begin(key)
-	budgetCtx, cancel := context.WithTimeout(ctx, r.snapshotOptions.Budget)
+	budgetCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	if !leader {
 		if got, ok := waitSnapshotFlight(budgetCtx, flight); ok {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	checkpointapp "github.com/maemreyo/shellbeam/internal/app/checkpoint"
 	workspacecore "github.com/maemreyo/shellbeam/internal/core/workspace"
@@ -14,12 +15,17 @@ type checkpointWorkspaceLookup interface {
 }
 
 type checkpointFreshWorkspaceObserver interface {
-	ObserveFresh(context.Context, string) workspacecore.FastSnapshot
+	ObserveFreshWithin(context.Context, string, time.Duration) workspacecore.FastSnapshot
 }
 
 type checkpointCoherenceInvalidator interface {
 	Invalidate(string)
 }
+
+const (
+	checkpointFreshObservationAttempts = 2
+	checkpointFreshObservationBudget   = 2 * time.Second
+)
 
 type checkpointWorkspaceSource struct {
 	workspaces checkpointWorkspaceLookup
@@ -49,9 +55,12 @@ func (s *checkpointWorkspaceSource) ResolveFresh(ctx context.Context, workspaceI
 	if string(record.ID) != workspaceID || record.RepositoryID == "" || !strings.HasPrefix(record.Root, "/") {
 		return checkpointapp.WorkspaceContext{}, fmt.Errorf("checkpoint workspace binding mismatch")
 	}
-	snapshot := s.observer.ObserveFresh(ctx, record.Root)
-	if snapshot.Quality != workspacecore.QualityFresh && snapshot.DiagnosticCode == "observation_budget_exceeded" && ctx.Err() == nil {
-		snapshot = s.observer.ObserveFresh(ctx, record.Root)
+	var snapshot workspacecore.FastSnapshot
+	for attempt := 0; attempt < checkpointFreshObservationAttempts; attempt++ {
+		snapshot = s.observer.ObserveFreshWithin(ctx, record.Root, checkpointFreshObservationBudget)
+		if snapshot.Quality == workspacecore.QualityFresh || snapshot.DiagnosticCode != "observation_budget_exceeded" || ctx.Err() != nil {
+			break
+		}
 	}
 	if err := snapshot.Validate(); err != nil {
 		return checkpointapp.WorkspaceContext{}, fmt.Errorf("checkpoint fresh workspace observation invalid: %w", err)
